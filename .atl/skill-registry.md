@@ -96,14 +96,14 @@ Pre-digested rules per skill. Delegators copy matching blocks into sub-agent pro
 
 ### map-connections
 - Trigger only on explicit `/map-connections` command (manual slash-command skill).
-- Run 12 parallel Engram searches (`[Department]`, `[Role]`, `[Data Source]`, `[Heuristic]`, `[Tacit Knowledge]`, `[UX Friction]`, `[Project]`, `[Risk]`, `[Decision]`, `[KPI]`, `[Solution]`, `domain/`) and dedupe IDs.
+- Run 12 parallel Engram searches (`[Department]`, `[Role]`, `[Data Source]`, `[Heuristic]`, `[Tacit Knowledge]`, `[Problem / Improvement Area]`, `[Project]`, `[Risk]`, `[Decision]`, `[KPI]`, `[Solution]`, `domain/`) and dedupe IDs.
 - Always fetch full records with `mem_get_observation`; never map from `mem_search` preview snippets.
 - Default is read-only inline report; persist only with explicit `--save`.
 - Keep output section order fixed: Entity Table, Information Flows, Overlaps, Broken Links, Missing Knowledge, DS Intervention Opportunities, Provenance Table.
 
 ### generate-brd
 - Trigger only on explicit `/generate-brd` command (manual slash-command skill).
-- Run 11 parallel Engram searches (`[Department]`, `[Role]`, `[Data Source]`, `[Heuristic]`, `[Tacit Knowledge]`, `[UX Friction]`, `[Project]`, `[Risk]`, `[Decision]`, `[KPI]`, `[Solution]`) and dedupe IDs.
+- Run 11 parallel Engram searches (`[Department]`, `[Role]`, `[Data Source]`, `[Heuristic]`, `[Tacit Knowledge]`, `[Problem / Improvement Area]`, `[Project]`, `[Risk]`, `[Decision]`, `[KPI]`, `[Solution]`) and dedupe IDs.
 - Always fetch full records with `mem_get_observation`; never synthesize from `mem_search` previews.
 - `/generate-brd` is BRD read-only by default; `/generate-brd --save` persists BRD to `domain/brd/{timestamp}`.
 - ADR audit logging is explicit and always-on for every invocation via `architecture/adr/create-brd-{timestamp}`.
@@ -114,9 +114,9 @@ Pre-digested rules per skill. Delegators copy matching blocks into sub-agent pro
 
 | Skill | Version |
 |---|---|
-| elicit-context | 1.3.1 |
-| generate-brd | 1.3.0 |
-| map-connections | 1.3.1 |
+| elicit-context | 1.3.2 |
+| generate-brd | 1.3.1 |
+| map-connections | 1.3.2 |
 
 ## Project Conventions
 

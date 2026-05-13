@@ -7,7 +7,7 @@ license: MIT
 disable-model-invocation: true
 metadata:
   author: sechi42
-  version: "1.3.1"
+  version: "1.3.2"
 ---
 
 # Map Connections Skill
@@ -24,6 +24,9 @@ metadata:
 | `/map-connections` | Read-only mode. Build and show inline Markdown report. No persistence. |
 | `/map-connections --org <name|slug>` | Read-only mode with one-run org override; no active-org mutation. |
 | `/map-connections --graph` | Read-only mode. Build and show Mermaid output (`graph TD`) with overview/detail blocks. No persistence. |
+| `/map-connections --graph-json` | Read-only mode. Build graph JSON and save `<org>-graph.json` to disk. No persistence by default. |
+| `/map-connections --graph-ui` | Build graph JSON, save `<org>-graph.json`, then auto-run `python scripts/generate_viewer.py <org>-graph.json` when available. |
+| `/map-connections --graph-json --save` | Build graph JSON, save to disk, then persist via `mem_save` with `type: discovery` and `topic_key: org/<slug>/domain/graph-json/{YYYY-MM-DD}`. |
 | `/map-connections --save` | Build report, show it, then persist via `mem_save` with `type: discovery` and `topic_key: org/<slug>/domain/map/{YYYY-MM-DD}`. |
 
 Default mode is read-only.
@@ -42,7 +45,7 @@ Run these **12 queries in parallel**:
 | 3 | `[Data Source]` | Data Source entities |
 | 4 | `[Heuristic]` | Heuristic entities |
 | 5 | `[Tacit Knowledge]` | Tacit Knowledge entities |
-| 6 | `[UX Friction]` | UX Friction entities |
+| 6 | `[Problem / Improvement Area]` | Problem or improvement area entities |
 | 7 | `[Project]` | Project entities |
 | 8 | `[Risk]` | Risk entities |
 | 9 | `[Decision]` | Decision entities |
@@ -64,7 +67,7 @@ Then:
 ## Parsing and Normalization
 
 For each full observation:
-1. Parse entity type from title tag: `[Department]`, `[Role]`, `[Data Source]`, `[Heuristic]`, `[Tacit Knowledge]`, `[UX Friction]`, `[Project]`, `[Risk]`, `[Decision]`, `[KPI]`, `[Solution]`.
+1. Parse entity type from title tag using canonical names from `brain_ds.ontology.EntityType` (including `Organization` when present in graph outputs).
 2. Extract `name` from title remainder.
 3. Normalize body fields:
    - `What`
@@ -84,19 +87,19 @@ Tokenize to lowercase terms, remove punctuation and obvious stopwords, then scor
 | Heuristic ↔ Department | Heuristic `Where` overlaps Department `Where` |
 | Heuristic ↔ Role | Heuristic mentions Role domain or decision point |
 | Tacit Knowledge ↔ Role | Tacit `Where` maps to Role area |
-| UX Friction ↔ Data Source | Friction references Data Source name/system |
-| UX Friction ↔ Role | Friction `Where` overlaps Role `Where` |
+| Problem / Improvement Area ↔ Data Source | Problem or improvement area references Data Source name/system |
+| Problem / Improvement Area ↔ Role | Problem or improvement area `Where` overlaps Role `Where` |
 | Project ↔ Department | Project departments overlap with Department names/tokens |
 | Project ↔ Risk | Project `risk_ids` or textual overlap links to Risk entities |
 | Decision ↔ Project/Risk | Decision `affects[]`/`supersedes` or contextual overlap |
 | KPI ↔ Department | KPI owner dept maps to Department (`owned-by`) |
 | KPI ↔ Role | KPI owner role maps to Role (`accountable`) |
 | KPI ↔ Data Source | KPI measurement source maps to Data Source (`measured-by`) |
-| KPI ↔ UX Friction | KPI degraded by linked frictions (`degraded-by`) |
+| KPI ↔ Problem / Improvement Area | KPI degraded by linked problems or improvement areas (`degraded-by`) |
 | Solution ↔ KPI | Solution expected impact references KPI (`improves`) |
-| Solution ↔ UX Friction | Solution resolves linked frictions (`resolves`) |
+| Solution ↔ Problem / Improvement Area | Solution resolves linked problems or improvement areas (`resolves`) |
 | Decision ↔ KPI | Decision rationale references KPI (`targets`) |
-| Decision ↔ Solution | Decision authorizes solution (`authorizes`) |
+| Decision ↔ Solution | Solution links to decision context (`decided-by`) |
 
 Strength labels:
 - `weak`: <=1 shared token
@@ -136,9 +139,9 @@ For `--graph`, return exact Mermaid comment output:
   - Data Source: "What systems/files/APIs feed this process?"
   - Heuristic: "What manual rules do people apply when data is incomplete?"
   - Tacit Knowledge: "What critical knowledge exists only in people's heads?"
-  - UX Friction: "Where do users get frustrated or abandon the flow?"
+  - Problem / Improvement Area: "What problem or improvement area is slowing the workflow or creating risk?"
   - KPI: "What KPI should we track to measure outcome?"
-  - Solution: "What solution could improve this KPI or resolve this friction?"
+  - Solution: "What solution could improve this KPI or resolve this problem/improvement area?"
   - Decision: "What key decision was made and what alternatives were considered?"
 
 ## Output Template (Section Order is Mandatory)
@@ -170,12 +173,106 @@ For `--graph`, return exact Mermaid comment output:
 - Missing entity types + concrete follow-up prompts.
 
 ### DS Intervention Opportunities
-- Frictions/heuristics not mapped to data sources.
+- Problems/improvement areas and heuristics not mapped to data sources.
 
 ### Provenance Table columns
 - Entity Type
 - Entity Name
 - Observation ID
+
+## Graph JSON Output Mode (`--graph-json`)
+
+When command includes `--graph-json`, produce JSON data contract output instead of Mermaid/Markdown report rendering.
+
+### JSON Contract (Mandatory)
+
+```json
+{
+  "schema_version": "2.0.0",
+  "org": "Organization Name",
+  "generated_at": "YYYY-MM-DDTHH:MM:SSZ",
+  "evidence": [
+    {
+      "id": "obs-123",
+      "type": "observation",
+      "source": "engram",
+      "content": "Operations depends on ETA feed",
+      "provenance": {"session_id": "manual-save-brain_ds"},
+      "timestamp": "2026-05-13T23:00:00Z"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "node_id",
+      "label": "Display Name",
+      "type": "Canonical `brain_ds.ontology.EntityType` value",
+      "details": {
+        "what": "...",
+        "why": "...",
+        "where": "...",
+        "learned": "..."
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "node_id_1",
+      "target": "node_id_2",
+      "label": "relationship type",
+      "edge_id": "edge-001",
+      "weight": 0.78,
+      "reasons": ["Base relationship weight for depends-on: 0.60"],
+      "evidence_ids": ["obs-123", "obs-456"]
+    }
+  ]
+}
+```
+
+This JSON is the **v2 export shape** produced by `Graph.to_dict()`.
+The canonical contract is Python-first (`brain_ds.ontology.graph_model.Graph` and related dataclasses).
+
+Edge scoring fields are optional and backward-compatible:
+- `weight`: float in `[0.0, 1.0]`
+- `reasons`: deterministic explainability strings
+- `evidence_ids`: supporting observation IDs used by scoring
+
+Rules:
+- Always run the same 12-query retrieval workflow, dedupe IDs, and fetch full records with `mem_get_observation`.
+- Save JSON locally as `<resolved-org-slug>-graph.json`.
+- `--graph-json` alone does **not** invoke Python viewer generation.
+
+### JSON Persistence Rule (`--graph-json --save`)
+
+Use only when command includes both `--graph-json` and `--save`:
+
+```json
+{
+  "title": "[Graph JSON] Domain graph {YYYY-MM-DD}",
+  "type": "discovery",
+  "scope": "project",
+  "topic_key": "org/{resolved-org-slug}/domain/graph-json/{YYYY-MM-DD}",
+  "content": "<graph json plus short generation summary>",
+  "project": "brain_ds"
+}
+```
+
+If `--save` is absent, do NOT call `mem_save`.
+
+## Graph UI Automation Mode (`--graph-ui`)
+
+When command includes `--graph-ui`, run end-to-end automation:
+
+1. Generate graph JSON exactly as `--graph-json` mode.
+2. Save `<resolved-org-slug>-graph.json`.
+3. Attempt viewer generation with:
+   - `python scripts/generate_viewer.py <resolved-org-slug>-graph.json`
+4. On success, report both JSON and HTML output paths.
+5. On failure (Python missing, `pyvis` missing, or script error), keep JSON output and show clear hint:
+   - `uv sync`
+
+Graceful-degrade contract:
+- Failure to generate HTML MUST NOT fail JSON generation.
+- Always return the JSON artifact path even when viewer generation fails.
 
 ## Graph Output Mode (`--graph`)
 
@@ -198,7 +295,7 @@ When command is `/map-connections --graph`, return Mermaid output instead of Mar
 | Data Source | cylinder | `S_ETA[(ETA Feed)]` |
 | Heuristic | diamond | `H_DELAY{Delay > 20m}` |
 | Tacit Knowledge | triangle | `T_VENDOR[/Vendor degrades on Fridays/]` |
-| UX Friction | hexagon | `U_DUP{{Duplicate entry}}` |
+| Problem / Improvement Area | hexagon | `P_DUP{{Duplicate entry}}` |
 | Project | double-rectangle | `P_REPLAN[[Replan Automation]]` |
 | Risk | asymmetric | `K_SLA> SLA Penalty ]` |
 | Decision | rounded node | `N_ROUTE(Route policy)` |
@@ -213,11 +310,11 @@ Organization node rules:
 
 ### Edge Labels
 
-Use these normalized edge labels where relevant: `uses`, `owns`, `blocked-by`, `depends-on`, `creates-risk`, `decided-by`, `shared-with`, `owned-by`, `accountable`, `measured-by`, `degraded-by`, `targets`, `improves`, `resolves`, `authorizes`.
+Use ontology-backed relationship labels from `brain_ds.ontology.RelationshipType` where relevant (`owns`, `uses`, `depends-on`, `blocked-by`, `creates-risk`, `decided-by`, `measured-by`, `shared-with`, `owned-by`, `accountable`, `degraded-by`, `targets`, `improves`, `resolves`).
 
 Canonical contract note (spec-facing):
-- Canonical labels are `degraded-by`, `targets`, and `authorizes`.
-- Treat `impacted-by`, `impacts`, and `authorized-by` as legacy synonyms only in narrative discussion; do not emit them in Mermaid edges.
+- Canonical labels are defined in `brain_ds.ontology.RelationshipType`.
+- Treat non-ontology labels (for example `impacted-by`, `impacts`, `authorized-by`) as legacy synonyms only in narrative discussion; do not emit them in Mermaid edges.
 
 ### Readability Threshold and Fallback
 
@@ -247,11 +344,11 @@ Canonical contract note (spec-facing):
 | Dataset State | Inputs (summary) | Expected highlights |
 |---|---|---|
 | Empty | No results from all 12 queries | Output only empty-state block + `/elicit-context` guidance |
-| Partial | `[Department] Operations` with `Where`; `[Role] Fleet Manager` without `Where` | Entity table includes sparse role flag; Missing Knowledge lists Data Source, Heuristic, Tacit Knowledge, UX Friction prompts |
+| Partial | `[Department] Operations` with `Where`; `[Role] Fleet Manager` without `Where` | Entity table includes sparse role flag; Missing Knowledge lists Data Source, Heuristic, Tacit Knowledge, Problem / Improvement Area prompts |
 | Connected | Department and Role share "operations control room"; Data Source has same context | Role -> Data Source appears in Information Flows; Department ↔ Role overlap labeled `weak` or `strong` by token count |
-| KPI-linked | KPI linked to owner/data source/friction | KPI pill node plus `owned-by`, `accountable`, `measured-by`, `degraded-by` edges |
-| Solution-linked | Solution linked to KPI/friction/decision | Solution parallelogram node with `improves`, `resolves`, `authorizes` edges |
-| Decision-linked | Decision references KPI and authorizes Solution | Decision rounded node with `targets` edge to KPI and `authorizes` edge to Solution |
+| KPI-linked | KPI linked to owner/data source/problem or improvement area | KPI pill node plus `owned-by`, `accountable`, `measured-by`, `degraded-by` edges |
+| Solution-linked | Solution linked to KPI/problem or improvement area/decision | Solution parallelogram node with `improves`, `resolves`, `decided-by` edges |
+| Decision-linked | Decision references KPI and linked solutions | Decision rounded node with `targets` edge to KPI and `decided-by` linkage for solutions |
 
 ## Worked Graph Examples (Contract-level)
 

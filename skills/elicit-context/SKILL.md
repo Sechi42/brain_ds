@@ -7,7 +7,7 @@ license: MIT
 disable-model-invocation: true
 metadata:
   author: sechi42
-  version: "1.3.1"
+  version: "1.3.2"
 ---
 
 # Elicit Context Skill
@@ -19,6 +19,8 @@ metadata:
 
 ## Entity Schema Representation
 
+Canonical source of truth: `brain_ds.ontology.EntityType`.
+
 | Entity Type | What it captures | Example |
 |---|---|---|
 | Organization | Business org boundary and identity | LogiTrans Logistics |
@@ -27,7 +29,7 @@ metadata:
 | Data Source | System/file/API feeding decisions | PostgreSQL table, Excel sheet |
 | Heuristic | Rule-of-thumb used in practice | "If delay > 20 min, reroute manually" |
 | Tacit Knowledge | Important undocumented know-how | "Vendor quality drops on Fridays" |
-| UX Friction | Pain point, workaround, or confusion | Duplicate entry in two tools |
+| Problem / Improvement Area | Problem, bottleneck, workaround, confusion, or opportunity to improve | Duplicate entry in two tools |
 | KPI | Measurable business outcome and target gap | On-Time Delivery % |
 | Solution | WHAT operational improvement is proposed/implemented | Auto-reroute dispatch queue |
 | Decision | WHY a strategic/product/architecture choice was made | Adopt event-driven notifications |
@@ -71,7 +73,7 @@ The interview is **not complete** unless you explicitly evaluate coverage for al
 - Data Source
 - Heuristic
 - Tacit Knowledge
-- UX Friction
+- Problem / Improvement Area
 - KPI
 - Solution
 - Decision
@@ -118,9 +120,9 @@ Use these as defaults. Ask one at a time.
 | Data Source | 1) What systems/files/APIs feed this process? 2) Which data source is least trusted and why? |
 | Heuristic | 1) What manual rules do people apply when data is incomplete? 2) Which shortcut is used to decide faster under pressure? |
 | Tacit Knowledge | 1) What critical knowledge exists only in people's heads? 2) What do experienced teammates know that new hires usually miss? |
-| UX Friction | 1) Where do users get frustrated or abandon the flow? 2) What workaround appears most frequently? |
+| Problem / Improvement Area | 1) What problem or improvement area is slowing the workflow or creating risk? 2) What workaround appears most frequently? |
 | KPI | 1) What KPI should we track? 2) What are current vs target values and unit? 3) How often is it measured, by whom, and from which data source? |
-| Solution | 1) What operational improvement are we proposing or implementing? 2) Which KPI does it improve or which friction does it resolve? 3) What are status and effort (low/med/high)? |
+| Solution | 1) What operational improvement are we proposing or implementing? 2) Which KPI does it improve or which problem/improvement area does it resolve? 3) What are status and effort (low/med/high)? |
 | Decision | 1) What key decision was made and why? 2) Which alternatives were considered, and what does this decision supersede or authorize? |
 
 Default behavior:
@@ -129,7 +131,7 @@ Default behavior:
 
 Validation prompts (mandatory when data is inconsistent or incomplete):
 - KPI trend sanity: if target appears below current for a "higher-is-better" KPI, ask: `Target (<target>) is below current (<current>) — is a decrease the actual goal?`
-- Solution linkage: if no related KPI or UX Friction is provided, ask: `What KPI does this improve, or what friction does it resolve?`
+- Solution linkage: if no related KPI or Problem / Improvement Area is provided, ask: `What KPI does this improve, or what problem/improvement area does it resolve?`
 - Decision depth: if rationale or alternatives are missing, ask: `What made you choose this option over the alternatives?`
 
 ## Engram mem_save Templates
@@ -145,7 +147,7 @@ content:
   **What**: <fact captured>
   **Why**: <business motivation / impact>
   **Where**: <org/process/system location>
-  **Learned**: <non-obvious nuance, heuristic, or friction>
+  **Learned**: <non-obvious nuance, heuristic, problem, or improvement area>
 ```
 
 Topic key rules (mandatory):
@@ -153,7 +155,7 @@ Topic key rules (mandatory):
 - Domain entities: `org/<org-slug>/domain/<entity-type-slug>/<short-name-slug>`
 - Never write new domain records to bare `domain/...` in Slice 1.
 
-Entity tags are mandatory in title (e.g., `[Department]`, `[Role]`, `[Data Source]`, `[Heuristic]`, `[Tacit Knowledge]`, `[UX Friction]`).
+Entity tags are mandatory in title (e.g., `[Department]`, `[Role]`, `[Data Source]`, `[Heuristic]`, `[Tacit Knowledge]`, `[Problem / Improvement Area]`).
 
 KPI/Solution/Decision capture templates (additive contract):
 
@@ -163,7 +165,7 @@ KPI/Solution/Decision capture templates (additive contract):
   "type": "discovery",
   "scope": "project",
   "topic_key": "org/<org-slug>/domain/kpi/<short-name-slug>",
-  "content": "**What**: <KPI description>\n**Why**: <business impact of improving this KPI>\n**Where**: <team/process/system context>\n**Learned**: Target: <value>; Current: <value>; Unit: <unit>; Frequency: <cadence>; Owner: <dept/role>; Data Source: <source>; Related Frictions: <names>; Related Solutions: <names>",
+  "content": "**What**: <KPI description>\n**Why**: <business impact of improving this KPI>\n**Where**: <team/process/system context>\n**Learned**: Target: <value>; Current: <value>; Unit: <unit>; Frequency: <cadence>; Owner: <dept/role>; Data Source: <source>; Related Problems / Improvement Areas: <names>; Related Solutions: <names>",
   "project": "brain_ds"
 }
 ```
@@ -174,7 +176,7 @@ KPI/Solution/Decision capture templates (additive contract):
   "type": "discovery",
   "scope": "project",
   "topic_key": "org/<org-slug>/domain/solution/<short-name-slug>",
-  "content": "**What**: <operational improvement proposed/implemented>\n**Why**: <problem being solved and expected impact>\n**Where**: <workflow/process location>\n**Learned**: Status: <proposed|in-progress|completed|deprecated> (default: proposed when omitted); Effort: <low|med|high>; Owner: <dept/role>; Related KPIs: <names>; Related Frictions: <names>; Related Decisions: <names>",
+  "content": "**What**: <operational improvement proposed/implemented>\n**Why**: <problem being solved and expected impact>\n**Where**: <workflow/process location>\n**Learned**: Status: <proposed|in-progress|completed|deprecated> (default: proposed when omitted); Effort: <low|med|high>; Owner: <dept/role>; Related KPIs: <names>; Related Problems / Improvement Areas: <names>; Related Decisions: <names>",
   "project": "brain_ds"
 }
 ```
@@ -231,7 +233,7 @@ Remaining Gaps / Follow-up Needed
   - Ask: "What rule-of-thumb do operators apply when ETAs look unreliable?"
 - Tacit Knowledge: Missing
   - Ask: "What critical know-how is not documented anywhere?"
-- UX Friction: Covered
+- Problem / Improvement Area: Covered
 ```
 
 ## Output Contract for Future Skills
@@ -240,7 +242,7 @@ Remaining Gaps / Follow-up Needed
 - Prefix all domain entities with `org/<org-slug>/domain/...`.
 - Save active org context in `session/active-org` whenever org is explicitly selected or created.
 - This enables `/map-connections` to map links between departments, roles, and data sources.
-- This enables `/generate-brd` to synthesize requirements from verified heuristics, tacit knowledge, and UX friction.
+- This enables `/generate-brd` to synthesize requirements from verified heuristics, tacit knowledge, and problems/improvement areas.
 
 ## Table-Driven Org Examples
 
@@ -255,7 +257,7 @@ Remaining Gaps / Follow-up Needed
 
 | Dataset state | User input (summary) | Expected capture behavior |
 |---|---|---|
-| Empty KPI/Solution/Decision coverage | "No KPI defined yet; we only know delays are bad." | Save friction/known entities as provided; mark KPI/Solution/Decision as `Missing` in **Remaining Gaps / Follow-up Needed** with their default follow-up questions. |
+| Empty KPI/Solution/Decision coverage | "No KPI defined yet; we only know delays are bad." | Save problem/improvement area and known entities as provided; mark KPI/Solution/Decision as `Missing` in **Remaining Gaps / Follow-up Needed** with their default follow-up questions. |
 | Partial KPI (missing owner/source) | "Track On-Time Delivery: current 92, target 98, percent." | Create `[KPI]` draft with provided values; mark owner and data source as `Underspecified`; ask follow-up before final confirmation. |
-| Linked Solution with omitted status | "Auto-reroute should improve On-Time Delivery and reduce late dispatches." | Create `[Solution]` draft linked to KPI + friction; apply default `Status: proposed`; collect effort/owner if absent. |
+| Linked Solution with omitted status | "Auto-reroute should improve On-Time Delivery and reduce late dispatches." | Create `[Solution]` draft linked to KPI + problem/improvement area; apply default `Status: proposed`; collect effort/owner if absent. |
 | Decision with supersedes and links | "We chose event-driven routing over cron batches; this replaces monolith-first and authorizes auto-reroute." | Create `[Decision]` draft including rationale, alternatives, `Supersedes`, and `Authorizes Solutions`; prompt if KPI impact links are missing. |

@@ -7,7 +7,7 @@ license: MIT
 disable-model-invocation: true
 metadata:
   author: sechi42
-  version: "1.3.0"
+  version: "1.3.1"
 ---
 
 # Generate BRD Skill
@@ -30,7 +30,7 @@ Resolve organization in order: `--org` > `session/active-org` > `default`, and e
 `Resolved organization: <name> (<source>)`
 
 Run these **11 queries in parallel**:
-`[Department]`, `[Role]`, `[Data Source]`, `[Heuristic]`, `[Tacit Knowledge]`, `[UX Friction]`, `[Project]`, `[Risk]`, `[Decision]`, `[KPI]`, `[Solution]`.
+`[Department]`, `[Role]`, `[Data Source]`, `[Heuristic]`, `[Tacit Knowledge]`, `[Problem / Improvement Area]`, `[Project]`, `[Risk]`, `[Decision]`, `[KPI]`, `[Solution]`.
 
 Then:
 1. Dedupe IDs.
@@ -42,7 +42,7 @@ Then:
 ## Normalization Rules
 
 Extract fields: `entity_type`, `name`, `what`, `why`, `where`, `learned`, `tokens`, `source_id`.
-Supported tags: `[Department]`, `[Role]`, `[Data Source]`, `[Heuristic]`, `[Tacit Knowledge]`, `[UX Friction]`, `[Project]`, `[Risk]`, `[Decision]`, `[KPI]`, `[Solution]`.
+Supported tags follow canonical ontology names from `brain_ds.ontology.EntityType`.
 
 ## BRD Output Contract (Section Order Mandatory)
 
@@ -66,7 +66,7 @@ Header MUST include:
 - `Status: EMPTY|PARTIAL|COMPLETE`
 - `BRD Version: 1.2`
 - `Organization: <resolved-org-name> (<resolved-org-slug>)`
-- `Dataset Fingerprint:` counts in order: Department, Role, Data Source, Heuristic, Tacit Knowledge, UX Friction, Project, Risk, Decision, KPI, Solution.
+- `Dataset Fingerprint:` counts in order: Department, Role, Data Source, Heuristic, Tacit Knowledge, Problem / Improvement Area, Project, Risk, Decision, KPI, Solution.
 
 ## Section Rules for KPI/Solution
 
@@ -78,7 +78,7 @@ Columns:
 - Frequency
 - Owner
 - Data Source
-- Linked Frictions
+- Linked Problems / Improvement Areas
 - Linked Solutions
 - Decision Impact
 
@@ -95,7 +95,7 @@ Columns:
 - Effort
 - Owner
 - Improves KPI
-- Resolves Friction
+- Resolves Problem / Improvement Area
 - Authorized By Decision
 
 Rules:
