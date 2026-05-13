@@ -135,6 +135,19 @@ if (-not $engramDetected) {
   "Warning: Engram not detected. Install: https://github.com/engram-labs/engram-opencode"
 }
 foreach ($w in $warnings) { "Warning: $w" }
+
+if (Test-CommandExists 'uv') {
+  "Python deps: running uv sync"
+  try {
+    & uv sync --project $RootDir
+    "Python deps: uv sync completed"
+  } catch {
+    "Warning: uv sync failed. Run manually in repo root: uv sync"
+  }
+} else {
+  "Warning: uv not found. Install: https://docs.astral.sh/uv/getting-started/installation/"
+}
+
 "Next steps: Run /elicit-context, /map-connections, or /generate-brd in OpenCode"
 
 exit 0

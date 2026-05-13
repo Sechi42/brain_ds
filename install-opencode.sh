@@ -137,6 +137,18 @@ if ! $ENGRAM_OK; then
   echo "Warning: Engram not detected. Install: https://github.com/engram-labs/engram-opencode"
 fi
 for w in "${warnings[@]}"; do echo "Warning: $w"; done
+
+if check_cmd uv; then
+  echo "Python deps: running uv sync"
+  if uv sync --project "$ROOT_DIR"; then
+    echo "Python deps: uv sync completed"
+  else
+    echo "Warning: uv sync failed. Run manually in repo root: uv sync"
+  fi
+else
+  echo "Warning: uv not found. Install: https://docs.astral.sh/uv/getting-started/installation/"
+fi
+
 echo "Next steps: Run /elicit-context, /map-connections, or /generate-brd in OpenCode"
 
 exit 0

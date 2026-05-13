@@ -1,1 +1,5 @@
 .opencode/
+private-brain-engram/
+.venv/
+__pycache__/
+*.pyc

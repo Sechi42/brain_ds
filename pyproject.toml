@@ -1,0 +1,8 @@
+[project]
+name = "brain_ds"
+version = "0.1.0"
+description = "Enterprise Data & Knowledge Mapper"
+requires-python = ">=3.11"
+dependencies = [
+  "pyvis>=0.3",
+]
