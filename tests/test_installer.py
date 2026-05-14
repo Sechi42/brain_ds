@@ -163,15 +163,49 @@ class InstallerTests(unittest.TestCase):
         data = json.loads(cfg.read_text(encoding="utf-8-sig"))
         agent = data["agent"]["brain-ds-orchestrator"]
         self.assertEqual(agent["mode"], "primary")
-        self.assertEqual(agent["model"], "deepseek-v4-flash")
+        self.assertEqual(agent["model"], "opencode-go/deepseek-v4-flash")
         self.assertTrue(agent["tools"].get("engram"))
+
+    def test_agent_has_description(self):
+        cfg = seed_global_opencode(self.home)
+        result = self.run_ps1("-Global", "-Agent")
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        data = json.loads(cfg.read_text(encoding="utf-8-sig"))
+        agent = data["agent"]["brain-ds-orchestrator"]
+        self.assertTrue(agent.get("description"))
+
+    def test_agent_has_file_prompt(self):
+        cfg = seed_global_opencode(self.home)
+        result = self.run_ps1("-Global", "-Agent")
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        data = json.loads(cfg.read_text(encoding="utf-8-sig"))
+        agent = data["agent"]["brain-ds-orchestrator"]
+        prompt = agent.get("prompt", "")
+        self.assertTrue(prompt.startswith("{file:"))
+        self.assertTrue(prompt.endswith("}"))
+
+    def test_agent_has_full_permissions(self):
+        cfg = seed_global_opencode(self.home)
+        result = self.run_ps1("-Global", "-Agent")
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        data = json.loads(cfg.read_text(encoding="utf-8-sig"))
+        permission = data["agent"]["brain-ds-orchestrator"].get("permission", {})
+        self.assertEqual(permission.get("read"), "allow")
+        self.assertEqual(permission.get("edit"), "allow")
 
     def test_commands_deployed(self):
         seed_global_opencode(self.home)
         result = self.run_ps1("-Global", "-Agent")
         self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
         commands_dir = self.home / ".config" / "opencode" / "commands"
-        for name in ("brain-ds-pipeline.md", "brain-ds-map.md", "brain-ds-brd.md"):
+        for name in (
+            "brain-ds-pipeline.md",
+            "brain-ds-map.md",
+            "brain-ds-brd.md",
+            "elicit-context.md",
+            "map-connections.md",
+            "generate-brd.md",
+        ):
             cmd = commands_dir / name
             self.assertTrue(cmd.exists(), msg=f"Missing {name}")
             content = cmd.read_text(encoding="utf-8")
@@ -200,6 +234,22 @@ class InstallerTests(unittest.TestCase):
         self.assertIn('"gentle-orchestrator"', text)
         for p in sdd_paths:
             self.assertTrue(p.exists(), msg=f"Removed command: {p.name}")
+
+        commands_dir = self.home / ".config" / "opencode" / "commands"
+        self.assertTrue((commands_dir / "sdd-apply.md").exists())
+        self.assertTrue((commands_dir / "sdd-verify.md").exists())
+
+    def test_non_destructive_commands_dir(self):
+        seed_global_opencode(self.home)
+        commands_dir = self.home / ".config" / "opencode" / "commands"
+        commands_dir.mkdir(parents=True, exist_ok=True)
+        marker = commands_dir / "unrelated-command.md"
+        marker.write_text("# keep this\n", encoding="utf-8")
+
+        result = self.run_ps1("-Global", "-Agent")
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertTrue(marker.exists())
+        self.assertEqual(marker.read_text(encoding="utf-8"), "# keep this\n")
 
 
 if __name__ == "__main__":

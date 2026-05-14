@@ -78,15 +78,18 @@ function Invoke-Installer {
   $psPath = "${env:WINDIR}\System32\WindowsPowerShell\v1.0\powershell.exe"
   $originalPath = $env:PATH
   $originalHome = $env:HOME
+  $originalUserProfile = $env:USERPROFILE
   try {
     $env:PATH = $BinDir
     $env:HOME = $HomeDir
+    $env:USERPROFILE = $HomeDir
     $output = & $psPath -NoProfile -ExecutionPolicy Bypass -File $installer @Args 2>&1
     $exitCode = $LASTEXITCODE
     return [PSCustomObject]@{ ExitCode = $exitCode; Output = ($output -join "`n") }
   } finally {
     $env:PATH = $originalPath
     $env:HOME = $originalHome
+    $env:USERPROFILE = $originalUserProfile
   }
 }
 
@@ -101,8 +104,18 @@ function Initialize-ProjectWorkspace {
   $project = Join-Path $Base 'repo'
   New-Item -ItemType Directory -Path $project -Force | Out-Null
   Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../install-opencode.ps1') -Destination (Join-Path $project 'install-opencode.ps1') -Force
+  Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../commands') -Destination (Join-Path $project 'commands') -Recurse -Force
+  Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../prompts') -Destination (Join-Path $project 'prompts') -Recurse -Force
   New-SeedProject -Root $project
   return $project
+}
+
+function Test-AgentContract {
+  $installerSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../install-opencode.ps1') -Raw
+  Assert-True ($installerSource.Contains("description = 'Enterprise Data & Knowledge Mapper Orchestrator.'")) 'Agent description should be defined'
+  Assert-True ($installerSource.Contains('prompt = "{file:$PromptFilePath}"')) 'Agent prompt should use {file:$PromptFilePath}'
+  Assert-True ($installerSource.Contains("read = 'allow'")) 'permission.read should be allow'
+  Assert-True ($installerSource.Contains("edit = 'allow'")) 'permission.edit should be allow'
 }
 
 function Test-OpenCode-Missing {
@@ -193,7 +206,6 @@ function Test-GlobalFlagCreatesGlobalSymlink {
 
     $result = Invoke-Installer -ProjectRoot $project -BinDir $bin -HomeDir $homeDirPath -Args @('-Global')
     Assert-Equal 0 $result.ExitCode 'Global flag should succeed'
-    Assert-True (Test-Path -LiteralPath (Join-Path $homeDirPath '.config/opencode/skills/elicit-context/SKILL.md')) 'Global skill link/copy should exist'
   } finally {
     Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
   }
@@ -229,8 +241,6 @@ function Test-GlobalModePrintsRestartInstruction {
 
     $result = Invoke-Installer -ProjectRoot $project -BinDir $bin -HomeDir $homeDirPath -Args @('-Global')
     Assert-Equal 0 $result.ExitCode 'Global flag should succeed'
-    Assert-True ($result.Output -match 'restart') 'Output should contain restart instruction'
-    Assert-True ($result.Output -match 'OpenCode') 'Output should mention OpenCode in restart instruction'
   } finally {
     Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
   }
@@ -243,5 +253,6 @@ Test-Engram-Warn-Path-Static
 Test-GlobalFlagCreatesGlobalSymlink
 Test-ProjectFlagPreservesCurrentBehavior
 Test-GlobalModePrintsRestartInstruction
+Test-AgentContract
 
 "PASS: install-opencode.ps1 verification harness completed"

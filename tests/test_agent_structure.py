@@ -20,7 +20,14 @@ class AgentStructureTests(unittest.TestCase):
     def test_command_yaml_parses(self):
         root = Path(__file__).resolve().parents[1]
         commands = root / "commands"
-        for name in ("brain-ds-pipeline.md", "brain-ds-map.md", "brain-ds-brd.md"):
+        for name in (
+            "brain-ds-pipeline.md",
+            "brain-ds-map.md",
+            "brain-ds-brd.md",
+            "elicit-context.md",
+            "map-connections.md",
+            "generate-brd.md",
+        ):
             content = (commands / name).read_text(encoding="utf-8")
             self.assertEqual(parse_frontmatter_agent(content), "brain-ds-orchestrator")
 

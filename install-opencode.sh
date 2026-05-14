@@ -9,6 +9,7 @@ REGISTRY_PATH="$ROOT_DIR/.atl/skill-registry.md"
 AGENTS_PATH="$ROOT_DIR/AGENTS.md"
 COMMANDS_SOURCE_DIR="$ROOT_DIR/commands"
 GLOBAL_COMMANDS_ROOT="$HOME/.config/opencode/commands"
+PROMPT_FILE_PATH="$ROOT_DIR/prompts/brain-ds-orchestrator.md"
 WITH_AGENT=false
 
 INSTALL_MODE=""
@@ -56,13 +57,15 @@ check_cmd() { command -v "$1" >/dev/null 2>&1; }
 
 insert_brain_ds_agent() {
   local config_path="$HOME/.config/opencode/opencode.json"
+  local prompt_file_path="$1"
   mkdir -p "$(dirname "$config_path")"
-  python - "$config_path" <<'PY'
+  python - "$config_path" "$prompt_file_path" <<'PY'
 import json
 import pathlib
 import sys
 
 path = pathlib.Path(sys.argv[1])
+prompt_path = pathlib.Path(sys.argv[2]).resolve()
 if path.exists() and path.read_text(encoding="utf-8").strip():
     data = json.loads(path.read_text(encoding="utf-8"))
 else:
@@ -71,9 +74,11 @@ else:
 agent = data.setdefault("agent", {})
 agent["brain-ds-orchestrator"] = {
     "mode": "primary",
-    "model": "deepseek-v4-flash",
+    "model": "opencode-go/deepseek-v4-flash",
+    "description": "Enterprise Data & Knowledge Mapper Orchestrator.",
+    "prompt": f"{{file:{prompt_path}}}",
     "tools": {"bash": True, "read": True, "write": True, "engram": True},
-    "permission": {"bash": {"*git*": "allow"}},
+    "permission": {"bash": {"*git*": "allow"}, "read": "allow", "edit": "allow"},
 }
 
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
@@ -82,7 +87,7 @@ PY
 
 deploy_brain_ds_commands() {
   mkdir -p "$GLOBAL_COMMANDS_ROOT"
-  for name in brain-ds-pipeline.md brain-ds-map.md brain-ds-brd.md; do
+  for name in brain-ds-pipeline.md brain-ds-map.md brain-ds-brd.md elicit-context.md map-connections.md generate-brd.md; do
     src="$COMMANDS_SOURCE_DIR/$name"
     dest="$GLOBAL_COMMANDS_ROOT/$name"
     [ -f "$src" ] || { echo "Command template not found: $src"; return 1; }
@@ -229,10 +234,14 @@ if [ "$INSTALL_MODE" = "global" ]; then
   echo "Global mode: restart OpenCode to load newly installed skills"
 fi
 if $WITH_AGENT; then
-  insert_brain_ds_agent
+  insert_brain_ds_agent "$PROMPT_FILE_PATH"
+  command_count=0
   deploy_brain_ds_commands
+  for name in brain-ds-pipeline.md brain-ds-map.md brain-ds-brd.md elicit-context.md map-connections.md generate-brd.md; do
+    command_count=$((command_count + 1))
+  done
   echo "brain_ds agent: installed"
-  echo "brain_ds commands: deployed (3 files)"
+  echo "brain_ds commands: deployed (${command_count} files)"
 fi
 if ! $ENGRAM_OK; then
   echo "Warning: Engram not detected. Install: https://github.com/engram-labs/engram-opencode"

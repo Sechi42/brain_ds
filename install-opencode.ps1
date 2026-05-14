@@ -15,6 +15,7 @@ $RegistryPath = Join-Path $RootDir '.atl/skill-registry.md'
 $AgentsPath = Join-Path $RootDir 'AGENTS.md'
 $CommandsSourceDir = Join-Path $RootDir 'commands'
 $GlobalCommandsRoot = Join-Path $HOME '.config/opencode/commands'
+$PromptFilePath = Join-Path $RootDir 'prompts/brain-ds-orchestrator.md'
 
 function Insert-BrainDsAgent {
   param([string]$ConfigPath)
@@ -34,7 +35,9 @@ function Insert-BrainDsAgent {
 
   $desired = [pscustomobject]@{
     mode = 'primary'
-    model = 'deepseek-v4-flash'
+    model = 'opencode-go/deepseek-v4-flash'
+    description = 'Enterprise Data & Knowledge Mapper Orchestrator.'
+    prompt = "{file:$PromptFilePath}"
     tools = [pscustomobject]@{
       bash = $true
       read = $true
@@ -45,6 +48,8 @@ function Insert-BrainDsAgent {
       bash = [pscustomobject]@{
         '*git*' = 'allow'
       }
+      read = 'allow'
+      edit = 'allow'
     }
   }
 
@@ -65,7 +70,7 @@ function Deploy-BrainDsCommands {
   param([string]$DestinationRoot)
 
   New-Item -ItemType Directory -Path $DestinationRoot -Force | Out-Null
-  $templates = @('brain-ds-pipeline.md', 'brain-ds-map.md', 'brain-ds-brd.md')
+  $templates = @('brain-ds-pipeline.md', 'brain-ds-map.md', 'brain-ds-brd.md', 'elicit-context.md', 'map-connections.md', 'generate-brd.md')
   foreach ($name in $templates) {
     $source = Join-Path $CommandsSourceDir $name
     if (-not (Test-Path -LiteralPath $source)) {
