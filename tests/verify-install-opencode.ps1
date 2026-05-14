@@ -70,7 +70,8 @@ function Invoke-Installer {
   param(
     [string]$ProjectRoot,
     [string]$BinDir,
-    [string]$HomeDir
+    [string]$HomeDir,
+    [string[]]$Args = @()
   )
 
   $installer = Join-Path $ProjectRoot 'install-opencode.ps1'
@@ -80,7 +81,7 @@ function Invoke-Installer {
   try {
     $env:PATH = $BinDir
     $env:HOME = $HomeDir
-    $output = & $psPath -NoProfile -ExecutionPolicy Bypass -File $installer 2>&1
+    $output = & $psPath -NoProfile -ExecutionPolicy Bypass -File $installer @Args 2>&1
     $exitCode = $LASTEXITCODE
     return [PSCustomObject]@{ ExitCode = $exitCode; Output = ($output -join "`n") }
   } finally {
@@ -181,9 +182,66 @@ function Test-Engram-Warn-Path-Static {
   Assert-True ($installerSource -match 'if \(-not \$engramDetected\)') 'Installer must gate warning behind Engram detection check'
 }
 
+function Test-GlobalFlagCreatesGlobalSymlink {
+  $base = Get-TestRoot
+  try {
+    $project = Initialize-ProjectWorkspace -Base $base
+    $bin = Join-Path $base 'bin'
+    $homeDirPath = Join-Path $base 'home'
+    New-Item -ItemType Directory -Path $homeDirPath -Force | Out-Null
+    New-Stubs -BinDir $bin -WithOpenCode:$true -WithGit:$true
+
+    $result = Invoke-Installer -ProjectRoot $project -BinDir $bin -HomeDir $homeDirPath -Args @('-Global')
+    Assert-Equal 0 $result.ExitCode 'Global flag should succeed'
+    Assert-True (Test-Path -LiteralPath (Join-Path $homeDirPath '.config/opencode/skills/elicit-context/SKILL.md')) 'Global skill link/copy should exist'
+  } finally {
+    Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Test-ProjectFlagPreservesCurrentBehavior {
+  $base = Get-TestRoot
+  try {
+    $project = Initialize-ProjectWorkspace -Base $base
+    $bin = Join-Path $base 'bin'
+    $homeDirPath = Join-Path $base 'home'
+    New-Item -ItemType Directory -Path $homeDirPath -Force | Out-Null
+    New-Stubs -BinDir $bin -WithOpenCode:$true -WithGit:$true
+
+    $result = Invoke-Installer -ProjectRoot $project -BinDir $bin -HomeDir $homeDirPath -Args @('-Project')
+    Assert-Equal 0 $result.ExitCode 'Project flag should succeed'
+    Assert-True (Test-Path -LiteralPath (Join-Path $project '.opencode/skills/elicit-context/SKILL.md')) 'Project mode should create local bridge'
+    $registry = Get-Content -LiteralPath (Join-Path $project '.atl/skill-registry.md') -Raw
+    Assert-True ($registry -match [regex]::Escape("| local trigger | elicit-context | $project\skills\elicit-context\SKILL.md |")) 'Project mode should rewrite local registry path'
+  } finally {
+    Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Test-GlobalModePrintsRestartInstruction {
+  $base = Get-TestRoot
+  try {
+    $project = Initialize-ProjectWorkspace -Base $base
+    $bin = Join-Path $base 'bin'
+    $homeDirPath = Join-Path $base 'home'
+    New-Item -ItemType Directory -Path $homeDirPath -Force | Out-Null
+    New-Stubs -BinDir $bin -WithOpenCode:$true -WithGit:$true
+
+    $result = Invoke-Installer -ProjectRoot $project -BinDir $bin -HomeDir $homeDirPath -Args @('-Global')
+    Assert-Equal 0 $result.ExitCode 'Global flag should succeed'
+    Assert-True ($result.Output -match 'restart') 'Output should contain restart instruction'
+    Assert-True ($result.Output -match 'OpenCode') 'Output should mention OpenCode in restart instruction'
+  } finally {
+    Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
 Test-OpenCode-Missing
 Test-Git-Missing
 Test-Engram-Warn-And-Idempotent
 Test-Engram-Warn-Path-Static
+Test-GlobalFlagCreatesGlobalSymlink
+Test-ProjectFlagPreservesCurrentBehavior
+Test-GlobalModePrintsRestartInstruction
 
 "PASS: install-opencode.ps1 verification harness completed"

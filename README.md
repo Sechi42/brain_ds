@@ -1,4 +1,6 @@
-# brain_ds
+# Brain DS (Data & Knowledge Mapper)
+
+![brain_ds_logo](brain_ds_logo.png)
 
 Enterprise Data & Knowledge Mapper: an organizational context brain for AI agents.
 
@@ -24,6 +26,9 @@ Use these slash commands from OpenCode:
 | `/map-connections --graph-json` | Generate and save `<org>-graph.json` graph data contract |
 | `/map-connections --graph-ui` | Generate graph JSON and auto-create interactive offline HTML viewer (default mode) |
 | `/generate-brd` | Generate a BRD from the mapped knowledge base |
+| `/brain-ds-pipeline` | Orchestrate full `/elicit-context` → `/map-connections` → `/generate-brd` flow |
+| `/brain-ds-map` | Orchestrate mapping step with context checks |
+| `/brain-ds-brd` | Orchestrate BRD step with map checks |
 
 ### Graph viewer quick start
 
@@ -78,8 +83,12 @@ Source of truth: `brain_ds/ontology/entity_types.py` (`brain_ds.ontology.EntityT
 1. Clone this repository.
 2. Install **OpenCode** (required) and **Git** (required).
 3. Run one installer from repo root:
-   - PowerShell: `./install-opencode.ps1`
-   - Bash: `./install-opencode.sh`
+   - PowerShell (project-local): `./install-opencode.ps1 -Project`
+   - PowerShell (global): `./install-opencode.ps1 -Global`
+    - Bash (project-local): `./install-opencode.sh --project`
+    - Bash (global): `./install-opencode.sh --global`
+    - Add orchestrator + global commands: `-Agent` (PowerShell) or `--agent` (Bash)
+   - No flag: interactive prompt on TTY; non-TTY defaults to project-local
 4. Installer also runs `uv sync` automatically when `uv` is available to set up base Python deps.
 5. If you plan to use `--simple`, run `uv sync --extra simple`.
 6. If `uv` is missing, installer warns and continues. Install `uv`: https://docs.astral.sh/uv/getting-started/installation/
@@ -93,6 +102,7 @@ Source of truth: `brain_ds/ontology/entity_types.py` (`brain_ds.ontology.EntityT
 
 - Safe to re-run anytime (idempotent).
 - Generated bridge lives in `.opencode/skills/` (gitignored).
+- Global install target is `~/.config/opencode/skills/`.
 - Canonical source remains `skills/`; if you edit source skills, re-run installer to refresh bridge links/copies.
 
 ## Repository structure

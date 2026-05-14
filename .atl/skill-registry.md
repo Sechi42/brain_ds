@@ -15,12 +15,18 @@ See `_shared/skill-resolver.md` for the full resolution protocol.
 | When creating a GitHub issue, reporting a bug, or requesting a feature | issue-creation | <USER_HOME>/.config/opencode/skills/issue-creation/SKILL.md |
 | When creating a pull request, opening a PR, or preparing changes for review | branch-pr | <USER_HOME>/.config/opencode/skills/branch-pr/SKILL.md |
 | When user asks to create a new skill, add agent instructions, or document patterns for AI | skill-creator | <USER_HOME>/.config/opencode/skills/skill-creator/SKILL.md |
-| When user says `/elicit-context` or needs domain context | elicit-context | skills/elicit-context/SKILL.md |
-| When user says `/map-connections` or `/map-connections --save` | map-connections | skills/map-connections/SKILL.md |
-| When user says `/generate-brd` or `/generate-brd --save` | generate-brd | skills/generate-brd/SKILL.md |
 | When writing Go tests, using teatest, or adding test coverage | go-testing | <USER_HOME>/.config/opencode/skills/go-testing/SKILL.md |
 | When user says "judgment day", "judgment-day", "review adversarial", "dual review", "doble review", "juzgar", "que lo juzguen" | judgment-day | <USER_HOME>/.config/opencode/skills/judgment-day/SKILL.md |
-| UI design best practices for building accessible, performant, and user-friendly interfaces with modern web standards | ui-design | .agents/skills/ui-design/SKILL.md |
+| Fast DataFrame library workflows: select, filter, group_by, joins, lazy evaluation, CSV/Parquet I/O | polars | <USER_HOME>/.agents/skills/polars/SKILL.md |
+| Discover or install agent skills for a specialized capability | find-skills | <USER_HOME>/.agents/skills/find-skills/SKILL.md |
+| Building, designing, or validating n8n workflows | n8n-workflow-patterns | <USER_HOME>/.agents/skills/n8n-workflow-patterns/SKILL.md |
+| UI design best practices for accessible, performant, user-friendly interfaces | ui-design | .agents/skills/ui-design/SKILL.md |
+| When user says `/elicit-context` or needs domain context | elicit-context | skills\elicit-context\SKILL.md |
+| When user says `/map-connections`, `/map-connections --graph`, or `/map-connections --save` | map-connections | skills\map-connections\SKILL.md |
+| When user says `/generate-brd` or `/generate-brd --save` | generate-brd | skills\generate-brd\SKILL.md |
+| When user says `/brain-ds-pipeline` for full guided flow | brain-ds-orchestrator | commands\brain-ds-pipeline.md |
+| When user says `/brain-ds-map` for mapping handoff | brain-ds-orchestrator | commands\brain-ds-map.md |
+| When user says `/brain-ds-brd` for BRD handoff | brain-ds-orchestrator | commands\brain-ds-brd.md |
 
 ## Compact Rules
 
@@ -55,7 +61,6 @@ Pre-digested rules per skill. Delegators copy matching blocks into sub-agent pro
 - Every chained PR needs a dependency diagram marking the current PR.
 - Feature Branch Chain requires a draft/no-merge tracker PR; child PRs target the immediate parent branch.
 - If a child PR shows previous PR changes, retarget/rebase because its base is wrong.
-- Follow the chosen chain strategy consistently for the full chain.
 
 ### issue-creation
 - Blank issues are disabled; use bug report or feature request templates.
@@ -77,7 +82,6 @@ Pre-digested rules per skill. Delegators copy matching blocks into sub-agent pro
 - Use `skills/{skill-name}/SKILL.md` with required frontmatter: name, description with Trigger, license, metadata author/version.
 - Keep critical patterns clear, code examples minimal, and commands copy-pasteable.
 - Do not add Keywords sections, duplicate existing docs, use long troubleshooting, or link web URLs in references.
-- Register created skills in `AGENTS.md` when applicable.
 
 ### go-testing
 - Prefer table-driven tests for multiple cases and explicit success/error branches.
@@ -92,8 +96,27 @@ Pre-digested rules per skill. Delegators copy matching blocks into sub-agent pro
 - Launch two blind independent judge sub-agents in parallel with identical target and criteria.
 - Classify findings as CRITICAL, WARNING (real), WARNING (theoretical), or SUGGESTION.
 - Treat theoretical warnings as INFO: report them, do not block or fix by default.
-- Synthesize confirmed, suspect, and contradictory findings before fixing.
 - Fix only confirmed criticals or real warnings, then re-judge; after two iterations escalate to the user.
+
+### polars
+- Prefer expression API (`pl.col`, `with_columns`, `select`, `filter`) over row-wise Python loops.
+- Use lazy scans (`scan_csv`, `scan_parquet`) for large files and collect only at the boundary.
+- Use `group_by(...).agg(...)` and window `over(...)` expressions for grouped calculations.
+- Use predicate/projection pushdown by filtering/selecting before expensive joins or collects.
+- Keep schemas explicit when data quality matters; validate dtypes before downstream logic.
+
+### find-skills
+- Use only when the user wants to discover/install capabilities or asks if a skill exists.
+- Identify domain and task before searching; use specific `npx skills find <query>` terms.
+- Present the best matching skill with install command and short rationale, not a giant catalog.
+- If no skill exists, offer to proceed directly or create a custom skill for repeated work.
+
+### n8n-workflow-patterns
+- Pick one core pattern first: Webhook, HTTP API, Database, AI Agent, or Scheduled.
+- Design workflows as Trigger -> Validate/Fetch -> Transform -> Action -> Error handling.
+- For webhooks, payload fields usually live under `$json.body`.
+- Validate node configuration and the complete workflow before activation.
+- Plan explicit error paths; do not rely on silent continue-on-fail defaults.
 
 ### ui-design
 - Establish clear visual hierarchy, cohesive color palette, readable typography, and consistent styling.
@@ -102,23 +125,30 @@ Pre-digested rules per skill. Delegators copy matching blocks into sub-agent pro
 - Use familiar interaction patterns, clear calls to action, and helpful error/recovery messages.
 - Apply motion sparingly to enhance orientation, never to distract or hide state.
 - Optimize assets and non-critical loading so visual polish does not harm performance.
-- Prefer design-system thinking: reusable tokens, predictable spacing, labels, and component behavior.
+
+### elicit-context
+- Trigger only on explicit `/elicit-context`; ask exactly one question at a time and wait.
+- Resolve org before saving: `--org` > `session/active-org` > `default`; persist active org state when provided.
+- Stop after 5 questions or user stop signal; save only after explicit confirmation.
+- Before save, evaluate all entity coverage and list Remaining Gaps / Follow-up Needed.
+- Persist domain records under `org/<slug>/domain/...`; never write new bare `domain/...` records.
+- Entity tags in titles are mandatory, e.g. `[Department]`, `[KPI]`, `[Decision]`.
 
 ### map-connections
 - Trigger only on explicit `/map-connections` command (manual slash-command skill).
-- Run 12 parallel Engram searches (`[Department]`, `[Role]`, `[Data Source]`, `[Heuristic]`, `[Tacit Knowledge]`, `[Problem / Improvement Area]`, `[Project]`, `[Risk]`, `[Decision]`, `[KPI]`, `[Solution]`, `domain/`) and dedupe IDs.
-- Always fetch full records with `mem_get_observation`; never map from `mem_search` preview snippets.
+- Run 12 parallel Engram searches for canonical entity tags plus `domain/`, dedupe IDs, then fetch full records.
+- Never map from `mem_search` preview snippets.
+- Scope records to the resolved org; do not mix org prefixes.
 - Default is read-only inline report; persist only with explicit `--save`.
 - Keep output section order fixed: Entity Table, Information Flows, Overlaps, Broken Links, Missing Knowledge, DS Intervention Opportunities, Provenance Table.
 
 ### generate-brd
 - Trigger only on explicit `/generate-brd` command (manual slash-command skill).
-- Run 11 parallel Engram searches (`[Department]`, `[Role]`, `[Data Source]`, `[Heuristic]`, `[Tacit Knowledge]`, `[Problem / Improvement Area]`, `[Project]`, `[Risk]`, `[Decision]`, `[KPI]`, `[Solution]`) and dedupe IDs.
-- Always fetch full records with `mem_get_observation`; never synthesize from `mem_search` previews.
-- `/generate-brd` is BRD read-only by default; `/generate-brd --save` persists BRD to `domain/brd/{timestamp}`.
-- ADR audit logging is explicit and always-on for every invocation via `architecture/adr/create-brd-{timestamp}`.
-- Keep output section order fixed: Header, Executive Summary, Current State Analysis, Requirements, Data Sources & Dependencies, Stakeholder Impact, Solution Options, ADR Log, Data Provenance, Risk Register, Cross-Dept Overlap Map, Project Portfolio, KPI Dashboard, Improvement Roadmap.
-- Empty state must return Starter-BRD with `[NEEDS DATA]` markers in all fourteen sections.
+- Run 11 parallel Engram searches for canonical entity tags, dedupe IDs, then fetch full records.
+- Never synthesize from `mem_search` previews; scope records to the resolved org.
+- `/generate-brd` is BRD read-only by default; `/generate-brd --save` persists BRD.
+- ADR audit logging is explicit and always-on for every invocation.
+- Keep exactly 14 sections in the required order; empty state must return Starter-BRD with `[NEEDS DATA]` markers.
 
 ## Local Skill Versions
 
@@ -132,5 +162,7 @@ Pre-digested rules per skill. Delegators copy matching blocks into sub-agent pro
 
 | File | Path | Notes |
 |------|------|-------|
+| AGENTS.md | AGENTS.md | Project command/convention index; references `.atl/skill-registry.md` |
+| README.md | README.md | Product context, CLI commands, graph viewer usage, repository structure |
 
 Read the convention files listed above for project-specific patterns and rules. All referenced paths have been extracted — no need to read index files to discover more.

@@ -3,11 +3,92 @@ set -u
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILLS_DIR="$ROOT_DIR/skills"
-BRIDGE_ROOT="$ROOT_DIR/.opencode/skills"
+GLOBAL_BRIDGE_ROOT="$HOME/.config/opencode/skills"
+PROJECT_BRIDGE_ROOT="$ROOT_DIR/.opencode/skills"
 REGISTRY_PATH="$ROOT_DIR/.atl/skill-registry.md"
 AGENTS_PATH="$ROOT_DIR/AGENTS.md"
+COMMANDS_SOURCE_DIR="$ROOT_DIR/commands"
+GLOBAL_COMMANDS_ROOT="$HOME/.config/opencode/commands"
+WITH_AGENT=false
+
+INSTALL_MODE=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --global)
+      [ -n "$INSTALL_MODE" ] && { echo "Choose only one scope: --global or --project"; exit 3; }
+      INSTALL_MODE="global"
+      ;;
+    --project)
+      [ -n "$INSTALL_MODE" ] && { echo "Choose only one scope: --global or --project"; exit 3; }
+      INSTALL_MODE="project"
+      ;;
+    --agent)
+      WITH_AGENT=true
+      ;;
+    *)
+      echo "Unknown argument: $1"
+      exit 3
+      ;;
+  esac
+  shift
+done
+
+if [ -z "$INSTALL_MODE" ]; then
+  if [ -t 0 ]; then
+    read -r -p "Install globally [G] or only for this project [P]? (default: P) " choice
+    if [[ "${choice:-}" =~ ^[Gg]$ ]]; then
+      INSTALL_MODE="global"
+    else
+      INSTALL_MODE="project"
+    fi
+  else
+    INSTALL_MODE="project"
+  fi
+fi
+
+if [ "$INSTALL_MODE" = "global" ]; then
+  BRIDGE_ROOT="$GLOBAL_BRIDGE_ROOT"
+else
+  BRIDGE_ROOT="$PROJECT_BRIDGE_ROOT"
+fi
 
 check_cmd() { command -v "$1" >/dev/null 2>&1; }
+
+insert_brain_ds_agent() {
+  local config_path="$HOME/.config/opencode/opencode.json"
+  mkdir -p "$(dirname "$config_path")"
+  python - "$config_path" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+if path.exists() and path.read_text(encoding="utf-8").strip():
+    data = json.loads(path.read_text(encoding="utf-8"))
+else:
+    data = {}
+
+agent = data.setdefault("agent", {})
+agent["brain-ds-orchestrator"] = {
+    "mode": "primary",
+    "model": "deepseek-v4-flash",
+    "tools": {"bash": True, "read": True, "write": True, "engram": True},
+    "permission": {"bash": {"*git*": "allow"}},
+}
+
+path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PY
+}
+
+deploy_brain_ds_commands() {
+  mkdir -p "$GLOBAL_COMMANDS_ROOT"
+  for name in brain-ds-pipeline.md brain-ds-map.md brain-ds-brd.md; do
+    src="$COMMANDS_SOURCE_DIR/$name"
+    dest="$GLOBAL_COMMANDS_ROOT/$name"
+    [ -f "$src" ] || { echo "Command template not found: $src"; return 1; }
+    cp "$src" "$dest"
+  done
+}
 
 if ! check_cmd opencode; then
   echo "OpenCode CLI not found. Install: https://opencode.ai/docs"
@@ -32,13 +113,15 @@ done < <(find "$SKILLS_DIR" -mindepth 2 -maxdepth 2 -type f -name "SKILL.md" | s
 
 mkdir -p "$BRIDGE_ROOT"
 
-for existing in "$BRIDGE_ROOT"/*; do
-  [ -d "$existing" ] || continue
-  name="$(basename "$existing")"
-  if [ ! -f "$SKILLS_DIR/$name/SKILL.md" ]; then
-    rm -rf "$existing"
-  fi
-done
+if [ "$INSTALL_MODE" = "project" ]; then
+  for existing in "$BRIDGE_ROOT"/*; do
+    [ -d "$existing" ] || continue
+    name="$(basename "$existing")"
+    if [ ! -f "$SKILLS_DIR/$name/SKILL.md" ]; then
+      rm -rf "$existing"
+    fi
+  done
+fi
 
 symlinked=()
 copied=()
@@ -55,7 +138,12 @@ for name in "${skill_names[@]}"; do
   fi
 
   rel_target="../../../skills/$name/SKILL.md"
-  if ln -s "$rel_target" "$dest" 2>/dev/null; then
+  if [ "$INSTALL_MODE" = "global" ]; then
+    target="$src"
+  else
+    target="$rel_target"
+  fi
+  if ln -s "$target" "$dest" 2>/dev/null; then
     symlinked+=("$name")
   else
     cp "$src" "$dest"
@@ -64,8 +152,8 @@ for name in "${skill_names[@]}"; do
   fi
 done
 
-registry_status="unchanged"
-if [ -f "$REGISTRY_PATH" ]; then
+registry_status="skipped (global mode)"
+if [ "$INSTALL_MODE" = "project" ] && [ -f "$REGISTRY_PATH" ]; then
   tmp="$REGISTRY_PATH.tmp"
   in_table=false
   changed=false
@@ -105,8 +193,12 @@ if [ -f "$REGISTRY_PATH" ]; then
   fi
 fi
 
-agents_status="already exists - skipping"
-if [ ! -f "$AGENTS_PATH" ]; then
+if [ "$INSTALL_MODE" = "project" ]; then
+  agents_status="already exists - skipping"
+else
+  agents_status="skipped (global mode)"
+fi
+if [ "$INSTALL_MODE" = "project" ] && [ ! -f "$AGENTS_PATH" ]; then
   cat > "$AGENTS_PATH" <<'EOF'
 # AGENTS.md
 
@@ -133,6 +225,15 @@ for n in "${symlinked[@]}"; do echo "- $n (symlink)"; done
 for n in "${copied[@]}"; do echo "- $n (copy)"; done
 echo "Registry: $registry_status"
 echo "AGENTS.md: $agents_status"
+if [ "$INSTALL_MODE" = "global" ]; then
+  echo "Global mode: restart OpenCode to load newly installed skills"
+fi
+if $WITH_AGENT; then
+  insert_brain_ds_agent
+  deploy_brain_ds_commands
+  echo "brain_ds agent: installed"
+  echo "brain_ds commands: deployed (3 files)"
+fi
 if ! $ENGRAM_OK; then
   echo "Warning: Engram not detected. Install: https://github.com/engram-labs/engram-opencode"
 fi

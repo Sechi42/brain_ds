@@ -1,4 +1,5 @@
 .opencode/
+.atl/
 private-brain-engram/
 .venv/
 __pycache__/

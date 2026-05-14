@@ -1,10 +1,101 @@
+[CmdletBinding()]
+param(
+  [switch]$Global,
+  [switch]$Project,
+  [switch]$Agent
+)
+
 $ErrorActionPreference = 'Stop'
 
 $RootDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $SkillsDir = Join-Path $RootDir 'skills'
-$BridgeRoot = Join-Path $RootDir '.opencode/skills'
+$GlobalBridgeRoot = Join-Path $HOME '.config/opencode/skills'
+$ProjectBridgeRoot = Join-Path $RootDir '.opencode/skills'
 $RegistryPath = Join-Path $RootDir '.atl/skill-registry.md'
 $AgentsPath = Join-Path $RootDir 'AGENTS.md'
+$CommandsSourceDir = Join-Path $RootDir 'commands'
+$GlobalCommandsRoot = Join-Path $HOME '.config/opencode/commands'
+
+function Insert-BrainDsAgent {
+  param([string]$ConfigPath)
+
+  New-Item -ItemType Directory -Path (Split-Path -Parent $ConfigPath) -Force | Out-Null
+
+  if (Test-Path -LiteralPath $ConfigPath) {
+    $raw = Get-Content -LiteralPath $ConfigPath -Raw
+    $cfg = if ([string]::IsNullOrWhiteSpace($raw)) { [pscustomobject]@{} } else { $raw | ConvertFrom-Json }
+  } else {
+    $cfg = [pscustomobject]@{}
+  }
+
+  if (-not ($cfg.PSObject.Properties.Name -contains 'agent')) {
+    $cfg | Add-Member -NotePropertyName 'agent' -NotePropertyValue ([pscustomobject]@{})
+  }
+
+  $desired = [pscustomobject]@{
+    mode = 'primary'
+    model = 'deepseek-v4-flash'
+    tools = [pscustomobject]@{
+      bash = $true
+      read = $true
+      write = $true
+      engram = $true
+    }
+    permission = [pscustomobject]@{
+      bash = [pscustomobject]@{
+        '*git*' = 'allow'
+      }
+    }
+  }
+
+  $existing = $cfg.agent.'brain-ds-orchestrator'
+  if ($null -eq $existing) {
+    $cfg.agent | Add-Member -NotePropertyName 'brain-ds-orchestrator' -NotePropertyValue $desired
+    $state = 'inserted'
+  } else {
+    $cfg.agent.'brain-ds-orchestrator' = $desired
+    $state = 'already exists - updated'
+  }
+
+  ($cfg | ConvertTo-Json -Depth 20) | Set-Content -LiteralPath $ConfigPath -Encoding UTF8
+  return $state
+}
+
+function Deploy-BrainDsCommands {
+  param([string]$DestinationRoot)
+
+  New-Item -ItemType Directory -Path $DestinationRoot -Force | Out-Null
+  $templates = @('brain-ds-pipeline.md', 'brain-ds-map.md', 'brain-ds-brd.md')
+  foreach ($name in $templates) {
+    $source = Join-Path $CommandsSourceDir $name
+    if (-not (Test-Path -LiteralPath $source)) {
+      throw "Command template not found: $source"
+    }
+    $dest = Join-Path $DestinationRoot $name
+    Copy-Item -LiteralPath $source -Destination $dest -Force
+  }
+  return $templates.Count
+}
+
+if ($Global -and $Project) {
+  "Choose only one scope: --global or --project"
+  exit 3
+}
+
+function Resolve-InstallMode {
+  if ($Global) { return 'global' }
+  if ($Project) { return 'project' }
+
+  $isInteractive = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
+  if (-not $isInteractive) { return 'project' }
+
+  $choice = Read-Host 'Install globally [G] or only for this project [P]? (default: P)'
+  if ($choice -match '^[Gg]$') { return 'global' }
+  return 'project'
+}
+
+$InstallMode = Resolve-InstallMode
+$BridgeRoot = if ($InstallMode -eq 'global') { $GlobalBridgeRoot } else { $ProjectBridgeRoot }
 
 function Test-CommandExists([string]$Name) {
   return [bool](Get-Command -Name $Name -ErrorAction SilentlyContinue)
@@ -32,11 +123,13 @@ $skillNames = @($skillFiles | ForEach-Object { $_.Directory.Name })
 
 New-Item -ItemType Directory -Path $BridgeRoot -Force | Out-Null
 
-$existingDirs = Get-ChildItem -LiteralPath $BridgeRoot -Directory -ErrorAction SilentlyContinue
-foreach ($dir in $existingDirs) {
-  $canonical = Join-Path $SkillsDir (Join-Path $dir.Name 'SKILL.md')
-  if (-not (Test-Path -LiteralPath $canonical)) {
-    Remove-Item -LiteralPath $dir.FullName -Recurse -Force
+if ($InstallMode -eq 'project') {
+  $existingDirs = Get-ChildItem -LiteralPath $BridgeRoot -Directory -ErrorAction SilentlyContinue
+  foreach ($dir in $existingDirs) {
+    $canonical = Join-Path $SkillsDir (Join-Path $dir.Name 'SKILL.md')
+    if (-not (Test-Path -LiteralPath $canonical)) {
+      Remove-Item -LiteralPath $dir.FullName -Recurse -Force
+    }
   }
 }
 
@@ -55,8 +148,9 @@ foreach ($name in $skillNames) {
   }
 
   $relativeTarget = "../../../skills/$name/SKILL.md"
+  $targetPath = if ($InstallMode -eq 'global') { $source } else { $relativeTarget }
   try {
-    New-Item -ItemType SymbolicLink -Path $destFile -Target $relativeTarget -Force | Out-Null
+    New-Item -ItemType SymbolicLink -Path $destFile -Target $targetPath -Force | Out-Null
     $symlinked.Add($name)
   } catch {
     Copy-Item -LiteralPath $source -Destination $destFile -Force
@@ -65,8 +159,8 @@ foreach ($name in $skillNames) {
   }
 }
 
-$registryStatus = 'unchanged'
-if (Test-Path -LiteralPath $RegistryPath) {
+$registryStatus = 'skipped (global mode)'
+if ($InstallMode -eq 'project' -and (Test-Path -LiteralPath $RegistryPath)) {
   $lines = Get-Content -LiteralPath $RegistryPath
   $updated = New-Object System.Collections.Generic.List[string]
   $inUserSkills = $false
@@ -103,8 +197,19 @@ if (Test-Path -LiteralPath $RegistryPath) {
   }
 }
 
-$agentsStatus = 'already exists - skipping'
-if (-not (Test-Path -LiteralPath $AgentsPath)) {
+$agentsStatus = 'skipped (global mode)'
+if ($InstallMode -eq 'project') {
+  $agentsStatus = 'already exists - skipping'
+}
+
+$agentStatus = 'skipped'
+$commandStatus = 'skipped'
+if ($Agent) {
+  $agentStatus = Insert-BrainDsAgent -ConfigPath $opencodeConfig
+  $count = Deploy-BrainDsCommands -DestinationRoot $GlobalCommandsRoot
+  $commandStatus = "deployed ($count files)"
+}
+if ($InstallMode -eq 'project' -and -not (Test-Path -LiteralPath $AgentsPath)) {
 @"
 # AGENTS.md
 
@@ -131,6 +236,13 @@ foreach ($n in $symlinked) { "- $n (symlink)" }
 foreach ($n in $copied) { "- $n (copy)" }
 "Registry: $registryStatus"
 "AGENTS.md: $agentsStatus"
+if ($InstallMode -eq 'global') {
+  "Global mode: restart OpenCode to load newly installed skills"
+}
+if ($Agent) {
+  "brain_ds agent: $agentStatus"
+  "brain_ds commands: $commandStatus"
+}
 if (-not $engramDetected) {
   "Warning: Engram not detected. Install: https://github.com/engram-labs/engram-opencode"
 }
