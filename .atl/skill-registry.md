@@ -20,6 +20,7 @@ See `_shared/skill-resolver.md` for the full resolution protocol.
 | When user says `/generate-brd` or `/generate-brd --save` | generate-brd | skills/generate-brd/SKILL.md |
 | When writing Go tests, using teatest, or adding test coverage | go-testing | <USER_HOME>/.config/opencode/skills/go-testing/SKILL.md |
 | When user says "judgment day", "judgment-day", "review adversarial", "dual review", "doble review", "juzgar", "que lo juzguen" | judgment-day | <USER_HOME>/.config/opencode/skills/judgment-day/SKILL.md |
+| UI design best practices for building accessible, performant, and user-friendly interfaces with modern web standards | ui-design | .agents/skills/ui-design/SKILL.md |
 
 ## Compact Rules
 
@@ -93,6 +94,15 @@ Pre-digested rules per skill. Delegators copy matching blocks into sub-agent pro
 - Treat theoretical warnings as INFO: report them, do not block or fix by default.
 - Synthesize confirmed, suspect, and contradictory findings before fixing.
 - Fix only confirmed criticals or real warnings, then re-judge; after two iterations escalate to the user.
+
+### ui-design
+- Establish clear visual hierarchy, cohesive color palette, readable typography, and consistent styling.
+- Maintain WCAG 2.1 AA contrast and semantic HTML; all interactive UI must be keyboard and screen-reader friendly.
+- Design responsively with relative units, flexible layout, and touch targets of at least 44x44 pixels where applicable.
+- Use familiar interaction patterns, clear calls to action, and helpful error/recovery messages.
+- Apply motion sparingly to enhance orientation, never to distract or hide state.
+- Optimize assets and non-critical loading so visual polish does not harm performance.
+- Prefer design-system thinking: reusable tokens, predictable spacing, labels, and component behavior.
 
 ### map-connections
 - Trigger only on explicit `/map-connections` command (manual slash-command skill).
