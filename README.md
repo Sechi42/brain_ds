@@ -22,15 +22,31 @@ Use these slash commands from OpenCode:
 | `/map-connections` | Build a cross-entity map from stored organizational knowledge |
 | `/map-connections --graph` | Same mapping flow, plus graph-oriented view/output |
 | `/map-connections --graph-json` | Generate and save `<org>-graph.json` graph data contract |
-| `/map-connections --graph-ui` | Generate graph JSON and auto-create interactive HTML viewer (when Python + pyvis are available) |
+| `/map-connections --graph-ui` | Generate graph JSON and auto-create interactive offline HTML viewer (default mode) |
 | `/generate-brd` | Generate a BRD from the mapped knowledge base |
+
+### Graph viewer quick start
+
+- Default interactive offline viewer: `uv run brain_ds ui <org-graph.json>`
+- Simple legacy fallback (PyVis): `uv run brain_ds ui <org-graph.json> --simple`
+- Optional auto-open: `uv run brain_ds ui <org-graph.json> --open`
+- Custom output path: `uv run brain_ds ui <org-graph.json> --output reports/viewer.html`
+- Compatibility fallback still supported: `python -m brain_ds.ui <org-graph.json>`
+
+#### Node detail cards (interactive viewer)
+
+- The interactive panel is **read-only** and renders from `RENDER_CONTEXT.detail_index` (Python render-prep contract), not from browser-side derivation.
+- Evidence appears as native `details/summary` blocks with provenance/source metadata when available.
+- Relationship rationale is grouped by **incoming** and **outgoing** links and includes reasons/evidence IDs when present.
+- Producer-first rule: generate structured `card_sections` + node `evidence_ids` + graph `evidence[]` during `/map-connections --graph-json` so the viewer can render complete node cards.
 
 ### Optional graph viewer dependency
 
-- Interactive HTML generation (`--graph-ui`) uses Python + `pyvis`.
-- Managed via project dependencies in `pyproject.toml` using `uv`.
-- Install/sync with: `uv sync`
-- If unavailable, the workflow still produces JSON output (`--graph-json`) and degrades gracefully.
+- Interactive HTML generation is Python-only and offline by default (vendored local JS/CSS embedded into output HTML).
+- `pyvis` is only required for `--simple` fallback mode.
+- Install base project with: `uv sync`
+- Enable `--simple` fallback dependency with: `uv sync --extra simple`
+- If `pyvis` is unavailable, interactive default still works; only `--simple` fails with a dependency hint.
 
 ## Organization scoping model
 
@@ -64,10 +80,11 @@ Source of truth: `brain_ds/ontology/entity_types.py` (`brain_ds.ontology.EntityT
 3. Run one installer from repo root:
    - PowerShell: `./install-opencode.ps1`
    - Bash: `./install-opencode.sh`
-4. Installer also runs `uv sync` automatically when `uv` is available to set up Python deps (including `pyvis`).
-5. If `uv` is missing, installer warns and continues. Install `uv`: https://docs.astral.sh/uv/getting-started/installation/
-6. Optional but recommended: install **Engram** for persistent memory/knowledge mapping (installer warns if missing and continues).
-7. Start with:
+4. Installer also runs `uv sync` automatically when `uv` is available to set up base Python deps.
+5. If you plan to use `--simple`, run `uv sync --extra simple`.
+6. If `uv` is missing, installer warns and continues. Install `uv`: https://docs.astral.sh/uv/getting-started/installation/
+7. Optional but recommended: install **Engram** for persistent memory/knowledge mapping (installer warns if missing and continues).
+8. Start with:
    - `/elicit-context`
    - `/map-connections`
    - `/generate-brd`
@@ -94,4 +111,4 @@ Source of truth: `brain_ds/ontology/entity_types.py` (`brain_ds.ontology.EntityT
 ## Roadmap
 
 - Next entity families: **Person**, **Event**, **Measurement**
-- Later: **interactive UI** for exploration and graph navigation
+- ✅ Interactive offline graph viewer (search, filter, legend, neighborhood highlight, layout controls)

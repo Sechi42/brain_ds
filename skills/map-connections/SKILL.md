@@ -25,7 +25,7 @@ metadata:
 | `/map-connections --org <name|slug>` | Read-only mode with one-run org override; no active-org mutation. |
 | `/map-connections --graph` | Read-only mode. Build and show Mermaid output (`graph TD`) with overview/detail blocks. No persistence. |
 | `/map-connections --graph-json` | Read-only mode. Build graph JSON and save `<org>-graph.json` to disk. No persistence by default. |
-| `/map-connections --graph-ui` | Build graph JSON, save `<org>-graph.json`, then auto-run `python scripts/generate_viewer.py <org>-graph.json` when available. |
+| `/map-connections --graph-ui` | Build graph JSON, save `<org>-graph.json`, then auto-run `uv run brain_ds ui <org>-graph.json` when available. |
 | `/map-connections --graph-json --save` | Build graph JSON, save to disk, then persist via `mem_save` with `type: discovery` and `topic_key: org/<slug>/domain/graph-json/{YYYY-MM-DD}`. |
 | `/map-connections --save` | Build report, show it, then persist via `mem_save` with `type: discovery` and `topic_key: org/<slug>/domain/map/{YYYY-MM-DD}`. |
 
@@ -211,7 +211,14 @@ When command includes `--graph-json`, produce JSON data contract output instead 
         "why": "...",
         "where": "...",
         "learned": "..."
-      }
+      },
+      "card_sections": [
+        {"title": "What", "content": "...", "icon": "info", "order": 1},
+        {"title": "Why", "content": "...", "icon": "target", "order": 2},
+        {"title": "Where", "content": "...", "icon": "map-pin", "order": 3},
+        {"title": "Learned", "content": "...", "icon": "lightbulb", "order": 4}
+      ],
+      "evidence_ids": ["obs-123"]
     }
   ],
   "edges": [
@@ -238,6 +245,11 @@ Edge scoring fields are optional and backward-compatible:
 
 Rules:
 - Always run the same 12-query retrieval workflow, dedupe IDs, and fetch full records with `mem_get_observation`.
+- Build top-level `evidence[]` records from deduped observations (`id`, `type`, `source`, `content`, `provenance`, `timestamp`).
+- Every node SHOULD include `card_sections` when `details` content exists; if all detail fields are empty, set `card_sections` to `null`.
+- Every node SHOULD include `evidence_ids` linking to `evidence[].id` when source observations are known; use `null` when unavailable.
+- Edges MUST keep `evidence_ids` linked to the same `evidence[].id` namespace used by nodes.
+- Do not create entity-family-specific card templates in producer output; keep generic ordered sections only.
 - Save JSON locally as `<resolved-org-slug>-graph.json`.
 - `--graph-json` alone does **not** invoke Python viewer generation.
 
@@ -265,10 +277,12 @@ When command includes `--graph-ui`, run end-to-end automation:
 1. Generate graph JSON exactly as `--graph-json` mode.
 2. Save `<resolved-org-slug>-graph.json`.
 3. Attempt viewer generation with:
-   - `python scripts/generate_viewer.py <resolved-org-slug>-graph.json`
+   - `uv run brain_ds ui <resolved-org-slug>-graph.json`
 4. On success, report both JSON and HTML output paths.
-5. On failure (Python missing, `pyvis` missing, or script error), keep JSON output and show clear hint:
-   - `uv sync`
+5. On failure (CLI unavailable, browser-open issue, Python missing, or command error), keep JSON output and show clear hint:
+    - `uv sync`
+   - If HTML generation succeeds but browser open fails, treat it as success and return the HTML path (graceful degradation).
+   - If `--simple` is explicitly requested elsewhere and `pyvis` is missing, report that only simple fallback requires `pyvis`.
 
 Graceful-degrade contract:
 - Failure to generate HTML MUST NOT fail JSON generation.

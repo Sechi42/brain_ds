@@ -34,6 +34,7 @@ class Node:
     details: dict[str, str] = field(default_factory=dict)
     supertype: str | None = None
     card_sections: list[CardSection] | None = None
+    evidence_ids: list[str] | None = None
     editable_fields: list[str] | None = None
     layout_hint: dict | None = None
 
@@ -87,6 +88,8 @@ class Graph:
                     }
                     for section in node.card_sections
                 ]
+            if node.evidence_ids is not None:
+                payload["evidence_ids"] = node.evidence_ids
             if node.editable_fields is not None:
                 payload["editable_fields"] = node.editable_fields
             if node.layout_hint is not None:
@@ -144,6 +147,7 @@ class Graph:
                     if node.get("card_sections") is not None
                     else None
                 ),
+                evidence_ids=node.get("evidence_ids"),
                 editable_fields=node.get("editable_fields"),
                 layout_hint=node.get("layout_hint"),
             )

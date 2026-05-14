@@ -1,9 +1,8 @@
 import re
 import unittest
-from importlib import util
-from pathlib import Path
 
 from brain_ds.ontology import Edge, EntityType, Node, RelationshipType, TYPE_COLORS
+from brain_ds.ui import simple_renderer
 
 
 class TestEntityType(unittest.TestCase):
@@ -74,22 +73,18 @@ class TestGraphModel(unittest.TestCase):
 
 
 class TestViewerOntologyIntegration(unittest.TestCase):
-    @staticmethod
-    def _load_viewer_module():
-        viewer_path = Path(__file__).resolve().parents[1] / "scripts" / "generate_viewer.py"
-        spec = util.spec_from_file_location("generate_viewer", viewer_path)
-        module = util.module_from_spec(spec)
-        assert spec and spec.loader
-        spec.loader.exec_module(module)
-        return module
-
     def test_viewer_module_import_does_not_require_pyvis(self):
-        module = self._load_viewer_module()
-        self.assertTrue(hasattr(module, "build_network"))
+        self.assertTrue(hasattr(simple_renderer, "build_network"))
+        self.assertTrue(callable(simple_renderer._load_network_class))
+
+    def test_lazy_pyvis_loader_returns_none_when_dependency_missing(self):
+        network_cls = simple_renderer._load_network_class()
+        if network_cls is None:
+            self.assertIsNone(network_cls)
+        else:
+            self.assertEqual(network_cls.__name__, "Network")
 
     def test_viewer_unknown_type_uses_ontology_fallback_color(self):
-        module = self._load_viewer_module()
-
         class FakeNetwork:
             def __init__(self, **kwargs):
                 self.nodes = []
@@ -111,7 +106,7 @@ class TestViewerOntologyIntegration(unittest.TestCase):
             "edges": [],
         }
 
-        net = module.build_network(graph, FakeNetwork)
+        net = simple_renderer.build_network(graph, FakeNetwork)
         colors = {node["n_id"]: node["color"] for node in net.nodes}
         groups = {node["n_id"]: node["group"] for node in net.nodes}
 

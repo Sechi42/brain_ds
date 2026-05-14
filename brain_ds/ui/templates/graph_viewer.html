@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>brain_ds Graph Viewer</title>
+    <style>
+      __BRAIN_DS_THEME_TOKENS__
+      __VIS_NETWORK_CSS__
+      :root {
+        color-scheme: dark;
+        --bg: var(--theme-background);
+        --surface: var(--theme-surface);
+        --surface-2: var(--theme-surface-elevated);
+        --border: var(--theme-border);
+        --text: var(--theme-text);
+        --text-muted: var(--theme-text-muted);
+        --focus: var(--theme-focus-ring);
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: Inter, Segoe UI, Arial, sans-serif; background: var(--bg); color: var(--text); }
+      .topbar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.75rem; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--surface); }
+      .meta { font-size: 0.92rem; color: var(--text-muted); }
+      .layout { display: grid; grid-template-columns: minmax(260px, 320px) 1fr minmax(280px, 360px); gap: 12px; padding: 12px; }
+      .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+      .detail-panel { display: grid; gap: 0.75rem; align-content: start; max-height: calc(100vh - 110px); overflow: auto; transition: transform 300ms ease, opacity 300ms ease; }
+      .detail-panel.is-collapsed { transform: translateX(101%); opacity: 0; pointer-events: none; }
+      .detail-panel.is-empty .detail-body { color: var(--text-muted); }
+      .detail-header { display: grid; gap: 0.25rem; }
+      .detail-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .detail-actions button { min-width: 44px; }
+      .detail-title { margin: 0; font-size: 1.1rem; }
+      .detail-meta { color: var(--text-muted); font-size: 0.9rem; }
+      .detail-body { display: grid; gap: 0.6rem; }
+      .detail-card { border: 1px solid var(--theme-card-divider); border-left: 4px solid var(--theme-card-accent-border); border-radius: var(--theme-card-radius); padding: 0.55rem 0.65rem; background: var(--theme-card-bg); }
+      .detail-card h3 { margin: 0 0 0.35rem; font-size: 0.95rem; }
+      .detail-card p { margin: 0; white-space: pre-wrap; }
+      .card-icon { font-size: 0.85rem; color: var(--text-muted); display: block; margin-bottom: 0.2rem; }
+      .detail-section { display: grid; gap: 0.5rem; }
+      .detail-section h3 { margin: 0; font-size: 1rem; }
+      .relationship-group { border-top: 1px solid var(--border); padding-top: 0.5rem; }
+      .relationship-group h4 { margin: 0 0 0.4rem; font-size: 0.92rem; color: var(--text-muted); }
+      .relationship-list { margin: 0; padding-left: 1rem; display: grid; gap: 0.35rem; }
+      .relationship-reasons, .relationship-evidence { margin: 0.2rem 0 0 0; color: var(--text-muted); font-size: 0.88rem; }
+      .evidence-list { display: grid; gap: 0.5rem; }
+      .evidence-item { border: 1px solid var(--theme-card-divider); border-radius: var(--theme-card-radius); background: var(--theme-card-bg); }
+      .evidence-item summary { cursor: pointer; padding: 0.5rem 0.65rem; min-height: 44px; display: flex; align-items: center; gap: 0.4rem; }
+      .evidence-item > div { border-top: 1px solid var(--theme-card-divider); padding: 0.5rem 0.65rem; }
+      .badge { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 0.08rem 0.45rem; font-size: 0.78rem; color: var(--text-muted); }
+      .evidence-source { font-size: 0.85rem; color: var(--text-muted); }
+      .controls { display: grid; gap: 0.75rem; align-content: start; max-height: calc(100vh - 110px); overflow: auto; }
+      .control-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .button, button { min-height: 44px; padding: 0.45rem 0.75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--text); cursor: pointer; }
+      button[aria-pressed='true'] { border-color: var(--focus); }
+      .filter-item { display: flex; align-items: center; gap: 0.5rem; margin: 0.35rem 0; min-height: 44px; }
+      .chip { display: inline-flex; width: 14px; height: 14px; border-radius: 3px; }
+      .legend-item { display: flex; align-items: center; gap: 0.5rem; min-height: 44px; }
+      .legend-item button { width: 100%; text-align: left; }
+      .search-group { display: grid; gap: 0.4rem; }
+      #search-results { margin: 0; padding-left: 1rem; }
+      #network { height: calc(100vh - 115px); border: 1px solid var(--border); border-radius: 10px; background: #0b1220; }
+      :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+      @media (prefers-reduced-motion: reduce) {
+        .detail-panel { transition: none; }
+      }
+      @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } #network { height: 70vh; } .detail-panel.is-collapsed { transform: translateY(101%); } }
+    </style>
+  </head>
+  <body>
+    <header class="topbar" aria-label="Organization context bar">
+      <div>
+        <strong id="org-name">Organization</strong>
+        <div class="meta" id="org-meta">0 nodes · 0 edges</div>
+      </div>
+      <div class="meta" id="org-ts"></div>
+    </header>
+    <main class="layout">
+      <aside class="panel controls" aria-label="Graph controls">
+        <section class="search-group" aria-labelledby="search-label">
+          <label id="search-label" for="node-search">Search node</label>
+          <input id="node-search" type="search" autocomplete="off" placeholder="Type a name or id" />
+          <ol id="search-results" aria-live="polite"></ol>
+        </section>
+        <section>
+          <h2>Filters</h2>
+          <div class="control-row">
+            <button type="button" id="show-all">Show all</button>
+            <button type="button" id="hide-all">Hide all</button>
+          </div>
+          <div id="type-filters"></div>
+        </section>
+        <section>
+          <h2>Legend</h2>
+          <div id="legend"></div>
+        </section>
+        <section>
+          <h2>Layout</h2>
+          <div class="control-row">
+            <button type="button" id="toggle-hierarchical" aria-pressed="true">Hierarchical</button>
+            <button type="button" id="toggle-physics" aria-pressed="false">Physics</button>
+            <button type="button" id="zoom-fit">Zoom to fit</button>
+          </div>
+        </section>
+      </aside>
+      <div class="panel">
+        <div id="network" role="img" aria-label="Organization graph"></div>
+      </div>
+      <aside id="detail-panel" class="panel detail-panel is-empty" aria-label="Node details" aria-live="polite" aria-labelledby="detail-title">
+        <div class="detail-header">
+          <h2 id="detail-title" class="detail-title">Node details</h2>
+          <div id="detail-meta" class="detail-meta">Select a node to view details</div>
+          <div class="detail-actions">
+            <button type="button" id="detail-collapse" aria-controls="detail-panel" aria-expanded="true" aria-label="Collapse detail panel">Collapse</button>
+            <button type="button" id="detail-close" aria-label="Clear selected node">Close</button>
+          </div>
+        </div>
+        <div id="detail-body" class="detail-body" data-state="empty">Select a node to view details</div>
+      </aside>
+    </main>
+    <script>
+      __VIS_NETWORK_JS__
+      const RENDER_CONTEXT = __BRAIN_DS_RENDER_CONTEXT__;
+      const meta = RENDER_CONTEXT.meta || {};
+      const typeGroups = RENDER_CONTEXT.type_groups || [];
+      document.getElementById("org-name").textContent = meta.org || "Organization";
+      document.getElementById("org-meta").textContent = `${meta.node_count || 0} nodes · ${meta.edge_count || 0} edges`;
+      document.getElementById("org-ts").textContent = meta.generated_at ? `Generated: ${meta.generated_at}` : "";
+
+      const nodes = new vis.DataSet(RENDER_CONTEXT.nodes || []);
+      const edges = new vis.DataSet(RENDER_CONTEXT.edges || []);
+      const container = document.getElementById("network");
+      const adjacency = RENDER_CONTEXT.adjacency || {};
+      const detailIndex = RENDER_CONTEXT.detail_index || {};
+      const originalNodes = new Map((RENDER_CONTEXT.nodes || []).map((n) => [n.id, { ...n }]));
+      const originalEdges = new Map((RENDER_CONTEXT.edges || []).map((e, i) => [i, { ...e, id: i }]));
+      const hiddenTypes = new Set();
+      let selectedNodeId = null;
+
+      const network = new vis.Network(container, { nodes, edges }, {
+        layout: { hierarchical: { enabled: true, direction: "UD" } },
+        interaction: { hover: true, navigationButtons: true, keyboard: true },
+        physics: { enabled: false },
+        edges: {
+          arrows: { to: { enabled: true, scaleFactor: 0.7 } },
+          smooth: { enabled: true, type: "cubicBezier" }
+        },
+        nodes: { shape: "dot", size: 18 }
+      });
+
+      const visibleNodeIds = () => new Set((RENDER_CONTEXT.nodes || []).filter((n) => !hiddenTypes.has(n.type)).map((n) => n.id));
+      const applyVisibility = () => {
+        const visible = visibleNodeIds();
+        nodes.update((RENDER_CONTEXT.nodes || []).map((n) => ({ id: n.id, hidden: !visible.has(n.id), opacity: 1, borderWidth: 1 })));
+        edges.update((RENDER_CONTEXT.edges || []).map((e, i) => ({ id: i, hidden: !(visible.has(e.from) && visible.has(e.to)), opacity: 1 })));
+      };
+      const resetHighlight = () => {
+        selectedNodeId = null;
+        nodes.update((RENDER_CONTEXT.nodes || []).map((n) => ({ id: n.id, opacity: 1, borderWidth: 1 })));
+        edges.update((RENDER_CONTEXT.edges || []).map((_, i) => ({ id: i, opacity: 1 })));
+        renderDetailPanel(null);
+      };
+      const detailPanel = document.getElementById("detail-panel");
+      const detailTitle = document.getElementById("detail-title");
+      const detailMeta = document.getElementById("detail-meta");
+      const detailBody = document.getElementById("detail-body");
+      const detailCollapseBtn = document.getElementById("detail-collapse");
+      const detailCloseBtn = document.getElementById("detail-close");
+      const arrow = { incoming: "←", outgoing: "→" };
+      const collapseDetailPanel = (collapsed) => {
+        detailPanel.classList.toggle("is-collapsed", collapsed);
+        detailCollapseBtn.setAttribute("aria-expanded", String(!collapsed));
+        detailCollapseBtn.textContent = collapsed ? "Expand" : "Collapse";
+      };
+      const renderEvidence = (evidence) => {
+        const root = document.createElement("section");
+        root.className = "detail-section";
+        const heading = document.createElement("h3");
+        heading.textContent = "Evidence";
+        root.appendChild(heading);
+        const list = document.createElement("div");
+        list.className = "evidence-list";
+        evidence.forEach((item) => {
+          const details = document.createElement("details");
+          details.className = "evidence-item";
+          const summary = document.createElement("summary");
+          summary.textContent = item.content ? `${String(item.content).slice(0, 96)}${item.content.length > 96 ? "…" : ""}` : item.id;
+          const typeBadge = document.createElement("span");
+          typeBadge.className = "badge";
+          typeBadge.textContent = item.type || "evidence";
+          summary.prepend(typeBadge);
+          details.appendChild(summary);
+          const body = document.createElement("div");
+          const source = document.createElement("div");
+          source.className = "evidence-source";
+          source.textContent = `Source: ${item.source || "unknown"}`;
+          body.appendChild(source);
+          if (item.provenance) {
+            const prov = document.createElement("pre");
+            prov.className = "relationship-evidence";
+            prov.textContent = JSON.stringify(item.provenance, null, 2);
+            body.appendChild(prov);
+          }
+          details.appendChild(body);
+          list.appendChild(details);
+        });
+        root.appendChild(list);
+        return root;
+      };
+      const renderRelationships = (relationships) => {
+        const hasIncoming = (relationships.incoming || []).length > 0;
+        const hasOutgoing = (relationships.outgoing || []).length > 0;
+        if (!hasIncoming && !hasOutgoing) return null;
+        const root = document.createElement("section");
+        root.className = "detail-section";
+        const heading = document.createElement("h3");
+        heading.textContent = "Relationship rationale";
+        root.appendChild(heading);
+        ["incoming", "outgoing"].forEach((direction) => {
+          const rows = relationships[direction] || [];
+          if (!rows.length) return;
+          const group = document.createElement("div");
+          group.className = "relationship-group";
+          const gHeading = document.createElement("h4");
+          gHeading.textContent = direction[0].toUpperCase() + direction.slice(1);
+          group.appendChild(gHeading);
+          const list = document.createElement("ul");
+          list.className = "relationship-list";
+          rows.forEach((row) => {
+            const li = document.createElement("li");
+            const name = direction === "incoming" ? row.source_label : row.target_label;
+            li.textContent = `${arrow[direction]} ${name} · ${row.edge_label}`;
+            if ((row.reasons || []).length) {
+              const reasons = document.createElement("div");
+              reasons.className = "relationship-reasons";
+              reasons.textContent = `Reasons: ${(row.reasons || []).join("; ")}`;
+              li.appendChild(reasons);
+            }
+            if ((row.evidence_ids || []).length) {
+              const evidenceIds = document.createElement("div");
+              evidenceIds.className = "relationship-evidence";
+              evidenceIds.textContent = `Evidence IDs: ${(row.evidence_ids || []).join(", ")}`;
+              li.appendChild(evidenceIds);
+            }
+            list.appendChild(li);
+          });
+          group.appendChild(list);
+          root.appendChild(group);
+        });
+        return root;
+      };
+      const renderDetailPanel = (nodeId) => {
+        const detail = nodeId ? detailIndex[nodeId] : null;
+        if (!detail) {
+          detailPanel.classList.add("is-empty");
+          detailBody.setAttribute("data-state", "empty");
+          detailTitle.textContent = "Node details";
+          detailMeta.textContent = "Select a node to view details";
+          detailBody.textContent = "Select a node to view details";
+          collapseDetailPanel(false);
+          return;
+        }
+        detailPanel.classList.remove("is-empty");
+        detailBody.setAttribute("data-state", "ready");
+        detailTitle.textContent = detail.node.label || detail.node.id;
+        detailMeta.textContent = `${detail.node.type} · ${detail.node.supertype}`;
+        detailBody.innerHTML = "";
+
+        const sections = detail.sections || [];
+        let rendered = false;
+        sections.forEach((section) => {
+          const article = document.createElement("article");
+          article.className = "detail-card";
+          article.style.borderLeftColor = section.accent_color || detail.node.color || "var(--focus)";
+          if (section.icon) {
+            const iconEl = document.createElement("span");
+            iconEl.className = "card-icon";
+            iconEl.textContent = section.icon;
+            article.appendChild(iconEl);
+          }
+          const heading = document.createElement("h3");
+          heading.textContent = section.title || "Section";
+          const content = document.createElement("p");
+          content.textContent = section.content || "";
+          article.appendChild(heading);
+          article.appendChild(content);
+          detailBody.appendChild(article);
+        });
+        if (sections.length) rendered = true;
+
+        const evidence = detail.evidence || [];
+        if (evidence.length) {
+          detailBody.appendChild(renderEvidence(evidence));
+          rendered = true;
+        }
+        const relationships = renderRelationships(detail.relationships || {});
+        if (relationships) {
+          detailBody.appendChild(relationships);
+          rendered = true;
+        }
+        if (!rendered) {
+          detailBody.textContent = "No details available";
+        }
+        collapseDetailPanel(false);
+      };
+      const focusNode = (nodeId) => {
+        const node = originalNodes.get(nodeId);
+        if (!node) return;
+        selectedNodeId = nodeId;
+        network.focus(nodeId, { scale: 1.15, animation: true });
+        const nearby = new Set([nodeId, ...(adjacency[nodeId] || [])]);
+        nodes.update((RENDER_CONTEXT.nodes || []).map((n) => ({ id: n.id, opacity: nearby.has(n.id) ? 1 : 0.2, borderWidth: n.id === nodeId ? 4 : 1 })));
+        edges.update((RENDER_CONTEXT.edges || []).map((e, i) => ({ id: i, opacity: nearby.has(e.from) && nearby.has(e.to) ? 1 : 0.2 })));
+        renderDetailPanel(nodeId);
+      };
+
+      const searchInput = document.getElementById("node-search");
+      const searchResults = document.getElementById("search-results");
+      const allNodes = RENDER_CONTEXT.nodes || [];
+      const topMatches = (q) => {
+        if (!q) return [];
+        const query = q.toLowerCase();
+        return allNodes
+          .filter((n) => n.label.toLowerCase().includes(query) || n.id.toLowerCase().includes(query))
+          .sort((a, b) => Number(!(a.label.toLowerCase() === query)) - Number(!(b.label.toLowerCase() === query)) || a.label.localeCompare(b.label))
+          .slice(0, 10);
+      };
+      const renderResults = (items) => {
+        searchResults.innerHTML = "";
+        items.forEach((item) => {
+          const li = document.createElement("li");
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.textContent = `${item.label} (${item.type})`;
+          btn.addEventListener("click", () => { focusNode(item.id); searchResults.innerHTML = ""; });
+          li.appendChild(btn);
+          searchResults.appendChild(li);
+        });
+      };
+      searchInput.addEventListener("input", () => renderResults(topMatches(searchInput.value.trim())));
+      searchInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          const first = topMatches(searchInput.value.trim())[0];
+          if (first) focusNode(first.id);
+          searchResults.innerHTML = "";
+        }
+        if (event.key === "Escape") {
+          searchInput.value = "";
+          searchResults.innerHTML = "";
+          resetHighlight();
+          applyVisibility();
+        }
+      });
+
+      const filtersRoot = document.getElementById("type-filters");
+      const legendRoot = document.getElementById("legend");
+      const typeCheckboxes = new Map();
+      const toggleType = (typeName, enabled) => {
+        if (enabled) hiddenTypes.delete(typeName); else hiddenTypes.add(typeName);
+        if (typeCheckboxes.has(typeName)) typeCheckboxes.get(typeName).checked = enabled;
+        applyVisibility();
+      };
+      typeGroups.forEach((group) => {
+        const h = document.createElement("h3");
+        h.textContent = group.supertype;
+        filtersRoot.appendChild(h);
+        group.types.forEach((t) => {
+          const label = document.createElement("label");
+          label.className = "filter-item";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.checked = true;
+          cb.addEventListener("change", () => toggleType(t.type, cb.checked));
+          typeCheckboxes.set(t.type, cb);
+          const chip = document.createElement("span");
+          chip.className = "chip";
+          chip.style.background = t.color;
+          label.appendChild(cb);
+          label.appendChild(chip);
+          label.appendChild(document.createTextNode(`${t.type} (${t.count})`));
+          filtersRoot.appendChild(label);
+
+          const legendItem = document.createElement("div");
+          legendItem.className = "legend-item";
+          const legendBtn = document.createElement("button");
+          legendBtn.type = "button";
+          legendBtn.innerHTML = `<span class='chip' style='background:${t.color}'></span> ${t.type}`;
+          legendBtn.addEventListener("click", () => toggleType(t.type, hiddenTypes.has(t.type)));
+          legendItem.appendChild(legendBtn);
+          legendRoot.appendChild(legendItem);
+        });
+      });
+
+      document.getElementById("show-all").addEventListener("click", () => { hiddenTypes.clear(); applyVisibility(); typeCheckboxes.forEach((cb) => { cb.checked = true; }); });
+      document.getElementById("hide-all").addEventListener("click", () => { typeCheckboxes.forEach((cb, typeName) => { cb.checked = false; hiddenTypes.add(typeName); }); applyVisibility(); });
+
+      document.getElementById("toggle-hierarchical").addEventListener("click", (event) => {
+        const pressed = event.currentTarget.getAttribute("aria-pressed") === "true";
+        const next = !pressed;
+        event.currentTarget.setAttribute("aria-pressed", String(next));
+        network.setOptions({ layout: { hierarchical: { enabled: next, direction: "UD" } }, physics: { enabled: next ? false : (document.getElementById("toggle-physics").getAttribute("aria-pressed") === "true") } });
+      });
+      document.getElementById("toggle-physics").addEventListener("click", (event) => {
+        const pressed = event.currentTarget.getAttribute("aria-pressed") === "true";
+        const next = !pressed;
+        event.currentTarget.setAttribute("aria-pressed", String(next));
+        network.setOptions({ physics: { enabled: next } });
+      });
+      document.getElementById("zoom-fit").addEventListener("click", () => network.fit({ animation: true }));
+      detailCollapseBtn.addEventListener("click", () => collapseDetailPanel(!detailPanel.classList.contains("is-collapsed")));
+      detailCloseBtn.addEventListener("click", () => {
+        resetHighlight();
+        applyVisibility();
+        detailCloseBtn.blur();
+      });
+      detailPanel.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          resetHighlight();
+          applyVisibility();
+        }
+      });
+      network.on("click", (params) => {
+        if (params.nodes && params.nodes[0]) {
+          focusNode(params.nodes[0]);
+        } else if (selectedNodeId) {
+          resetHighlight();
+          applyVisibility();
+        }
+      });
+
+      applyVisibility();
+      renderDetailPanel(null);
+    </script>
+  </body>
+</html>

@@ -3,3 +3,6 @@ private-brain-engram/
 .venv/
 __pycache__/
 *.pyc
+brain_ds.egg-info/
+dist/
+.pytest_cache/

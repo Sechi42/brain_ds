@@ -14,13 +14,16 @@ wheels = [
 [[package]]
 name = "brain-ds"
 version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
+source = { editable = "." }
+
+[package.optional-dependencies]
+simple = [
     { name = "pyvis" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pyvis", specifier = ">=0.3" }]
+requires-dist = [{ name = "pyvis", marker = "extra == 'simple'", specifier = ">=0.3" }]
+provides-extras = ["simple"]
 
 [[package]]
 name = "colorama"
