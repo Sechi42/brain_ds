@@ -1,4 +1,7 @@
 import json
+import io
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,13 +9,94 @@ from unittest.mock import patch
 
 from brain_ds.ui.render_context import build_render_context
 from brain_ds.ui.template_renderer import render_interactive_html
-from brain_ds.ui.viewer import render_graph_file
+from brain_ds.ui.viewer import render_graph_data, render_graph_file
 
 
 FORBIDDEN_REMOTE_TOKENS = ("http://", "https://", "unpkg", "cdn")
 
 
 class TestViewerFoundation(unittest.TestCase):
+    def test_render_graph_data_blocks_invalid_graph_before_graph_from_v1(self):
+        invalid_graph = {
+            "schema_version": "1.0",
+            "org": "Acme",
+            "nodes": [{"id": "n1", "label": "Node 1", "type": "Company"}],
+            "edges": [],
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "viewer.html"
+            with patch("brain_ds.ui.viewer.Graph.from_v1", side_effect=AssertionError("must not call")) as graph_from_v1_mock:
+                with self.assertRaisesRegex(ValueError, "Validation failed"):
+                    render_graph_data(invalid_graph, output_path=output_path)
+
+            graph_from_v1_mock.assert_not_called()
+
+    def test_render_graph_data_force_bypasses_validation_and_calls_graph_from_v1(self):
+        invalid_graph = {
+            "org": "Acme",
+            "nodes": [{"id": "n1", "label": "Node 1", "type": "Department"}],
+            "edges": [],
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "viewer.html"
+            out = render_graph_data(invalid_graph, output_path=output_path, force=True)
+            self.assertIsInstance(out, Path)
+            self.assertTrue(out.exists())
+
+    def test_generate_viewer_help_runs_without_import_error(self):
+        script_path = Path(__file__).resolve().parent.parent / "scripts" / "generate_viewer.py"
+        result = subprocess.run(
+            [sys.executable, str(script_path), "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn("ImportError", result.stderr)
+
+    def test_render_graph_data_returns_path_for_valid_dict(self):
+        graph_dict = {
+            "schema_version": "1.0",
+            "org": "LogiTrans",
+            "nodes": [{"id": "n1", "label": "N1", "type": "Department"}],
+            "edges": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            out = render_graph_data(graph_dict, output_path=Path(tmp) / "viewer.html")
+            self.assertIsInstance(out, Path)
+            self.assertTrue(out.exists())
+            self.assertIn("LogiTrans", out.read_text(encoding="utf-8"))
+
+    def test_render_graph_data_stdout_writes_html_and_returns_dash(self):
+        graph_dict = {
+            "schema_version": "1.0",
+            "org": "StdoutOrg",
+            "nodes": [{"id": "n1", "label": "N1", "type": "Department"}],
+            "edges": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            output_capture = io.StringIO()
+            with patch("sys.stdout", output_capture):
+                out = render_graph_data(graph_dict, output_path="-")
+            self.assertEqual(out, "-")
+            self.assertIn("StdoutOrg", output_capture.getvalue())
+            self.assertFalse((Path(tmp) / "graph-output.html").exists())
+
+    def test_render_graph_data_without_output_defaults_to_cwd_graph_output_html(self):
+        graph_dict = {
+            "schema_version": "1.0",
+            "org": "DefaultOrg",
+            "nodes": [{"id": "n1", "label": "N1", "type": "Department"}],
+            "edges": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("pathlib.Path.cwd", return_value=Path(tmp)):
+                out = render_graph_data(graph_dict)
+            self.assertEqual(out, Path(tmp) / "graph-output.html")
+            self.assertTrue(out.exists())
+
     def test_interactive_template_renders_from_package_resources(self):
         html = render_interactive_html(
             {
@@ -124,6 +208,7 @@ class TestViewerFoundation(unittest.TestCase):
             graph_path.write_text(
                 json.dumps(
                     {
+                        "schema_version": "1.0",
                         "org": "LogiTrans",
                         "nodes": [{"id": "n1", "label": "N1", "type": "Department"}],
                         "edges": [],
@@ -145,6 +230,7 @@ class TestViewerFoundation(unittest.TestCase):
             graph_path.write_text(
                 json.dumps(
                     {
+                        "schema_version": "1.0",
                         "org": "OfflineOrg",
                         "nodes": [{"id": "n1", "label": "N1", "type": "Department"}],
                         "edges": [],
@@ -173,6 +259,7 @@ class TestViewerFoundation(unittest.TestCase):
             graph_path.write_text(
                 json.dumps(
                     {
+                        "schema_version": "1.0",
                         "org": "Acme",
                         "nodes": [{"id": "n1", "label": "N1", "type": "Department"}],
                         "edges": [],
@@ -206,6 +293,7 @@ class TestViewerFoundation(unittest.TestCase):
             graph_path.write_text(
                 json.dumps(
                     {
+                        "schema_version": "1.0",
                         "org": "Acme",
                         "nodes": [
                             {
@@ -251,7 +339,10 @@ class TestViewerFoundation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             graph_path = tmp_path / "graph.json"
-            graph_path.write_text(json.dumps({"nodes": [], "edges": []}), encoding="utf-8")
+            graph_path.write_text(
+                json.dumps({"schema_version": "1.0", "org": "Acme", "nodes": [], "edges": []}),
+                encoding="utf-8",
+            )
             output_path = tmp_path / "simple.html"
 
             with patch("brain_ds.ui.viewer.render_simple_html", return_value=output_path) as simple_mock:
