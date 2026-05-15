@@ -149,6 +149,28 @@ class TestGraphContract(unittest.TestCase):
         graph = Graph.from_v1(payload)
         self.assertEqual(graph.nodes[0].evidence_ids, ["obs-7", "obs-9"])
 
+    def test_from_v1_accepts_strict_flag_default_true(self):
+        payload = {
+            "schema_version": "2.0.0",
+            "org": "Acme",
+            "nodes": [{"id": "n1", "label": "Sales", "type": "Department"}],
+            "edges": [],
+        }
+
+        graph = Graph.from_v1(payload, strict=True)
+        self.assertEqual(graph.org, "Acme")
+
+    def test_from_v1_accepts_strict_false_for_legacy_callers(self):
+        payload = {
+            "schema_version": "2.0.0",
+            "org": "Legacy",
+            "nodes": [{"id": "n1", "label": "Sales", "type": "Department"}],
+            "edges": [],
+        }
+
+        graph = Graph.from_v1(payload, strict=False)
+        self.assertEqual(graph.org, "Legacy")
+
 
 if __name__ == "__main__":
     unittest.main()

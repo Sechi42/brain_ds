@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from brain_ds.ontology import Edge, EntityType, Graph, Node, RelationshipType
+from brain_ds.ontology import Edge, EntityType, EvidenceRecord, Graph, Node, RelationshipType
 
 
 def build_logitrans_graph() -> Graph:
@@ -111,4 +111,31 @@ def build_logitrans_graph() -> Graph:
         ),
     ]
 
-    return Graph(org="logitrans", nodes=nodes, edges=edges)
+    evidence = [
+        EvidenceRecord(
+            id="ev-logitrans-001",
+            type="observation",
+            source="engram",
+            content="Department accountability charter.",
+        ),
+        EvidenceRecord(
+            id="ev-logitrans-002",
+            type="observation",
+            source="engram",
+            content="Service level objective review cadence.",
+        ),
+        EvidenceRecord(
+            id="ev-logitrans-003",
+            type="observation",
+            source="engram",
+            content="Dispatch standups consume telemetry dashboards.",
+        ),
+        EvidenceRecord(
+            id="ev-logitrans-004",
+            type="observation",
+            source="engram",
+            content="Policy trigger references heuristic score threshold.",
+        ),
+    ]
+
+    return Graph(org="logitrans", nodes=nodes, edges=edges, evidence=evidence)

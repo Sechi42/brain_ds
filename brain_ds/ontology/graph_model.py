@@ -134,7 +134,8 @@ class Graph:
         }
 
     @classmethod
-    def from_v1(cls, data: dict) -> "Graph":
+    def from_v1(cls, data: dict, *, strict: bool = True) -> "Graph":
+        _ = strict
         nodes = [
             Node(
                 id=node["id"],
