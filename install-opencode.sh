@@ -11,6 +11,8 @@ COMMANDS_SOURCE_DIR="$ROOT_DIR/commands"
 GLOBAL_COMMANDS_ROOT="$HOME/.config/opencode/commands"
 PROMPT_FILE_PATH="$ROOT_DIR/prompts/brain-ds-orchestrator.md"
 WITH_AGENT=false
+REGISTER_PATH=false
+GLOBAL_BIN_ROOT="$HOME/.config/opencode/bin"
 
 INSTALL_MODE=""
 while [ "$#" -gt 0 ]; do
@@ -25,6 +27,9 @@ while [ "$#" -gt 0 ]; do
       ;;
     --agent)
       WITH_AGENT=true
+      ;;
+    --register-path)
+      REGISTER_PATH=true
       ;;
     *)
       echo "Unknown argument: $1"
@@ -247,6 +252,17 @@ if ! $ENGRAM_OK; then
   echo "Warning: Engram not detected. Install: https://github.com/engram-labs/engram-opencode"
 fi
 for w in "${warnings[@]}"; do echo "Warning: $w"; done
+
+if $REGISTER_PATH; then
+  mkdir -p "$GLOBAL_BIN_ROOT"
+  src="$ROOT_DIR/brain_ds.sh"
+  dest="$GLOBAL_BIN_ROOT/brain_ds.sh"
+  [ -f "$src" ] || { echo "Wrapper not found: $src"; exit 4; }
+  cp "$src" "$dest"
+  chmod +x "$dest" 2>/dev/null || true
+  echo "PATH registration: copied brain_ds.sh to $GLOBAL_BIN_ROOT"
+  echo "PATH registration: add this directory to PATH if missing: $GLOBAL_BIN_ROOT"
+fi
 
 if check_cmd uv; then
   echo "Python deps: running uv sync"

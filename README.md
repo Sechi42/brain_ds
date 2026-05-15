@@ -105,6 +105,21 @@ Source of truth: `brain_ds/ontology/entity_types.py` (`brain_ds.ontology.EntityT
 - Global install target is `~/.config/opencode/skills/`.
 - Canonical source remains `skills/`; if you edit source skills, re-run installer to refresh bridge links/copies.
 
+## Invoking brain_ds
+
+You can keep using `uv run brain_ds ...`, or use repo-root wrappers:
+
+- Bash: `./brain_ds.sh ui org-graph.json`
+- CMD: `brain_ds.cmd ui org-graph.json`
+- PowerShell: `./brain_ds.ps1 ui org-graph.json`
+
+Optional PATH registration via installers:
+
+- PowerShell: `./install-opencode.ps1 -RegisterPath`
+- Bash: `./install-opencode.sh --register-path`
+
+This copies wrapper scripts to `~/.config/opencode/bin/` so you can invoke them globally once that directory is on your `PATH`.
+
 ## Repository structure
 
 | Path | Description |

@@ -2,7 +2,8 @@
 param(
   [switch]$Global,
   [switch]$Project,
-  [switch]$Agent
+  [switch]$Agent,
+  [switch]$RegisterPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -16,6 +17,7 @@ $AgentsPath = Join-Path $RootDir 'AGENTS.md'
 $CommandsSourceDir = Join-Path $RootDir 'commands'
 $GlobalCommandsRoot = Join-Path $HOME '.config/opencode/commands'
 $PromptFilePath = Join-Path $RootDir 'prompts/brain-ds-orchestrator.md'
+$GlobalBinRoot = Join-Path $HOME '.config/opencode/bin'
 
 function Insert-BrainDsAgent {
   param([string]$ConfigPath)
@@ -252,6 +254,17 @@ if (-not $engramDetected) {
   "Warning: Engram not detected. Install: https://github.com/engram-labs/engram-opencode"
 }
 foreach ($w in $warnings) { "Warning: $w" }
+
+if ($RegisterPath) {
+  New-Item -ItemType Directory -Path $GlobalBinRoot -Force | Out-Null
+  $cmdWrapper = Join-Path $RootDir 'brain_ds.cmd'
+  if (-not (Test-Path -LiteralPath $cmdWrapper)) {
+    throw "Wrapper not found: $cmdWrapper"
+  }
+  Copy-Item -LiteralPath $cmdWrapper -Destination (Join-Path $GlobalBinRoot 'brain_ds.cmd') -Force
+  "PATH registration: copied brain_ds.cmd to $GlobalBinRoot"
+  "PATH registration: add this directory to PATH if missing: $GlobalBinRoot"
+}
 
 if (Test-CommandExists 'uv') {
   "Python deps: running uv sync"
