@@ -306,5 +306,109 @@ class TestSlice1bInertiaContracts(unittest.TestCase):
         self.assertIn("_prefersReducedMotion", body)
 
 
+
+# ── Slice 3a contracts (REQ-3.1–3.9, REQ-3.12, REQ-3.13) ──
+
+class TestSlice3aMultiSelectContracts(unittest.TestCase):
+    """Slice 3a: multi-select state + REPLACE-only marquee + keyboard shortcuts.
+
+    All 7 tests here must FAIL before implementation and PASS after.
+    The 42 contracts from prior slices must remain GREEN throughout.
+    Decision 2 is binding: marquee commit REPLACES selection (not additive).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        assets_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "assets"
+        cls.js_path = assets_dir / "vis-offline-network.js"
+        cls.js_text = cls.js_path.read_text(encoding="utf-8")
+
+    # 3a.1 – REQ-3.4
+    def test_selected_node_ids_set_present(self):
+        """selectedNodeIds = new Set() must be initialised in constructor. Cite REQ-3.4."""
+        self.assertRegex(
+            self.js_text,
+            r"selectedNodeIds\s*=\s*new\s+Set"
+        )
+
+    # 3a.2 – REQ-3.4 (additive — locked literal must NOT be removed)
+    def test_selected_node_id_legacy_still_present(self):
+        """this.selectedNodeId = ... must still be present (additive, not replacement). Cite REQ-3.4."""
+        self.assertRegex(
+            self.js_text,
+            r"this\.selectedNodeId\s*="
+        )
+
+    # 3a.3 – REQ-3.5 / REQ-3.13
+    def test_marquee_state_object_present(self):
+        """marquee = { active: ... } must be initialised in constructor. Cite REQ-3.5."""
+        self.assertRegex(
+            self.js_text,
+            r"marquee\s*=\s*\{[^}]*active"
+        )
+
+    # 3a.4 – REQ-3.5 (ordering: _drawEdges < _drawMarquee < _drawNodes inside _render)
+    def test_marquee_draw_between_edges_and_nodes(self):
+        """_drawMarquee must be called between _drawEdges and _drawNodes in _render. Cite REQ-3.5."""
+        render_start = self.js_text.find("Network.prototype._render = function")
+        self.assertNotEqual(render_start, -1, "_render method not found")
+        next_method = self.js_text.find("Network.prototype.", render_start + 1)
+        render_body = self.js_text[render_start: next_method if next_method != -1 else len(self.js_text)]
+        edges_pos = render_body.find("_drawEdges")
+        marquee_pos = render_body.find("_drawMarquee")
+        nodes_pos = render_body.find("_drawNodes")
+        self.assertNotEqual(edges_pos, -1, "_drawEdges not found in _render body")
+        self.assertNotEqual(marquee_pos, -1, "_drawMarquee not found in _render body")
+        self.assertNotEqual(nodes_pos, -1, "_drawNodes not found in _render body")
+        self.assertLess(edges_pos, marquee_pos, "_drawEdges must precede _drawMarquee in _render")
+        self.assertLess(marquee_pos, nodes_pos, "_drawMarquee must precede _drawNodes in _render")
+
+    # 3a.5 – REQ-3.5 / REQ-3.6 (world-coord marquee)
+    def test_marquee_uses_world_coordinates(self):
+        """Marquee mousedown/mousemove handlers must invoke _screenToWorld. Cite REQ-3.5/3.6."""
+        # Look for _screenToWorld usage near marquee-related code
+        # The marquee mousedown path (shift+empty canvas) must call _screenToWorld
+        self.assertIn("_screenToWorld", self.js_text)
+        # Marquee state object must be referenced alongside _screenToWorld invocation
+        # Check that the marquee.active assignment path includes _screenToWorld call nearby
+        # Strategy: find _onMouseDown body and verify _screenToWorld appears before marquee.active = true
+        start = self.js_text.find("Network.prototype._onMouseDown = function")
+        self.assertNotEqual(start, -1, "_onMouseDown not found")
+        next_method = self.js_text.find("Network.prototype.", start + 1)
+        body = self.js_text[start: next_method if next_method != -1 else len(self.js_text)]
+        sw_pos = body.find("_screenToWorld")
+        marquee_pos = body.find("marquee")
+        self.assertNotEqual(sw_pos, -1, "_screenToWorld not found in _onMouseDown")
+        self.assertNotEqual(marquee_pos, -1, "marquee not referenced in _onMouseDown")
+        self.assertLess(sw_pos, marquee_pos, "_screenToWorld must precede marquee assignment in _onMouseDown")
+
+    # 3a.6 – REQ-3.12
+    def test_select_change_event_emitted(self):
+        """_emit('select-change', ...) must appear in the renderer. Cite REQ-3.12."""
+        self.assertRegex(
+            self.js_text,
+            r"_emit\(['\"]select-change['\"]"
+        )
+
+    # 3a.7 – Decision 2 (REPLACE-only marquee — NOT additive)
+    def test_marquee_replace_semantics(self):
+        """Marquee mouseup path must REPLACE selection (new Set(...) or .clear() then add).
+        Pure additive-only (.add() without replacement) is forbidden. Cite Decision 2."""
+        # Find the _onMouseUp handler body
+        start = self.js_text.find("Network.prototype._onMouseUp = function")
+        self.assertNotEqual(start, -1, "_onMouseUp not found")
+        next_method = self.js_text.find("Network.prototype.", start + 1)
+        body = self.js_text[start: next_method if next_method != -1 else len(self.js_text)]
+        # REPLACE pattern: selectedNodeIds = new Set(...)
+        replace_pattern = re.search(r"selectedNodeIds\s*=\s*new\s+Set\s*\(", body)
+        # OR: .clear() followed by add (alternative REPLACE idiom)
+        clear_pattern = re.search(r"selectedNodeIds\.clear\s*\(\s*\)", body)
+        self.assertTrue(
+            replace_pattern is not None or clear_pattern is not None,
+            "Marquee mouseup must REPLACE selection via 'selectedNodeIds = new Set(...)' "
+            "or '.clear()' — pure additive (.add() only) is forbidden per Decision 2."
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
