@@ -410,5 +410,94 @@ class TestSlice3aMultiSelectContracts(unittest.TestCase):
         )
 
 
+class TestSlice4HoverPopoverContracts(unittest.TestCase):
+    """RED contracts for Slice 4 — hover metadata popovers (REQ-4.1 through REQ-4.10).
+
+    All assertions are source-level regex/string checks — no JS execution required.
+    Spec is binding: delay = 350 ms (REQ-4.1). Design default 320 ms is NOT a supersede.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.assets_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "assets"
+        cls.templates_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "templates"
+        cls.js_path = cls.assets_dir / "vis-offline-network.js"
+        cls.template_path = cls.templates_dir / "graph_viewer.html"
+        cls.js_text = cls.js_path.read_text(encoding="utf-8")
+        cls.template_text = cls.template_path.read_text(encoding="utf-8")
+
+    def test_hover_popover_helper_present(self):
+        """A popover show/hide helper method MUST be defined on the Network prototype.
+        Cite REQ-4.4 (DOM element positioned via world→screen), OBS-4.1 (popover delay).
+        Acceptable names: _showHoverPopover, _showPopover, _hoverPopover."""
+        self.assertRegex(
+            self.js_text,
+            r"Network\.prototype\._(?:show(?:Hover)?Popover|hoverPopover)\s*=\s*function",
+            "A popover helper (_showHoverPopover, _showPopover, or _hoverPopover) "
+            "must be defined on Network.prototype (REQ-4.4).",
+        )
+
+    def test_hover_delay_constant_present(self):
+        """A named hover-delay constant of 350 ms MUST be present in the renderer.
+        Cite REQ-4.1: popover MUST NOT appear before the 350 ms delay elapses."""
+        self.assertRegex(
+            self.js_text,
+            r"hoverDelay(?:Ms)?\s*=\s*350",
+            "hoverDelayMs (or hoverDelay) must be set to 350 (REQ-4.1 — spec overrides design's 320).",
+        )
+
+    def test_hover_popover_dismissed_on_pan_or_scroll(self):
+        """Popover must be cleared when pan starts, wheel fires, or select-change occurs.
+        Cite REQ-4.6 (suppress during pan/zoom), REQ-4.7 (dismiss on wheel zoom)."""
+        # _onMouseDown (pan start) and _onWheel (wheel zoom) must both call a hide/dismiss helper
+        dismiss_calls = re.findall(
+            r"_(?:hide|dismiss|clear)(?:Hover)?Popover\s*\(",
+            self.js_text,
+        )
+        self.assertGreaterEqual(
+            len(dismiss_calls),
+            2,
+            "Popover dismiss helper must be called in at least 2 places "
+            "(pan start in _onMouseDown + wheel in _onWheel). Cite REQ-4.6 / OBS-4.6.",
+        )
+
+    def test_hover_popover_uses_world_to_screen(self):
+        """Popover positioning MUST use _worldToScreen (Slice 1a) to track node's screen coords.
+        Cite REQ-4.4 (positioned via world→screen transform)."""
+        # The _updatePopoverPosition helper (or equivalent) must reference _worldToScreen
+        # Strategy: find block that contains popover position logic and assert _worldToScreen presence
+        self.assertIn(
+            "_worldToScreen",
+            self.js_text,
+            "_worldToScreen must be present (added in Slice 1a).",
+        )
+        # A dedicated position update function must exist that calls _worldToScreen
+        self.assertRegex(
+            self.js_text,
+            r"_updatePopoverPosition\b",
+            "_updatePopoverPosition must be defined (REQ-4.4 — world→screen tracking).",
+        )
+
+    def test_hover_popover_aria_live_or_role_tooltip(self):
+        """Popover element MUST have role='tooltip' (REQ-4.10) AND the renderer must
+        reference aria-describedby for the node's a11y companion element (REQ-4.10).
+
+        JS source uses setAttribute("role", "tooltip") — match either setAttribute form
+        or an inline attribute literal."""
+        self.assertRegex(
+            self.js_text,
+            r"""setAttribute\s*\(\s*['"]role['"]\s*,\s*['"]tooltip['"]\s*\)"""
+            r"""|role=['"]{1}tooltip['"]{1}""",
+            "Popover element must have role='tooltip' set in renderer (REQ-4.10). "
+            "Acceptable forms: setAttribute(\"role\", \"tooltip\") or role=\"tooltip\".",
+        )
+        self.assertIn(
+            "aria-describedby",
+            self.js_text,
+            "Renderer must set aria-describedby on focusable node element referencing "
+            "the popover (REQ-4.10).",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

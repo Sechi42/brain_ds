@@ -89,6 +89,14 @@
     // (Chrome/Firefox fire click after mouseup even after a drag gesture on the same element)
     this._suppressNextClick = false;
 
+    // Slice 4: hover popover state (REQ-4.1 / REQ-4.4)
+    // Delay = 350 ms per spec REQ-4.1 (design §3 Slice 4 proposed 320 ms but did not
+    // explicitly supersede the REQ — spec value is binding per spec §1 conventions).
+    this.hoverDelayMs = 350;
+    this._popoverTimer = null;
+    this._popoverGraceTimer = null;  // REQ-4.2: 150 ms grace on re-entry after leave
+    this._popoverNodeId = null;      // nodeId currently shown (or pending) in popover
+
     this.container.classList.add("vis-network");
     this.container.innerHTML = "";
 
@@ -112,6 +120,16 @@
     this.liveRegion.className = "vis-a11y-sr-only";
     this.liveRegion.setAttribute("aria-live", "polite");
     this.container.appendChild(this.liveRegion);
+
+    // Slice 4: popover element — DOM, not canvas draw (REQ-4.4).
+    // Injected into .vis-network container so position:absolute is relative to it.
+    // ID is stable so aria-describedby on a11y list items can reference it (REQ-4.10).
+    this._popoverEl = document.createElement("div");
+    this._popoverEl.className = "vis-popover";
+    this._popoverEl.id = "vis-hover-popover";
+    this._popoverEl.setAttribute("role", "tooltip");
+    this._popoverEl.setAttribute("aria-hidden", "true");
+    this.container.appendChild(this._popoverEl);
 
     var rerender = this._wake.bind(this);
     if (this.data.nodes && this.data.nodes._subscribe) this.data.nodes._subscribe(rerender);
@@ -158,6 +176,8 @@
   // Slice 1b: wheel zoom handler — preventDefault + zoom toward cursor (REQ-1.3, 1.4, 1.5, 1.12)
   Network.prototype._onWheel = function (event) {
     event.preventDefault();
+    // Slice 4: dismiss popover on zoom (REQ-4.6 / OBS-4.7)
+    this._hideHoverPopover();
     var rect = this.canvas.getBoundingClientRect();
     var sx = event.clientX - rect.left;
     var sy = event.clientY - rect.top;
@@ -572,12 +592,28 @@
       li.setAttribute("role", "option");
       li.setAttribute("tabindex", "0");
       li.setAttribute("aria-selected", String(String(node.id) === String(self.selectedNodeId)));
+      // Slice 4: link each node's a11y element to the shared popover (REQ-4.10)
+      li.setAttribute("aria-describedby", "vis-hover-popover");
       li.textContent = String(node.label || node.id);
       li.addEventListener("click", function () {
         self._selectNodeById(node.id);
       });
       li.addEventListener("keydown", function (event) {
         self._onA11yKeydown(event, visibleNodes);
+      });
+      // Slice 4: Tab focus on a node shows popover immediately, no delay (REQ-4.8)
+      li.addEventListener("focus", (function (capturedNode) {
+        return function () {
+          self._showHoverPopover(capturedNode.id, capturedNode.x, capturedNode.y);
+        };
+      })(node));
+      li.addEventListener("blur", function () {
+        // On blur start grace timer so popover dismisses after short delay (REQ-4.2 / REQ-4.8)
+        clearTimeout(self._popoverGraceTimer);
+        self._popoverGraceTimer = setTimeout(function () {
+          self._popoverGraceTimer = null;
+          self._hideHoverPopover();
+        }, 150);
       });
       self.a11yList.appendChild(li);
     });
@@ -639,8 +675,14 @@
     }
 
     // Slice 3a: Escape — clear selection (REQ-3.9)
+    // Slice 4: Esc also dismisses popover without clearing node focus (REQ-4.8 / OBS-4.11)
     if (event.key === "Escape") {
       event.preventDefault();
+      // Dismiss popover first; if popover was shown, keep focus on node (OBS-4.11)
+      if (this._popoverNodeId !== null) {
+        this._hideHoverPopover();
+        return;  // Esc on open popover = dismiss only; selection stays
+      }
       this.selectedNodeIds = new Set();
       this.selectedNodeId = null;
       this.marquee.active = false;
@@ -742,7 +784,43 @@
     var world = this._screenToWorld(sx, sy);
     var state = this._state();
     var node = this._nodeAt(world.x, world.y, state.nodes);
+    var prevHoveredId = this.hoveredNodeId;
     this.hoveredNodeId = node ? node.id : null;
+
+    // Slice 4: manage hover-delay timer (REQ-4.1 / OBS-4.1).
+    // Fire timer when cursor enters a new node; cancel and hide on node leave.
+    // Suppress during active marquee, pan drag, or node drag (REQ-4.6).
+    if (!this.marquee.active && !this.isDragging && !this.isPanning) {
+      if (this.hoveredNodeId !== prevHoveredId) {
+        // Node changed — cancel any pending show
+        clearTimeout(this._popoverTimer);
+        this._popoverTimer = null;
+        if (this.hoveredNodeId !== null) {
+          // Cursor moved to a new node — cancel grace timer if any, arm show timer
+          clearTimeout(this._popoverGraceTimer);
+          this._popoverGraceTimer = null;
+          if (this._popoverNodeId !== null) {
+            this._hideHoverPopover();
+          }
+          var self = this;
+          var targetId = this.hoveredNodeId;
+          this._popoverTimer = setTimeout(function () {
+            // Re-check hover is still on same node (REQ-4.1 — delay must elapse)
+            if (String(self.hoveredNodeId) === String(targetId)) {
+              self._showHoverPopover(targetId, world.x, world.y);
+            }
+          }, this.hoverDelayMs);
+        } else {
+          // Cursor left a node — REQ-4.2: 150 ms grace before hiding
+          // If cursor re-enters within 150 ms, the grace timer is cancelled above
+          var self = this;
+          this._popoverGraceTimer = setTimeout(function () {
+            self._popoverGraceTimer = null;
+            self._hideHoverPopover();
+          }, 150);
+        }
+      }
+    }
 
     if (this.isPanning) {
       // Slice 1a: pan — update tx/ty from screen delta (REQ-1.2 / OBS-1.1)
@@ -803,6 +881,8 @@
       this._mode = "marquee";
       return;
     }
+    // Slice 4: dismiss popover when pan begins (REQ-4.6)
+    this._hideHoverPopover();
     // No node hit, no shift: start panning (REQ-1.2)
     // Slice 1b: REQ-1.13 — zero inertia velocity when new pan drag begins
     this.viewport.vx = 0;
@@ -919,6 +999,9 @@
 
     this._syncA11yList(state.nodes);
 
+    // Slice 4: update popover screen position each frame (REQ-4.4 — tracks node's screen pos)
+    this._updatePopoverPosition(state.nodes);
+
     // Slice 1b: inertia step after draw (REQ-1.7)
     this._stepInertia(dt);
 
@@ -934,6 +1017,114 @@
     } else {
       this._raf = null;
     }
+  };
+
+  // Slice 4: show hover popover with node metadata (REQ-4.3 / REQ-4.4 / OBS-4.2).
+  // Content factory pattern: template calls network.setPopoverContentFactory(fn) to
+  // supply richer content; renderer falls back to a compact default. (design §3 Slice 4)
+  Network.prototype._showHoverPopover = function (nodeId, wx, wy) {
+    var state = this._state();
+    var node = state.nodes.find(function (n) { return String(n.id) === String(nodeId); });
+    if (!node) return;
+
+    // Build popover content — lead with name, then type, then score, then source (cognitive-doc-design)
+    var lines = [];
+    if (node.label) lines.push('<strong class="vis-popover-name">' + String(node.label) + '</strong>');
+    if (node.type || node.group) {
+      lines.push('<span class="vis-popover-type">' + String(node.type || node.group) + '</span>');
+    }
+    if (node.score !== undefined && node.score !== null) {
+      lines.push('<span class="vis-popover-score">Score: ' + Number(node.score).toFixed(2) + '</span>');
+    }
+    if (node.source) {
+      lines.push('<span class="vis-popover-source">Source: ' + String(node.source) + '</span>');
+    }
+
+    // Use content factory if registered, otherwise default HTML (design §3 Slice 4)
+    if (this._popoverContentFactory) {
+      this._popoverEl.innerHTML = '';
+      var child = this._popoverContentFactory(nodeId);
+      if (child) this._popoverEl.appendChild(child);
+    } else {
+      this._popoverEl.innerHTML = lines.join('');
+    }
+
+    this._popoverNodeId = nodeId;
+    // Honor prefers-reduced-motion: no fade animation (REQ-4.7 / REQ-X.2)
+    if (this._prefersReducedMotion) {
+      this._popoverEl.classList.add('vis-popover--instant');
+    } else {
+      this._popoverEl.classList.remove('vis-popover--instant');
+    }
+    this._popoverEl.setAttribute('aria-hidden', 'false');
+    this._popoverEl.style.display = 'block';
+    this._popoverEl.style.visibility = 'visible';
+
+    // Position immediately (will also be updated each frame)
+    this._updatePopoverPosition(state.nodes);
+  };
+
+  // Slice 4: hide and clear popover (REQ-4.6 / OBS-4.5 / OBS-4.6 / OBS-4.7).
+  // Always cancels the pending timer too (REQ-4.6 — suppress pending show).
+  Network.prototype._hideHoverPopover = function () {
+    clearTimeout(this._popoverTimer);
+    this._popoverTimer = null;
+    clearTimeout(this._popoverGraceTimer);
+    this._popoverGraceTimer = null;
+    this._popoverNodeId = null;
+    this._popoverEl.setAttribute('aria-hidden', 'true');
+    this._popoverEl.style.display = 'none';
+    this._popoverEl.style.visibility = 'hidden';
+  };
+
+  // Slice 4: reposition popover so it tracks the node's current screen position each frame.
+  // Uses _worldToScreen (REQ-4.4) and clamps to canvas bounding box (REQ-4.5 / OBS-4.8).
+  // Design decision: inject into .vis-network container (position relative), not body.
+  Network.prototype._updatePopoverPosition = function (nodes) {
+    if (!this._popoverNodeId || this._popoverEl.style.display === 'none') return;
+    var node = (nodes || []).find(function (n) { return String(n.id) === String(this._popoverNodeId); }, this);
+    if (!node) return;
+
+    var screen = this._worldToScreen(node.x, node.y);
+    var nodeR = node.radius || 12;  // fallback radius if not computed yet
+
+    // Default anchor: above-right of node circle (+offset)
+    var LEFT_OFFSET = 8;
+    var TOP_OFFSET = -8;
+    var rawLeft = screen.x + nodeR + LEFT_OFFSET;
+    var rawTop  = screen.y + TOP_OFFSET;
+
+    // Clamp to canvas bounding box (REQ-4.5). Flip all four edges independently.
+    var pw = this._popoverEl.offsetWidth  || 160;
+    var ph = this._popoverEl.offsetHeight || 64;
+    var cw = this.canvas.width;
+    var ch = this.canvas.height;
+
+    // Horizontal flip: overflow right → flip to left of node
+    if (rawLeft + pw > cw) {
+      rawLeft = screen.x - nodeR - LEFT_OFFSET - pw;
+    }
+    // Vertical flip: overflow top → flip below node
+    if (rawTop < 0) {
+      rawTop = screen.y + nodeR + 4;
+    }
+    // Clamp bottom overflow
+    if (rawTop + ph > ch) {
+      rawTop = ch - ph - 4;
+    }
+    // Clamp left overflow
+    if (rawLeft < 0) {
+      rawLeft = 4;
+    }
+
+    this._popoverEl.style.left = rawLeft + 'px';
+    this._popoverEl.style.top  = rawTop  + 'px';
+  };
+
+  // Slice 4: register a content factory function for richer popover content (design §3 Slice 4).
+  // Template calls: network.setPopoverContentFactory((nodeId) => HTMLElement)
+  Network.prototype.setPopoverContentFactory = function (factory) {
+    this._popoverContentFactory = factory;
   };
 
   // Slice 3a: clearSelection — callable from template bulk actions (design §3 Slice 3)
