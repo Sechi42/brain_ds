@@ -97,6 +97,11 @@
     this._popoverGraceTimer = null;  // REQ-4.2: 150 ms grace on re-entry after leave
     this._popoverNodeId = null;      // nodeId currently shown (or pending) in popover
 
+    // Slice 6: context menu state (REQ-6.1 / design §3 Slice 6).
+    // Shape from design: { open: false, x: 0, y: 0, target: null }
+    // 'open' is the gate checked by _onMouseMove hover-suppression (REQ-6.10 / REQ-4.6).
+    this.contextMenu = { open: false, x: 0, y: 0, target: null };
+
     this.container.classList.add("vis-network");
     this.container.innerHTML = "";
 
@@ -142,6 +147,8 @@
     this.canvas.addEventListener("keydown", this._onCanvasKeydown.bind(this));
     // Slice 1b: wheel zoom handler (REQ-1.3)
     this.canvas.addEventListener("wheel", this._onWheel.bind(this), { passive: false });
+    // Slice 6: context menu handler — suppress browser default + emit event (REQ-6.1)
+    this.canvas.addEventListener("contextmenu", this._onContextMenu.bind(this));
     this._bindReducedMotion();
     this._syncModesFromOptions(this.options);
     this._wake();
@@ -789,8 +796,9 @@
 
     // Slice 4: manage hover-delay timer (REQ-4.1 / OBS-4.1).
     // Fire timer when cursor enters a new node; cancel and hide on node leave.
-    // Suppress during active marquee, pan drag, or node drag (REQ-4.6).
-    if (!this.marquee.active && !this.isDragging && !this.isPanning) {
+    // Suppress during active marquee, pan drag, node drag, or open context menu
+    // (REQ-4.6 / REQ-6.10 — contextMenu.open gate added in Slice 6).
+    if (!this.marquee.active && !this.isDragging && !this.isPanning && !(this.contextMenu && this.contextMenu.open)) {
       if (this.hoveredNodeId !== prevHoveredId) {
         // Node changed — cancel any pending show
         clearTimeout(this._popoverTimer);
@@ -1134,6 +1142,37 @@
     this._emit("select-change", { nodes: [] });
     this.liveRegion.textContent = "Selection cleared";
     this._wake();
+  };
+
+  // Slice 6: contextmenu handler — suppress browser default, hit-test for node,
+  // hide active popover (REQ-6.10 / OBS-6.11), emit 'context-menu' event (REQ-6.1 / REQ-6.2).
+  Network.prototype._onContextMenu = function (event) {
+    event.preventDefault();
+    // REQ-6.10 / OBS-6.11: dismiss any active hover popover when context menu opens.
+    this._hideHoverPopover();
+    var rect = this.canvas.getBoundingClientRect();
+    var sx = event.clientX - rect.left;
+    var sy = event.clientY - rect.top;
+    var world = this._screenToWorld(sx, sy);
+    var state = this._state();
+    var node = this._nodeAt(world.x, world.y, state.nodes);
+    // Update contextMenu state so _onMouseMove hover-suppression gate works (REQ-6.10).
+    this.contextMenu.open = true;
+    this.contextMenu.x = sx;
+    this.contextMenu.y = sy;
+    this.contextMenu.target = node ? String(node.id) : null;
+    this._emit("context-menu", {
+      nodeId: node ? String(node.id) : null,
+      screen: { x: event.clientX, y: event.clientY },
+      world: { x: world.x, y: world.y },
+      selection: Array.from(this.selectedNodeIds),
+    });
+  };
+
+  // Slice 6: close the context menu — called by template on Esc / click-outside / item select.
+  Network.prototype.closeContextMenu = function () {
+    this.contextMenu.open = false;
+    this.contextMenu.target = null;
   };
 
   Network.prototype._wake = function () {
