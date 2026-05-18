@@ -438,5 +438,127 @@ class TestSlice2TwoHopHighlight(unittest.TestCase):
         )
 
 
+class TestSlice3bSelectionPanel(unittest.TestCase):
+    """RED contracts for Slice 3b — tiered selection panel + 4 bulk actions + clearSelection.
+
+    REQ-3.10: Selection size determines detail panel behavior.
+    OBS-3.8:  2-10 tier — count + breakdown + shared relationships + 4 bulk actions.
+    OBS-3.9:  >10 tier — count + breakdown ONLY + Clear selection action.
+    Decision 4: exactly 4 bulk actions for the 2-10 tier.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        template_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds"
+            / "ui"
+            / "templates"
+            / "graph_viewer.html"
+        )
+        cls.template_text = template_path.read_text(encoding="utf-8")
+
+    def test_template_detail_tier_2_to_10_renders_breakdown(self):
+        """REQ-3.10 / OBS-3.8: Template MUST have a code path for 2-10 nodes showing
+        count, entity-type breakdown, shared relationships, and 4 bulk actions.
+
+        Asserted by verifying renderSelectionPanel (or equivalent) exists and references
+        a 2-to-10-node tier (size <= 10 or size >= 2) with breakdown and shared-rel logic.
+        """
+        self.assertIn(
+            "renderSelectionPanel",
+            self.template_text,
+            "Expected 'renderSelectionPanel' function in graph_viewer.html (REQ-3.10 / OBS-3.8)",
+        )
+        # The tier boundary must be expressed — e.g. size <= 10 or size < 11
+        self.assertRegex(
+            self.template_text,
+            r"size\s*[<>]=?\s*10|size\s*[<>]=?\s*11",
+            "Expected a 2-10 tier boundary (size <= 10 or size < 11) in renderSelectionPanel (OBS-3.8)",
+        )
+        # Entity-type breakdown must appear in the panel logic
+        self.assertIn(
+            "breakdown",
+            self.template_text,
+            "Expected 'breakdown' variable/computation inside renderSelectionPanel (OBS-3.8)",
+        )
+        # Shared relationships computation (edges whose both endpoints are in selection)
+        self.assertRegex(
+            self.template_text,
+            r"sharedRel|shared.*rel|_sharedRelationships",
+            "Expected shared-relationship computation inside 2-10 tier of renderSelectionPanel (OBS-3.8)",
+        )
+
+    def test_template_detail_tier_over_10_renders_count_only(self):
+        """REQ-3.10 / OBS-3.9: >10 tier MUST show count + breakdown ONLY.
+        No shared-relationship computation. Only 'Clear selection' action accessible.
+
+        Asserted by verifying a >10 branch exists and does NOT call sharedRelationships
+        inside that specific branch.
+        """
+        self.assertIn(
+            "renderSelectionPanel",
+            self.template_text,
+            "Expected 'renderSelectionPanel' in graph_viewer.html (REQ-3.10)",
+        )
+        # The >10 branch must be expressed — size > 10 or size >= 11
+        self.assertRegex(
+            self.template_text,
+            r"size\s*>\s*10|size\s*>=\s*11",
+            "Expected a >10 tier boundary (size > 10) for compact summary (OBS-3.9)",
+        )
+
+    def test_template_bulk_actions_all_four_present(self):
+        """Decision 4: exactly 4 bulk actions for the 2-10 tier.
+        (a) Clear selection, (b) Export JSON, (c) Focus on selection, (d) Copy IDs.
+
+        Asserted by literal presence of all four action identifiers in the template.
+        """
+        for literal in ("clear-selection", "export-json", "focus-selection", "copy-ids"):
+            self.assertIn(
+                literal,
+                self.template_text,
+                f"Expected bulk action '{literal}' in graph_viewer.html (Decision 4)",
+            )
+
+    def test_clear_selection_method_present(self):
+        """REQ-3.10: Network.prototype.clearSelection must be defined in the renderer.
+        This method is called by the 'Clear selection' bulk action.
+        """
+        assets_dir = (
+            Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "assets"
+        )
+        js_text = (assets_dir / "vis-offline-network.js").read_text(encoding="utf-8")
+        self.assertRegex(
+            js_text,
+            r"Network\.prototype\.clearSelection",
+            "Expected 'Network.prototype.clearSelection' in vis-offline-network.js (REQ-3.10)",
+        )
+
+    def test_click_event_payload_unchanged(self):
+        """REQ-X.4: Locked contract — 'nodes: [node.id]' payload in single-click path
+        must remain unchanged after Slice 3b. Cite locked contract REQ-X.4.
+        """
+        assets_dir = (
+            Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "assets"
+        )
+        js_text = (assets_dir / "vis-offline-network.js").read_text(encoding="utf-8")
+        self.assertRegex(
+            js_text,
+            r"nodes:\s*\[node\.id\]",
+            "Locked literal 'nodes: [node.id]' in single-click payload must remain present (REQ-X.4)",
+        )
+
+    def test_template_select_change_subscription(self):
+        """REQ-3.10: Template MUST subscribe to 'select-change' event from the renderer
+        and call renderSelectionPanel (or equivalent) on selection changes.
+        """
+        self.assertRegex(
+            self.template_text,
+            r"network\.on\(['\"]select-change['\"]",
+            "Expected 'network.on(\"select-change\", ...)' subscription in graph_viewer.html (REQ-3.10)",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

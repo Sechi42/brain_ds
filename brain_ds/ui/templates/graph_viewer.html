@@ -484,6 +484,193 @@
         );
       }
 
+      // Slice 3b: shared-relationship computation (perf guard: called ONLY for ≤10 tier).
+      // Returns edges whose both endpoints are in selectionSet.
+      const _sharedRelationships = (selectionSet, adj) => {
+        const shared = [];
+        (RENDER_CONTEXT.edges || []).forEach((e) => {
+          if (selectionSet.has(String(e.from)) && selectionSet.has(String(e.to))) {
+            shared.push(e);
+          }
+        });
+        return shared;
+      };
+
+      // Slice 3b: renderSelectionPanel — tiered detail panel for multi-select.
+      // REQ-3.10 / OBS-3.7 / OBS-3.8 / OBS-3.9
+      // size === 0: hide panel
+      // size === 1: delegate to existing single-node detail card (UNCHANGED path)
+      // 2 ≤ size ≤ 10: count + entity-type breakdown + shared relationships + 4 bulk actions
+      // size > 10: count + entity-type breakdown ONLY + Clear selection action
+      const renderSelectionPanel = (selectedIds) => {
+        const size = selectedIds.length;
+
+        if (size === 0) {
+          // Hide panel — reset to empty state
+          detailPanel.classList.add("is-empty");
+          detailBody.setAttribute("data-state", "empty");
+          detailTitle.textContent = "Node details";
+          detailMeta.textContent = "Select a node to view details";
+          detailBody.textContent = "Select a node to view details";
+          return;
+        }
+
+        if (size === 1) {
+          // UNCHANGED single-node path: delegate to focusNode (2-hop highlight + detail panel)
+          focusNode(selectedIds[0]);
+          return;
+        }
+
+        // Multi-select: update 2-hop union highlight (REQ-3.11).
+        // Compute union of 2-hop neighborhoods across all selected nodes.
+        const unionSet = new Set();
+        selectedIds.forEach((id) => {
+          twoHopNeighborhood(id, adjacency).forEach((n) => unionSet.add(n));
+        });
+        // Use null as rootId (no single "selected" node) — _applyNeighborhoodOpacity
+        // treats rootId only for borderWidth; pass first id for consistency.
+        _applyNeighborhoodOpacity(unionSet, selectedIds[0], nodes, edges);
+
+        // Build selection panel content
+        detailPanel.classList.remove("is-empty");
+        detailBody.setAttribute("data-state", "ready");
+        detailTitle.textContent = `${size} nodes selected`;
+        detailMeta.textContent = "Multi-selection";
+        detailBody.innerHTML = "";
+
+        // Count section
+        const countEl = document.createElement("p");
+        countEl.textContent = `${size} nodes selected`;
+        detailBody.appendChild(countEl);
+
+        // Entity-type breakdown
+        const breakdown = {};
+        selectedIds.forEach((id) => {
+          const node = originalNodes.get(id);
+          if (node) {
+            const t = node.type || "Unknown";
+            breakdown[t] = (breakdown[t] || 0) + 1;
+          }
+        });
+        const breakdownSection = document.createElement("section");
+        breakdownSection.className = "detail-section";
+        const breakdownHeading = document.createElement("h3");
+        breakdownHeading.textContent = "Entity types";
+        breakdownSection.appendChild(breakdownHeading);
+        const breakdownList = document.createElement("ul");
+        Object.entries(breakdown).forEach(([type, count]) => {
+          const li = document.createElement("li");
+          li.textContent = `${type}: ${count}`;
+          breakdownList.appendChild(li);
+        });
+        breakdownSection.appendChild(breakdownList);
+        detailBody.appendChild(breakdownSection);
+
+        if (size <= 10) {
+          // Shared relationships — only for ≤10 tier (perf guard)
+          const selectionSet = new Set(selectedIds.map(String));
+          const sharedRel = _sharedRelationships(selectionSet, adjacency);
+          if (sharedRel.length > 0) {
+            const relSection = document.createElement("section");
+            relSection.className = "detail-section";
+            const relHeading = document.createElement("h3");
+            relHeading.textContent = "Shared relationships";
+            relSection.appendChild(relHeading);
+            const relList = document.createElement("ul");
+            sharedRel.forEach((e) => {
+              const li = document.createElement("li");
+              li.textContent = `${e.from} → ${e.to}${e.label ? " (" + e.label + ")" : ""}`;
+              relList.appendChild(li);
+            });
+            relSection.appendChild(relList);
+            detailBody.appendChild(relSection);
+          }
+
+          // 4 bulk actions for 2-10 tier (Decision 4)
+          const actionsSection = document.createElement("section");
+          actionsSection.className = "detail-section";
+          const actionsHeading = document.createElement("h3");
+          actionsHeading.textContent = "Actions";
+          actionsSection.appendChild(actionsHeading);
+
+          const bulkActions = [
+            {
+              label: "Clear selection",
+              "data-bulk-action": "clear-selection",
+              handler: () => {
+                network.clearSelection();
+                const liveRegion = document.querySelector("[aria-live='polite']");
+                if (liveRegion) liveRegion.textContent = "Selection cleared";
+              },
+            },
+            {
+              label: "Export JSON",
+              "data-bulk-action": "export-json",
+              handler: () => {
+                const selected = selectedIds.map((id) => editedDetailIndex[id] || { id });
+                const blob = new Blob([JSON.stringify(selected, null, 2)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "selection.json";
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              },
+            },
+            {
+              label: "Focus on selection",
+              "data-bulk-action": "focus-selection",
+              handler: () => {
+                network.fit({ nodes: selectedIds, margin: 40, animation: motionEnabled() });
+              },
+            },
+            {
+              label: "Copy IDs",
+              "data-bulk-action": "copy-ids",
+              handler: () => {
+                navigator.clipboard.writeText(selectedIds.join("\n")).then(() => {
+                  const liveRegion = document.querySelector("[aria-live='polite']");
+                  if (liveRegion) liveRegion.textContent = `Copied ${size} IDs`;
+                });
+              },
+            },
+          ];
+
+          const btnRow = document.createElement("div");
+          btnRow.className = "detail-actions";
+          bulkActions.forEach(({ label, "data-bulk-action": action, handler }) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.textContent = label;
+            btn.setAttribute("data-bulk-action", action);
+            btn.style.minHeight = "44px";
+            btn.addEventListener("click", handler);
+            btnRow.appendChild(btn);
+          });
+          actionsSection.appendChild(btnRow);
+          detailBody.appendChild(actionsSection);
+
+        } else {
+          // size > 10: only Clear selection action (no shared-rel computation)
+          const clearBtn = document.createElement("button");
+          clearBtn.type = "button";
+          clearBtn.textContent = "Clear selection";
+          clearBtn.setAttribute("data-bulk-action", "clear-selection");
+          clearBtn.style.minHeight = "44px";
+          clearBtn.addEventListener("click", () => {
+            network.clearSelection();
+            const liveRegion = document.querySelector("[aria-live='polite']");
+            if (liveRegion) liveRegion.textContent = "Selection cleared";
+          });
+          detailBody.appendChild(clearBtn);
+        }
+      };
+
+      // Ensure motionEnabled is accessible to the template (re-read from renderer if needed)
+      const motionEnabled = () => !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
       const searchInput = document.getElementById("node-search");
       const searchResults = document.getElementById("search-results");
       const allNodes = RENDER_CONTEXT.nodes || [];
@@ -616,6 +803,11 @@
           resetHighlight();
           applyVisibility();
         }
+      });
+
+      // Slice 3b: subscribe to select-change for multi-select tiered panel (REQ-3.10).
+      network.on("select-change", ({ nodes: selectedNodeIdList }) => {
+        renderSelectionPanel(selectedNodeIdList || []);
       });
 
       applyVisibility();
