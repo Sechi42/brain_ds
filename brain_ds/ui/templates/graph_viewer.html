@@ -88,6 +88,23 @@
             <button type="button" id="hide-all">Hide all</button>
           </div>
           <div id="type-filters"></div>
+          <div class="control-row" style="margin-top:0.75rem;align-items:center;gap:0.5rem;">
+            <label for="score-threshold-slider" style="white-space:nowrap;font-size:0.875rem;">Score threshold</label>
+            <input
+              id="score-threshold-slider"
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value="0"
+              aria-valuemin="0"
+              aria-valuemax="1"
+              aria-valuenow="0"
+              aria-valuetext="0.00"
+              style="flex:1;"
+            />
+            <span id="score-badge" aria-live="polite" style="font-size:0.875rem;min-width:2.5rem;text-align:right;">0.00</span>
+          </div>
         </section>
         <section>
           <h2>Legend</h2>
@@ -141,6 +158,7 @@
       const originalNodes = new Map((RENDER_CONTEXT.nodes || []).map((n) => [n.id, { ...n }]));
       const originalEdges = new Map((RENDER_CONTEXT.edges || []).map((e, i) => [i, { ...e, id: i }]));
       const hiddenTypes = new Set();
+      let scoreThreshold = 0;
       let selectedNodeId = null;
 
       const network = new vis.Network(container, { nodes, edges }, {
@@ -158,7 +176,56 @@
       const applyVisibility = () => {
         const visible = visibleNodeIds();
         nodes.update((RENDER_CONTEXT.nodes || []).map((n) => ({ id: n.id, hidden: !visible.has(n.id), opacity: 1, borderWidth: 1 })));
-        edges.update((RENDER_CONTEXT.edges || []).map((e, i) => ({ id: i, hidden: !(visible.has(e.from) && visible.has(e.to)), opacity: 1 })));
+        // REQ-5.5 / REQ-5.9: edge hidden if either endpoint is hidden OR edge score < threshold (additive).
+        // REQ-5.10: inclusive boundary — score >= scoreThreshold is visible.
+        edges.update((RENDER_CONTEXT.edges || []).map((e, i) => ({
+          id: i,
+          hidden: !(visible.has(e.from) && visible.has(e.to)) || ((e.score !== undefined) && (e.score < scoreThreshold)),
+          opacity: 1,
+        })));
+      };
+
+      // Slice 5: applyScoreFilter — called on slider input to update scoreThreshold and
+      // apply edge-primary score filtering (Decision 1).
+      // Decision 3: selected nodes that become orphans (all incident edges hidden by score)
+      // are removed from the selection set, with an aria-live announcement.
+      const applyScoreFilter = (threshold) => {
+        scoreThreshold = threshold;
+        // Update score badge (REQ-5.7).
+        if (scoreBadgeEl) scoreBadgeEl.textContent = threshold.toFixed(2);
+        if (scoreSliderEl) {
+          scoreSliderEl.setAttribute("aria-valuenow", threshold.toFixed(2));
+          scoreSliderEl.setAttribute("aria-valuetext", threshold.toFixed(2));
+        }
+        // Apply visibility (integrates type-filter + score-filter additively).
+        applyVisibility();
+        // REQ-5.6 / Decision 3: remove hidden-orphan nodes from selection, announce count.
+        // A node is an orphan if ALL its incident edges are now hidden by the score filter.
+        // We cooperate with the renderer's select-change emission by calling clearSelection
+        // on the renderer and re-emitting if any selected nodes are removed.
+        if (typeof network !== "undefined" && network.selectedNodeIds && network.selectedNodeIds.size > 0) {
+          const visibleEdgeEndpoints = new Set();
+          (RENDER_CONTEXT.edges || []).forEach((e) => {
+            if ((e.score === undefined) || (e.score >= scoreThreshold)) {
+              visibleEdgeEndpoints.add(e.from);
+              visibleEdgeEndpoints.add(e.to);
+            }
+          });
+          const removedFromSelection = [];
+          network.selectedNodeIds.forEach((nodeId) => {
+            if (!visibleEdgeEndpoints.has(nodeId)) {
+              removedFromSelection.push(nodeId);
+            }
+          });
+          if (removedFromSelection.length > 0) {
+            removedFromSelection.forEach((nodeId) => network.selectedNodeIds.delete(nodeId));
+            const liveRegion = document.querySelector("[aria-live='polite']");
+            if (liveRegion) {
+              liveRegion.textContent = `${removedFromSelection.length} node(s) removed from selection due to filter`;
+            }
+            renderSelectionPanel([...network.selectedNodeIds]);
+          }
+        }
       };
       const resetHighlight = () => {
         selectedNodeId = null;
@@ -174,6 +241,8 @@
       const exportJsonBtn = document.getElementById("export-json");
       const detailCollapseBtn = document.getElementById("detail-collapse");
       const detailCloseBtn = document.getElementById("detail-close");
+      const scoreBadgeEl = document.getElementById("score-badge");
+      const scoreSliderEl = document.getElementById("score-threshold-slider");
       const arrow = { incoming: "←", outgoing: "→" };
       const fallbackEditableFields = new Set(["label", "details", "card_sections", "cards", "sections"]);
       const normalizeFieldName = (value) => String(value || "").trim().toLowerCase().replace(/\s+/g, "_");
@@ -749,7 +818,13 @@
         });
       });
 
-      document.getElementById("show-all").addEventListener("click", () => { hiddenTypes.clear(); applyVisibility(); typeCheckboxes.forEach((cb) => { cb.checked = true; }); });
+      document.getElementById("show-all").addEventListener("click", () => { hiddenTypes.clear(); applyScoreFilter(0); typeCheckboxes.forEach((cb) => { cb.checked = true; }); if (scoreSliderEl) scoreSliderEl.value = "0"; });
+      // Slice 5: Score threshold slider wiring (REQ-5.1, REQ-5.7, REQ-5.8).
+      if (scoreSliderEl) {
+        scoreSliderEl.addEventListener("input", () => {
+          applyScoreFilter(parseFloat(scoreSliderEl.value));
+        });
+      }
       document.getElementById("hide-all").addEventListener("click", () => { typeCheckboxes.forEach((cb, typeName) => { cb.checked = false; hiddenTypes.add(typeName); }); applyVisibility(); });
 
       document.getElementById("toggle-hierarchical").addEventListener("click", (event) => {

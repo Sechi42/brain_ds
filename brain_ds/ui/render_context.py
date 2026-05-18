@@ -38,6 +38,7 @@ def build_render_context(graph: Graph) -> dict:
                 "label": edge.label.value,
                 "title": _edge_title(edge.label.value, edge.reasons),
                 "width": 1.0 + ((edge.weight or 0.0) * 4.0),
+                "score": float(edge.weight or 0.0),
             }
         )
 
