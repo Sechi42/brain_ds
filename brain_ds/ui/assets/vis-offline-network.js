@@ -85,6 +85,10 @@
     // Slice 3a: interaction mode tracking (design §4.2)
     this._mode = "idle"; // 'idle' | 'panning' | 'dragging-node' | 'marquee'
 
+    // Slice 3a: suppress the browser click event that follows a marquee mouseup
+    // (Chrome/Firefox fire click after mouseup even after a drag gesture on the same element)
+    this._suppressNextClick = false;
+
     this.container.classList.add("vis-network");
     this.container.innerHTML = "";
 
@@ -681,6 +685,8 @@
   // Slice 1a: all event handlers use _screenToWorld before _nodeAt (REQ-1.9 / OBS-1.8)
 
   Network.prototype._onClick = function (event) {
+    // Slice 3a: suppress the click that fires after a marquee mouseup (REQ-3.5)
+    if (this._suppressNextClick) { this._suppressNextClick = false; return; }
     var rect = this.canvas.getBoundingClientRect();
     var sx = event.clientX - rect.left;
     var sy = event.clientY - rect.top;
@@ -840,6 +846,8 @@
       var marqueeCount = this.selectedNodeIds.size;
       this.liveRegion.textContent = marqueeCount + " nodes selected by marquee";
       this.marquee.active = false;
+      // Slice 3a: suppress the browser click event that follows this mouseup (REQ-3.5)
+      this._suppressNextClick = true;
       this._wake();
       return;
     }
