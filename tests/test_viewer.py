@@ -560,5 +560,131 @@ class TestSlice3bSelectionPanel(unittest.TestCase):
         )
 
 
+class TestSlice5ScoreThresholdFilter(unittest.TestCase):
+    """RED contracts for Slice 5 — score threshold filter (REQ-5.1 through REQ-5.10).
+
+    Decision 1 (locked): score filter is EDGE-PRIMARY — the slider hides edges below the
+    threshold; score lives on edges (edge.weight), NOT on nodes.
+    Decision 3 (locked): when a selected node becomes an orphan (all its edges hidden),
+    it is REMOVED from the selection set and an aria-live announcement fires.
+
+    All assertions are source-level string/regex checks — no JS execution required.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        template_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds"
+            / "ui"
+            / "templates"
+            / "graph_viewer.html"
+        )
+        cls.template_text = template_path.read_text(encoding="utf-8")
+
+    def test_render_context_emits_edge_score(self):
+        """REQ-5.3 / Decision 1: render_context MUST expose a 'score' field on each edge dict.
+
+        Score is derived from edge.weight (exploration #697 confirms weight is on edges,
+        not nodes).  Asserting that build_render_context produces an edge dict with a
+        'score' key whose value is float(edge.weight or 0.0).
+        """
+        from brain_ds.ontology import Graph
+        from brain_ds.ui.render_context import build_render_context
+
+        raw = {
+            "schema_version": "1.0",
+            "org": "TestOrg",
+            "nodes": [
+                {"id": "a", "label": "A", "type": "Department"},
+                {"id": "b", "label": "B", "type": "Department"},
+            ],
+            "edges": [
+                {"source": "a", "target": "b", "label": "owns", "weight": 0.75},
+            ],
+        }
+        graph = Graph.from_v1(raw)
+        ctx = build_render_context(graph)
+        self.assertTrue(ctx["edges"], "Expected at least one edge in render context")
+        edge = ctx["edges"][0]
+        self.assertIn(
+            "score",
+            edge,
+            "Each edge dict in render context MUST have a 'score' field (Decision 1 / REQ-5.3)",
+        )
+        self.assertAlmostEqual(
+            edge["score"],
+            0.75,
+            places=5,
+            msg="Edge 'score' must equal float(edge.weight) — got {!r}".format(edge.get("score")),
+        )
+
+    def test_template_score_slider_present(self):
+        """REQ-5.1 / REQ-5.2: The filter panel MUST include a range slider labeled
+        'Score threshold', range 0.00 to 1.00, step 0.05, default value 0.00.
+
+        Asserted by verifying: (a) input[type=range] with step='0.05' or step=0.05,
+        (b) literal 'Score threshold' label text.
+        """
+        self.assertRegex(
+            self.template_text,
+            r'type=["\']range["\']',
+            "Expected input[type='range'] slider in graph_viewer.html (REQ-5.1)",
+        )
+        self.assertRegex(
+            self.template_text,
+            r'step=["\']?0\.05["\']?',
+            "Expected step='0.05' on the score threshold slider (REQ-5.1)",
+        )
+        self.assertIn(
+            "Score threshold",
+            self.template_text,
+            "Expected 'Score threshold' label text in graph_viewer.html (REQ-5.1)",
+        )
+
+    def test_template_score_badge_present(self):
+        """REQ-5.7: A score badge MUST be displayed adjacent to the slider showing
+        the current threshold value in '0.00' format.
+
+        Asserted by verifying a score-badge element or identifier that pairs with
+        the slider and displays a formatted numeric value.
+        """
+        self.assertRegex(
+            self.template_text,
+            r"score.?badge|scoreBadge|score-badge",
+            "Expected a score badge element/id (scoreBadge, score-badge, or score_badge) "
+            "in graph_viewer.html (REQ-5.7)",
+        )
+        self.assertRegex(
+            self.template_text,
+            r"toFixed\s*\(\s*2\s*\)",
+            "Expected toFixed(2) for '0.00' format on score badge (REQ-5.7)",
+        )
+
+    def test_template_applies_score_filter(self):
+        """REQ-5.3 / REQ-5.9 / REQ-5.10: Template MUST define an applyScoreFilter function
+        that reads a scoreThreshold variable, hides edges below the threshold (inclusive
+        boundary: edge.score >= threshold is visible), and fires on slider input.
+
+        Decision 1: edge-primary filtering.
+        REQ-5.10: threshold boundary is INCLUSIVE (score == threshold → visible).
+        """
+        self.assertIn(
+            "applyScoreFilter",
+            self.template_text,
+            "Expected 'applyScoreFilter' function in graph_viewer.html (REQ-5.3 / Decision 1)",
+        )
+        self.assertRegex(
+            self.template_text,
+            r"scoreThreshold\s*=\s*0(?:\.0+)?",
+            "Expected 'scoreThreshold = 0' (or 0.0) default declaration in graph_viewer.html (REQ-5.2)",
+        )
+        self.assertRegex(
+            self.template_text,
+            r"score\s*>=\s*scoreThreshold|scoreThreshold\s*<=\s*score",
+            "Expected inclusive threshold check 'score >= scoreThreshold' in applyScoreFilter (REQ-5.10)",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
