@@ -64,11 +64,17 @@
     this._hierarchyReady = false;
 
     // Slice 1a: viewport matrix (REQ-1.1)
-    this.viewport = { scale: 1, tx: 0, ty: 0 };
+    // Slice 1b: extended with vx/vy pan velocity for inertia (REQ-1.7)
+    this.viewport = { scale: 1, tx: 0, ty: 0, vx: 0, vy: 0 };
 
     // Slice 1a: pan state — DISTINCT from isDragging/dragNodeId (REQ-1.2)
     this.isPanning = false;
-    this.panStart = { x: 0, y: 0, tx0: 0, ty0: 0 };
+    this.panStart = { x: 0, y: 0, tx0: 0, ty0: 0, lastDx: 0, lastDy: 0, lastT: 0 };
+
+    // Slice 1b: inertia state (REQ-1.7) — DISTINCT from temperature/cooling
+    this.inertiaActive = false;
+    this.inertiaFriction = 0.92;
+    this.minPanVelocity = 0.5;
 
     this.container.classList.add("vis-network");
     this.container.innerHTML = "";
@@ -103,6 +109,8 @@
     this.canvas.addEventListener("mousedown", this._onMouseDown.bind(this));
     this.canvas.addEventListener("mouseup", this._onMouseUp.bind(this));
     this.canvas.addEventListener("keydown", this._onCanvasKeydown.bind(this));
+    // Slice 1b: wheel zoom handler (REQ-1.3)
+    this.canvas.addEventListener("wheel", this._onWheel.bind(this), { passive: false });
     this._bindReducedMotion();
     this._syncModesFromOptions(this.options);
     this._wake();
@@ -122,6 +130,32 @@
       x: wx * this.viewport.scale + this.viewport.tx,
       y: wy * this.viewport.scale + this.viewport.ty
     };
+  };
+
+  // Slice 1b: re-anchor zoom — same world point under cursor stays stationary (REQ-1.3)
+  Network.prototype._applyZoom = function (sx, sy, factor) {
+    var world = this._screenToWorld(sx, sy);
+    var newScale = Math.max(0.25, Math.min(4.0, this.viewport.scale * factor));
+    // Re-anchor: world point (wx, wy) maps back to screen (sx, sy) under new scale
+    this.viewport.tx = sx - world.x * newScale;
+    this.viewport.ty = sy - world.y * newScale;
+    this.viewport.scale = newScale;
+  };
+
+  // Slice 1b: wheel zoom handler — preventDefault + zoom toward cursor (REQ-1.3, 1.4, 1.5, 1.12)
+  Network.prototype._onWheel = function (event) {
+    event.preventDefault();
+    var rect = this.canvas.getBoundingClientRect();
+    var sx = event.clientX - rect.left;
+    var sy = event.clientY - rect.top;
+    // Multiplicative model: factor = 1.1^(-sign(deltaY)) (REQ-1.5)
+    var factor = Math.pow(1.1, -Math.sign(event.deltaY));
+    this._applyZoom(sx, sy, factor);
+    // REQ-1.12: cancel pan if active
+    if (this.isPanning) {
+      this.isPanning = false;
+    }
+    this._wake();
   };
 
   Network.prototype._bindReducedMotion = function () {
@@ -162,13 +196,99 @@
     (this.handlers[eventName] || []).forEach(function (handler) { handler(payload || {}); });
   };
 
-  Network.prototype.focus = function (nodeId) {
+  // Slice 1b: focus accepts (nodeId, options) with scale and animation (REQ-1.10)
+  Network.prototype.focus = function (nodeId, options) {
+    var opts = options || {};
     this._selectNodeById(nodeId);
+    var state = this._state();
+    var node = state.nodes.find(function (n) { return String(n.id) === String(nodeId); });
+    if (!node) return;
+    // Apply scale if provided
+    if (opts.scale !== undefined) {
+      this.viewport.scale = opts.scale;
+    }
+    // Center viewport on the node
+    this.viewport.tx = this.canvas.width / 2 - node.x * this.viewport.scale;
+    this.viewport.ty = this.canvas.height / 2 - node.y * this.viewport.scale;
+    // Animate if requested and motion allowed
+    if (opts.animation && this.motionEnabled()) {
+      this._animateViewport(
+        { scale: this.viewport.scale, tx: this.viewport.tx, ty: this.viewport.ty },
+        250
+      );
+    }
+    this._wake();
   };
 
-  Network.prototype.fit = function () {
-    this.temperature = 0.2;
+  // Slice 1b: fit re-implemented against viewport matrix (REQ-1.10) — MUST NOT set temperature=0.2
+  Network.prototype.fit = function (options) {
+    var opts = options || {};
+    var state = this._state();
+    var visibleNodes = state.nodes.filter(function (n) { return !n.hidden; });
+    if (!visibleNodes.length) return;
+
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    visibleNodes.forEach(function (n) {
+      var r = n.radius || 8;
+      if (n.x - r < minX) minX = n.x - r;
+      if (n.y - r < minY) minY = n.y - r;
+      if (n.x + r > maxX) maxX = n.x + r;
+      if (n.y + r > maxY) maxY = n.y + r;
+    });
+
+    var margin = 40;
+    var bboxW = maxX - minX;
+    var bboxH = maxY - minY;
+    if (bboxW <= 0 || bboxH <= 0) return;
+
+    var scaleX = (this.canvas.width - margin * 2) / bboxW;
+    var scaleY = (this.canvas.height - margin * 2) / bboxH;
+    var newScale = Math.min(scaleX, scaleY);
+    newScale = Math.max(0.25, Math.min(4.0, newScale));
+
+    var centerX = (minX + maxX) / 2;
+    var centerY = (minY + maxY) / 2;
+    var newTx = this.canvas.width / 2 - centerX * newScale;
+    var newTy = this.canvas.height / 2 - centerY * newScale;
+
+    var target = { scale: newScale, tx: newTx, ty: newTy };
+
+    if (opts.animation && this.motionEnabled()) {
+      this._animateViewport(target, 250);
+    } else {
+      this.viewport.scale = newScale;
+      this.viewport.tx = newTx;
+      this.viewport.ty = newTy;
+    }
     this._wake();
+  };
+
+  // Slice 1b: motionEnabled helper — single source of truth for all animated transitions (§4.3)
+  Network.prototype.motionEnabled = function () {
+    return !this._prefersReducedMotion;
+  };
+
+  // Slice 1b: animate viewport toward target over ms milliseconds (linear ease)
+  Network.prototype._animateViewport = function (target, ms) {
+    var self = this;
+    var startScale = this.viewport.scale;
+    var startTx = this.viewport.tx;
+    var startTy = this.viewport.ty;
+    var startTime = null;
+    var duration = ms || 250;
+
+    function step(ts) {
+      if (!startTime) startTime = ts;
+      var elapsed = ts - startTime;
+      var t = Math.min(1, elapsed / duration);
+      self.viewport.scale = startScale + (target.scale - startScale) * t;
+      self.viewport.tx = startTx + (target.tx - startTx) * t;
+      self.viewport.ty = startTy + (target.ty - startTy) * t;
+      if (t < 1) {
+        requestAnimationFrame(step);
+      }
+    }
+    requestAnimationFrame(step);
   };
 
   // Slice 1a: reset viewport to identity — called on layout change (REQ-1.11)
@@ -527,6 +647,13 @@
       // Slice 1a: pan — update tx/ty from screen delta (REQ-1.2 / OBS-1.1)
       this.viewport.tx = this.panStart.tx0 + (sx - this.panStart.x);
       this.viewport.ty = this.panStart.ty0 + (sy - this.panStart.y);
+      // Slice 1b: track last velocity sample for inertia handoff (REQ-1.7)
+      var now = Date.now();
+      this.panStart.lastDx = sx - this.panStart.lastSx;
+      this.panStart.lastDy = sy - this.panStart.lastSy;
+      this.panStart.lastT = now;
+      this.panStart.lastSx = sx;
+      this.panStart.lastSy = sy;
       this._wake();
       return;
     }
@@ -560,16 +687,54 @@
       return;
     }
     // No node hit: start panning (REQ-1.2)
+    // Slice 1b: REQ-1.13 — zero inertia velocity when new pan drag begins
+    this.viewport.vx = 0;
+    this.viewport.vy = 0;
+    this.inertiaActive = false;
     this.isPanning = true;
-    this.panStart = { x: sx, y: sy, tx0: this.viewport.tx, ty0: this.viewport.ty };
+    var now = Date.now();
+    this.panStart = {
+      x: sx, y: sy,
+      tx0: this.viewport.tx, ty0: this.viewport.ty,
+      lastDx: 0, lastDy: 0, lastT: now,
+      lastSx: sx, lastSy: sy
+    };
   };
 
   Network.prototype._onMouseUp = function () {
     this.isDragging = false;
     this.dragNodeId = null;
-    // Slice 1a: clear pan state (leave TODO for 1b velocity stash)
+    // Slice 1b: compute pan velocity and arm inertia (REQ-1.7)
+    if (this.isPanning) {
+      var dt = Math.max(Date.now() - this.panStart.lastT, 16);
+      var vx = this.panStart.lastDx / dt;
+      var vy = this.panStart.lastDy / dt;
+      this.viewport.vx = vx;
+      this.viewport.vy = vy;
+      // Arm inertia if velocity is significant (REQ-1.7)
+      this.inertiaActive = (Math.abs(vx) + Math.abs(vy)) > this.minPanVelocity;
+      if (this.inertiaActive) {
+        this._wake();
+      }
+    }
     this.isPanning = false;
-    // TODO(1b): stash final pan velocity for inertia handoff
+  };
+
+  // Slice 1b: inertia integrator — Euler step with friction (REQ-1.7, REQ-1.8)
+  Network.prototype._stepInertia = function (dt) {
+    if (!this.inertiaActive || this._prefersReducedMotion) return;
+    // Euler step: translate by velocity * elapsed (vx/vy are px/ms, dt is seconds)
+    this.viewport.tx += this.viewport.vx * dt * 1000;
+    this.viewport.ty += this.viewport.vy * dt * 1000;
+    // Apply friction per frame
+    this.viewport.vx *= this.inertiaFriction;
+    this.viewport.vy *= this.inertiaFriction;
+    // Stop when velocity falls below threshold (0.05 world-units — using px/ms threshold)
+    if ((Math.abs(this.viewport.vx) + Math.abs(this.viewport.vy)) < this.minPanVelocity) {
+      this.inertiaActive = false;
+      this.viewport.vx = 0;
+      this.viewport.vy = 0;
+    }
   };
 
   Network.prototype._render = function (ts) {
@@ -605,7 +770,15 @@
 
     this._syncA11yList(state.nodes);
 
-    if (!this._prefersReducedMotion && this.physicsEnabled && this.temperature >= 0.01) {
+    // Slice 1b: inertia step after draw (REQ-1.7)
+    this._stepInertia(dt);
+
+    // Slice 1b: keep RAF alive while inertia is active (REQ-1.7 / 1b.12)
+    var needsFrame = (
+      (!this._prefersReducedMotion && this.physicsEnabled && this.temperature >= 0.01) ||
+      this.inertiaActive
+    );
+    if (needsFrame) {
       this._raf = requestAnimationFrame(this._render.bind(this));
     } else {
       this._raf = null;
