@@ -181,6 +181,21 @@
     this._wake();
   };
 
+  Network.prototype._activeThemeName = function () {
+    var attr = document && document.documentElement
+      ? document.documentElement.getAttribute("data-theme")
+      : null;
+    return attr === "light" ? "light" : "dark";
+  };
+
+  Network.prototype._resolveNodeBackground = function (node) {
+    var color = node && node.color;
+    if (!color) return this._themeTokens.panelBg || "#1e293b";
+    if (typeof color === "string") return color;
+    var theme = this._activeThemeName();
+    return color[theme] || color.background || color.dark || this._themeTokens.panelBg || "#1e293b";
+  };
+
   // Slice 1a: inverse viewport transform — screen → world (REQ-1.9)
   Network.prototype._screenToWorld = function (sx, sy) {
     return {
@@ -589,7 +604,7 @@
       if (isRoot) radius = radius + 8;
       node.radius = radius;
       ctx.beginPath();
-      ctx.fillStyle = (node.color && node.color.background) || self._themeTokens.panelBg || "#1e293b";
+      ctx.fillStyle = self._resolveNodeBackground(node);
       ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
       ctx.fill();
       if (String(node.id) === String(self.hoveredNodeId)) {
