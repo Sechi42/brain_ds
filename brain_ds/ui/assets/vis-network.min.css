@@ -67,8 +67,13 @@
   opacity: 1;
 }
 
+/* Instant appearance for .vis-popover--instant class (REQ-4.7) */
+.vis-popover.vis-popover--instant {
+  animation: none;
+  opacity: 1;
+}
+
 /* Instant appearance when prefers-reduced-motion is active (REQ-4.7 / REQ-X.2) */
-.vis-popover.vis-popover--instant,
 @media (prefers-reduced-motion: reduce) {
   .vis-popover {
     animation: none;

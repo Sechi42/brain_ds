@@ -94,7 +94,8 @@
     // explicitly supersede the REQ — spec value is binding per spec §1 conventions).
     this.hoverDelayMs = 350;
     this._popoverTimer = null;
-    this._popoverNodeId = null;  // nodeId currently shown (or pending) in popover
+    this._popoverGraceTimer = null;  // REQ-4.2: 150 ms grace on re-entry after leave
+    this._popoverNodeId = null;      // nodeId currently shown (or pending) in popover
 
     this.container.classList.add("vis-network");
     this.container.innerHTML = "";
@@ -600,6 +601,20 @@
       li.addEventListener("keydown", function (event) {
         self._onA11yKeydown(event, visibleNodes);
       });
+      // Slice 4: Tab focus on a node shows popover immediately, no delay (REQ-4.8)
+      li.addEventListener("focus", (function (capturedNode) {
+        return function () {
+          self._showHoverPopover(capturedNode.id, capturedNode.x, capturedNode.y);
+        };
+      })(node));
+      li.addEventListener("blur", function () {
+        // On blur start grace timer so popover dismisses after short delay (REQ-4.2 / REQ-4.8)
+        clearTimeout(self._popoverGraceTimer);
+        self._popoverGraceTimer = setTimeout(function () {
+          self._popoverGraceTimer = null;
+          self._hideHoverPopover();
+        }, 150);
+      });
       self.a11yList.appendChild(li);
     });
 
@@ -774,16 +789,19 @@
 
     // Slice 4: manage hover-delay timer (REQ-4.1 / OBS-4.1).
     // Fire timer when cursor enters a new node; cancel and hide on node leave.
-    // Suppress during active marquee (REQ-4.6) — pan/zoom suppression handled in those handlers.
-    if (!this.marquee.active) {
+    // Suppress during active marquee, pan drag, or node drag (REQ-4.6).
+    if (!this.marquee.active && !this.isDragging && !this.isPanning) {
       if (this.hoveredNodeId !== prevHoveredId) {
         // Node changed — cancel any pending show
         clearTimeout(this._popoverTimer);
         this._popoverTimer = null;
-        if (this._popoverNodeId !== null) {
-          this._hideHoverPopover();
-        }
         if (this.hoveredNodeId !== null) {
+          // Cursor moved to a new node — cancel grace timer if any, arm show timer
+          clearTimeout(this._popoverGraceTimer);
+          this._popoverGraceTimer = null;
+          if (this._popoverNodeId !== null) {
+            this._hideHoverPopover();
+          }
           var self = this;
           var targetId = this.hoveredNodeId;
           this._popoverTimer = setTimeout(function () {
@@ -792,6 +810,14 @@
               self._showHoverPopover(targetId, world.x, world.y);
             }
           }, this.hoverDelayMs);
+        } else {
+          // Cursor left a node — REQ-4.2: 150 ms grace before hiding
+          // If cursor re-enters within 150 ms, the grace timer is cancelled above
+          var self = this;
+          this._popoverGraceTimer = setTimeout(function () {
+            self._popoverGraceTimer = null;
+            self._hideHoverPopover();
+          }, 150);
         }
       }
     }
@@ -1043,6 +1069,8 @@
   Network.prototype._hideHoverPopover = function () {
     clearTimeout(this._popoverTimer);
     this._popoverTimer = null;
+    clearTimeout(this._popoverGraceTimer);
+    this._popoverGraceTimer = null;
     this._popoverNodeId = null;
     this._popoverEl.setAttribute('aria-hidden', 'true');
     this._popoverEl.style.display = 'none';
