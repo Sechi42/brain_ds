@@ -20,7 +20,11 @@ def build_render_context(graph: Graph) -> dict:
                 "label": node.label or node.id,
                 "type": node_type,
                 "supertype": node.supertype or node.type.supertype,
-                "color": color_for_type(node_type),
+                "color": {
+                    "background": color_for_type(node_type, "dark"),
+                    "dark": color_for_type(node_type, "dark"),
+                    "light": color_for_type(node_type, "light"),
+                },
                 "title": _node_title(node.details or {}, node.card_sections),
             }
         )
@@ -150,7 +154,11 @@ def _build_detail_index(graph: Graph) -> tuple[dict[str, dict], dict[str, dict]]
                 "label": node.label or node.id,
                 "type": node.type.value,
                 "supertype": node.supertype or node.type.supertype,
-                "color": color_for_type(node.type.value),
+                "color": {
+                    "background": color_for_type(node.type.value, "dark"),
+                    "dark": color_for_type(node.type.value, "dark"),
+                    "light": color_for_type(node.type.value, "light"),
+                },
             },
             "sections": _node_sections(node.details or {}, node.card_sections),
             "evidence": [
