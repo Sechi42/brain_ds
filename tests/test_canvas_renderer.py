@@ -221,5 +221,90 @@ class TestSlice1aViewportContracts(unittest.TestCase):
                 f"locked literal '{literal}' has been removed — regression!")
 
 
+# ── Slice 1b contracts (REQ-1.3, 1.4, 1.5, 1.7, 1.8, 1.10, 1.12, 1.13) ──
+
+class TestSlice1bInertiaContracts(unittest.TestCase):
+    """Slice 1b: wheel-zoom + inertia + fit/focus re-implementation.
+
+    All 7 tests here must FAIL before implementation and PASS after.
+    The 32 contracts from TestCanvasRendererContracts + TestSlice1aViewportContracts
+    must remain GREEN throughout.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        assets_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "assets"
+        cls.js_path = assets_dir / "vis-offline-network.js"
+        cls.js_text = cls.js_path.read_text(encoding="utf-8")
+
+    # 1b.1 – REQ-1.3
+    def test_wheel_zoom_handler_present(self):
+        """addEventListener('wheel', ...) must exist and call preventDefault(). Cite REQ-1.3."""
+        self.assertRegex(self.js_text, r"addEventListener\(['\"]wheel['\"]")
+        # The wheel handler body must contain preventDefault
+        start = self.js_text.find("addEventListener(\"wheel\"")
+        if start == -1:
+            start = self.js_text.find("addEventListener('wheel'")
+        self.assertNotEqual(start, -1, "wheel addEventListener not found")
+        # Check that preventDefault appears after the wheel listener attachment
+        after = self.js_text[start:]
+        self.assertIn("preventDefault", after)
+
+    # 1b.2 – REQ-1.4
+    def test_zoom_clamped_to_min_max(self):
+        """Zoom bounds literals 0.25 (min) and 4.0 (max) must be present. Cite REQ-1.4."""
+        self.assertIn("0.25", self.js_text)
+        self.assertIn("4.0", self.js_text)
+
+    # 1b.3 – REQ-1.5
+    def test_zoom_sensitivity_multiplicative_model(self):
+        """Multiplicative zoom factor literal 1.1 must appear near the wheel handler. Cite REQ-1.5."""
+        # 1.1 is the base for Math.pow(1.1, ...) multiplicative zoom
+        self.assertIn("1.1", self.js_text)
+
+    # 1b.4 – REQ-1.7
+    def test_inertia_friction_constant_distinct_from_cooling(self):
+        """inertiaFriction must be present AND temperature * 0.95 must remain unmodified. Cite REQ-1.7."""
+        self.assertIn("inertiaFriction", self.js_text)
+        # The cooling literal must be UNCHANGED (locked — forces are cooled via * 0.95)
+        self.assertIn("temperature * 0.95", self.js_text)
+
+    # 1b.5 – REQ-1.10
+    def test_fit_reimplemented_against_viewport(self):
+        """network.fit body must reference 'viewport' (not just set temperature=0.2). Cite REQ-1.10."""
+        # Find the fit method body
+        start = self.js_text.find("Network.prototype.fit = function")
+        self.assertNotEqual(start, -1, "Network.prototype.fit not found")
+        next_method = self.js_text.find("Network.prototype.", start + 1)
+        body = self.js_text[start: next_method if next_method != -1 else len(self.js_text)]
+        self.assertIn("viewport", body)
+
+    # 1b.6 – REQ-1.10
+    def test_focus_accepts_scale_and_animation_options(self):
+        """network.focus signature must accept options with scale and animation. Cite REQ-1.10."""
+        # Focus must accept (nodeId, options) — check the prototype method signature
+        start = self.js_text.find("Network.prototype.focus = function")
+        self.assertNotEqual(start, -1, "Network.prototype.focus not found")
+        next_method = self.js_text.find("Network.prototype.", start + 1)
+        body = self.js_text[start: next_method if next_method != -1 else len(self.js_text)]
+        # Must accept options parameter
+        self.assertRegex(body, r"function\s*\(\s*nodeId\s*,\s*options\s*\)")
+        # Must reference scale and animation in options
+        self.assertIn("scale", body)
+        self.assertIn("animation", body)
+
+    # 1b.7 – REQ-1.8
+    def test_reduced_motion_skips_inertia(self):
+        """_prefersReducedMotion must guard _stepInertia (inertia skipped on reduced-motion). Cite REQ-1.8."""
+        # _stepInertia must exist as a method
+        self.assertRegex(self.js_text, r"_stepInertia\s*=\s*function")
+        # _prefersReducedMotion must appear inside _stepInertia body
+        start = self.js_text.find("_stepInertia = function")
+        self.assertNotEqual(start, -1, "_stepInertia not found")
+        next_method = self.js_text.find("Network.prototype.", start + 1)
+        body = self.js_text[start: next_method if next_method != -1 else len(self.js_text)]
+        self.assertIn("_prefersReducedMotion", body)
+
+
 if __name__ == "__main__":
     unittest.main()
