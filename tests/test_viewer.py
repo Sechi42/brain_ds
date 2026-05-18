@@ -352,5 +352,91 @@ class TestViewerFoundation(unittest.TestCase):
             simple_mock.assert_called_once()
 
 
+class TestSlice2TwoHopHighlight(unittest.TestCase):
+    """RED contracts for Slice 2 — 2-hop highlighting (REQ-2.1 through REQ-2.9).
+
+    These tests assert source-level presence of the 2-hop neighborhood logic in
+    brain_ds/ui/templates/graph_viewer.html following the same pattern used by
+    TestCanvasRendererContracts for vis-offline-network.js.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        template_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds"
+            / "ui"
+            / "templates"
+            / "graph_viewer.html"
+        )
+        cls.template_text = template_path.read_text(encoding="utf-8")
+
+    def test_template_two_hop_neighborhood_helper(self):
+        """REQ-2.1: The template MUST define a twoHopNeighborhood helper function.
+
+        The helper computes the full 2-hop set (root + 1-hop + 2-hop) from an
+        adjacency map.  Asserting the literal name ensures the function exists
+        as a named, reusable unit rather than being inlined ad-hoc.
+        """
+        self.assertIn(
+            "twoHopNeighborhood",
+            self.template_text,
+            "Expected 'twoHopNeighborhood' helper function to be defined in graph_viewer.html (REQ-2.1)",
+        )
+
+    def test_focus_node_uses_two_hop(self):
+        """REQ-2.1: The focusNode function body MUST reference twoHopNeighborhood.
+
+        This contract verifies that the existing 1-hop 'nearby' set construction
+        has been replaced by the 2-hop helper call.  We do this by asserting that
+        the substring 'twoHopNeighborhood' appears inside the focusNode function
+        body (after its opening line).
+        """
+        # Locate focusNode and verify twoHopNeighborhood appears after it.
+        focus_node_idx = self.template_text.find("const focusNode")
+        self.assertGreater(
+            focus_node_idx,
+            -1,
+            "focusNode function not found in graph_viewer.html",
+        )
+        two_hop_idx = self.template_text.find("twoHopNeighborhood", focus_node_idx)
+        self.assertGreater(
+            two_hop_idx,
+            focus_node_idx,
+            "Expected 'twoHopNeighborhood' to appear inside focusNode body in graph_viewer.html (REQ-2.1)",
+        )
+
+    def test_two_hop_opacity_constants(self):
+        """REQ-2.3 through REQ-2.5: Both opacity literals 0.70 and 0.25 MUST appear
+        in the focusNode logic after the twoHopNeighborhood call.
+
+        REQ-2.3: 1-hop neighbors render at 1.0 (not separately asserted here —
+                  1.0 already exists in the file for other uses).
+        REQ-2.4: 2-hop neighbors render at 0.70 (asserted: literal '0.70').
+        REQ-2.5: All other nodes render at 0.25 (asserted: literal '0.25').
+        """
+        focus_node_idx = self.template_text.find("const focusNode")
+        self.assertGreater(
+            focus_node_idx,
+            -1,
+            "focusNode function not found in graph_viewer.html",
+        )
+
+        # Both opacity constants must appear somewhere after focusNode opens.
+        opacity_70_idx = self.template_text.find("0.70", focus_node_idx)
+        self.assertGreater(
+            opacity_70_idx,
+            focus_node_idx,
+            "Expected opacity constant '0.70' (2-hop dim) inside focusNode body (REQ-2.4)",
+        )
+
+        opacity_25_idx = self.template_text.find("0.25", focus_node_idx)
+        self.assertGreater(
+            opacity_25_idx,
+            focus_node_idx,
+            "Expected opacity constant '0.25' (out-of-neighborhood dim) inside focusNode body (REQ-2.5)",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
