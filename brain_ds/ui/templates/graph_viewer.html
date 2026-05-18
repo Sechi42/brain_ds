@@ -192,12 +192,10 @@
       const applyScoreFilter = (threshold) => {
         scoreThreshold = threshold;
         // Update score badge (REQ-5.7).
-        const badge = document.getElementById("score-badge");
-        if (badge) badge.textContent = threshold.toFixed(2);
-        const slider = document.getElementById("score-threshold-slider");
-        if (slider) {
-          slider.setAttribute("aria-valuenow", threshold.toFixed(2));
-          slider.setAttribute("aria-valuetext", threshold.toFixed(2));
+        if (scoreBadgeEl) scoreBadgeEl.textContent = threshold.toFixed(2);
+        if (scoreSliderEl) {
+          scoreSliderEl.setAttribute("aria-valuenow", threshold.toFixed(2));
+          scoreSliderEl.setAttribute("aria-valuetext", threshold.toFixed(2));
         }
         // Apply visibility (integrates type-filter + score-filter additively).
         applyVisibility();
@@ -242,6 +240,8 @@
       const exportJsonBtn = document.getElementById("export-json");
       const detailCollapseBtn = document.getElementById("detail-collapse");
       const detailCloseBtn = document.getElementById("detail-close");
+      const scoreBadgeEl = document.getElementById("score-badge");
+      const scoreSliderEl = document.getElementById("score-threshold-slider");
       const arrow = { incoming: "←", outgoing: "→" };
       const fallbackEditableFields = new Set(["label", "details", "card_sections", "cards", "sections"]);
       const normalizeFieldName = (value) => String(value || "").trim().toLowerCase().replace(/\s+/g, "_");
@@ -817,12 +817,11 @@
         });
       });
 
-      document.getElementById("show-all").addEventListener("click", () => { hiddenTypes.clear(); applyScoreFilter(0); typeCheckboxes.forEach((cb) => { cb.checked = true; }); const sliderEl = document.getElementById("score-threshold-slider"); if (sliderEl) sliderEl.value = "0"; });
+      document.getElementById("show-all").addEventListener("click", () => { hiddenTypes.clear(); applyScoreFilter(0); typeCheckboxes.forEach((cb) => { cb.checked = true; }); if (scoreSliderEl) scoreSliderEl.value = "0"; });
       // Slice 5: Score threshold slider wiring (REQ-5.1, REQ-5.7, REQ-5.8).
-      const scoreSlider = document.getElementById("score-threshold-slider");
-      if (scoreSlider) {
-        scoreSlider.addEventListener("input", () => {
-          applyScoreFilter(parseFloat(scoreSlider.value));
+      if (scoreSliderEl) {
+        scoreSliderEl.addEventListener("input", () => {
+          applyScoreFilter(parseFloat(scoreSliderEl.value));
         });
       }
       document.getElementById("hide-all").addEventListener("click", () => { typeCheckboxes.forEach((cb, typeName) => { cb.checked = false; hiddenTypes.add(typeName); }); applyVisibility(); });
