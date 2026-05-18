@@ -223,6 +223,7 @@
             if (liveRegion) {
               liveRegion.textContent = `${removedFromSelection.length} node(s) removed from selection due to filter`;
             }
+            renderSelectionPanel([...network.selectedNodeIds]);
           }
         }
       };
