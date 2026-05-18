@@ -41,3 +41,56 @@
   outline: 2px solid #38bdf8;
   outline-offset: 2px;
 }
+
+/* Slice 4 — hover metadata popover (REQ-4.4, REQ-4.7, REQ-4.10) */
+.vis-popover {
+  display: none;
+  visibility: hidden;
+  position: absolute;
+  z-index: 10;
+  min-width: 140px;
+  max-width: 260px;
+  padding: 0.5rem 0.75rem;
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  pointer-events: none;
+  /* fade-in 150 ms when motion is allowed (REQ-4.7) */
+  opacity: 0;
+  animation: vis-popover-in 150ms ease forwards;
+}
+
+.vis-popover[aria-hidden="false"] {
+  opacity: 1;
+}
+
+/* Instant appearance when prefers-reduced-motion is active (REQ-4.7 / REQ-X.2) */
+.vis-popover.vis-popover--instant,
+@media (prefers-reduced-motion: reduce) {
+  .vis-popover {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+@keyframes vis-popover-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.vis-popover-name {
+  display: block;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.vis-popover-type,
+.vis-popover-score,
+.vis-popover-source {
+  display: block;
+  color: #cbd5e1;
+  font-size: 0.75rem;
+}

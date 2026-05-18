@@ -480,11 +480,16 @@ class TestSlice4HoverPopoverContracts(unittest.TestCase):
 
     def test_hover_popover_aria_live_or_role_tooltip(self):
         """Popover element MUST have role='tooltip' (REQ-4.10) AND the renderer must
-        reference aria-describedby for the node's a11y companion element (REQ-4.10)."""
-        self.assertIn(
-            'role="tooltip"',
+        reference aria-describedby for the node's a11y companion element (REQ-4.10).
+
+        JS source uses setAttribute("role", "tooltip") — match either setAttribute form
+        or an inline attribute literal."""
+        self.assertRegex(
             self.js_text,
-            "Popover element must have role='tooltip' set in renderer (REQ-4.10).",
+            r"""setAttribute\s*\(\s*['"]role['"]\s*,\s*['"]tooltip['"]\s*\)"""
+            r"""|role=['"]{1}tooltip['"]{1}""",
+            "Popover element must have role='tooltip' set in renderer (REQ-4.10). "
+            "Acceptable forms: setAttribute(\"role\", \"tooltip\") or role=\"tooltip\".",
         )
         self.assertIn(
             "aria-describedby",
