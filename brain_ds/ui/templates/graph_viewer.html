@@ -437,14 +437,40 @@
         toggleEditControls();
         collapseDetailPanel(false);
       };
+      const twoHopNeighborhood = (rootId, adj) => {
+        const oneHop = new Set(adj[rootId] || []);
+        const twoHop = new Set([rootId, ...oneHop]);
+        oneHop.forEach((n) => (adj[n] || []).forEach((m) => twoHop.add(m)));
+        return twoHop;
+      };
       const focusNode = (nodeId) => {
         const node = originalNodes.get(nodeId);
         if (!node) return;
         selectedNodeId = nodeId;
         network.focus(nodeId, { scale: 1.15, animation: true });
-        const nearby = new Set([nodeId, ...(adjacency[nodeId] || [])]);
-        nodes.update((RENDER_CONTEXT.nodes || []).map((n) => ({ id: n.id, opacity: nearby.has(n.id) ? 1 : 0.2, borderWidth: n.id === nodeId ? 4 : 1 })));
-        edges.update((RENDER_CONTEXT.edges || []).map((e, i) => ({ id: i, opacity: nearby.has(e.from) && nearby.has(e.to) ? 1 : 0.2 })));
+        const twoHop = twoHopNeighborhood(nodeId, adjacency);
+        const oneHopSet = new Set(adjacency[nodeId] || []);
+        nodes.update(
+          (RENDER_CONTEXT.nodes || []).map((n) => {
+            let opacity;
+            if (n.id === nodeId) {
+              opacity = 1;
+            } else if (oneHopSet.has(n.id)) {
+              opacity = 1;
+            } else if (twoHop.has(n.id)) {
+              opacity = 0.70;
+            } else {
+              opacity = 0.25;
+            }
+            return { id: n.id, opacity, borderWidth: n.id === nodeId ? 4 : 1 };
+          })
+        );
+        edges.update(
+          (RENDER_CONTEXT.edges || []).map((e, i) => ({
+            id: i,
+            opacity: twoHop.has(e.from) && twoHop.has(e.to) ? 1 : 0.25,
+          }))
+        );
         if (editMode) {
           renderDetailPanelEditable(nodeId);
         } else {
