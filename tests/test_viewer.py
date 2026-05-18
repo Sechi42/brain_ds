@@ -686,5 +686,74 @@ class TestSlice5ScoreThresholdFilter(unittest.TestCase):
         )
 
 
+class TestSlice6ContextMenuTemplate(unittest.TestCase):
+    """RED contracts for Slice 6 — context menu template-side DOM and actions
+    (REQ-6.2, REQ-6.3, REQ-6.8, REQ-6.9, REQ-6.10).
+
+    All assertions are source-level string checks on graph_viewer.html — no browser required.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        template_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds"
+            / "ui"
+            / "templates"
+            / "graph_viewer.html"
+        )
+        cls.template_text = template_path.read_text(encoding="utf-8")
+
+    def test_template_node_menu_items_present(self):
+        """REQ-6.2: Node context menu MUST contain all four required item labels verbatim.
+
+        Items: 'Focus this node', 'Show only this node + neighbors',
+               'Copy entity JSON to clipboard', 'Open detail panel'.
+
+        Cite REQ-6.2 / OBS-6.2."""
+        for item in [
+            "Focus this node",
+            "Show only this node + neighbors",
+            "Copy entity JSON to clipboard",
+            "Open detail panel",
+        ]:
+            self.assertIn(
+                item,
+                self.template_text,
+                f"Node context menu item '{item}' must be present in graph_viewer.html (REQ-6.2).",
+            )
+
+    def test_template_canvas_menu_items_present(self):
+        """REQ-6.3: Canvas context menu MUST contain 'Zoom to fit', 'Reset filters',
+        and 'Switch layout' items.  'Toggle theme' MUST be absent until Slice 7 lands.
+
+        Cite REQ-6.3 / OBS-6.3 / OBS-6.4."""
+        for item in ["Zoom to fit", "Reset filters", "Switch layout"]:
+            self.assertIn(
+                item,
+                self.template_text,
+                f"Canvas context menu item '{item}' must be present (REQ-6.3).",
+            )
+        # REQ-6.3: Toggle theme absent until Slice 7 provides light theme tokens.
+        self.assertNotIn(
+            "Toggle theme",
+            self.template_text,
+            "Toggle theme MUST be absent from context menu until Slice 7 lands (REQ-6.3 / OBS-6.4).",
+        )
+
+    def test_template_grid_aria_disabled(self):
+        """REQ-6.3 + REQ-6.9: Grid layout placeholder MUST be rendered as disabled
+        (greyed out) with aria-disabled='true', not hidden.
+
+        Cite REQ-6.3 (Grid always disabled) / REQ-6.9 (disabled items use aria-disabled)
+        / OBS-6.3."""
+        self.assertRegex(
+            self.template_text,
+            r'[Gg]rid.*aria-disabled\s*=\s*["\']true["\']'
+            r'|aria-disabled\s*=\s*["\']true["\'].*[Gg]rid',
+            "Grid layout menu item MUST have aria-disabled='true' (REQ-6.9 / REQ-6.3).",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
