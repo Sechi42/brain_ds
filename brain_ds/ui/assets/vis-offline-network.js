@@ -76,6 +76,15 @@
     this.inertiaFriction = 0.92;
     this.minPanVelocity = 0.5;
 
+    // Slice 3a: multi-select state (REQ-3.4) — ADDITIVE to selectedNodeId (locked literal)
+    this.selectedNodeIds = new Set();
+
+    // Slice 3a: marquee selection state (REQ-3.5) — world coordinates (REQ-3.6)
+    this.marquee = { active: false, x0: 0, y0: 0, x1: 0, y1: 0 };
+
+    // Slice 3a: interaction mode tracking (design §4.2)
+    this._mode = "idle"; // 'idle' | 'panning' | 'dragging-node' | 'marquee'
+
     this.container.classList.add("vis-network");
     this.container.innerHTML = "";
 
@@ -486,6 +495,32 @@
     ctx.restore();
   };
 
+  // Slice 3a: draw marquee rectangle between _drawEdges and _drawNodes (REQ-3.5)
+  // Rendered in world coordinates; 1px on screen regardless of zoom (zoom-invariant)
+  Network.prototype._drawMarquee = function () {
+    if (!this.marquee.active) return;
+    var ctx = this.ctx;
+    ctx.save();
+    var strokeColor = "#38bdf8"; // --vis-marquee-stroke fallback
+    try {
+      var computed = getComputedStyle(this.canvas).getPropertyValue("--vis-marquee-stroke").trim();
+      if (computed) strokeColor = computed;
+    } catch (e) {}
+    ctx.strokeStyle = strokeColor;
+    ctx.fillStyle = "rgba(56,189,248,0.12)"; // --vis-marquee-fill fallback
+    // Zoom-invariant 1px border: lineWidth = 1/scale (REQ-3.5)
+    ctx.lineWidth = 1 / this.viewport.scale;
+    ctx.setLineDash([4 / this.viewport.scale, 4 / this.viewport.scale]);
+    var x = this.marquee.x0;
+    var y = this.marquee.y0;
+    var w = this.marquee.x1 - this.marquee.x0;
+    var h = this.marquee.y1 - this.marquee.y0;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeRect(x, y, w, h);
+    ctx.setLineDash([]);
+    ctx.restore();
+  };
+
   Network.prototype._drawNodes = function (state) {
     var ctx = this.ctx;
     var self = this;
@@ -598,6 +633,39 @@
     if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter" || event.key === " ") {
       event.preventDefault();
     }
+
+    // Slice 3a: Escape — clear selection (REQ-3.9)
+    if (event.key === "Escape") {
+      event.preventDefault();
+      this.selectedNodeIds = new Set();
+      this.selectedNodeId = null;
+      this.marquee.active = false;
+      this._mode = "idle";
+      this._emit("select-change", { nodes: [] });
+      this.liveRegion.textContent = "Selection cleared";
+      this._wake();
+      return;
+    }
+
+    // Slice 3a: Ctrl/Cmd+A — select all visible nodes (REQ-3.8)
+    if ((event.ctrlKey || event.metaKey) && event.key === "a") {
+      event.preventDefault();
+      var state = this._state();
+      var visibleIds = [];
+      state.nodes.forEach(function (n) {
+        if (!n.hidden) visibleIds.push(String(n.id));
+      });
+      this.selectedNodeIds = new Set(visibleIds);
+      this.selectedNodeId = visibleIds.length > 0 ? visibleIds[visibleIds.length - 1] : null;
+      this._emit("select-change", { nodes: visibleIds });
+      this.liveRegion.textContent = this.selectedNodeIds.size + " nodes selected";
+      this._wake();
+      return;
+    }
+
+    // TODO REQ-3.7: Shift+Arrow directional extend (deferred — no spatial neighbor index yet)
+    // When implemented: extend selection by selecting the neighbor of the most-recently-selected
+    // node in the direction closest to the arrow direction (angular distance heuristic).
   };
 
   Network.prototype._nodeAt = function (x, y, nodes) {
@@ -622,14 +690,41 @@
     var node = this._nodeAt(world.x, world.y, state.nodes);
     if (!node) {
       this.selectedNodeId = null;
+      // Slice 3a: clear multi-select on empty-canvas click (REQ-3.1 / REQ-3.9 semantics)
+      this.selectedNodeIds = new Set();
       this._emit("click", { nodes: [] });
+      this._emit("select-change", { nodes: [] });
+      this.liveRegion.textContent = "Selection cleared";
       this._wake();
       return;
     }
     this._toggleExpandCollapse(node, state.nodes);
+    var nodeId = String(node.id);
+
+    // Slice 3a: modifier-key selection semantics (REQ-3.1, 3.2, 3.3)
+    if (event.ctrlKey || event.metaKey) {
+      // Ctrl/Cmd-click: ADD to selection without removing (REQ-3.3)
+      this.selectedNodeIds.add(nodeId);
+    } else if (event.shiftKey) {
+      // Shift-click: TOGGLE in/out of selection (REQ-3.2)
+      if (this.selectedNodeIds.has(nodeId)) {
+        this.selectedNodeIds.delete(nodeId);
+      } else {
+        this.selectedNodeIds.add(nodeId);
+      }
+    } else {
+      // No modifier: REPLACE selection with only this node (REQ-3.1)
+      this.selectedNodeIds = new Set([nodeId]);
+    }
+
+    // Keep legacy selectedNodeId in sync — last-selected primary node
     this.selectedNodeId = node.id;
-    this.liveRegion.textContent = "Selected " + String(node.label || node.id);
+    var count = this.selectedNodeIds.size;
+    this.liveRegion.textContent = count === 1
+      ? "Selected " + String(node.label || node.id)
+      : count + " nodes selected";
     this._emit("click", { nodes: [node.id] });
+    this._emit("select-change", { nodes: Array.from(this.selectedNodeIds) });
     this._wake();
   };
 
@@ -654,6 +749,14 @@
       this.panStart.lastT = now;
       this.panStart.lastSx = sx;
       this.panStart.lastSy = sy;
+      this._wake();
+      return;
+    }
+
+    // Slice 3a: marquee update — track far corner in world coords (REQ-3.5)
+    if (this.marquee.active) {
+      this.marquee.x1 = world.x;
+      this.marquee.y1 = world.y;
       this._wake();
       return;
     }
@@ -684,14 +787,23 @@
       // Node drag takes priority — NOT panning (OBS-1.2)
       this.isDragging = true;
       this.dragNodeId = node.id;
+      this._mode = "dragging-node";
       return;
     }
-    // No node hit: start panning (REQ-1.2)
+    // Slice 3a: Shift+empty canvas → marquee (REQ-3.5 / REQ-3.13)
+    // MUST short-circuit BEFORE pan so isPanning and marquee.active are never both true
+    if (event.shiftKey) {
+      this.marquee = { active: true, x0: world.x, y0: world.y, x1: world.x, y1: world.y };
+      this._mode = "marquee";
+      return;
+    }
+    // No node hit, no shift: start panning (REQ-1.2)
     // Slice 1b: REQ-1.13 — zero inertia velocity when new pan drag begins
     this.viewport.vx = 0;
     this.viewport.vy = 0;
     this.inertiaActive = false;
     this.isPanning = true;
+    this._mode = "panning";
     var now = Date.now();
     this.panStart = {
       x: sx, y: sy,
@@ -704,6 +816,34 @@
   Network.prototype._onMouseUp = function () {
     this.isDragging = false;
     this.dragNodeId = null;
+    this._mode = "idle";
+
+    // Slice 3a: marquee commit — REPLACE selection (Decision 2 / REQ-3.6)
+    if (this.marquee.active) {
+      var left   = Math.min(this.marquee.x0, this.marquee.x1);
+      var right  = Math.max(this.marquee.x0, this.marquee.x1);
+      var top    = Math.min(this.marquee.y0, this.marquee.y1);
+      var bottom = Math.max(this.marquee.y0, this.marquee.y1);
+      var state = this._state();
+      var enclosedIds = [];
+      state.nodes.forEach(function (n) {
+        if (n.hidden) return;
+        // Enclose-only: node center must be fully inside marquee rect (REQ-3.6)
+        if (n.x >= left && n.x <= right && n.y >= top && n.y <= bottom) {
+          enclosedIds.push(String(n.id));
+        }
+      });
+      // REPLACE selection — not additive (Decision 2)
+      this.selectedNodeIds = new Set(enclosedIds);
+      this.selectedNodeId = enclosedIds.length > 0 ? enclosedIds[enclosedIds.length - 1] : null;
+      this._emit("select-change", { nodes: enclosedIds });
+      var marqueeCount = this.selectedNodeIds.size;
+      this.liveRegion.textContent = marqueeCount + " nodes selected by marquee";
+      this.marquee.active = false;
+      this._wake();
+      return;
+    }
+
     // Slice 1b: compute pan velocity and arm inertia (REQ-1.7)
     if (this.isPanning) {
       var dt = Math.max(Date.now() - this.panStart.lastT, 16);
@@ -765,6 +905,7 @@
       this.viewport.tx, this.viewport.ty
     );
     this._drawEdges(state);
+    this._drawMarquee();  // Slice 3a: between edges and nodes (REQ-3.5)
     this._drawNodes(state);
     ctx.restore();
 
@@ -774,15 +915,26 @@
     this._stepInertia(dt);
 
     // Slice 1b: keep RAF alive while inertia is active (REQ-1.7 / 1b.12)
+    // Slice 3a: also keep alive while marquee is being drawn
     var needsFrame = (
       (!this._prefersReducedMotion && this.physicsEnabled && this.temperature >= 0.01) ||
-      this.inertiaActive
+      this.inertiaActive ||
+      this.marquee.active
     );
     if (needsFrame) {
       this._raf = requestAnimationFrame(this._render.bind(this));
     } else {
       this._raf = null;
     }
+  };
+
+  // Slice 3a: clearSelection — callable from template bulk actions (design §3 Slice 3)
+  Network.prototype.clearSelection = function () {
+    this.selectedNodeIds = new Set();
+    this.selectedNodeId = null;
+    this._emit("select-change", { nodes: [] });
+    this.liveRegion.textContent = "Selection cleared";
+    this._wake();
   };
 
   Network.prototype._wake = function () {
