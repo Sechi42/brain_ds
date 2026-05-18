@@ -885,6 +885,220 @@
         renderSelectionPanel(selectedNodeIdList || []);
       });
 
+      // Slice 6: context menu implementation (REQ-6.1 through REQ-6.10).
+      // ---------------------------------------------------------------
+      // Ad-hoc neighbor filter state (REQ-6.2 "Show only this node + neighbors").
+      // Cleared by "Reset filters" (OBS-6.7).
+      let adHocFilterNodeId = null;
+
+      // resetFilters: clears ALL active filters — entity-type, score, and ad-hoc neighbor.
+      // Called from canvas context menu "Reset filters" item (REQ-6.3 / OBS-6.7).
+      const resetFilters = () => {
+        hiddenTypes.clear();
+        typeCheckboxes.forEach((cb) => { cb.checked = true; });
+        if (scoreSliderEl) scoreSliderEl.value = "0";
+        adHocFilterNodeId = null;
+        applyScoreFilter(0);
+      };
+
+      // Context menu DOM elements — one shared overlay positioned at click coords.
+      // menu role="menu" for keyboard nav (REQ-6.8); items role="menuitem" (REQ-6.8).
+      const ctxMenuEl = document.createElement("div");
+      ctxMenuEl.id = "vis-context-menu";
+      ctxMenuEl.setAttribute("role", "menu");
+      ctxMenuEl.setAttribute("aria-label", "Context menu");
+      ctxMenuEl.style.cssText = [
+        "position:fixed",
+        "z-index:2000",
+        "background:var(--surface, #132037)",
+        "border:1px solid var(--border, #2d3f5e)",
+        "border-radius:8px",
+        "padding:4px 0",
+        "min-width:200px",
+        "box-shadow:0 4px 16px rgba(0,0,0,0.4)",
+        "display:none",
+        "outline:none",
+      ].join(";");
+      document.body.appendChild(ctxMenuEl);
+
+      // Close context menu and restore focus to canvas (REQ-6.5 / REQ-6.8 / OBS-6.10).
+      const closeContextMenu = () => {
+        ctxMenuEl.style.display = "none";
+        if (typeof network !== "undefined") network.closeContextMenu();
+        network.canvas && network.canvas.focus();
+      };
+
+      // Build a single menu item element.
+      const makeMenuItem = (label, onClick, disabled = false) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.setAttribute("role", "menuitem");
+        btn.textContent = label;
+        if (disabled) {
+          btn.setAttribute("aria-disabled", "true");
+          btn.disabled = true;
+        }
+        btn.style.cssText = [
+          "display:block",
+          "width:100%",
+          "background:none",
+          "border:none",
+          "padding:10px 16px",
+          "text-align:left",
+          "cursor:" + (disabled ? "default" : "pointer"),
+          "color:var(--text, #e2e8f0)",
+          "font-size:0.92rem",
+          "min-height:44px",
+          "opacity:" + (disabled ? "0.45" : "1"),
+        ].join(";");
+        if (!disabled) {
+          btn.addEventListener("click", () => {
+            closeContextMenu();
+            onClick();
+          });
+          btn.addEventListener("mouseenter", () => { btn.style.background = "var(--surface-2, #1e3050)"; });
+          btn.addEventListener("mouseleave", () => { btn.style.background = "none"; });
+        }
+        return btn;
+      };
+
+      // Position the menu within viewport bounds (same flip logic as popovers — REQ-6.4).
+      const positionMenu = (clientX, clientY) => {
+        ctxMenuEl.style.left = "0px";
+        ctxMenuEl.style.top = "0px";
+        ctxMenuEl.style.display = "block";
+        const w = ctxMenuEl.offsetWidth || 210;
+        const h = ctxMenuEl.offsetHeight || 180;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        let left = clientX;
+        let top = clientY;
+        if (left + w > vw) left = Math.max(0, clientX - w);
+        if (top + h > vh) top = Math.max(0, clientY - h);
+        ctxMenuEl.style.left = left + "px";
+        ctxMenuEl.style.top  = top  + "px";
+        // Move focus to first enabled item (REQ-6.8 / OBS-6.9).
+        const first = ctxMenuEl.querySelector("button:not([disabled])");
+        if (first) first.focus();
+      };
+
+      // Keyboard nav inside menu: arrow keys move focus, Esc closes (REQ-6.8 / OBS-6.9 / OBS-6.10).
+      ctxMenuEl.addEventListener("keydown", (event) => {
+        const items = Array.from(ctxMenuEl.querySelectorAll("button:not([disabled])"));
+        const idx = items.indexOf(document.activeElement);
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          if (idx < items.length - 1) items[idx + 1].focus();
+        } else if (event.key === "ArrowUp") {
+          event.preventDefault();
+          if (idx > 0) items[idx - 1].focus();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          closeContextMenu();
+        }
+      });
+
+      // Close on click outside the menu (REQ-6.5).
+      document.addEventListener("click", (event) => {
+        if (ctxMenuEl.style.display !== "none" && !ctxMenuEl.contains(event.target)) {
+          closeContextMenu();
+        }
+      }, { capture: true });
+
+      // Build and show the NODE context menu (REQ-6.2 / OBS-6.2).
+      const openNodeContextMenu = (nodeId, clientX, clientY) => {
+        ctxMenuEl.innerHTML = "";
+        const nodeData = (RENDER_CONTEXT.nodes || []).find((n) => String(n.id) === String(nodeId));
+
+        // "Focus this node" — recenters viewport on node (REQ-6.2).
+        ctxMenuEl.appendChild(makeMenuItem("Focus this node", () => {
+          focusNode(nodeId);
+        }));
+
+        // "Show only this node + neighbors" — ad-hoc 1-hop filter (REQ-6.2 / OBS-6.6).
+        ctxMenuEl.appendChild(makeMenuItem("Show only this node + neighbors", () => {
+          adHocFilterNodeId = String(nodeId);
+          const neighbors = new Set(adjacency[nodeId] || []);
+          neighbors.add(String(nodeId));
+          nodes.update((RENDER_CONTEXT.nodes || []).map((n) => ({
+            id: n.id,
+            hidden: !neighbors.has(String(n.id)),
+          })));
+          edges.update((RENDER_CONTEXT.edges || []).map((e, i) => ({
+            id: i,
+            hidden: !(neighbors.has(String(e.from)) && neighbors.has(String(e.to))),
+          })));
+        }));
+
+        // "Copy entity JSON to clipboard" — REQ-6.2.
+        ctxMenuEl.appendChild(makeMenuItem("Copy entity JSON to clipboard", () => {
+          const payload = JSON.stringify(nodeData || { id: nodeId }, null, 2);
+          navigator.clipboard.writeText(payload).then(() => {
+            const liveRegion = document.querySelector("[aria-live='polite']");
+            if (liveRegion) liveRegion.textContent = "Copied";
+          });
+        }));
+
+        // "Open detail panel" — REQ-6.2.
+        ctxMenuEl.appendChild(makeMenuItem("Open detail panel", () => {
+          focusNode(nodeId);
+        }));
+
+        positionMenu(clientX, clientY);
+      };
+
+      // Build and show the CANVAS context menu (REQ-6.3 / OBS-6.3).
+      const openCanvasContextMenu = (clientX, clientY) => {
+        ctxMenuEl.innerHTML = "";
+
+        // "Zoom to fit" — equivalent to network.fit() (REQ-6.3).
+        ctxMenuEl.appendChild(makeMenuItem("Zoom to fit", () => {
+          network.fit({ animation: true });
+        }));
+
+        // "Reset filters" — resets all active filters (REQ-6.3 / OBS-6.7).
+        ctxMenuEl.appendChild(makeMenuItem("Reset filters", () => {
+          resetFilters();
+        }));
+
+        // "Switch layout" header — submenu (REQ-6.3).
+        const layoutLabel = document.createElement("div");
+        layoutLabel.style.cssText = "padding:6px 16px 2px;font-size:0.78rem;color:var(--text-muted,#94a3b8);text-transform:uppercase;letter-spacing:0.06em;user-select:none;";
+        layoutLabel.textContent = "Switch layout";
+        ctxMenuEl.appendChild(layoutLabel);
+
+        // "Force" layout (physics on).
+        ctxMenuEl.appendChild(makeMenuItem("  Force", () => {
+          network.setOptions({ layout: { hierarchical: { enabled: false } }, physics: { enabled: true } });
+        }));
+
+        // "Hierarchical" layout.
+        ctxMenuEl.appendChild(makeMenuItem("  Hierarchical", () => {
+          network.setOptions({ layout: { hierarchical: { enabled: true, direction: "UD" } }, physics: { enabled: false } });
+        }));
+
+        // "Grid (placeholder)" — always disabled, aria-disabled="true" (REQ-6.3 / REQ-6.9).
+        // REQ-6.9: disabled items use aria-disabled="true", not hidden.
+        const gridItem = makeMenuItem("  Grid (placeholder)", () => {}, true);
+        gridItem.setAttribute("aria-disabled", "true");
+        ctxMenuEl.appendChild(gridItem);
+
+        // NOTE: The theme-switch item is intentionally absent here — it only appears when
+        // Slice 7 light-theme tokens exist in the render context (REQ-6.3 / OBS-6.4).
+        // Slice 7 will introduce it alongside theme.py tokens.
+
+        positionMenu(clientX, clientY);
+      };
+
+      // Subscribe to renderer's 'context-menu' event (REQ-6.1 / design §3 Slice 6).
+      network.on("context-menu", ({ nodeId, screen }) => {
+        if (nodeId !== null && nodeId !== undefined) {
+          openNodeContextMenu(nodeId, screen.x, screen.y);
+        } else {
+          openCanvasContextMenu(screen.x, screen.y);
+        }
+      });
+
       applyVisibility();
       renderDetailPanel(null);
       toggleEditControls();

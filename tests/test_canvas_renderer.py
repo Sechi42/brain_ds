@@ -499,5 +499,77 @@ class TestSlice4HoverPopoverContracts(unittest.TestCase):
         )
 
 
+class TestSlice6ContextMenuContracts(unittest.TestCase):
+    """RED contracts for Slice 6 — context menu (right-click) (REQ-6.1 through REQ-6.10).
+
+    All assertions are source-level string/regex checks — no JS execution required.
+    Cite spec §7 Slice 6 and design §3 Slice 6.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        assets_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "assets"
+        cls.js_path = assets_dir / "vis-offline-network.js"
+        cls.js_text = cls.js_path.read_text(encoding="utf-8")
+
+    def test_contextmenu_listener_and_preventDefault(self):
+        """REQ-6.1: Renderer MUST attach a 'contextmenu' listener that calls
+        event.preventDefault() to suppress the browser native menu.
+
+        Cite REQ-6.1 / OBS-6.1."""
+        self.assertRegex(
+            self.js_text,
+            r"""addEventListener\s*\(\s*['"]contextmenu['"]\s*,""",
+            "Renderer must attach a 'contextmenu' event listener (REQ-6.1).",
+        )
+        self.assertIn(
+            "event.preventDefault",
+            self.js_text,
+            "Renderer contextmenu handler MUST call event.preventDefault() (REQ-6.1).",
+        )
+
+    def test_context_menu_event_emitted(self):
+        """REQ-6.2 / REQ-6.3: Renderer MUST emit a 'context-menu' event with
+        nodeId, screen coords, world coords, and selection payload.
+
+        Cite REQ-6.2 / design §3 Slice 6 algorithm."""
+        self.assertRegex(
+            self.js_text,
+            r"""_emit\s*\(\s*['"]context-menu['"]\s*,""",
+            "Renderer must emit 'context-menu' event (REQ-6.2).",
+        )
+
+    def test_context_menu_state_object_present(self):
+        """Renderer MUST maintain a contextMenu state object with at minimum an
+        'open' boolean field.  Design §3 Slice 6 specifies shape:
+          { open: false, x: 0, y: 0, target: null }
+
+        This state object is the gate that Slice 4's hover-suppression logic
+        depends on (REQ-6.10 / REQ-4.6 coordination)."""
+        self.assertRegex(
+            self.js_text,
+            r"this\.contextMenu\s*=\s*\{",
+            "Renderer MUST initialise this.contextMenu object (design §3 Slice 6).",
+        )
+        self.assertRegex(
+            self.js_text,
+            r"contextMenu.*\bopen\b",
+            "contextMenu state object MUST contain an 'open' boolean field (REQ-6.10).",
+        )
+
+    def test_context_menu_suppresses_popover(self):
+        """REQ-6.10 / REQ-4.6: Opening a context menu MUST suppress the hover popover.
+        The _onMouseMove hover guard MUST check contextMenu.open so that popover
+        timers are not armed while a context menu is active.
+
+        Cite REQ-6.10 / OBS-6.11."""
+        # The guard at the top of the popover-arming block must include contextMenu.open
+        self.assertRegex(
+            self.js_text,
+            r"contextMenu(?:\.open|\[.open.\])",
+            "_onMouseMove popover guard MUST reference contextMenu.open (REQ-6.10).",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
