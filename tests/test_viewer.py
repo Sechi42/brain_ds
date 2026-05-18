@@ -725,20 +725,20 @@ class TestSlice6ContextMenuTemplate(unittest.TestCase):
 
     def test_template_canvas_menu_items_present(self):
         """REQ-6.3: Canvas context menu MUST contain 'Zoom to fit', 'Reset filters',
-        and 'Switch layout' items.  'Toggle theme' MUST be absent until Slice 7 lands.
+        and 'Switch layout' items.
 
-        Cite REQ-6.3 / OBS-6.3 / OBS-6.4."""
+        Cite REQ-6.3 / OBS-6.3."""
         for item in ["Zoom to fit", "Reset filters", "Switch layout"]:
             self.assertIn(
                 item,
                 self.template_text,
                 f"Canvas context menu item '{item}' must be present (REQ-6.3).",
             )
-        # REQ-6.3: Toggle theme absent until Slice 7 provides light theme tokens.
-        self.assertNotIn(
+        # Slice 7b: theme toggle is now available.
+        self.assertIn(
             "Toggle theme",
             self.template_text,
-            "Toggle theme MUST be absent from context menu until Slice 7 lands (REQ-6.3 / OBS-6.4).",
+            "Toggle theme MUST be present once Slice 7b lands.",
         )
 
     def test_template_grid_aria_disabled(self):
@@ -753,6 +753,36 @@ class TestSlice6ContextMenuTemplate(unittest.TestCase):
             r'|aria-disabled\s*=\s*["\']true["\'].*[Gg]rid',
             "Grid layout menu item MUST have aria-disabled='true' (REQ-6.9 / REQ-6.3).",
         )
+
+
+class TestSlice7bThemeToggleTemplate(unittest.TestCase):
+    """RED contracts for Slice 7b — theme toggle + persistence in template."""
+
+    @classmethod
+    def setUpClass(cls):
+        template_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds"
+            / "ui"
+            / "templates"
+            / "graph_viewer.html"
+        )
+        cls.template_text = template_path.read_text(encoding="utf-8")
+
+    def test_theme_toggle_control_present_and_accessible(self):
+        self.assertRegex(self.template_text, r'id=["\']theme-toggle["\']')
+        self.assertRegex(self.template_text, r'aria-label=["\']Switch to light theme["\']')
+
+    def test_theme_persistence_uses_brain_ds_localstorage_key(self):
+        self.assertIn("brain_ds.theme", self.template_text)
+        self.assertRegex(self.template_text, r"localStorage\.(getItem|setItem)\(")
+
+    def test_default_theme_falls_back_to_dark(self):
+        self.assertRegex(self.template_text, r"document\.documentElement\.setAttribute\(['\"]data-theme['\"]")
+        self.assertRegex(self.template_text, r"\|\|\s*['\"]dark['\"]")
+
+    def test_theme_toggle_announces_live_region(self):
+        self.assertRegex(self.template_text, r"Switched to light theme|Switched to dark theme")
 
 
 if __name__ == "__main__":

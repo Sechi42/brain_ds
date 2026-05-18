@@ -1,9 +1,18 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>brain_ds Graph Viewer</title>
+    <script>
+      (function () {
+        var key = "brain_ds.theme";
+        var stored = null;
+        try { stored = localStorage.getItem(key); } catch (e) {}
+        var initialTheme = (stored === "light" || stored === "dark") ? stored : "dark";
+        document.documentElement.setAttribute("data-theme", initialTheme);
+      })();
+    </script>
     <style>
       __BRAIN_DS_THEME_TOKENS__
       __VIS_NETWORK_CSS__
@@ -24,6 +33,7 @@
       .layout { display: grid; grid-template-columns: minmax(260px, 320px) 1fr minmax(280px, 360px); gap: 12px; padding: 12px; }
       .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
       .detail-panel { display: grid; gap: 0.75rem; align-content: start; max-height: calc(100vh - 110px); overflow: auto; transition: transform 300ms ease, opacity 300ms ease; }
+      body, .panel, .topbar, .button, button, #network, .detail-card, .evidence-item { transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease; }
       .detail-panel.is-collapsed { transform: translateX(101%); opacity: 0; pointer-events: none; }
       .detail-panel.is-empty .detail-body { color: var(--text-muted); }
       .detail-header { display: grid; gap: 0.25rem; }
@@ -62,6 +72,7 @@
       :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
       @media (prefers-reduced-motion: reduce) {
         .detail-panel { transition: none; }
+        body, .panel, .topbar, .button, button, #network, .detail-card, .evidence-item { transition: none; }
       }
       @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } #network { height: 70vh; } .detail-panel.is-collapsed { transform: translateY(101%); } }
     </style>
@@ -116,6 +127,7 @@
             <button type="button" id="toggle-hierarchical" aria-pressed="true">Hierarchical</button>
             <button type="button" id="toggle-physics" aria-pressed="false">Physics</button>
             <button type="button" id="zoom-fit">Zoom to fit</button>
+            <button type="button" id="theme-toggle" class="vis-theme-toggle" aria-label="Switch to light theme">Theme</button>
           </div>
         </section>
       </aside>
@@ -243,7 +255,37 @@
       const detailCloseBtn = document.getElementById("detail-close");
       const scoreBadgeEl = document.getElementById("score-badge");
       const scoreSliderEl = document.getElementById("score-threshold-slider");
+      const themeToggleBtn = document.getElementById("theme-toggle");
       const arrow = { incoming: "←", outgoing: "→" };
+      const THEME_STORAGE_KEY = "brain_ds.theme";
+
+      const applyTheme = (themeValue) => {
+        const nextTheme = themeValue === "light" ? "light" : "dark";
+        document.documentElement.setAttribute("data-theme", nextTheme);
+        try { localStorage.setItem(THEME_STORAGE_KEY, nextTheme); } catch (e) {}
+        if (themeToggleBtn) {
+          const targetLabel = nextTheme === "dark" ? "Switch to light theme" : "Switch to dark theme";
+          themeToggleBtn.setAttribute("aria-label", targetLabel);
+          themeToggleBtn.setAttribute("aria-pressed", String(nextTheme === "light"));
+        }
+        if (typeof network.refreshThemeTokens === "function") {
+          network.refreshThemeTokens();
+        }
+        const liveRegion = document.querySelector("[aria-live='polite']");
+        if (liveRegion) {
+          liveRegion.textContent = nextTheme === "light" ? "Switched to light theme" : "Switched to dark theme";
+        }
+      };
+
+      const toggleTheme = () => {
+        const current = document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+        applyTheme(current === "light" ? "dark" : "light");
+      };
+
+      if (themeToggleBtn) {
+        themeToggleBtn.addEventListener("click", toggleTheme);
+        applyTheme(document.documentElement.getAttribute("data-theme") || "dark");
+      }
       const fallbackEditableFields = new Set(["label", "details", "card_sections", "cards", "sections"]);
       const normalizeFieldName = (value) => String(value || "").trim().toLowerCase().replace(/\s+/g, "_");
       const isFieldEditable = (node, fieldName) => {
@@ -1083,9 +1125,10 @@
         gridItem.setAttribute("aria-disabled", "true");
         ctxMenuEl.appendChild(gridItem);
 
-        // NOTE: The theme-switch item is intentionally absent here — it only appears when
-        // Slice 7 light-theme tokens exist in the render context (REQ-6.3 / OBS-6.4).
-        // Slice 7 will introduce it alongside theme.py tokens.
+        // Slice 7b: theme toggle entry now available.
+        ctxMenuEl.appendChild(makeMenuItem("Toggle theme", () => {
+          toggleTheme();
+        }));
 
         positionMenu(clientX, clientY);
       };

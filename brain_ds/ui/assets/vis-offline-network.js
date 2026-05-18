@@ -101,6 +101,7 @@
     // Shape from design: { open: false, x: 0, y: 0, target: null }
     // 'open' is the gate checked by _onMouseMove hover-suppression (REQ-6.10 / REQ-4.6).
     this.contextMenu = { open: false, x: 0, y: 0, target: null };
+    this._themeTokens = {};
 
     this.container.classList.add("vis-network");
     this.container.innerHTML = "";
@@ -150,9 +151,35 @@
     // Slice 6: context menu handler — suppress browser default + emit event (REQ-6.1)
     this.canvas.addEventListener("contextmenu", this._onContextMenu.bind(this));
     this._bindReducedMotion();
+    this._refreshThemeTokens();
     this._syncModesFromOptions(this.options);
     this._wake();
   }
+
+  Network.prototype._readCssVar = function (name, fallback) {
+    try {
+      var value = getComputedStyle(this.canvas).getPropertyValue(name);
+      if (value && value.trim()) return value.trim();
+    } catch (e) {}
+    return fallback;
+  };
+
+  Network.prototype._refreshThemeTokens = function () {
+    this._themeTokens = {
+      panelBg: this._readCssVar("--vis-panel-bg", "#1e293b"),
+      panelText: this._readCssVar("--vis-panel-text", "#e2e8f0"),
+      panelBorder: this._readCssVar("--vis-panel-border", "#64748b"),
+      focusRing: this._readCssVar("--vis-focus-ring", "#38bdf8"),
+      popoverMuted: this._readCssVar("--vis-popover-muted", "#cbd5e1"),
+      marqueeStroke: this._readCssVar("--vis-marquee-stroke", this._readCssVar("--vis-focus-ring", "#38bdf8")),
+      marqueeFill: this._readCssVar("--vis-marquee-fill", "rgba(56,189,248,0.12)")
+    };
+  };
+
+  Network.prototype.refreshThemeTokens = function () {
+    this._refreshThemeTokens();
+    this._wake();
+  };
 
   // Slice 1a: inverse viewport transform — screen → world (REQ-1.9)
   Network.prototype._screenToWorld = function (sx, sy) {
@@ -501,7 +528,7 @@
       var to = state.nodes.find(function (n) { return String(n.id) === String(edge.to || edge.target); });
       if (!from || !to) return;
       ctx.beginPath();
-      ctx.strokeStyle = (edge.color && edge.color.color) || "#64748b";
+      ctx.strokeStyle = (edge.color && edge.color.color) || self._themeTokens.panelBorder || "#64748b";
       ctx.lineWidth = Math.max(1, Number(edge.width || edge.value || 1));
       ctx.setLineDash([8, 6]);
       if (self._prefersReducedMotion) {
@@ -532,13 +559,9 @@
     if (!this.marquee.active) return;
     var ctx = this.ctx;
     ctx.save();
-    var strokeColor = "#38bdf8"; // --vis-marquee-stroke fallback
-    try {
-      var computed = getComputedStyle(this.canvas).getPropertyValue("--vis-marquee-stroke").trim();
-      if (computed) strokeColor = computed;
-    } catch (e) {}
+    var strokeColor = this._themeTokens.marqueeStroke || "#38bdf8";
     ctx.strokeStyle = strokeColor;
-    ctx.fillStyle = "rgba(56,189,248,0.12)"; // --vis-marquee-fill fallback
+    ctx.fillStyle = this._themeTokens.marqueeFill || "rgba(56,189,248,0.12)";
     // Zoom-invariant 1px border: lineWidth = 1/scale (REQ-3.5)
     ctx.lineWidth = 1 / this.viewport.scale;
     ctx.setLineDash([4 / this.viewport.scale, 4 / this.viewport.scale]);
@@ -566,20 +589,20 @@
       if (isRoot) radius = radius + 8;
       node.radius = radius;
       ctx.beginPath();
-      ctx.fillStyle = (node.color && node.color.background) || "#1e293b";
+      ctx.fillStyle = (node.color && node.color.background) || self._themeTokens.panelBg || "#1e293b";
       ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
       ctx.fill();
       if (String(node.id) === String(self.hoveredNodeId)) {
         ctx.lineWidth = 2;
-        ctx.strokeStyle = "#f59e0b";
+        ctx.strokeStyle = self._themeTokens.popoverMuted || "#f59e0b";
         ctx.stroke();
       }
       if (String(node.id) === String(self.selectedNodeId)) {
         ctx.lineWidth = 2;
-        ctx.strokeStyle = "#38bdf8";
+        ctx.strokeStyle = self._themeTokens.focusRing || "#38bdf8";
         ctx.stroke();
       }
-      ctx.fillStyle = "#e2e8f0";
+      ctx.fillStyle = self._themeTokens.panelText || "#e2e8f0";
       ctx.font = "12px sans-serif";
       ctx.fillText(String(node.label || node.id), node.x + radius + 4, node.y + 4);
     });

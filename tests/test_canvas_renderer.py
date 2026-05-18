@@ -571,5 +571,27 @@ class TestSlice6ContextMenuContracts(unittest.TestCase):
         )
 
 
+class TestSlice7bThemeRendererContracts(unittest.TestCase):
+    """RED contracts for Slice 7b — renderer consumption of CSS design tokens."""
+
+    @classmethod
+    def setUpClass(cls):
+        assets_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "assets"
+        cls.js_path = assets_dir / "vis-offline-network.js"
+        cls.js_text = cls.js_path.read_text(encoding="utf-8")
+
+    def test_renderer_reads_computed_style_for_theme_tokens(self):
+        self.assertIn("getComputedStyle", self.js_text)
+        self.assertIn("--vis-panel-text", self.js_text)
+        self.assertIn("--vis-panel-bg", self.js_text)
+        self.assertIn("--vis-focus-ring", self.js_text)
+
+    def test_renderer_has_theme_token_refresh_helper(self):
+        self.assertRegex(self.js_text, r"_refreshThemeTokens\s*=\s*function")
+
+    def test_draw_paths_use_cached_theme_tokens(self):
+        self.assertRegex(self.js_text, r"this\._themeTokens")
+
+
 if __name__ == "__main__":
     unittest.main()
