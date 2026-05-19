@@ -63,6 +63,7 @@
     this.dragNodeId = null;
     this.expandedNodeIds = new Set();
     this._hierarchyReady = false;
+    this._frameCount = 0;
 
     // Slice 1a: viewport matrix (REQ-1.1)
     // Slice 1b: extended with vx/vy pan velocity for inertia (REQ-1.7)
@@ -300,6 +301,16 @@
   Network.prototype.on = function (eventName, handler) {
     if (!this.handlers[eventName]) this.handlers[eventName] = [];
     this.handlers[eventName].push(handler);
+  };
+
+  Network.prototype.once = function (eventName, handler) {
+    var self = this;
+    var wrapper = function (payload) {
+      handler(payload);
+      var idx = (self.handlers[eventName] || []).indexOf(wrapper);
+      if (idx >= 0) self.handlers[eventName].splice(idx, 1);
+    };
+    this.on(eventName, wrapper);
   };
 
   Network.prototype._emit = function (eventName, payload) {
@@ -1102,6 +1113,11 @@
 
     // Slice 1b: inertia step after draw (REQ-1.7)
     this._stepInertia(dt);
+
+    // Emit afterDrawing after each render frame so consumers can hook
+    // the first paint (e.g. dismiss loading state). Uses once() for single-fire.
+    this._frameCount++;
+    this._emit("afterDrawing", { frameCount: this._frameCount });
 
     // Slice 1b: keep RAF alive while inertia is active (REQ-1.7 / 1b.12)
     // Slice 3a: also keep alive while marquee is being drawn

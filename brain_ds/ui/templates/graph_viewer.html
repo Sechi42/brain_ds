@@ -905,15 +905,17 @@
       loadingTimer = window.setTimeout(() => {
         if (!firstFrameDone) setLoadingVisible(true);
       }, 150);
-      network.once("afterDrawing", () => {
-        firstFrameDone = true;
-        if (loadingTimer) {
-          window.clearTimeout(loadingTimer);
-          loadingTimer = null;
-        }
-        dismissLoading();
-        announceLive("Graph loaded.");
-      });
+      // FIXED: custom vis.Network doesn't have once() or emit afterDrawing.
+      // Mark first frame as done and dismiss loading synchronously.
+      // The render loop starts on construction via _wake() -> requestAnimationFrame,
+      // so the first frame renders on the next tick regardless.
+      firstFrameDone = true;
+      if (loadingTimer) {
+        window.clearTimeout(loadingTimer);
+        loadingTimer = null;
+      }
+      dismissLoading();
+      announceLive("Graph loaded.");
       // toggleEditControls() is now called internally by the detail-panel module.
     </script>
   </body>
