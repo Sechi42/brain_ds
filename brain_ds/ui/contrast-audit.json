@@ -1,0 +1,210 @@
+[
+  {
+    "entity_type": "Organization",
+    "theme": "dark",
+    "fill_hex": "#111827",
+    "surface_hex": "#0f1728",
+    "ratio": 1.01,
+    "status": "outline-fallback"
+  },
+  {
+    "entity_type": "Department",
+    "theme": "dark",
+    "fill_hex": "#2563eb",
+    "surface_hex": "#0f1728",
+    "ratio": 3.46,
+    "status": "pass"
+  },
+  {
+    "entity_type": "Role",
+    "theme": "dark",
+    "fill_hex": "#16a34a",
+    "surface_hex": "#0f1728",
+    "ratio": 5.43,
+    "status": "pass"
+  },
+  {
+    "entity_type": "Data Source",
+    "theme": "dark",
+    "fill_hex": "#7c3aed",
+    "surface_hex": "#0f1728",
+    "ratio": 3.14,
+    "status": "pass"
+  },
+  {
+    "entity_type": "Heuristic",
+    "theme": "dark",
+    "fill_hex": "#f59e0b",
+    "surface_hex": "#0f1728",
+    "ratio": 8.33,
+    "status": "pass"
+  },
+  {
+    "entity_type": "Tacit Knowledge",
+    "theme": "dark",
+    "fill_hex": "#0ea5e9",
+    "surface_hex": "#0f1728",
+    "ratio": 6.46,
+    "status": "pass"
+  },
+  {
+    "entity_type": "Problem / Improvement Area",
+    "theme": "dark",
+    "fill_hex": "#dc2626",
+    "surface_hex": "#0f1728",
+    "ratio": 3.71,
+    "status": "pass"
+  },
+  {
+    "entity_type": "Project",
+    "theme": "dark",
+    "fill_hex": "#4f46e5",
+    "surface_hex": "#0f1728",
+    "ratio": 2.85,
+    "status": "outline-fallback"
+  },
+  {
+    "entity_type": "Risk",
+    "theme": "dark",
+    "fill_hex": "#b91c1c",
+    "surface_hex": "#0f1728",
+    "ratio": 2.77,
+    "status": "outline-fallback"
+  },
+  {
+    "entity_type": "Decision",
+    "theme": "dark",
+    "fill_hex": "#0f766e",
+    "surface_hex": "#0f1728",
+    "ratio": 3.27,
+    "status": "pass"
+  },
+  {
+    "entity_type": "KPI",
+    "theme": "dark",
+    "fill_hex": "#a16207",
+    "surface_hex": "#0f1728",
+    "ratio": 3.63,
+    "status": "pass"
+  },
+  {
+    "entity_type": "Solution",
+    "theme": "dark",
+    "fill_hex": "#059669",
+    "surface_hex": "#0f1728",
+    "ratio": 4.75,
+    "status": "pass"
+  },
+  {
+    "entity_type": "Unknown",
+    "theme": "dark",
+    "fill_hex": "#6b7280",
+    "surface_hex": "#0f1728",
+    "ratio": 3.7,
+    "status": "pass"
+  },
+  {
+    "entity_type": "Organization",
+    "theme": "light",
+    "fill_hex": "#1f2937",
+    "surface_hex": "#f8fafc",
+    "ratio": 14.03,
+    "status": "pass"
+  },
+  {
+    "entity_type": "Department",
+    "theme": "light",
+    "fill_hex": "#1d4ed8",
+    "surface_hex": "#f8fafc",
+    "ratio": 6.41,
+    "status": "pass"
+  },
+  {
+    "entity_type": "Role",
+    "theme": "light",
+    "fill_hex": "#166534",
+    "surface_hex": "#f8fafc",
+    "ratio": 6.81,
+    "status": "pass"
+  },
+  {
+    "entity_type": "Data Source",
+    "theme": "light",
+    "fill_hex": "#6d28d9",
+    "surface_hex": "#f8fafc",
+    "ratio": 6.79,
+    "status": "pass"
+  },
+  {
+    "entity_type": "Heuristic",
+    "theme": "light",
+    "fill_hex": "#b45309",
+    "surface_hex": "#f8fafc",
+    "ratio": 4.8,
+    "status": "pass"
+  },
+  {
+    "entity_type": "Tacit Knowledge",
+    "theme": "light",
+    "fill_hex": "#0e7490",
+    "surface_hex": "#f8fafc",
+    "ratio": 5.12,
+    "status": "pass"
+  },
+  {
+    "entity_type": "Problem / Improvement Area",
+    "theme": "light",
+    "fill_hex": "#b91c1c",
+    "surface_hex": "#f8fafc",
+    "ratio": 6.18,
+    "status": "pass"
+  },
+  {
+    "entity_type": "Project",
+    "theme": "light",
+    "fill_hex": "#4338ca",
+    "surface_hex": "#f8fafc",
+    "ratio": 7.55,
+    "status": "pass"
+  },
+  {
+    "entity_type": "Risk",
+    "theme": "light",
+    "fill_hex": "#991b1b",
+    "surface_hex": "#f8fafc",
+    "ratio": 7.94,
+    "status": "pass"
+  },
+  {
+    "entity_type": "Decision",
+    "theme": "light",
+    "fill_hex": "#0f766e",
+    "surface_hex": "#f8fafc",
+    "ratio": 5.23,
+    "status": "pass"
+  },
+  {
+    "entity_type": "KPI",
+    "theme": "light",
+    "fill_hex": "#92400e",
+    "surface_hex": "#f8fafc",
+    "ratio": 6.78,
+    "status": "pass"
+  },
+  {
+    "entity_type": "Solution",
+    "theme": "light",
+    "fill_hex": "#047857",
+    "surface_hex": "#f8fafc",
+    "ratio": 5.24,
+    "status": "pass"
+  },
+  {
+    "entity_type": "Unknown",
+    "theme": "light",
+    "fill_hex": "#475569",
+    "surface_hex": "#f8fafc",
+    "ratio": 7.24,
+    "status": "pass"
+  }
+]

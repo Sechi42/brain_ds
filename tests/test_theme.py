@@ -1,8 +1,13 @@
 import unittest
+import json
+from pathlib import Path
 
 from brain_ds.ontology import Graph
 from brain_ds.ui.render_context import build_render_context
-from brain_ds.ui.theme import ENTITY_TYPE_COLORS, THEME_TOKENS
+from brain_ds.ui.theme import ENTITY_TYPE_COLORS, THEME_TOKENS, theme_tokens_css
+
+
+CONTRAST_AUDIT_PATH = Path("brain_ds/ui/contrast-audit.json")
 
 
 def _hex_to_rgb(hex_color: str) -> tuple[float, float, float]:
@@ -73,6 +78,106 @@ class TestThemePalettes(unittest.TestCase):
             ENTITY_TYPE_COLORS["dark"]["Organization"],
             ENTITY_TYPE_COLORS["light"]["Organization"],
         )
+
+    def test_slice2_token_categories_exist_in_both_themes(self):
+        required_keys = {
+            "space_0",
+            "space_1",
+            "space_2",
+            "space_3",
+            "space_4",
+            "space_5",
+            "space_6",
+            "space_8",
+            "font_xs",
+            "font_sm",
+            "font_md",
+            "font_lg",
+            "font_xl",
+            "font_2xl",
+            "font_weight_regular",
+            "font_weight_medium",
+            "font_weight_semibold",
+            "line_height_tight",
+            "line_height_normal",
+            "line_height_relaxed",
+            "font_family_sans",
+            "font_family_mono",
+            "state_hover_bg",
+            "state_hover_fg",
+            "state_selected_bg",
+            "state_selected_fg",
+            "state_focus_ring",
+            "state_disabled_bg",
+            "state_disabled_fg",
+            "state_danger_bg",
+            "state_danger_fg",
+            "state_success_bg",
+            "state_success_fg",
+            "state_info_bg",
+            "state_info_fg",
+            "state_warning_bg",
+            "state_warning_fg",
+            "surface_canvas",
+            "surface_panel",
+            "surface_elevated",
+            "surface_overlay",
+            "border_subtle",
+            "border_default",
+            "border_strong",
+            "border_emphasis",
+            "shadow_xs",
+            "shadow_sm",
+            "shadow_md",
+            "shadow_lg",
+            "shadow_overlay",
+            "radius_sm",
+            "radius_md",
+            "radius_lg",
+            "radius_pill",
+        }
+        for theme_name, tokens in THEME_TOKENS.items():
+            missing = sorted(required_keys - set(tokens.keys()))
+            self.assertEqual([], missing, f"{theme_name} missing Slice 2 tokens: {missing}")
+
+    def test_spacing_and_radius_aliases_remain_available(self):
+        for _theme_name, tokens in THEME_TOKENS.items():
+            self.assertEqual("0.5rem", tokens["spacing_sm"])
+            self.assertEqual("0.75rem", tokens["spacing_md"])
+            self.assertEqual("1rem", tokens["spacing_lg"])
+            self.assertEqual(tokens["radius_md"], tokens["card_radius"])
+
+    def test_motion_tokens_and_reduced_motion_block_present(self):
+        css = theme_tokens_css()
+        self.assertIn("--duration-fast: 120ms;", css)
+        self.assertIn("--duration-normal: 200ms;", css)
+        self.assertIn("--duration-slow: 320ms;", css)
+        self.assertIn("--ease-standard: cubic-bezier(0.2, 0, 0, 1);", css)
+        self.assertIn("--ease-emphasized: cubic-bezier(0.3, 0, 0, 1);", css)
+        self.assertIn("@media (prefers-reduced-motion: reduce)", css)
+        self.assertIn("--duration-fast: 0ms;", css)
+        self.assertIn("--duration-normal: 0ms;", css)
+        self.assertIn("--duration-slow: 0ms;", css)
+
+    def test_contrast_audit_has_26_entries_and_no_fail_status(self):
+        self.assertTrue(CONTRAST_AUDIT_PATH.exists(), "contrast-audit.json must exist")
+        payload = json.loads(CONTRAST_AUDIT_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(26, len(payload), "audit must contain 13 entity fills x 2 themes")
+
+        allowed_status = {"pass", "fail", "outline-fallback"}
+        fails = []
+        for item in payload:
+            self.assertIn("entity_type", item)
+            self.assertIn("theme", item)
+            self.assertIn(item["theme"], {"dark", "light"})
+            self.assertIn("fill_hex", item)
+            self.assertIn("surface_hex", item)
+            self.assertIn("ratio", item)
+            self.assertIn("status", item)
+            self.assertIn(item["status"], allowed_status)
+            if item["status"] == "fail":
+                fails.append(item)
+        self.assertEqual([], fails, f"contrast audit contains failing entries: {fails}")
 
 
 class TestRenderContextThemeColors(unittest.TestCase):

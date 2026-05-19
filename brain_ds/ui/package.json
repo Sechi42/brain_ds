@@ -1,0 +1,17 @@
+{
+  "name": "@brain_ds/ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "node build/esbuild.config.mjs",
+    "watch": "node build/esbuild.config.mjs --watch",
+    "typecheck": "tsc --noEmit -p .",
+    "bundle-size": "node build/check-bundle-size.mjs",
+    "ci": "npm run typecheck && npm run build && npm run bundle-size"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.0",
+    "typescript": "^5.4.0"
+  }
+}

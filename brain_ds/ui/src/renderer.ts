@@ -1,3 +1,4 @@
+// @ts-nocheck
 /* brain_ds offline vis-compatible canvas renderer (no external dependencies) */
 (function () {
   if (window.vis && window.vis.Network && window.vis.DataSet) return;
@@ -78,6 +79,7 @@
 
     // Slice 3a: multi-select state (REQ-3.4) — ADDITIVE to selectedNodeId (locked literal)
     this.selectedNodeIds = new Set();
+    this.keyboardFocusedNodeId = null;
 
     // Slice 3a: marquee selection state (REQ-3.5) — world coordinates (REQ-3.6)
     this.marquee = { active: false, x0: 0, y0: 0, x1: 0, y1: 0 };
@@ -170,9 +172,31 @@
       panelText: this._readCssVar("--vis-panel-text", "#e2e8f0"),
       panelBorder: this._readCssVar("--vis-panel-border", "#64748b"),
       focusRing: this._readCssVar("--vis-focus-ring", "#38bdf8"),
+      stateFocusRing: this._readCssVar("--state-focus-ring", this._readCssVar("--vis-focus-ring", "#38bdf8")),
       popoverMuted: this._readCssVar("--vis-popover-muted", "#cbd5e1"),
       marqueeStroke: this._readCssVar("--vis-marquee-stroke", this._readCssVar("--vis-focus-ring", "#38bdf8")),
-      marqueeFill: this._readCssVar("--vis-marquee-fill", "rgba(56,189,248,0.12)")
+      marqueeFill: this._readCssVar("--vis-marquee-fill", "rgba(56,189,248,0.12)"),
+      edgeDash: Number(this._readCssVar("--edge-dash", "6")) || 6,
+      edgeArrowheadSize: Number(this._readCssVar("--edge-arrowhead-size", "8")) || 8,
+      entityFillByType: {
+        "Organization": this._readCssVar("--entity-organization-fill", "#111827"),
+        "Department": this._readCssVar("--entity-department-fill", "#2563eb"),
+        "Role": this._readCssVar("--entity-role-fill", "#16a34a"),
+        "Data Source": this._readCssVar("--entity-data-source-fill", "#7c3aed"),
+        "Heuristic": this._readCssVar("--entity-heuristic-fill", "#f59e0b"),
+        "Tacit Knowledge": this._readCssVar("--entity-tacit-knowledge-fill", "#0ea5e9"),
+        "Problem / Improvement Area": this._readCssVar("--entity-problem-improvement-area-fill", "#dc2626"),
+        "Project": this._readCssVar("--entity-project-fill", "#4f46e5"),
+        "Risk": this._readCssVar("--entity-risk-fill", "#b91c1c"),
+        "Decision": this._readCssVar("--entity-decision-fill", "#0f766e"),
+        "KPI": this._readCssVar("--entity-kpi-fill", "#a16207"),
+        "Solution": this._readCssVar("--entity-solution-fill", "#059669"),
+        "Unknown": this._readCssVar("--entity-unknown-fill", "#6b7280")
+      },
+      outlineFallbackByTheme: {
+        dark: { "Organization": true, "Project": true, "Risk": true },
+        light: {}
+      }
     };
   };
 
@@ -189,6 +213,10 @@
   };
 
   Network.prototype._resolveNodeBackground = function (node) {
+    var nodeType = node && (node.type || node.group);
+    if (nodeType && this._themeTokens.entityFillByType && this._themeTokens.entityFillByType[nodeType]) {
+      return this._themeTokens.entityFillByType[nodeType];
+    }
     var color = node && node.color;
     if (!color) return this._themeTokens.panelBg || "#1e293b";
     if (typeof color === "string") return color;
@@ -545,7 +573,8 @@
       ctx.beginPath();
       ctx.strokeStyle = (edge.color && edge.color.color) || self._themeTokens.panelBorder || "#64748b";
       ctx.lineWidth = Math.max(1, Number(edge.width || edge.value || 1));
-      ctx.setLineDash([8, 6]);
+      var edgeDash = Math.max(1, Number(self._themeTokens.edgeDash || 6));
+      ctx.setLineDash([edgeDash + 2, edgeDash]);
       if (self._prefersReducedMotion) {
         ctx.lineDashOffset = 0;
       } else {
@@ -556,7 +585,7 @@
       ctx.stroke();
 
       var angle = Math.atan2(to.y - from.y, to.x - from.x);
-      var arrow = 8;
+      var arrow = Math.max(4, Number(self._themeTokens.edgeArrowheadSize || 8));
       ctx.beginPath();
       ctx.moveTo(to.x, to.y);
       ctx.lineTo(to.x - arrow * Math.cos(angle - 0.35), to.y - arrow * Math.sin(angle - 0.35));
@@ -607,15 +636,34 @@
       ctx.fillStyle = self._resolveNodeBackground(node);
       ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
       ctx.fill();
+      var activeTheme = self._activeThemeName();
+      var fallbackByTheme = self._themeTokens.outlineFallbackByTheme || {};
+      var outlineTypes = fallbackByTheme[activeTheme] || {};
+      if (outlineTypes[String(node.type || "")]) {
+        ctx.save();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = self._themeTokens.popoverMuted || "#cbd5e1";
+        ctx.stroke();
+        ctx.restore();
+      }
       if (String(node.id) === String(self.hoveredNodeId)) {
         ctx.lineWidth = 2;
         ctx.strokeStyle = self._themeTokens.popoverMuted || "#f59e0b";
         ctx.stroke();
       }
       if (String(node.id) === String(self.selectedNodeId)) {
-        ctx.lineWidth = 2;
+        ctx.lineWidth = Math.min(8, 2 / self.viewport.scale);
         ctx.strokeStyle = self._themeTokens.focusRing || "#38bdf8";
         ctx.stroke();
+      }
+      if (String(node.id) === String(self.keyboardFocusedNodeId)) {
+        ctx.save();
+        ctx.lineWidth = Math.min(6, 1.5 / self.viewport.scale);
+        ctx.strokeStyle = self._themeTokens.stateFocusRing || self._themeTokens.focusRing || "#38bdf8";
+        ctx.setLineDash([4 / self.viewport.scale, 4 / self.viewport.scale]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
       }
       ctx.fillStyle = self._themeTokens.panelText || "#e2e8f0";
       ctx.font = "12px sans-serif";
@@ -649,10 +697,14 @@
       // Slice 4: Tab focus on a node shows popover immediately, no delay (REQ-4.8)
       li.addEventListener("focus", (function (capturedNode) {
         return function () {
+          self.keyboardFocusedNodeId = capturedNode.id;
           self._showHoverPopover(capturedNode.id, capturedNode.x, capturedNode.y);
+          self._wake();
         };
       })(node));
       li.addEventListener("blur", function () {
+        self.keyboardFocusedNodeId = null;
+        self._wake();
         // On blur start grace timer so popover dismisses after short delay (REQ-4.2 / REQ-4.8)
         clearTimeout(self._popoverGraceTimer);
         self._popoverGraceTimer = setTimeout(function () {

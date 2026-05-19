@@ -13,6 +13,7 @@ from brain_ds.ui.viewer import render_graph_data, render_graph_file
 
 
 FORBIDDEN_REMOTE_TOKENS = ("http://", "https://", "unpkg", "cdn")
+EMOJI_TOKENS = ("✏️", "💾")
 
 
 class TestViewerFoundation(unittest.TestCase):
@@ -245,12 +246,116 @@ class TestViewerFoundation(unittest.TestCase):
                 self.assertNotIn(token, html_lower)
 
     def test_vendored_vis_assets_have_no_remote_urls(self):
+        # PR 1: renderer.ts is the new source of truth (identity port of legacy renderer JS)
+        src_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src"
+        js_text = (src_dir / "renderer.ts").read_text(encoding="utf-8").lower()
         assets_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "assets"
-        js_text = (assets_dir / "vis-offline-network.js").read_text(encoding="utf-8").lower()
         css_text = (assets_dir / "vis-network.min.css").read_text(encoding="utf-8").lower()
         for token in FORBIDDEN_REMOTE_TOKENS:
             self.assertNotIn(token, js_text)
             self.assertNotIn(token, css_text)
+
+    def test_interactive_template_inlines_svg_sprite_with_required_icons(self):
+        html = render_interactive_html(
+            {
+                "meta": {"org": "IconOrg", "node_count": 0, "edge_count": 0, "generated_at": ""},
+                "nodes": [],
+                "edges": [],
+                "type_groups": [],
+                "adjacency": {},
+            }
+        )
+
+        self.assertIn('<svg style="display:none"', html)
+        required = {
+            "edit",
+            "save",
+            "close",
+            "filter",
+            "search",
+            "chevron-up",
+            "chevron-down",
+            "chevron-left",
+            "chevron-right",
+            "menu",
+            "x",
+            "info",
+            "warning",
+            "check",
+            "spinner",
+        }
+        for name in required:
+            self.assertIn(f'id="icon-{name}"', html)
+
+    def test_interactive_template_replaces_detail_panel_emojis_with_svg_icons(self):
+        html = render_interactive_html(
+            {
+                "meta": {"org": "EmojiOrg", "node_count": 0, "edge_count": 0, "generated_at": ""},
+                "nodes": [],
+                "edges": [],
+                "type_groups": [],
+                "adjacency": {},
+            }
+        )
+
+        for token in EMOJI_TOKENS:
+            self.assertNotIn(token, html)
+
+        self.assertIn('id="edit-toggle"', html)
+        self.assertIn('id="export-json"', html)
+        self.assertIn('<use href="#icon-edit"', html)
+        self.assertIn('<use href="#icon-save"', html)
+
+    def test_interactive_template_uses_slice4_shell_surface_and_spacing_tokens(self):
+        html = render_interactive_html(
+            {
+                "meta": {"org": "LayoutOrg", "node_count": 0, "edge_count": 0, "generated_at": ""},
+                "nodes": [],
+                "edges": [],
+                "type_groups": [],
+                "adjacency": {},
+            }
+        )
+
+        self.assertIn("--surface-canvas", html)
+        self.assertIn("--surface-panel", html)
+        self.assertIn("--surface-chrome", html)
+        self.assertIn("var(--space-", html)
+        self.assertIn("@media (max-width: 1100px)", html)
+
+    def test_interactive_template_defines_detail_slideover_dialog_contract(self):
+        html = render_interactive_html(
+            {
+                "meta": {"org": "DialogOrg", "node_count": 0, "edge_count": 0, "generated_at": ""},
+                "nodes": [],
+                "edges": [],
+                "type_groups": [],
+                "adjacency": {},
+            }
+        )
+
+        self.assertIn('id="detail-panel-backdrop"', html)
+        self.assertIn('role="dialog"', html)
+        self.assertIn('aria-modal="true"', html)
+        self.assertIn("const activateDetailSlideover", html)
+        self.assertIn("trapFocusInsideDetailPanel", html)
+
+    def test_interactive_template_contains_slice5_detail_hierarchy_tokens(self):
+        html = render_interactive_html(
+            {
+                "meta": {"org": "Slice5Org", "node_count": 0, "edge_count": 0, "generated_at": ""},
+                "nodes": [],
+                "edges": [],
+                "type_groups": [],
+                "adjacency": {},
+            }
+        )
+
+        self.assertIn(".detail-score-chip", html)
+        self.assertIn("var(--font-lg", html)
+        self.assertIn("var(--font-sm", html)
+        self.assertIn("var(--font-weight-semibold", html)
+        self.assertIn("var(--radius-pill", html)
 
     def test_interactive_template_contains_controls_and_accessibility_hooks(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -357,7 +462,7 @@ class TestSlice2TwoHopHighlight(unittest.TestCase):
 
     These tests assert source-level presence of the 2-hop neighborhood logic in
     brain_ds/ui/templates/graph_viewer.html following the same pattern used by
-    TestCanvasRendererContracts for vis-offline-network.js.
+    TestCanvasRendererContracts for src/renderer.ts.
     """
 
     @classmethod
@@ -525,24 +630,26 @@ class TestSlice3bSelectionPanel(unittest.TestCase):
         """REQ-3.10: Network.prototype.clearSelection must be defined in the renderer.
         This method is called by the 'Clear selection' bulk action.
         """
-        assets_dir = (
-            Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "assets"
+        # PR 1: read from src/renderer.ts (identity port of legacy renderer JS)
+        src_dir = (
+            Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src"
         )
-        js_text = (assets_dir / "vis-offline-network.js").read_text(encoding="utf-8")
+        js_text = (src_dir / "renderer.ts").read_text(encoding="utf-8")
         self.assertRegex(
             js_text,
             r"Network\.prototype\.clearSelection",
-            "Expected 'Network.prototype.clearSelection' in vis-offline-network.js (REQ-3.10)",
+            "Expected 'Network.prototype.clearSelection' in src/renderer.ts (REQ-3.10)",
         )
 
     def test_click_event_payload_unchanged(self):
         """REQ-X.4: Locked contract — 'nodes: [node.id]' payload in single-click path
         must remain unchanged after Slice 3b. Cite locked contract REQ-X.4.
         """
-        assets_dir = (
-            Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "assets"
+        # PR 1: read from src/renderer.ts (identity port of legacy renderer JS)
+        src_dir = (
+            Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src"
         )
-        js_text = (assets_dir / "vis-offline-network.js").read_text(encoding="utf-8")
+        js_text = (src_dir / "renderer.ts").read_text(encoding="utf-8")
         self.assertRegex(
             js_text,
             r"nodes:\s*\[node\.id\]",
@@ -648,6 +755,10 @@ class TestSlice5ScoreThresholdFilter(unittest.TestCase):
 
         Asserted by verifying a score-badge element or identifier that pairs with
         the slider and displays a formatted numeric value.
+
+        PR 5 note: toFixed(2) formatting moved to interactions/score-filter.ts.
+        The score-badge DOM element and id remain in the template; the formatting
+        logic is now asserted against the extracted module source.
         """
         self.assertRegex(
             self.template_text,
@@ -655,11 +766,26 @@ class TestSlice5ScoreThresholdFilter(unittest.TestCase):
             "Expected a score badge element/id (scoreBadge, score-badge, or score_badge) "
             "in graph_viewer.html (REQ-5.7)",
         )
-        self.assertRegex(
-            self.template_text,
-            r"toFixed\s*\(\s*2\s*\)",
-            "Expected toFixed(2) for '0.00' format on score badge (REQ-5.7)",
+        # PR 5: toFixed(2) is now in interactions/score-filter.ts (extraction).
+        # Assert it lives in the module (not the template).
+        score_filter_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds" / "ui" / "src" / "interactions" / "score-filter.ts"
         )
+        if score_filter_path.exists():
+            import re
+            module_src = score_filter_path.read_text(encoding="utf-8")
+            self.assertRegex(
+                module_src,
+                r"toFixed\s*\(\s*2\s*\)",
+                "Expected toFixed(2) for '0.00' format in interactions/score-filter.ts (REQ-5.7)",
+            )
+        else:
+            self.assertRegex(
+                self.template_text,
+                r"toFixed\s*\(\s*2\s*\)",
+                "Expected toFixed(2) for '0.00' format (in template or score-filter.ts) (REQ-5.7)",
+            )
 
     def test_template_applies_score_filter(self):
         """REQ-5.3 / REQ-5.9 / REQ-5.10: Template MUST define an applyScoreFilter function
@@ -710,7 +836,20 @@ class TestSlice6ContextMenuTemplate(unittest.TestCase):
         Items: 'Focus this node', 'Show only this node + neighbors',
                'Copy entity JSON to clipboard', 'Open detail panel'.
 
+        PR 6 note: context menu DOM construction extracted to interactions/context-menu.ts.
+        Assertions check the module file when it exists.
+
         Cite REQ-6.2 / OBS-6.2."""
+        ctx_menu_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds" / "ui" / "src" / "interactions" / "context-menu.ts"
+        )
+        if ctx_menu_path.exists():
+            import re
+            module_src = ctx_menu_path.read_text(encoding="utf-8")
+            search_src = module_src
+        else:
+            search_src = self.template_text
         for item in [
             "Focus this node",
             "Show only this node + neighbors",
@@ -719,25 +858,37 @@ class TestSlice6ContextMenuTemplate(unittest.TestCase):
         ]:
             self.assertIn(
                 item,
-                self.template_text,
-                f"Node context menu item '{item}' must be present in graph_viewer.html (REQ-6.2).",
+                search_src,
+                f"Node context menu item '{item}' must be present in context-menu.ts (REQ-6.2).",
             )
 
     def test_template_canvas_menu_items_present(self):
         """REQ-6.3: Canvas context menu MUST contain 'Zoom to fit', 'Reset filters',
         and 'Switch layout' items.
 
+        PR 6 note: context menu DOM construction extracted to interactions/context-menu.ts.
+        Assertions check the module file when it exists.
+
         Cite REQ-6.3 / OBS-6.3."""
+        ctx_menu_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds" / "ui" / "src" / "interactions" / "context-menu.ts"
+        )
+        if ctx_menu_path.exists():
+            module_src = ctx_menu_path.read_text(encoding="utf-8")
+            search_src = module_src
+        else:
+            search_src = self.template_text
         for item in ["Zoom to fit", "Reset filters", "Switch layout"]:
             self.assertIn(
                 item,
-                self.template_text,
-                f"Canvas context menu item '{item}' must be present (REQ-6.3).",
+                search_src,
+                f"Canvas context menu item '{item}' must be present in context-menu.ts (REQ-6.3).",
             )
         # Slice 7b: theme toggle is now available.
         self.assertIn(
             "Toggle theme",
-            self.template_text,
+            search_src,
             "Toggle theme MUST be present once Slice 7b lands.",
         )
 
@@ -745,13 +896,25 @@ class TestSlice6ContextMenuTemplate(unittest.TestCase):
         """REQ-6.3 + REQ-6.9: Grid layout placeholder MUST be rendered as disabled
         (greyed out) with aria-disabled='true', not hidden.
 
+        PR 6 note: context menu DOM construction extracted to interactions/context-menu.ts.
+        Assertions check the module file when it exists.
+
         Cite REQ-6.3 (Grid always disabled) / REQ-6.9 (disabled items use aria-disabled)
         / OBS-6.3."""
+        ctx_menu_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds" / "ui" / "src" / "interactions" / "context-menu.ts"
+        )
+        if ctx_menu_path.exists():
+            module_src = ctx_menu_path.read_text(encoding="utf-8")
+            search_src = module_src
+        else:
+            search_src = self.template_text
         self.assertRegex(
-            self.template_text,
+            search_src,
             r'[Gg]rid.*aria-disabled\s*=\s*["\']true["\']'
             r'|aria-disabled\s*=\s*["\']true["\'].*[Gg]rid',
-            "Grid layout menu item MUST have aria-disabled='true' (REQ-6.9 / REQ-6.3).",
+            "Grid layout menu item MUST have aria-disabled='true' in context-menu.ts (REQ-6.9 / REQ-6.3).",
         )
 
 
@@ -783,6 +946,104 @@ class TestSlice7bThemeToggleTemplate(unittest.TestCase):
 
     def test_theme_toggle_announces_live_region(self):
         self.assertRegex(self.template_text, r"Switched to light theme|Switched to dark theme")
+
+
+class TestSlice6SearchContextMenuPolishTemplate(unittest.TestCase):
+    """PR11 Slice 6 template-side token/CSS hooks."""
+
+    @classmethod
+    def setUpClass(cls):
+        template_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds"
+            / "ui"
+            / "templates"
+            / "graph_viewer.html"
+        )
+        cls.template_text = template_path.read_text(encoding="utf-8")
+
+    def test_search_dropdown_uses_elevated_surface_tokens(self):
+        self.assertIn("search-results", self.template_text)
+        self.assertRegex(self.template_text, r"surface-elevated|shadow-md|border-default")
+
+    def test_context_menu_danger_class_css_exists(self):
+        self.assertIn("menu-item--danger", self.template_text)
+
+
+class TestSlice7StateDesignTemplate(unittest.TestCase):
+    """PR12 Slice 7 contracts: loading, empty, and skeleton states."""
+
+    @classmethod
+    def setUpClass(cls):
+        template_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds"
+            / "ui"
+            / "templates"
+            / "graph_viewer.html"
+        )
+        cls.template_text = template_path.read_text(encoding="utf-8")
+
+    def test_loading_overlay_contract_present(self):
+        self.assertIn("viewer-loading", self.template_text)
+        self.assertIn("icon-spinner", self.template_text)
+        self.assertRegex(self.template_text, r"150")
+
+    def test_empty_state_contract_present(self):
+        self.assertIn("No nodes visible", self.template_text)
+        self.assertIn("Try adjusting your filters or score threshold.", self.template_text)
+        self.assertIn("Reset filters", self.template_text)
+        self.assertIn("icon-filter", self.template_text)
+
+    def test_skeleton_contract_present(self):
+        self.assertIn("detail-skeleton", self.template_text)
+        self.assertRegex(self.template_text, r"60%|40%|25%")
+
+    def test_reduced_motion_disables_skeleton_shimmer(self):
+        self.assertRegex(self.template_text, r"prefers-reduced-motion")
+        self.assertRegex(self.template_text, r"detail-skeleton")
+
+    def test_live_announcements_for_loaded_and_empty(self):
+        self.assertIn("Graph loaded.", self.template_text)
+        self.assertIn("No nodes visible.", self.template_text)
+
+
+class TestSlice8MotionMicrointeractionsTemplate(unittest.TestCase):
+    """PR13 Slice 8 contracts: motion tokens + microinteractions."""
+
+    @classmethod
+    def setUpClass(cls):
+        template_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds"
+            / "ui"
+            / "templates"
+            / "graph_viewer.html"
+        )
+        cls.template_text = template_path.read_text(encoding="utf-8")
+
+    def test_interactive_hover_uses_duration_fast_tokens(self):
+        self.assertRegex(
+            self.template_text,
+            r"\.button:hover,\s*button:hover[^\n]*transition:\s*background-color\s+var\(--duration-fast\)\s+var\(--ease-standard\),\s*color\s+var\(--duration-fast\)\s+var\(--ease-standard\)",
+        )
+
+    def test_panel_entrance_animation_contract_present(self):
+        self.assertIn("@keyframes detail-panel-enter", self.template_text)
+        self.assertIn("transform: translateY(8px)", self.template_text)
+        self.assertIn("animation: detail-panel-enter var(--duration-normal) var(--ease-standard)", self.template_text)
+
+    def test_score_slider_thumb_transition_uses_duration_fast(self):
+        self.assertRegex(
+            self.template_text,
+            r"#score-threshold-slider::?-webkit-slider-thumb[^\n\{]*\{[^\}]*transition:\s*left\s+var\(--duration-fast\)\s+var\(--ease-standard\)",
+        )
+
+    def test_reduced_motion_disables_panel_entrance_animation(self):
+        self.assertRegex(
+            self.template_text,
+            r"@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*\.detail-panel\s*\{[^\}]*animation:\s*none",
+        )
 
 
 if __name__ == "__main__":

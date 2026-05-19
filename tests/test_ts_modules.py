@@ -1,0 +1,370 @@
+"""PR 2 — theme-bridge.ts and motion.ts module extraction.
+
+Contract tests (Python source-scanning) for the two pure utility modules.
+These run RED until the TS files are created.
+
+Modules:
+  - brain_ds/ui/src/tokens/theme-bridge.ts
+      getComputedStyle wrapper; emits 'theme-changed' event.
+      Single source of truth for reading CSS custom properties.
+
+  - brain_ds/ui/src/motion/motion.ts
+      motionEnabled() helper; prefers-reduced-motion subscription.
+      Single place reduced-motion is consulted from JS-side code.
+
+Design binding: §1.2 — both modules are pure additive infrastructure.
+renderer.ts is NOT modified in PR2 (locked literal contracts remain).
+"""
+
+import unittest
+from pathlib import Path
+
+UI_DIR = Path(__file__).resolve().parent.parent / "brain_ds" / "ui"
+SRC_DIR = UI_DIR / "src"
+TOKENS_DIR = SRC_DIR / "tokens"
+MOTION_DIR = SRC_DIR / "motion"
+
+
+class TestThemeBridgeModuleExists(unittest.TestCase):
+    """theme-bridge.ts must exist at src/tokens/theme-bridge.ts (RED until created)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.path = TOKENS_DIR / "theme-bridge.ts"
+        cls.exists = cls.path.exists()
+        cls.text = cls.path.read_text(encoding="utf-8") if cls.exists else ""
+
+    def _require(self):
+        if not self.exists:
+            self.fail(f"src/tokens/theme-bridge.ts not found at {self.path}")
+
+    def test_file_exists(self):
+        self._require()
+
+    def test_file_is_nonempty(self):
+        self._require()
+        self.assertGreater(len(self.text.splitlines()), 5,
+                           "theme-bridge.ts must have more than 5 lines")
+
+    def test_exports_readCssVar(self):
+        """readCssVar: getComputedStyle wrapper returning CSS custom property value."""
+        self._require()
+        self.assertRegex(
+            self.text,
+            r"export\s+function\s+readCssVar",
+            "theme-bridge.ts must export a function named readCssVar",
+        )
+
+    def test_exports_getThemeTokens(self):
+        """getThemeTokens: returns a record of resolved token values for an element."""
+        self._require()
+        self.assertRegex(
+            self.text,
+            r"export\s+function\s+getThemeTokens",
+            "theme-bridge.ts must export a function named getThemeTokens",
+        )
+
+    def test_exports_emitThemeChanged(self):
+        """emitThemeChanged: dispatches a 'theme-changed' CustomEvent."""
+        self._require()
+        self.assertRegex(
+            self.text,
+            r"export\s+function\s+emitThemeChanged",
+            "theme-bridge.ts must export a function named emitThemeChanged",
+        )
+
+    def test_exports_subscribeThemeChanged(self):
+        """subscribeThemeChanged: registers a listener for 'theme-changed' events."""
+        self._require()
+        self.assertRegex(
+            self.text,
+            r"export\s+function\s+subscribeThemeChanged",
+            "theme-bridge.ts must export a function named subscribeThemeChanged",
+        )
+
+    def test_uses_getComputedStyle(self):
+        """Must use getComputedStyle — the raison d'etre of this module."""
+        self._require()
+        self.assertIn(
+            "getComputedStyle",
+            self.text,
+            "theme-bridge.ts must contain getComputedStyle",
+        )
+
+    def test_getPropertyValue_pattern(self):
+        """Must call .getPropertyValue() on the computed style result."""
+        self._require()
+        self.assertRegex(
+            self.text,
+            r"getPropertyValue",
+            "theme-bridge.ts must call getPropertyValue on computed style",
+        )
+
+    def test_theme_changed_event_name(self):
+        """Must reference the 'theme-changed' event string."""
+        self._require()
+        self.assertIn(
+            "theme-changed",
+            self.text,
+            "theme-bridge.ts must reference the 'theme-changed' event name",
+        )
+
+    def test_no_matchMedia_in_theme_bridge(self):
+        """theme-bridge.ts must NOT handle reduced-motion — that's motion.ts's job."""
+        self._require()
+        self.assertNotIn(
+            "matchMedia",
+            self.text,
+            "theme-bridge.ts must not contain matchMedia (reduced-motion belongs in motion.ts)",
+        )
+
+    def test_readCssVar_accepts_fallback(self):
+        """readCssVar signature must accept a fallback parameter."""
+        self._require()
+        self.assertRegex(
+            self.text,
+            r"function\s+readCssVar\s*\([^)]*fallback",
+            "readCssVar must accept a fallback parameter",
+        )
+
+    def test_no_external_imports(self):
+        """theme-bridge.ts must have no external package imports."""
+        self._require()
+        for line in self.text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("//") or stripped.startswith("*"):
+                continue
+            if stripped.startswith("import "):
+                self.assertRegex(
+                    stripped,
+                    r"""^import\s+.*['"]\./""",
+                    f"Only relative imports allowed in theme-bridge.ts, got: {stripped}",
+                )
+
+
+class TestMotionModuleExists(unittest.TestCase):
+    """motion.ts must exist at src/motion/motion.ts (RED until created)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.path = MOTION_DIR / "motion.ts"
+        cls.exists = cls.path.exists()
+        cls.text = cls.path.read_text(encoding="utf-8") if cls.exists else ""
+
+    def _require(self):
+        if not self.exists:
+            self.fail(f"src/motion/motion.ts not found at {self.path}")
+
+    def test_file_exists(self):
+        self._require()
+
+    def test_file_is_nonempty(self):
+        self._require()
+        self.assertGreater(len(self.text.splitlines()), 5,
+                           "motion.ts must have more than 5 lines")
+
+    def test_exports_motionEnabled(self):
+        """motionEnabled(): boolean — single source of truth for reduced-motion check."""
+        self._require()
+        self.assertRegex(
+            self.text,
+            r"export\s+function\s+motionEnabled",
+            "motion.ts must export a function named motionEnabled",
+        )
+
+    def test_exports_subscribeReducedMotion(self):
+        """subscribeReducedMotion(cb): registers a change listener."""
+        self._require()
+        self.assertRegex(
+            self.text,
+            r"export\s+function\s+subscribeReducedMotion",
+            "motion.ts must export a function named subscribeReducedMotion",
+        )
+
+    def test_uses_matchMedia(self):
+        """Must call matchMedia — core mechanism for reduced-motion detection."""
+        self._require()
+        self.assertIn(
+            "matchMedia",
+            self.text,
+            "motion.ts must contain matchMedia",
+        )
+
+    def test_prefers_reduced_motion_query_string(self):
+        """Must reference the exact media query string."""
+        self._require()
+        self.assertIn(
+            "prefers-reduced-motion",
+            self.text,
+            "motion.ts must contain 'prefers-reduced-motion'",
+        )
+
+    def test_prefers_reduced_motion_reduce_value(self):
+        """Must test for 'reduce' specifically, not just the media feature."""
+        self._require()
+        self.assertRegex(
+            self.text,
+            r"prefers-reduced-motion.*reduce",
+            "motion.ts must reference 'prefers-reduced-motion: reduce'",
+        )
+
+    def test_motionEnabled_returns_negation_of_matches(self):
+        """motionEnabled returns true when reduced-motion is NOT requested."""
+        self._require()
+        # Should contain a negation — either !matches or matches === false
+        self.assertRegex(
+            self.text,
+            r"!\s*(?:\w+\.)?matches|matches\s*===?\s*false|!.*matches",
+            "motionEnabled must return the negation of MediaQueryList.matches",
+        )
+
+    def test_addEventListener_or_addListener_for_change(self):
+        """Must subscribe to media query changes (addEventListener or addListener)."""
+        self._require()
+        self.assertRegex(
+            self.text,
+            r"addEventListener\s*\(\s*['\"]change['\"]|addListener",
+            "motion.ts must subscribe to media query change events",
+        )
+
+    def test_no_getComputedStyle_in_motion(self):
+        """motion.ts must NOT handle CSS token reads — that's theme-bridge.ts's job."""
+        self._require()
+        self.assertNotIn(
+            "getComputedStyle",
+            self.text,
+            "motion.ts must not contain getComputedStyle (CSS reads belong in theme-bridge.ts)",
+        )
+
+    def test_no_external_imports(self):
+        """motion.ts must have no external package imports."""
+        self._require()
+        for line in self.text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("//") or stripped.startswith("*"):
+                continue
+            if stripped.startswith("import "):
+                self.assertRegex(
+                    stripped,
+                    r"""^import\s+.*['"]\./""",
+                    f"Only relative imports allowed in motion.ts, got: {stripped}",
+                )
+
+
+class TestThemeBridgeTriangulation(unittest.TestCase):
+    """Triangulate: alternate paths not covered by the primary contract.
+
+    These ensure the module is complete enough to be useful to later slices.
+    RED until theme-bridge.ts is created.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.path = TOKENS_DIR / "theme-bridge.ts"
+        cls.exists = cls.path.exists()
+        cls.text = cls.path.read_text(encoding="utf-8") if cls.exists else ""
+
+    def _require(self):
+        if not self.exists:
+            self.fail(f"src/tokens/theme-bridge.ts not found at {self.path}")
+
+    def test_readCssVar_handles_empty_value(self):
+        """readCssVar must have a code path for empty / whitespace values.
+
+        Design binding: the renderer's _readCssVar checks for empty+trim before
+        returning the fallback. theme-bridge.ts must preserve this contract.
+        """
+        self._require()
+        # Either 'trim' or a truthy check on the value
+        self.assertRegex(
+            self.text,
+            r"\.trim\(\)|value\s*&&|if\s*\(\s*value",
+            "readCssVar must handle empty/whitespace CSS property values",
+        )
+
+    def test_getThemeTokens_references_vis_panel_bg(self):
+        """getThemeTokens must know about --vis-panel-bg (one of the locked token names).
+
+        This ensures the token map in theme-bridge.ts is aligned with renderer.ts.
+        """
+        self._require()
+        self.assertIn(
+            "--vis-panel-bg",
+            self.text,
+            "getThemeTokens must reference --vis-panel-bg token",
+        )
+
+    def test_getThemeTokens_references_vis_focus_ring(self):
+        """getThemeTokens must know about --vis-focus-ring."""
+        self._require()
+        self.assertIn(
+            "--vis-focus-ring",
+            self.text,
+            "getThemeTokens must reference --vis-focus-ring token",
+        )
+
+    def test_CustomEvent_dispatched_on_emitThemeChanged(self):
+        """emitThemeChanged must dispatch a real browser event using CustomEvent or dispatchEvent."""
+        self._require()
+        self.assertRegex(
+            self.text,
+            r"CustomEvent|dispatchEvent",
+            "emitThemeChanged must use CustomEvent / dispatchEvent",
+        )
+
+
+class TestMotionTriangulation(unittest.TestCase):
+    """Triangulate: alternate paths in motion.ts.
+
+    RED until motion.ts is created.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.path = MOTION_DIR / "motion.ts"
+        cls.exists = cls.path.exists()
+        cls.text = cls.path.read_text(encoding="utf-8") if cls.exists else ""
+
+    def _require(self):
+        if not self.exists:
+            self.fail(f"src/motion/motion.ts not found at {self.path}")
+
+    def test_motionEnabled_guards_matchMedia_availability(self):
+        """If matchMedia is not a function (e.g., JSDOM), motionEnabled must return true (safe default).
+
+        Design binding: renderer._bindReducedMotion has:
+          if (typeof window.matchMedia !== 'function') return;
+        motion.ts must preserve the same defensive guard.
+        """
+        self._require()
+        self.assertRegex(
+            self.text,
+            r"typeof.*matchMedia|matchMedia\s*!==|window\.matchMedia",
+            "motionEnabled must guard for matchMedia availability",
+        )
+
+    def test_subscribeReducedMotion_accepts_callback(self):
+        """subscribeReducedMotion takes a callback parameter."""
+        self._require()
+        self.assertRegex(
+            self.text,
+            r"function\s+subscribeReducedMotion\s*\(\s*\w+",
+            "subscribeReducedMotion must accept a callback parameter",
+        )
+
+    def test_handles_legacy_addListener_fallback(self):
+        """For older browser compat, must try addListener if addEventListener is unavailable.
+
+        Design binding: renderer._bindReducedMotion has the addListener fallback.
+        motion.ts must carry this forward.
+        """
+        self._require()
+        self.assertIn(
+            "addListener",
+            self.text,
+            "motion.ts must have addListener fallback for older browsers",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

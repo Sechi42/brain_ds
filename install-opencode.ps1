@@ -189,8 +189,8 @@ if ($InstallMode -eq 'project' -and (Test-Path -LiteralPath $RegistryPath)) {
         $pathCell = $parts[3].Trim()
         $projectSkill = Test-Path -LiteralPath (Join-Path $SkillsDir (Join-Path $skill 'SKILL.md'))
         if ($projectSkill) {
-          $absPath = Join-Path $RootDir (Join-Path 'skills' (Join-Path $skill 'SKILL.md'))
-          $newLine = "| $trigger | $skill | $absPath |"
+          $relativePath = "skills\$skill\SKILL.md"
+          $newLine = "| $trigger | $skill | $relativePath |"
           if ($newLine -ne $line) { $changed = $true }
         }
       }
@@ -257,12 +257,21 @@ foreach ($w in $warnings) { "Warning: $w" }
 
 if ($RegisterPath) {
   New-Item -ItemType Directory -Path $GlobalBinRoot -Force | Out-Null
-  $cmdWrapper = Join-Path $RootDir 'brain_ds.cmd'
-  if (-not (Test-Path -LiteralPath $cmdWrapper)) {
-    throw "Wrapper not found: $cmdWrapper"
-  }
-  Copy-Item -LiteralPath $cmdWrapper -Destination (Join-Path $GlobalBinRoot 'brain_ds.cmd') -Force
-  "PATH registration: copied brain_ds.cmd to $GlobalBinRoot"
+  $globalCmdWrapper = Join-Path $GlobalBinRoot 'brain_ds.cmd'
+  @"
+@echo off
+setlocal
+
+where uv >nul 2>nul
+if errorlevel 1 (
+  echo Error: uv is not installed. Please install uv: https://docs.astral.sh/uv/getting-started/installation/ 1>&2
+  exit /b 1
+)
+
+uv run --project "$RootDir" brain_ds %*
+exit /b %ERRORLEVEL%
+"@ | Set-Content -LiteralPath $globalCmdWrapper -Encoding ASCII
+  "PATH registration: wrote brain_ds.cmd to $GlobalBinRoot"
   "PATH registration: add this directory to PATH if missing: $GlobalBinRoot"
 }
 

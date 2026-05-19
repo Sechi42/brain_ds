@@ -9,8 +9,9 @@ class TestCanvasRendererContracts(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.assets_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "assets"
+        cls.src_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src"
         cls.templates_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "templates"
-        cls.js_path = cls.assets_dir / "vis-offline-network.js"
+        cls.js_path = cls.src_dir / "renderer.ts"
         cls.css_path = cls.assets_dir / "vis-network.min.css"
         cls.template_path = cls.templates_dir / "graph_viewer.html"
         cls.js_text = cls.js_path.read_text(encoding="utf-8")
@@ -19,7 +20,9 @@ class TestCanvasRendererContracts(unittest.TestCase):
         cls.template_text = cls.template_path.read_text(encoding="utf-8")
 
     def test_vis_offline_js_exists_and_is_replaced(self):
-        self.assertTrue(self.js_path.exists())
+        # PR 1: check renderer.ts exists (identity port of legacy renderer JS)
+        self.assertTrue(self.js_path.exists(),
+                        f"src/renderer.ts not found — identity rename not complete")
         self.assertGreater(len(self.js_text.splitlines()), 158)
         self.assertNotIn("vis-fallback-list", self.js_text)
         self.assertRegex(self.js_text, r"class\s+Network|createElement\(['\"]canvas['\"]\)")
@@ -136,6 +139,17 @@ class TestCanvasRendererContracts(unittest.TestCase):
         self.assertRegex(self.js_text, r"importance")
         self.assertRegex(self.js_text, r"Math\.max\(12")
 
+    def test_slice8_selection_ring_scales_with_zoom_and_cap(self):
+        self.assertRegex(self.js_text, r"2\s*/\s*(this|self)\.viewport\.scale")
+        self.assertRegex(self.js_text, r"Math\.min\(\s*8\s*,\s*2\s*/\s*(this|self)\.viewport\.scale\s*\)")
+
+    def test_slice8_keyboard_focus_outer_ring_contract(self):
+        self.assertIn("keyboardFocusedNodeId", self.js_text)
+        self.assertRegex(self.js_text, r"setLineDash\(\[\s*4\s*/\s*(this|self)\.viewport\.scale\s*,\s*4\s*/\s*(this|self)\.viewport\.scale\s*\]\)")
+        self.assertRegex(self.js_text, r"1\.5\s*/\s*(this|self)\.viewport\.scale")
+        self.assertRegex(self.js_text, r"Math\.min\(\s*6\s*,\s*1\.5\s*/\s*(this|self)\.viewport\.scale\s*\)")
+        self.assertRegex(self.js_text, r"--state-focus-ring")
+
     def test_template_cleanup_has_no_fallback_tokens(self):
         self.assertNotIn("vis-fallback", self.template_text)
 
@@ -151,8 +165,8 @@ class TestSlice1aViewportContracts(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        assets_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "assets"
-        cls.js_path = assets_dir / "vis-offline-network.js"
+        src_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src"
+        cls.js_path = src_dir / "renderer.ts"
         cls.js_text = cls.js_path.read_text(encoding="utf-8")
 
     # 1a.2 – REQ-1.1
@@ -233,8 +247,8 @@ class TestSlice1bInertiaContracts(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        assets_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "assets"
-        cls.js_path = assets_dir / "vis-offline-network.js"
+        src_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src"
+        cls.js_path = src_dir / "renderer.ts"
         cls.js_text = cls.js_path.read_text(encoding="utf-8")
 
     # 1b.1 – REQ-1.3
@@ -319,8 +333,8 @@ class TestSlice3aMultiSelectContracts(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        assets_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "assets"
-        cls.js_path = assets_dir / "vis-offline-network.js"
+        src_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src"
+        cls.js_path = src_dir / "renderer.ts"
         cls.js_text = cls.js_path.read_text(encoding="utf-8")
 
     # 3a.1 – REQ-3.4
@@ -420,8 +434,9 @@ class TestSlice4HoverPopoverContracts(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.assets_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "assets"
+        cls.src_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src"
         cls.templates_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "templates"
-        cls.js_path = cls.assets_dir / "vis-offline-network.js"
+        cls.js_path = cls.src_dir / "renderer.ts"
         cls.template_path = cls.templates_dir / "graph_viewer.html"
         cls.js_text = cls.js_path.read_text(encoding="utf-8")
         cls.template_text = cls.template_path.read_text(encoding="utf-8")
@@ -508,8 +523,8 @@ class TestSlice6ContextMenuContracts(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        assets_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "assets"
-        cls.js_path = assets_dir / "vis-offline-network.js"
+        src_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src"
+        cls.js_path = src_dir / "renderer.ts"
         cls.js_text = cls.js_path.read_text(encoding="utf-8")
 
     def test_contextmenu_listener_and_preventDefault(self):
@@ -576,8 +591,8 @@ class TestSlice7bThemeRendererContracts(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        assets_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "assets"
-        cls.js_path = assets_dir / "vis-offline-network.js"
+        src_dir = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src"
+        cls.js_path = src_dir / "renderer.ts"
         cls.js_text = cls.js_path.read_text(encoding="utf-8")
 
     def test_renderer_reads_computed_style_for_theme_tokens(self):

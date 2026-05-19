@@ -18,6 +18,15 @@
       __VIS_NETWORK_CSS__
       :root {
         color-scheme: dark;
+        --surface-canvas: var(--theme-surface_canvas, var(--theme-background));
+        --surface-panel: var(--theme-surface_panel, var(--theme-surface));
+        --surface-chrome: var(--theme-surface_chrome, var(--theme-surface));
+        --border-subtle: var(--theme-border_subtle, var(--theme-border));
+        --border-emphasis: var(--theme-border_emphasis, var(--theme-focus_ring));
+        --space-1: var(--theme-space_1, 0.25rem);
+        --space-2: var(--theme-space_2, 0.5rem);
+        --space-3: var(--theme-space_3, 0.75rem);
+        --space-4: var(--theme-space_4, 1rem);
         --bg: var(--theme-background);
         --surface: var(--theme-surface);
         --surface-2: var(--theme-surface-elevated);
@@ -28,31 +37,34 @@
       }
       * { box-sizing: border-box; }
       body { margin: 0; font-family: Inter, Segoe UI, Arial, sans-serif; background: var(--bg); color: var(--text); }
-      .topbar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.75rem; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--surface); }
+      .topbar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-subtle); background: var(--surface-chrome); min-height: 48px; }
       .meta { font-size: 0.92rem; color: var(--text-muted); }
-      .layout { display: grid; grid-template-columns: minmax(260px, 320px) 1fr minmax(280px, 360px); gap: 12px; padding: 12px; }
-      .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
-      .detail-panel { display: grid; gap: 0.75rem; align-content: start; max-height: calc(100vh - 110px); overflow: auto; transition: transform 300ms ease, opacity 300ms ease; }
-      body, .panel, .topbar, .button, button, #network, .detail-card, .evidence-item { transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease; }
+      .layout { display: grid; grid-template-columns: minmax(260px, 320px) 1fr minmax(280px, 360px); gap: var(--space-3); padding: var(--space-3); }
+      .panel { background: var(--surface-panel); border: 1px solid var(--border-subtle); border-radius: 10px; padding: var(--space-3); box-shadow: var(--shadow-sm); }
+      .detail-panel { display: grid; gap: var(--space-3); align-content: start; max-height: calc(100vh - 110px); overflow: auto; transition: transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard); animation: detail-panel-enter var(--duration-normal) var(--ease-standard); }
+      body, .panel, .topbar, .button, button, #network, .detail-card, .evidence-item { transition: background-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard); }
       .detail-panel.is-collapsed { transform: translateX(101%); opacity: 0; pointer-events: none; }
       .detail-panel.is-empty .detail-body { color: var(--text-muted); }
-      .detail-header { display: grid; gap: 0.25rem; }
-      .detail-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .detail-header { display: grid; gap: var(--space-1); }
+      .detail-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
       .detail-actions button { min-width: 44px; }
-      .detail-title { margin: 0; font-size: 1.1rem; }
-      .detail-meta { color: var(--text-muted); font-size: 0.9rem; }
-      .detail-body { display: grid; gap: 0.6rem; }
-      .detail-card { border: 1px solid var(--theme-card-divider); border-left: 4px solid var(--theme-card-accent-border); border-radius: var(--theme-card-radius); padding: 0.55rem 0.65rem; background: var(--theme-card-bg); }
-      .detail-card h3 { margin: 0 0 0.35rem; font-size: 0.95rem; }
+      .detail-title { margin: 0; font-size: var(--font-lg); font-weight: var(--font-weight-semibold); color: var(--theme-text); }
+      .detail-meta { color: var(--theme-text-muted); font-size: var(--font-sm); }
+      .detail-body { display: grid; gap: var(--space-2); }
+      .detail-card { border: 1px solid var(--theme-card-divider); border-left: 4px solid var(--theme-card-accent-border); border-radius: var(--theme-card-radius); padding: var(--space-2) var(--space-3); background: var(--theme-card-bg); }
+      .detail-card h3 { margin: 0 0 var(--space-1); font-size: var(--font-sm); font-weight: var(--font-weight-semibold); color: var(--theme-text-muted); }
       .detail-card p { margin: 0; white-space: pre-wrap; }
-      .card-icon { font-size: 0.85rem; color: var(--text-muted); display: block; margin-bottom: 0.2rem; }
-      .detail-section { display: grid; gap: 0.5rem; }
-      .detail-section h3 { margin: 0; font-size: 1rem; }
-      .relationship-group { border-top: 1px solid var(--border); padding-top: 0.5rem; }
-      .relationship-group h4 { margin: 0 0 0.4rem; font-size: 0.92rem; color: var(--text-muted); }
-      .relationship-list { margin: 0; padding-left: 1rem; display: grid; gap: 0.35rem; }
-      .relationship-reasons, .relationship-evidence { margin: 0.2rem 0 0 0; color: var(--text-muted); font-size: 0.88rem; }
-      .evidence-list { display: grid; gap: 0.5rem; }
+      .card-icon { width: 16px; height: 16px; color: var(--text-muted); display: inline-block; margin-bottom: 0.2rem; }
+      .detail-section { display: grid; gap: var(--space-2); }
+      .detail-section h3 { margin: 0; font-size: var(--font-sm); font-weight: var(--font-weight-semibold); color: var(--theme-text-muted); }
+      .detail-section-heading { display: inline-flex; align-items: center; gap: var(--space-2); }
+      .detail-score-chip { display: inline-flex; align-items: center; justify-self: start; background: var(--state-info-bg); color: var(--state-info-fg); border-radius: var(--radius-pill); padding: var(--space-1) var(--space-2); font-size: var(--font-xs); font-weight: var(--font-weight-semibold); }
+      .detail-ellipsis { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+      .relationship-group { border-top: 1px solid var(--border); padding-top: var(--space-2); }
+      .relationship-group h4 { margin: 0 0 var(--space-1); font-size: var(--font-sm); color: var(--text-muted); }
+      .relationship-list { margin: 0; padding-left: var(--space-4); display: grid; gap: var(--space-1); }
+      .relationship-reasons, .relationship-evidence { margin: var(--space-1) 0 0 0; color: var(--text-muted); font-size: var(--font-sm); }
+      .evidence-list { display: grid; gap: var(--space-2); }
       .evidence-item { border: 1px solid var(--theme-card-divider); border-radius: var(--theme-card-radius); background: var(--theme-card-bg); }
       .evidence-item summary { cursor: pointer; padding: 0.5rem 0.65rem; min-height: 44px; display: flex; align-items: center; gap: 0.4rem; }
       .evidence-item > div { border-top: 1px solid var(--theme-card-divider); padding: 0.5rem 0.65rem; }
@@ -61,23 +73,99 @@
       .controls { display: grid; gap: 0.75rem; align-content: start; max-height: calc(100vh - 110px); overflow: auto; }
       .control-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
       .button, button { min-height: 44px; padding: 0.45rem 0.75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--text); cursor: pointer; }
+      .button:hover, button:hover { transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
+      #score-threshold-slider::-webkit-slider-thumb { transition: left var(--duration-fast) var(--ease-standard); }
+      #score-threshold-slider::-moz-range-thumb { transition: left var(--duration-fast) var(--ease-standard); }
       button[aria-pressed='true'] { border-color: var(--focus); }
       .filter-item { display: flex; align-items: center; gap: 0.5rem; margin: 0.35rem 0; min-height: 44px; }
       .chip { display: inline-flex; width: 14px; height: 14px; border-radius: 3px; }
       .legend-item { display: flex; align-items: center; gap: 0.5rem; min-height: 44px; }
       .legend-item button { width: 100%; text-align: left; }
-      .search-group { display: grid; gap: 0.4rem; }
-      #search-results { margin: 0; padding-left: 1rem; }
-      #network { height: calc(100vh - 115px); border: 1px solid var(--border); border-radius: 10px; background: #0b1220; }
+      .search-group { position: relative; display: grid; gap: var(--space-2); }
+      .search-input-wrap { position: relative; display: flex; align-items: center; }
+      .search-input { width: 100%; padding-left: 2rem; padding-right: 1.9rem; }
+      .search-icon { position: absolute; left: 0.5rem; color: var(--text-muted); pointer-events: none; display: inline-flex; }
+      .search-icon-svg, .search-clear-icon { width: 14px; height: 14px; }
+      .search-clear-btn { position: absolute; right: 0.3rem; min-height: unset; padding: 0.25rem; border: 0; background: transparent; color: var(--text-muted); }
+      #search-results { margin: 0; padding: var(--space-1); list-style: none; display: none; position: absolute; z-index: 1201; width: 100%; background: var(--surface-elevated); border: 1px solid var(--border-default); border-radius: var(--radius-md); box-shadow: var(--shadow-md); max-height: 260px; overflow: auto; }
+      #search-results.is-open { display: block; }
+      .search-option-btn { width: 100%; text-align: left; }
+      .search-option.is-active .search-option-btn { background: var(--state-selected-bg); color: var(--state-selected-fg); }
+      .search-empty { color: var(--text-muted); font-size: var(--font-sm); padding: var(--space-2); }
+      .vis-context-menu { min-width: 220px; padding: var(--space-1); background: var(--surface-elevated); border: 1px solid var(--border-default); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
+      .vis-context-menu__item { width: 100%; display: flex; align-items: center; gap: var(--space-2); text-align: left; border: 0; background: transparent; padding: var(--space-2); border-radius: var(--radius-sm); }
+      .vis-context-menu__item:hover, .vis-context-menu__item--hovered { background: var(--state-hover-bg); color: var(--state-hover-fg); }
+      .vis-context-menu__icon { width: 16px; height: 16px; display: inline-flex; }
+      .vis-context-menu__icon svg { width: 16px; height: 16px; }
+      .vis-context-menu__separator { border: 0; border-top: 1px solid var(--border-subtle); margin: var(--space-1) 0; }
+      .menu-item--danger { color: var(--state-danger-fg); }
+      .menu-item--danger:hover, .menu-item--danger.vis-context-menu__item--hovered { background: var(--state-danger-bg); color: var(--state-danger-fg); }
+      .network-shell { position: relative; }
+      #network { height: calc(100vh - 115px); border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-canvas); }
+      .viewer-loading,
+      .viewer-empty-state { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; border-radius: 10px; }
+      .viewer-loading.is-visible,
+      .viewer-empty-state.is-visible { display: flex; }
+      .viewer-loading { background: color-mix(in srgb, var(--surface-panel) 80%, transparent); z-index: 20; opacity: 0; transition: opacity var(--duration-normal) var(--ease-standard); }
+      .viewer-loading.is-visible { opacity: 1; }
+      .viewer-loading.is-dismissing { opacity: 0; }
+      .viewer-loading__spinner { width: 28px; height: 28px; color: var(--theme-text-muted); animation: viewer-spin 0.9s linear infinite; }
+      .viewer-empty-state { z-index: 15; background: color-mix(in srgb, var(--surface-canvas) 94%, transparent); opacity: 0; transition: opacity var(--duration-normal) var(--ease-standard); }
+      .viewer-empty-state.is-visible { opacity: 1; }
+      .viewer-empty-state__card { max-width: 28rem; display: grid; gap: var(--space-2); justify-items: center; padding: var(--space-4); }
+      .viewer-empty-state__icon { width: 20px; height: 20px; color: var(--theme-text-muted); }
+      .viewer-empty-state__title { margin: 0; font-size: var(--font-xl); font-weight: var(--font-weight-semibold); }
+      .viewer-empty-state__text { margin: 0; font-size: var(--font-sm); color: var(--theme-text-muted); }
+      .detail-skeleton { display: grid; gap: var(--space-2); }
+      .detail-skeleton__line { height: 12px; border-radius: var(--radius-sm); background: linear-gradient(90deg, var(--surface-panel) 0%, var(--surface-elevated) 50%, var(--surface-panel) 100%); background-size: 200% 100%; animation: detail-skeleton-shimmer 1.2s var(--ease-standard) infinite; }
+      .detail-skeleton__line--1 { width: 60%; }
+      .detail-skeleton__line--2 { width: 40%; }
+      .detail-skeleton__line--3 { width: 25%; }
+      @keyframes detail-skeleton-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+      @keyframes viewer-spin { to { transform: rotate(360deg); } }
+      @keyframes detail-panel-enter { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+      .detail-panel-backdrop { display: none; }
       :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
       @media (prefers-reduced-motion: reduce) {
-        .detail-panel { transition: none; }
+        .detail-panel { transition: none; animation: none; }
         body, .panel, .topbar, .button, button, #network, .detail-card, .evidence-item { transition: none; }
+        .viewer-loading, .viewer-empty-state { transition: none; }
+        .viewer-loading__spinner, .detail-skeleton__line { animation: none; }
+        .detail-skeleton__line { background: var(--surface-panel); }
       }
-      @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } #network { height: 70vh; } .detail-panel.is-collapsed { transform: translateY(101%); } }
+      @media (max-width: 1100px) {
+        .layout { grid-template-columns: 1fr; }
+        #network { height: 70vh; }
+        .detail-panel {
+          position: fixed;
+          top: 0;
+          right: 0;
+          bottom: 0;
+          width: min(360px, 92vw);
+          max-height: 100vh;
+          z-index: 1200;
+          border-radius: 0;
+          transform: translateX(101%);
+          opacity: 0;
+          pointer-events: none;
+        }
+        .detail-panel.is-mobile-open {
+          transform: translateX(0);
+          opacity: 1;
+          pointer-events: auto;
+        }
+        .detail-panel-backdrop {
+          position: fixed;
+          inset: 0;
+          background: rgba(15, 23, 40, 0.45);
+          z-index: 1100;
+        }
+        .detail-panel-backdrop.is-visible { display: block; }
+      }
     </style>
   </head>
   <body>
+    __BRAIN_DS_ICON_SPRITE__
     <header class="topbar" aria-label="Organization context bar">
       <div>
         <strong id="org-name">Organization</strong>
@@ -131,22 +219,35 @@
           </div>
         </section>
       </aside>
-      <div class="panel">
+      <div class="panel network-shell">
         <div id="network" role="img" aria-label="Organization graph"></div>
+        <div id="viewer-loading" class="viewer-loading" aria-hidden="true">
+          <svg class="viewer-loading__spinner" aria-hidden="true"><use href="#icon-spinner"/></svg>
+        </div>
+        <section id="viewer-empty-state" class="viewer-empty-state" aria-hidden="true">
+          <div class="viewer-empty-state__card">
+            <svg class="viewer-empty-state__icon" aria-hidden="true"><use href="#icon-filter"/></svg>
+            <h3 class="viewer-empty-state__title">No nodes visible</h3>
+            <p class="viewer-empty-state__text">Try adjusting your filters or score threshold.</p>
+            <button type="button" id="empty-reset-filters">Reset filters</button>
+          </div>
+        </section>
       </div>
-      <aside id="detail-panel" class="panel detail-panel is-empty" aria-label="Node details" aria-live="polite" aria-labelledby="detail-title">
+      <aside id="detail-panel" class="panel detail-panel is-empty" aria-label="Node details" aria-live="polite" aria-labelledby="detail-title" role="dialog" aria-modal="true">
         <div class="detail-header">
           <h2 id="detail-title" class="detail-title">Node details</h2>
           <div id="detail-meta" class="detail-meta">Select a node to view details</div>
           <div class="detail-actions">
-            <button type="button" id="edit-toggle" aria-pressed="false" hidden>✏️ Edit</button>
-            <button type="button" id="export-json" hidden>💾 Export JSON</button>
+            <button type="button" id="edit-toggle" aria-pressed="false" hidden><svg class="card-icon" aria-hidden="true"><use href="#icon-edit"/></svg> Edit</button>
+            <button type="button" id="export-json" hidden><svg class="card-icon" aria-hidden="true"><use href="#icon-save"/></svg> Export JSON</button>
             <button type="button" id="detail-collapse" aria-controls="detail-panel" aria-expanded="true" aria-label="Collapse detail panel">Collapse</button>
             <button type="button" id="detail-close" aria-label="Clear selected node">Close</button>
           </div>
         </div>
         <div id="detail-body" class="detail-body" data-state="empty">Select a node to view details</div>
       </aside>
+      <div id="detail-panel-backdrop" class="detail-panel-backdrop" hidden></div>
+      <div id="viewer-live-region" class="vis-a11y-sr-only" aria-live="polite" aria-atomic="true"></div>
     </main>
     <script>
       __VIS_NETWORK_JS__
@@ -155,8 +256,6 @@
       const editedData = typeof structuredClone === "function"
         ? structuredClone(RENDER_CONTEXT)
         : JSON.parse(JSON.stringify(RENDER_CONTEXT));
-      let hasEdits = false;
-      let editMode = false;
       const typeGroups = RENDER_CONTEXT.type_groups || [];
       document.getElementById("org-name").textContent = meta.org || "Organization";
       document.getElementById("org-meta").textContent = `${meta.node_count || 0} nodes · ${meta.edge_count || 0} edges`;
@@ -185,8 +284,16 @@
       });
 
       const visibleNodeIds = () => new Set((RENDER_CONTEXT.nodes || []).filter((n) => !hiddenTypes.has(n.type)).map((n) => n.id));
+      const updateEmptyState = (visibleCount) => {
+        if (!viewerEmptyStateEl) return;
+        const isEmpty = visibleCount === 0;
+        viewerEmptyStateEl.classList.toggle("is-visible", isEmpty);
+        viewerEmptyStateEl.setAttribute("aria-hidden", String(!isEmpty));
+        if (isEmpty) announceLive("No nodes visible.");
+      };
       const applyVisibility = () => {
         const visible = visibleNodeIds();
+        updateEmptyState(visible.size);
         nodes.update((RENDER_CONTEXT.nodes || []).map((n) => ({ id: n.id, hidden: !visible.has(n.id), opacity: 1, borderWidth: 1 })));
         // REQ-5.5 / REQ-5.9: edge hidden if either endpoint is hidden OR edge score < threshold (additive).
         // REQ-5.10: inclusive boundary — score >= scoreThreshold is visible.
@@ -197,48 +304,8 @@
         })));
       };
 
-      // Slice 5: applyScoreFilter — called on slider input to update scoreThreshold and
-      // apply edge-primary score filtering (Decision 1).
-      // Decision 3: selected nodes that become orphans (all incident edges hidden by score)
-      // are removed from the selection set, with an aria-live announcement.
-      const applyScoreFilter = (threshold) => {
-        scoreThreshold = threshold;
-        // Update score badge (REQ-5.7).
-        if (scoreBadgeEl) scoreBadgeEl.textContent = threshold.toFixed(2);
-        if (scoreSliderEl) {
-          scoreSliderEl.setAttribute("aria-valuenow", threshold.toFixed(2));
-          scoreSliderEl.setAttribute("aria-valuetext", threshold.toFixed(2));
-        }
-        // Apply visibility (integrates type-filter + score-filter additively).
-        applyVisibility();
-        // REQ-5.6 / Decision 3: remove hidden-orphan nodes from selection, announce count.
-        // A node is an orphan if ALL its incident edges are now hidden by the score filter.
-        // We cooperate with the renderer's select-change emission by calling clearSelection
-        // on the renderer and re-emitting if any selected nodes are removed.
-        if (typeof network !== "undefined" && network.selectedNodeIds && network.selectedNodeIds.size > 0) {
-          const visibleEdgeEndpoints = new Set();
-          (RENDER_CONTEXT.edges || []).forEach((e) => {
-            if ((e.score === undefined) || (e.score >= scoreThreshold)) {
-              visibleEdgeEndpoints.add(e.from);
-              visibleEdgeEndpoints.add(e.to);
-            }
-          });
-          const removedFromSelection = [];
-          network.selectedNodeIds.forEach((nodeId) => {
-            if (!visibleEdgeEndpoints.has(nodeId)) {
-              removedFromSelection.push(nodeId);
-            }
-          });
-          if (removedFromSelection.length > 0) {
-            removedFromSelection.forEach((nodeId) => network.selectedNodeIds.delete(nodeId));
-            const liveRegion = document.querySelector("[aria-live='polite']");
-            if (liveRegion) {
-              liveRegion.textContent = `${removedFromSelection.length} node(s) removed from selection due to filter`;
-            }
-            renderSelectionPanel([...network.selectedNodeIds]);
-          }
-        }
-      };
+      // applyScoreFilter extracted to interactions/score-filter.ts (PR 5).
+      // Use window.brainDsUI.scoreFilter.setThreshold() directly for resets.
       const resetHighlight = () => {
         selectedNodeId = null;
         nodes.update((RENDER_CONTEXT.nodes || []).map((n) => ({ id: n.id, opacity: 1, borderWidth: 1 })));
@@ -246,18 +313,134 @@
         renderDetailPanel(null);
       };
       const detailPanel = document.getElementById("detail-panel");
-      const detailTitle = document.getElementById("detail-title");
-      const detailMeta = document.getElementById("detail-meta");
-      const detailBody = document.getElementById("detail-body");
-      const editToggleBtn = document.getElementById("edit-toggle");
-      const exportJsonBtn = document.getElementById("export-json");
       const detailCollapseBtn = document.getElementById("detail-collapse");
       const detailCloseBtn = document.getElementById("detail-close");
       const scoreBadgeEl = document.getElementById("score-badge");
       const scoreSliderEl = document.getElementById("score-threshold-slider");
       const themeToggleBtn = document.getElementById("theme-toggle");
-      const arrow = { incoming: "←", outgoing: "→" };
+      const detailPanelBackdrop = document.getElementById("detail-panel-backdrop");
+      const viewerLoadingEl = document.getElementById("viewer-loading");
+      const viewerEmptyStateEl = document.getElementById("viewer-empty-state");
+      const emptyResetFiltersBtn = document.getElementById("empty-reset-filters");
+      const viewerLiveRegion = document.getElementById("viewer-live-region");
+      let detailPanelLastFocus = null;
+      let loadingTimer = null;
+      let loadingVisible = false;
+      let firstFrameDone = false;
+      let lastDetailNodeId = null;
       const THEME_STORAGE_KEY = "brain_ds.theme";
+
+      const announceLive = (message) => {
+        if (viewerLiveRegion) viewerLiveRegion.textContent = message;
+      };
+
+      const setLoadingVisible = (visible) => {
+        if (!viewerLoadingEl) return;
+        viewerLoadingEl.classList.remove("is-dismissing");
+        viewerLoadingEl.classList.toggle("is-visible", visible);
+        viewerLoadingEl.setAttribute("aria-hidden", String(!visible));
+        loadingVisible = visible;
+      };
+
+      const dismissLoading = () => {
+        if (!viewerLoadingEl || !loadingVisible) return;
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          setLoadingVisible(false);
+          return;
+        }
+        viewerLoadingEl.classList.add("is-dismissing");
+        window.setTimeout(() => {
+          setLoadingVisible(false);
+          viewerLoadingEl.classList.remove("is-dismissing");
+        }, 200);
+      };
+
+      const getFocusableInDetailPanel = () => {
+        if (!detailPanel) return [];
+        const selectors = "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+        return Array.from(detailPanel.querySelectorAll(selectors));
+      };
+
+      const trapFocusInsideDetailPanel = (event) => {
+        if (window.innerWidth >= 1100 || !detailPanel.classList.contains("is-mobile-open") || event.key !== "Tab") return;
+        const focusable = getFocusableInDetailPanel();
+        if (!focusable.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      };
+
+      const deactivateDetailSlideover = () => {
+        if (!detailPanel) return;
+        detailPanel.classList.remove("is-mobile-open");
+        detailPanel.classList.add("is-collapsed");
+        detailPanel.setAttribute("aria-modal", "false");
+        if (detailPanelBackdrop) {
+          detailPanelBackdrop.classList.remove("is-visible");
+          detailPanelBackdrop.hidden = true;
+        }
+        if (detailPanelLastFocus && typeof detailPanelLastFocus.focus === "function") {
+          detailPanelLastFocus.focus();
+        }
+      };
+
+      const activateDetailSlideover = () => {
+        if (!detailPanel) return;
+        detailPanelLastFocus = document.activeElement;
+        detailPanel.classList.remove("is-collapsed");
+        detailPanel.classList.add("is-mobile-open");
+        detailPanel.setAttribute("role", "dialog");
+        detailPanel.setAttribute("aria-modal", "true");
+        if (detailPanelBackdrop) {
+          detailPanelBackdrop.hidden = false;
+          detailPanelBackdrop.classList.add("is-visible");
+        }
+        const firstFocusable = getFocusableInDetailPanel()[0];
+        if (firstFocusable) firstFocusable.focus();
+      };
+
+      const syncDetailPanelPresentation = () => {
+        if (!detailPanel) return;
+        const isMobile = window.innerWidth < 1100;
+        if (!isMobile) {
+          detailPanel.classList.remove("is-mobile-open");
+          detailPanel.removeAttribute("role");
+          detailPanel.removeAttribute("aria-modal");
+          if (detailPanelBackdrop) {
+            detailPanelBackdrop.classList.remove("is-visible");
+            detailPanelBackdrop.hidden = true;
+          }
+          return;
+        }
+        const expanded = detailCollapseBtn && detailCollapseBtn.getAttribute("aria-expanded") === "true";
+        if (expanded) activateDetailSlideover();
+        else deactivateDetailSlideover();
+      };
+
+      // Mount the detail-panel module (PR 3 wiring — delegates DOM construction to bundle).
+      // window.brainDsUI is set by main.ts (bundle IIFE) before this inline script runs.
+      window.brainDsUI.detailPanel.mount(detailPanel, {
+        editedDetailIndex,
+        editedData,
+        network,
+        originalNodes,
+        RENDER_CONTEXT,
+        adjacency,
+        motionEnabled: () => !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+      });
+
+      // Keep local refs for renderSelectionPanel (multi-select panel, NOT extracted in PR 3).
+      // PR 3 extracts single-node detail rendering only; multi-select stays in template
+      // for now and is extracted in a later PR.
+      const detailBody = document.getElementById("detail-body");
+      const detailTitle = document.getElementById("detail-title");
+      const detailMeta = document.getElementById("detail-meta");
 
       const applyTheme = (themeValue) => {
         const nextTheme = themeValue === "light" ? "light" : "dark";
@@ -286,267 +469,47 @@
         themeToggleBtn.addEventListener("click", toggleTheme);
         applyTheme(document.documentElement.getAttribute("data-theme") || "dark");
       }
-      const fallbackEditableFields = new Set(["label", "details", "card_sections", "cards", "sections"]);
-      const normalizeFieldName = (value) => String(value || "").trim().toLowerCase().replace(/\s+/g, "_");
-      const isFieldEditable = (node, fieldName) => {
-        const normalizedField = normalizeFieldName(fieldName);
-        const editableFields = Array.isArray(node && node.editable_fields)
-          ? node.editable_fields.map(normalizeFieldName).filter(Boolean)
-          : [];
-        if (editableFields.length) return editableFields.includes(normalizedField);
-        return fallbackEditableFields.has(normalizedField) || normalizedField.startsWith("details") || normalizedField.startsWith("card");
-      };
-      const getEditedNode = (nodeId) => (editedData.nodes || []).find((n) => n.id === nodeId) || null;
-      const toggleEditControls = () => {
-        const hasSelection = selectedNodeId !== null;
-        editToggleBtn.hidden = !hasSelection;
-        exportJsonBtn.hidden = !hasEdits;
-      };
-      const setEditMode = (enabled) => {
-        editMode = Boolean(enabled && selectedNodeId !== null);
-        editToggleBtn.setAttribute("aria-pressed", String(editMode));
-        if (selectedNodeId === null) {
-          renderDetailPanel(null);
-          return;
-        }
-        if (editMode) {
-          renderDetailPanelEditable(selectedNodeId);
-        } else {
-          renderDetailPanel(selectedNodeId);
-        }
-      };
-      const collapseDetailPanel = (collapsed) => {
-        detailPanel.classList.toggle("is-collapsed", collapsed);
-        detailCollapseBtn.setAttribute("aria-expanded", String(!collapsed));
-        detailCollapseBtn.textContent = collapsed ? "Expand" : "Collapse";
-      };
-      const renderEvidence = (evidence) => {
-        const root = document.createElement("section");
-        root.className = "detail-section";
-        const heading = document.createElement("h3");
-        heading.textContent = "Evidence";
-        root.appendChild(heading);
-        const list = document.createElement("div");
-        list.className = "evidence-list";
-        evidence.forEach((item) => {
-          const details = document.createElement("details");
-          details.className = "evidence-item";
-          const summary = document.createElement("summary");
-          summary.textContent = item.content ? `${String(item.content).slice(0, 96)}${item.content.length > 96 ? "…" : ""}` : item.id;
-          const typeBadge = document.createElement("span");
-          typeBadge.className = "badge";
-          typeBadge.textContent = item.type || "evidence";
-          summary.prepend(typeBadge);
-          details.appendChild(summary);
-          const body = document.createElement("div");
-          const source = document.createElement("div");
-          source.className = "evidence-source";
-          source.textContent = `Source: ${item.source || "unknown"}`;
-          body.appendChild(source);
-          if (item.provenance) {
-            const prov = document.createElement("pre");
-            prov.className = "relationship-evidence";
-            prov.textContent = JSON.stringify(item.provenance, null, 2);
-            body.appendChild(prov);
+      if (detailPanelBackdrop) {
+        detailPanelBackdrop.addEventListener("click", () => {
+          if (window.innerWidth < 1100) deactivateDetailSlideover();
+        });
+      }
+      if (detailCollapseBtn) {
+        detailCollapseBtn.addEventListener("click", () => {
+          window.setTimeout(syncDetailPanelPresentation, 0);
+        });
+      }
+      if (detailPanel) {
+        detailPanel.addEventListener("keydown", (event) => {
+          trapFocusInsideDetailPanel(event);
+          if (window.innerWidth < 1100 && event.key === "Escape") {
+            event.preventDefault();
+            deactivateDetailSlideover();
           }
-          details.appendChild(body);
-          list.appendChild(details);
         });
-        root.appendChild(list);
-        return root;
+      }
+      window.addEventListener("resize", syncDetailPanelPresentation);
+      syncDetailPanelPresentation();
+      // Detail-panel logic delegated to window.brainDsUI.detailPanel (PR 3 extraction).
+      // renderEvidence, renderRelationships, renderDetailPanel, renderDetailPanelEditable,
+      // collapseDetailPanel, toggleEditControls, setEditMode, isFieldEditable etc. are
+      // all defined in brain_ds/ui/src/panels/detail-panel.ts and bundled in viewer.bundle.js.
+      const setEditMode = (enabled) => window.brainDsUI.detailPanel.setEditMode(enabled);
+      const showDetailSkeleton = () => {
+        if (!detailBody) return;
+        detailBody.setAttribute("data-state", "loading");
+        detailBody.innerHTML = '<div class="detail-skeleton" aria-hidden="true"><div class="detail-skeleton__line detail-skeleton__line--1"></div><div class="detail-skeleton__line detail-skeleton__line--2"></div><div class="detail-skeleton__line detail-skeleton__line--3"></div></div>';
       };
-      const renderRelationships = (relationships) => {
-        const hasIncoming = (relationships.incoming || []).length > 0;
-        const hasOutgoing = (relationships.outgoing || []).length > 0;
-        if (!hasIncoming && !hasOutgoing) return null;
-        const root = document.createElement("section");
-        root.className = "detail-section";
-        const heading = document.createElement("h3");
-        heading.textContent = "Relationship rationale";
-        root.appendChild(heading);
-        ["incoming", "outgoing"].forEach((direction) => {
-          const rows = relationships[direction] || [];
-          if (!rows.length) return;
-          const group = document.createElement("div");
-          group.className = "relationship-group";
-          const gHeading = document.createElement("h4");
-          gHeading.textContent = direction[0].toUpperCase() + direction.slice(1);
-          group.appendChild(gHeading);
-          const list = document.createElement("ul");
-          list.className = "relationship-list";
-          rows.forEach((row) => {
-            const li = document.createElement("li");
-            const name = direction === "incoming" ? row.source_label : row.target_label;
-            li.textContent = `${arrow[direction]} ${name} · ${row.edge_label}`;
-            if ((row.reasons || []).length) {
-              const reasons = document.createElement("div");
-              reasons.className = "relationship-reasons";
-              reasons.textContent = `Reasons: ${(row.reasons || []).join("; ")}`;
-              li.appendChild(reasons);
-            }
-            if ((row.evidence_ids || []).length) {
-              const evidenceIds = document.createElement("div");
-              evidenceIds.className = "relationship-evidence";
-              evidenceIds.textContent = `Evidence IDs: ${(row.evidence_ids || []).join(", ")}`;
-              li.appendChild(evidenceIds);
-            }
-            list.appendChild(li);
-          });
-          group.appendChild(list);
-          root.appendChild(group);
-        });
-        return root;
-      };
+      // renderDetailPanel — thin delegation shim to the bundle (PR 3).
       const renderDetailPanel = (nodeId) => {
-        const detail = nodeId ? editedDetailIndex[nodeId] : null;
-        if (!detail) {
-          editMode = false;
-          editToggleBtn.setAttribute("aria-pressed", "false");
-          detailPanel.classList.add("is-empty");
-          detailBody.setAttribute("data-state", "empty");
-          detailTitle.textContent = "Node details";
-          detailMeta.textContent = "Select a node to view details";
-          detailBody.textContent = "Select a node to view details";
-          toggleEditControls();
-          collapseDetailPanel(false);
-          return;
-        }
-        detailPanel.classList.remove("is-empty");
-        detailBody.setAttribute("data-state", "ready");
-        detailTitle.textContent = detail.node.label || detail.node.id;
-        detailMeta.textContent = `${detail.node.type} · ${detail.node.supertype}`;
-        detailBody.innerHTML = "";
-
-        const sections = detail.sections || [];
-        let rendered = false;
-        sections.forEach((section) => {
-          const article = document.createElement("article");
-          article.className = "detail-card";
-          article.style.borderLeftColor = section.accent_color || detail.node.color || "var(--focus)";
-          if (section.icon) {
-            const iconEl = document.createElement("span");
-            iconEl.className = "card-icon";
-            iconEl.textContent = section.icon;
-            article.appendChild(iconEl);
-          }
-          const heading = document.createElement("h3");
-          heading.textContent = section.title || "Section";
-          const content = document.createElement("p");
-          content.textContent = section.content || "";
-          article.appendChild(heading);
-          article.appendChild(content);
-          detailBody.appendChild(article);
-        });
-        if (sections.length) rendered = true;
-
-        const evidence = detail.evidence || [];
-        if (evidence.length) {
-          detailBody.appendChild(renderEvidence(evidence));
-          rendered = true;
-        }
-        const relationships = renderRelationships(detail.relationships || {});
-        if (relationships) {
-          detailBody.appendChild(relationships);
-          rendered = true;
-        }
-        if (!rendered) {
-          detailBody.textContent = "No details available";
-        }
-        toggleEditControls();
-        collapseDetailPanel(false);
-      };
-      const renderDetailPanelEditable = (nodeId) => {
-        const detail = nodeId ? editedDetailIndex[nodeId] : null;
-        const editedNode = getEditedNode(nodeId);
-        if (!detail || !editedNode) {
-          renderDetailPanel(nodeId);
-          return;
-        }
-        detailPanel.classList.remove("is-empty");
-        detailBody.setAttribute("data-state", "ready");
-        detailTitle.textContent = editedNode.label || detail.node.label || editedNode.id;
-        detailMeta.textContent = `${detail.node.type} · ${detail.node.supertype}`;
-        detailBody.innerHTML = "";
-
-        const titleWrap = document.createElement("div");
-        titleWrap.className = "detail-card";
-        const titleHeading = document.createElement("h3");
-        titleHeading.textContent = "Label";
-        titleWrap.appendChild(titleHeading);
-        if (isFieldEditable(detail.node || editedNode, "label")) {
-          const labelInput = document.createElement("input");
-          labelInput.type = "text";
-          labelInput.value = editedNode.label || "";
-          labelInput.addEventListener("input", () => {
-            editedNode.label = labelInput.value;
-            if (detail.node) detail.node.label = labelInput.value;
-            hasEdits = true;
-            toggleEditControls();
-          });
-          labelInput.addEventListener("keydown", (event) => {
-            if (event.key === "Enter") labelInput.blur();
-          });
-          titleWrap.appendChild(labelInput);
-        } else {
-          const readOnlyLabel = document.createElement("p");
-          readOnlyLabel.textContent = editedNode.label || "";
-          titleWrap.appendChild(readOnlyLabel);
-        }
-        detailBody.appendChild(titleWrap);
-
-        const sections = detail.sections || [];
-        let rendered = true;
-        sections.forEach((section, sectionIndex) => {
-          const article = document.createElement("article");
-          article.className = "detail-card";
-          article.style.borderLeftColor = section.accent_color || detail.node.color || "var(--focus)";
-          if (section.icon) {
-            const iconEl = document.createElement("span");
-            iconEl.className = "card-icon";
-            iconEl.textContent = section.icon;
-            article.appendChild(iconEl);
-          }
-          const heading = document.createElement("h3");
-          heading.textContent = section.title || "Section";
-          article.appendChild(heading);
-          const sectionField = normalizeFieldName(section.title || "details");
-          if (isFieldEditable(detail.node || editedNode, sectionField) || isFieldEditable(detail.node || editedNode, "details")) {
-            const textarea = document.createElement("textarea");
-            textarea.value = section.content || "";
-            textarea.rows = Math.max(3, Math.min(10, Math.ceil((textarea.value.length || 1) / 48)));
-            textarea.addEventListener("input", () => {
-              section.content = textarea.value;
-              if (detail.sections && detail.sections[sectionIndex]) {
-                detail.sections[sectionIndex].content = textarea.value;
-              }
-              hasEdits = true;
-              toggleEditControls();
-            });
-            article.appendChild(textarea);
-          } else {
-            const readOnlyContent = document.createElement("p");
-            readOnlyContent.textContent = section.content || "";
-            article.appendChild(readOnlyContent);
-          }
-          detailBody.appendChild(article);
-        });
-
-        const evidence = detail.evidence || [];
-        if (evidence.length) {
-          detailBody.appendChild(renderEvidence(evidence));
-        }
-        const relationships = renderRelationships(detail.relationships || {});
-        if (relationships) {
-          detailBody.appendChild(relationships);
-        }
-        if (!sections.length && !evidence.length && !relationships) {
-          rendered = false;
-        }
-        if (!rendered) {
-          detailBody.textContent = "No details available";
-        }
-        toggleEditControls();
-        collapseDetailPanel(false);
+        const changingNode = Boolean(nodeId && lastDetailNodeId && lastDetailNodeId !== nodeId);
+        if (changingNode) showDetailSkeleton();
+        const delay = changingNode && !window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 120 : 0;
+        window.setTimeout(() => {
+          window.brainDsUI.detailPanel.setSelectedNodeId(nodeId);
+          window.brainDsUI.detailPanel.renderDetailPanel(nodeId);
+          lastDetailNodeId = nodeId || null;
+        }, delay);
       };
       const twoHopNeighborhood = (rootId, adj) => {
         const oneHop = new Set(adj[rootId] || []);
@@ -561,11 +524,12 @@
         network.focus(nodeId, { scale: 1.15, animation: true });
         const twoHop = twoHopNeighborhood(nodeId, adjacency);
         _applyNeighborhoodOpacity(twoHop, nodeId, nodes, edges);
-        if (editMode) {
-          renderDetailPanelEditable(nodeId);
-        } else {
-          renderDetailPanel(nodeId);
-        }
+        // Delegate render to the mounted detail-panel module (PR 3).
+        // The module tracks edit mode internally; setSelectedNodeId + renderDetailPanel
+        // lets the module re-render in the correct mode (read/editable).
+        const dp = window.brainDsUI.detailPanel;
+        dp.setSelectedNodeId(nodeId);
+        dp.renderDetailPanel(nodeId);
       };
       // _applyNeighborhoodOpacity: extracted for reuse by Slice 3b union highlights.
       // Opacity map: selected node = 1.0, 1-hop = 1.0, 2-hop = 0.70, rest = 0.25.
@@ -782,92 +746,72 @@
       // Ensure motionEnabled is accessible to the template (re-read from renderer if needed)
       const motionEnabled = () => !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-      const searchInput = document.getElementById("node-search");
-      const searchResults = document.getElementById("search-results");
-      const allNodes = RENDER_CONTEXT.nodes || [];
-      const topMatches = (q) => {
-        if (!q) return [];
-        const query = q.toLowerCase();
-        return allNodes
-          .filter((n) => n.label.toLowerCase().includes(query) || n.id.toLowerCase().includes(query))
-          .sort((a, b) => Number(!(a.label.toLowerCase() === query)) - Number(!(b.label.toLowerCase() === query)) || a.label.localeCompare(b.label))
-          .slice(0, 10);
-      };
-      const renderResults = (items) => {
-        searchResults.innerHTML = "";
-        items.forEach((item) => {
-          const li = document.createElement("li");
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.textContent = `${item.label} (${item.type})`;
-          btn.addEventListener("click", () => { focusNode(item.id); searchResults.innerHTML = ""; });
-          li.appendChild(btn);
-          searchResults.appendChild(li);
-        });
-      };
-      searchInput.addEventListener("input", () => renderResults(topMatches(searchInput.value.trim())));
-      searchInput.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          const first = topMatches(searchInput.value.trim())[0];
-          if (first) focusNode(first.id);
-          searchResults.innerHTML = "";
-        }
-        if (event.key === "Escape") {
-          searchInput.value = "";
-          searchResults.innerHTML = "";
-          resetHighlight();
-          applyVisibility();
-        }
+      // Search panel — delegated to window.brainDsUI.search (PR 4 extraction).
+      // Search logic and input event handlers moved to panels/search.ts.
+      const searchGroupEl = document.querySelector(".search-group");
+      window.brainDsUI.search.mount(searchGroupEl, {
+        nodes: RENDER_CONTEXT.nodes || [],
+        onSelect: (nodeId) => { focusNode(nodeId); },
+        onClear: () => { resetHighlight(); applyVisibility(); },
       });
 
+      // Filter panel — delegated to window.brainDsUI.filterPanel (PR 5 extraction).
+      // Type-filter checkbox DOM construction and legend moved to panels/filter-panel.ts.
       const filtersRoot = document.getElementById("type-filters");
       const legendRoot = document.getElementById("legend");
-      const typeCheckboxes = new Map();
-      const toggleType = (typeName, enabled) => {
-        if (enabled) hiddenTypes.delete(typeName); else hiddenTypes.add(typeName);
-        if (typeCheckboxes.has(typeName)) typeCheckboxes.get(typeName).checked = enabled;
-        applyVisibility();
-      };
-      typeGroups.forEach((group) => {
-        const h = document.createElement("h3");
-        h.textContent = group.supertype;
-        filtersRoot.appendChild(h);
-        group.types.forEach((t) => {
-          const label = document.createElement("label");
-          label.className = "filter-item";
-          const cb = document.createElement("input");
-          cb.type = "checkbox";
-          cb.checked = true;
-          cb.addEventListener("change", () => toggleType(t.type, cb.checked));
-          typeCheckboxes.set(t.type, cb);
-          const chip = document.createElement("span");
-          chip.className = "chip";
-          chip.style.background = t.color;
-          label.appendChild(cb);
-          label.appendChild(chip);
-          label.appendChild(document.createTextNode(`${t.type} (${t.count})`));
-          filtersRoot.appendChild(label);
-
-          const legendItem = document.createElement("div");
-          legendItem.className = "legend-item";
-          const legendBtn = document.createElement("button");
-          legendBtn.type = "button";
-          legendBtn.innerHTML = `<span class='chip' style='background:${t.color}'></span> ${t.type}`;
-          legendBtn.addEventListener("click", () => toggleType(t.type, hiddenTypes.has(t.type)));
-          legendItem.appendChild(legendBtn);
-          legendRoot.appendChild(legendItem);
-        });
+      window.brainDsUI.filterPanel.mount({
+        typeGroups,
+        filtersRoot,
+        legendRoot,
+        showAllBtn: document.getElementById("show-all"),
+        hideAllBtn: document.getElementById("hide-all"),
+        onToggle: (typeName, enabled) => {
+          if (enabled) hiddenTypes.delete(typeName); else hiddenTypes.add(typeName);
+          applyVisibility();
+        },
+        onShowAll: () => {
+          hiddenTypes.clear();
+          window.brainDsUI.scoreFilter.setThreshold(0);
+        },
+        onHideAll: () => {
+          // hide-all types already handled via onToggle calls in filter-panel.ts
+          applyVisibility();
+        },
       });
 
-      document.getElementById("show-all").addEventListener("click", () => { hiddenTypes.clear(); applyScoreFilter(0); typeCheckboxes.forEach((cb) => { cb.checked = true; }); if (scoreSliderEl) scoreSliderEl.value = "0"; });
-      // Slice 5: Score threshold slider wiring (REQ-5.1, REQ-5.7, REQ-5.8).
-      if (scoreSliderEl) {
-        scoreSliderEl.addEventListener("input", () => {
-          applyScoreFilter(parseFloat(scoreSliderEl.value));
-        });
-      }
-      document.getElementById("hide-all").addEventListener("click", () => { typeCheckboxes.forEach((cb, typeName) => { cb.checked = false; hiddenTypes.add(typeName); }); applyVisibility(); });
+      // Score filter — delegated to window.brainDsUI.scoreFilter (PR 5 extraction).
+      // Slider 'input' event, aria-valuenow, aria-valuetext, badge update moved to
+      // interactions/score-filter.ts. Orphan removal stays in template scope.
+      window.brainDsUI.scoreFilter.mount(scoreSliderEl, scoreBadgeEl, {
+        onThresholdChange: (threshold) => {
+          scoreThreshold = threshold;
+          applyVisibility();
+          // Orphan removal (PR 3 boundary: renderSelectionPanel stays in template).
+          if (typeof network !== "undefined" && network.selectedNodeIds && network.selectedNodeIds.size > 0) {
+            const visibleEdgeEndpoints = new Set();
+            (RENDER_CONTEXT.edges || []).forEach((e) => {
+              if ((e.score === undefined) || (e.score >= scoreThreshold)) {
+                visibleEdgeEndpoints.add(e.from);
+                visibleEdgeEndpoints.add(e.to);
+              }
+            });
+            const removedFromSelection = [];
+            network.selectedNodeIds.forEach((nodeId) => {
+              if (!visibleEdgeEndpoints.has(nodeId)) {
+                removedFromSelection.push(nodeId);
+              }
+            });
+            if (removedFromSelection.length > 0) {
+              removedFromSelection.forEach((nodeId) => network.selectedNodeIds.delete(nodeId));
+              const liveRegion = document.querySelector("[aria-live='polite']");
+              if (liveRegion) {
+                liveRegion.textContent = `${removedFromSelection.length} node(s) removed from selection due to filter`;
+              }
+              renderSelectionPanel([...network.selectedNodeIds]);
+            }
+          }
+        },
+      });
 
       document.getElementById("toggle-hierarchical").addEventListener("click", (event) => {
         const pressed = event.currentTarget.getAttribute("aria-pressed") === "true";
@@ -882,36 +826,29 @@
         network.setOptions({ physics: { enabled: next } });
       });
       document.getElementById("zoom-fit").addEventListener("click", () => network.fit({ animation: true }));
-      editToggleBtn.addEventListener("click", () => setEditMode(!editMode));
-      exportJsonBtn.addEventListener("click", () => {
-        const payload = JSON.stringify(editedData, null, 2);
-        const blob = new Blob([payload], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = `graph-edited-${(meta.org || "organization").toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}.json`;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
-      });
-      detailCollapseBtn.addEventListener("click", () => collapseDetailPanel(!detailPanel.classList.contains("is-collapsed")));
+      // editToggleBtn and detailCollapseBtn wiring is now handled inside the mounted
+      // detail-panel module (PR 3). The exportJsonBtn wiring remains here because
+      // it accesses the full editedData (template-scope dependency).
+      const exportJsonBtn = document.getElementById("export-json");
+      if (exportJsonBtn) {
+        exportJsonBtn.addEventListener("click", () => {
+          const payload = JSON.stringify(editedData, null, 2);
+          const blob = new Blob([payload], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `graph-edited-${(meta.org || "organization").toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}.json`;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          URL.revokeObjectURL(url);
+        });
+      }
       detailCloseBtn.addEventListener("click", () => {
         setEditMode(false);
         resetHighlight();
         applyVisibility();
         detailCloseBtn.blur();
-      });
-      detailPanel.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          if (editMode) {
-            setEditMode(false);
-            return;
-          }
-          resetHighlight();
-          applyVisibility();
-        }
       });
       network.on("click", (params) => {
         if (params.nodes && params.nodes[0]) {
@@ -927,224 +864,57 @@
         renderSelectionPanel(selectedNodeIdList || []);
       });
 
-      // Slice 6: context menu implementation (REQ-6.1 through REQ-6.10).
-      // ---------------------------------------------------------------
       // Ad-hoc neighbor filter state (REQ-6.2 "Show only this node + neighbors").
       // Cleared by "Reset filters" (OBS-6.7).
       let adHocFilterNodeId = null;
 
       // resetFilters: clears ALL active filters — entity-type, score, and ad-hoc neighbor.
       // Called from canvas context menu "Reset filters" item (REQ-6.3 / OBS-6.7).
+      // Type checkboxes and slider DOM now managed by filterPanel + scoreFilter modules (PR 5).
       const resetFilters = () => {
         hiddenTypes.clear();
-        typeCheckboxes.forEach((cb) => { cb.checked = true; });
-        if (scoreSliderEl) scoreSliderEl.value = "0";
+        window.brainDsUI.filterPanel.setAllChecked(true);
         adHocFilterNodeId = null;
-        applyScoreFilter(0);
+        window.brainDsUI.scoreFilter.setThreshold(0);
       };
-
-      // Context menu DOM elements — one shared overlay positioned at click coords.
-      // menu role="menu" for keyboard nav (REQ-6.8); items role="menuitem" (REQ-6.8).
-      const ctxMenuEl = document.createElement("div");
-      ctxMenuEl.id = "vis-context-menu";
-      ctxMenuEl.setAttribute("role", "menu");
-      ctxMenuEl.setAttribute("aria-label", "Context menu");
-      ctxMenuEl.style.cssText = [
-        "position:fixed",
-        "z-index:2000",
-        "background:var(--surface, #132037)",
-        "border:1px solid var(--border, #2d3f5e)",
-        "border-radius:8px",
-        "padding:4px 0",
-        "min-width:200px",
-        "box-shadow:0 4px 16px rgba(0,0,0,0.4)",
-        "display:none",
-        "outline:none",
-      ].join(";");
-      document.body.appendChild(ctxMenuEl);
-
-      // Close context menu and restore focus to canvas (REQ-6.5 / REQ-6.8 / OBS-6.10).
-      const closeContextMenu = () => {
-        ctxMenuEl.style.display = "none";
-        if (typeof network !== "undefined") network.closeContextMenu();
-        network.canvas && network.canvas.focus();
-      };
-
-      // Build a single menu item element.
-      const makeMenuItem = (label, onClick, disabled = false) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.setAttribute("role", "menuitem");
-        btn.textContent = label;
-        if (disabled) {
-          btn.setAttribute("aria-disabled", "true");
-          btn.disabled = true;
-        }
-        btn.style.cssText = [
-          "display:block",
-          "width:100%",
-          "background:none",
-          "border:none",
-          "padding:10px 16px",
-          "text-align:left",
-          "cursor:" + (disabled ? "default" : "pointer"),
-          "color:var(--text, #e2e8f0)",
-          "font-size:0.92rem",
-          "min-height:44px",
-          "opacity:" + (disabled ? "0.45" : "1"),
-        ].join(";");
-        if (!disabled) {
-          btn.addEventListener("click", () => {
-            closeContextMenu();
-            onClick();
-          });
-          btn.addEventListener("mouseenter", () => { btn.style.background = "var(--surface-2, #1e3050)"; });
-          btn.addEventListener("mouseleave", () => { btn.style.background = "none"; });
-        }
-        return btn;
-      };
-
-      // Position the menu within viewport bounds (same flip logic as popovers — REQ-6.4).
-      const positionMenu = (clientX, clientY) => {
-        ctxMenuEl.style.left = "0px";
-        ctxMenuEl.style.top = "0px";
-        ctxMenuEl.style.display = "block";
-        const w = ctxMenuEl.offsetWidth || 210;
-        const h = ctxMenuEl.offsetHeight || 180;
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
-        let left = clientX;
-        let top = clientY;
-        if (left + w > vw) left = Math.max(0, clientX - w);
-        if (top + h > vh) top = Math.max(0, clientY - h);
-        ctxMenuEl.style.left = left + "px";
-        ctxMenuEl.style.top  = top  + "px";
-        // Move focus to first enabled item (REQ-6.8 / OBS-6.9).
-        const first = ctxMenuEl.querySelector("button:not([disabled])");
-        if (first) first.focus();
-      };
-
-      // Keyboard nav inside menu: arrow keys move focus, Esc closes (REQ-6.8 / OBS-6.9 / OBS-6.10).
-      ctxMenuEl.addEventListener("keydown", (event) => {
-        const items = Array.from(ctxMenuEl.querySelectorAll("button:not([disabled])"));
-        const idx = items.indexOf(document.activeElement);
-        if (event.key === "ArrowDown") {
-          event.preventDefault();
-          if (idx < items.length - 1) items[idx + 1].focus();
-        } else if (event.key === "ArrowUp") {
-          event.preventDefault();
-          if (idx > 0) items[idx - 1].focus();
-        } else if (event.key === "Escape") {
-          event.preventDefault();
-          closeContextMenu();
-        }
-      });
-
-      // Close on click outside the menu (REQ-6.5).
-      document.addEventListener("click", (event) => {
-        if (ctxMenuEl.style.display !== "none" && !ctxMenuEl.contains(event.target)) {
-          closeContextMenu();
-        }
-      }, { capture: true });
-
-      // Build and show the NODE context menu (REQ-6.2 / OBS-6.2).
-      const openNodeContextMenu = (nodeId, clientX, clientY) => {
-        ctxMenuEl.innerHTML = "";
-        const nodeData = (RENDER_CONTEXT.nodes || []).find((n) => String(n.id) === String(nodeId));
-
-        // "Focus this node" — recenters viewport on node (REQ-6.2).
-        ctxMenuEl.appendChild(makeMenuItem("Focus this node", () => {
-          focusNode(nodeId);
-        }));
-
-        // "Show only this node + neighbors" — ad-hoc 1-hop filter (REQ-6.2 / OBS-6.6).
-        ctxMenuEl.appendChild(makeMenuItem("Show only this node + neighbors", () => {
-          adHocFilterNodeId = String(nodeId);
-          const neighbors = new Set(adjacency[nodeId] || []);
-          neighbors.add(String(nodeId));
-          nodes.update((RENDER_CONTEXT.nodes || []).map((n) => ({
-            id: n.id,
-            hidden: !neighbors.has(String(n.id)),
-          })));
-          edges.update((RENDER_CONTEXT.edges || []).map((e, i) => ({
-            id: i,
-            hidden: !(neighbors.has(String(e.from)) && neighbors.has(String(e.to))),
-          })));
-        }));
-
-        // "Copy entity JSON to clipboard" — REQ-6.2.
-        ctxMenuEl.appendChild(makeMenuItem("Copy entity JSON to clipboard", () => {
-          const payload = JSON.stringify(nodeData || { id: nodeId }, null, 2);
-          navigator.clipboard.writeText(payload).then(() => {
-            const liveRegion = document.querySelector("[aria-live='polite']");
-            if (liveRegion) liveRegion.textContent = "Copied";
-          });
-        }));
-
-        // "Open detail panel" — REQ-6.2.
-        ctxMenuEl.appendChild(makeMenuItem("Open detail panel", () => {
-          focusNode(nodeId);
-        }));
-
-        positionMenu(clientX, clientY);
-      };
-
-      // Build and show the CANVAS context menu (REQ-6.3 / OBS-6.3).
-      const openCanvasContextMenu = (clientX, clientY) => {
-        ctxMenuEl.innerHTML = "";
-
-        // "Zoom to fit" — equivalent to network.fit() (REQ-6.3).
-        ctxMenuEl.appendChild(makeMenuItem("Zoom to fit", () => {
-          network.fit({ animation: true });
-        }));
-
-        // "Reset filters" — resets all active filters (REQ-6.3 / OBS-6.7).
-        ctxMenuEl.appendChild(makeMenuItem("Reset filters", () => {
+      if (emptyResetFiltersBtn) {
+        emptyResetFiltersBtn.addEventListener("click", () => {
           resetFilters();
-        }));
+        });
+      }
 
-        // "Switch layout" header — submenu (REQ-6.3).
-        const layoutLabel = document.createElement("div");
-        layoutLabel.style.cssText = "padding:6px 16px 2px;font-size:0.78rem;color:var(--text-muted,#94a3b8);text-transform:uppercase;letter-spacing:0.06em;user-select:none;";
-        layoutLabel.textContent = "Switch layout";
-        ctxMenuEl.appendChild(layoutLabel);
+      // Popover content factory — delegated to window.brainDsUI.popover (PR 6 extraction).
+      // Wires the content factory into the renderer so popover DOM is built by the module.
+      window.brainDsUI.popover.mount({ network, RENDER_CONTEXT });
 
-        // "Force" layout (physics on).
-        ctxMenuEl.appendChild(makeMenuItem("  Force", () => {
-          network.setOptions({ layout: { hierarchical: { enabled: false } }, physics: { enabled: true } });
-        }));
-
-        // "Hierarchical" layout.
-        ctxMenuEl.appendChild(makeMenuItem("  Hierarchical", () => {
-          network.setOptions({ layout: { hierarchical: { enabled: true, direction: "UD" } }, physics: { enabled: false } });
-        }));
-
-        // "Grid (placeholder)" — always disabled, aria-disabled="true" (REQ-6.3 / REQ-6.9).
-        // REQ-6.9: disabled items use aria-disabled="true", not hidden.
-        const gridItem = makeMenuItem("  Grid (placeholder)", () => {}, true);
-        gridItem.setAttribute("aria-disabled", "true");
-        ctxMenuEl.appendChild(gridItem);
-
-        // Slice 7b: theme toggle entry now available.
-        ctxMenuEl.appendChild(makeMenuItem("Toggle theme", () => {
-          toggleTheme();
-        }));
-
-        positionMenu(clientX, clientY);
-      };
-
-      // Subscribe to renderer's 'context-menu' event (REQ-6.1 / design §3 Slice 6).
-      network.on("context-menu", ({ nodeId, screen }) => {
-        if (nodeId !== null && nodeId !== undefined) {
-          openNodeContextMenu(nodeId, screen.x, screen.y);
-        } else {
-          openCanvasContextMenu(screen.x, screen.y);
-        }
+      // Context menu — delegated to window.brainDsUI.contextMenu (PR 6 extraction).
+      // Module handles DOM construction, keyboard nav, click-outside, and network event.
+      window.brainDsUI.contextMenu.mount({
+        network,
+        RENDER_CONTEXT,
+        adjacency,
+        nodes,
+        edges,
+        focusNode,
+        resetFilters,
+        toggleTheme,
       });
 
       applyVisibility();
       renderDetailPanel(null);
-      toggleEditControls();
+      loadingTimer = window.setTimeout(() => {
+        if (!firstFrameDone) setLoadingVisible(true);
+      }, 150);
+      network.once("afterDrawing", () => {
+        firstFrameDone = true;
+        if (loadingTimer) {
+          window.clearTimeout(loadingTimer);
+          loadingTimer = null;
+        }
+        dismissLoading();
+        announceLive("Graph loaded.");
+      });
+      // toggleEditControls() is now called internally by the detail-panel module.
     </script>
   </body>
 </html>

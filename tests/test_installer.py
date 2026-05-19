@@ -396,6 +396,7 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
         self.assertTrue((self.home / ".config" / "opencode" / "bin" / "brain_ds.cmd").exists())
 
+    @unittest.skipUnless(shutil.which("opencode"), "OpenCode CLI not installed")
     def test_register_path_copies_wrapper_sh(self):
         result = self.run_sh("--register-path")
         self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
