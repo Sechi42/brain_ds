@@ -39,7 +39,9 @@ export interface EvidenceItem {
 }
 
 export interface RelationshipRow {
+  source_id?: string;
   source_label?: string;
+  target_id?: string;
   target_label?: string;
   edge_label?: string;
   reasons?: string[];
@@ -56,6 +58,7 @@ export interface Section {
   content?: string;
   icon?: string;
   accent_color?: string;
+  is_gap?: boolean;
 }
 
 export interface DetailEntry {
@@ -202,29 +205,52 @@ function renderEvidence(evidence: EvidenceItem[]): Element {
 }
 
 function renderRelationships(relationships: Relationships): Element | null {
-  const hasIncoming = (relationships.incoming ?? []).length > 0;
-  const hasOutgoing = (relationships.outgoing ?? []).length > 0;
-  if (!hasIncoming && !hasOutgoing) return null;
+  const incoming = (relationships.incoming ?? []).map((row) => ({ ...row, direction: "incoming" as const }));
+  const outgoing = (relationships.outgoing ?? []).map((row) => ({ ...row, direction: "outgoing" as const }));
+  const rows = incoming.concat(outgoing);
   const root = document.createElement("section");
   root.className = "detail-section";
   root.appendChild(createSectionHeading("chevron-right", "Relationship rationale"));
-  (["incoming", "outgoing"] as const).forEach((direction) => {
-    const rows = relationships[direction] ?? [];
-    if (!rows.length) return;
+  if (!rows.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty";
+    empty.textContent = "No relationships";
+    root.appendChild(empty);
+    return root;
+  }
+  const grouped = new Map<string, Array<RelationshipRow & { direction: "incoming" | "outgoing" }>>();
+  rows.forEach((row) => {
+    const key = String(row.edge_label || "RELATED");
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key)!.push(row);
+  });
+  Array.from(grouped.keys()).sort((a, b) => a.localeCompare(b)).forEach((relationshipType) => {
+    const groupedRows = grouped.get(relationshipType) ?? [];
     const group = document.createElement("div");
     group.className = "relationship-group";
     const gHeading = document.createElement("h4");
-    gHeading.textContent = direction[0].toUpperCase() + direction.slice(1);
+    gHeading.textContent = relationshipType;
     group.appendChild(gHeading);
     const list = document.createElement("ul");
     list.className = "relationship-list";
-    rows.forEach((row) => {
+    groupedRows.forEach((row) => {
       const li = document.createElement("li");
-      const name = direction === "incoming" ? row.source_label : row.target_label;
-      const summary = document.createElement("span");
+      const name = row.direction === "incoming" ? row.source_label : row.target_label;
+      const summary = document.createElement("button");
+      summary.type = "button";
       summary.className = "detail-ellipsis";
       summary.title = `${name ?? ""} · ${row.edge_label ?? ""}`;
-      summary.textContent = `${arrow[direction]} ${name} · ${row.edge_label}`;
+      summary.textContent = `${arrow[row.direction]} ${name} · ${row.edge_label}`;
+      summary.setAttribute("data-target-id", String((row.direction === "incoming" ? row.source_id : row.target_id) ?? ""));
+      summary.addEventListener("click", () => {
+        const targetId = summary.getAttribute("data-target-id") || "";
+        if (!targetId) return;
+        // click-to-focus bridge: window.brainDsUI.network
+        const network = (window as unknown as { brainDsUI?: { network?: { focus?: (id: string, options?: unknown) => void } } }).brainDsUI?.network;
+        if (network && typeof network.focus === "function") {
+          network.focus(targetId, { animation: true });
+        }
+      });
       li.appendChild(summary);
       if ((row.reasons ?? []).length) {
         const reasons = document.createElement("div");
@@ -284,9 +310,11 @@ export function renderDetailPanel(nodeId: string | null): void {
   let rendered = false;
   sections.forEach((section) => {
     const article = document.createElement("article");
-    article.className = "detail-card";
-    (article as HTMLElement).style.borderLeftColor =
-      section.accent_color ?? detail.node.color ?? "var(--focus)";
+    article.className = section.is_gap ? "detail-card section--gap" : "detail-card";
+    (article as HTMLElement).style.setProperty(
+      "--card-accent",
+      section.accent_color ?? detail.node.color ?? ""
+    );
     if (section.icon) {
       const iconEl = document.createElement("span");
       iconEl.className = "card-icon";
@@ -296,7 +324,9 @@ export function renderDetailPanel(nodeId: string | null): void {
     const heading = document.createElement("h3");
     heading.textContent = section.title ?? "Section";
     const content = document.createElement("p");
-    content.textContent = section.content ?? "";
+    content.textContent = section.is_gap
+      ? "[Information Missing / Pending Capture]"
+      : (section.content ?? "");
     article.appendChild(heading);
     article.appendChild(content);
     _detailBody!.appendChild(article);
@@ -367,8 +397,10 @@ export function renderDetailPanelEditable(nodeId: string): void {
   sections.forEach((section, sectionIndex) => {
     const article = document.createElement("article");
     article.className = "detail-card";
-    (article as HTMLElement).style.borderLeftColor =
-      section.accent_color ?? detail.node.color ?? "var(--focus)";
+    (article as HTMLElement).style.setProperty(
+      "--card-accent",
+      section.accent_color ?? detail.node.color ?? ""
+    );
     if (section.icon) {
       const iconEl = document.createElement("span");
       iconEl.className = "card-icon";

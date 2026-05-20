@@ -602,5 +602,30 @@ class TestSlice10CanvasVisualPolishContracts(unittest.TestCase):
         self.assertIn("--entity-risk-fill", self.ts_text)
 
 
+class TestW2TreeFilterContracts(unittest.TestCase):
+    """W2 RED contracts: tree-filter methods + heuristic removal in renderer.ts."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.ts_path = SRC_DIR / "renderer.ts"
+        cls.ts_text = cls.ts_path.read_text(encoding="utf-8")
+
+    def test_renderer_exposes_setTreeFilter(self):
+        self.assertRegex(self.ts_text, r"Network\.prototype\.setTreeFilter\s*=\s*function")
+
+    def test_renderer_exposes_clearTreeFilter(self):
+        self.assertRegex(self.ts_text, r"Network\.prototype\.clearTreeFilter\s*=\s*function")
+
+    def test_renderer_state_applies_tree_filter_fields(self):
+        self.assertIn("_treeFilterRootId", self.ts_text)
+        self.assertIn("_treeFilterDescendants", self.ts_text)
+
+    def test_renderer_drops_findRootNode_heuristic(self):
+        self.assertNotIn("Network.prototype._findRootNode", self.ts_text)
+
+    def test_renderer_drops_inferParentId_heuristic(self):
+        self.assertNotIn("Network.prototype._inferParentId", self.ts_text)
+
+
 if __name__ == "__main__":
     unittest.main()

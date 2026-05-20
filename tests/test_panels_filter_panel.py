@@ -241,3 +241,19 @@ class TestFilterPanelTriangulation(unittest.TestCase):
             src,
             "filter-panel.ts must reference .color for chip background styling",
         )
+
+
+class TestW2TreeHooksInTemplate(unittest.TestCase):
+    """W2 RED contracts for tree panel and clear-filter UI wiring."""
+
+    def test_template_has_tree_mount_anchor(self):
+        src = TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn('id="tree-panel"', src, "Template must include #tree-panel anchor for W2")
+
+    def test_template_calls_tree_panel_mount(self):
+        src = TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("window.brainDsUI.tree.mount", src, "Template must delegate tree panel to module mount")
+
+    def test_template_has_tree_filter_breadcrumb(self):
+        src = TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn('id="tree-filter-chip"', src, "Template must include clearable tree-filter breadcrumb chip")

@@ -3,12 +3,14 @@ from __future__ import annotations
 from collections import defaultdict
 
 from brain_ds.ontology import Graph
+import networkx as nx
 
 from .theme import color_for_type
 
 
 def build_render_context(graph: Graph) -> dict:
     adjacency: dict[str, set[str]] = defaultdict(set)
+    component_ids = _compute_components(graph)
     nodes = []
     for node in graph.nodes:
         if not node.id:
@@ -26,6 +28,9 @@ def build_render_context(graph: Graph) -> dict:
                     "light": color_for_type(node_type, "light"),
                 },
                 "title": _node_title(node.details or {}, node.card_sections),
+                "parent_id": node.parent_id,
+                "depth": node.depth,
+                "component_id": component_ids.get(node.id),
             }
         )
 
@@ -160,7 +165,7 @@ def _build_detail_index(graph: Graph) -> tuple[dict[str, dict], dict[str, dict]]
                     "light": color_for_type(node.type.value, "light"),
                 },
             },
-            "sections": _node_sections(node.details or {}, node.card_sections),
+            "sections": _node_sections(node.details or {}, node.card_sections, node.type),
             "evidence": [
                 evidence_records[evidence_id]
                 for evidence_id in (node.evidence_ids or [])
@@ -176,20 +181,60 @@ def _build_detail_index(graph: Graph) -> tuple[dict[str, dict], dict[str, dict]]
     return detail_index, evidence_records
 
 
-def _node_sections(details: dict, card_sections: list | None) -> list[dict]:
+def _node_sections(details: dict, card_sections: list | None, entity_type) -> list[dict]:
     if card_sections is not None:
-        return [
-            {
-                "title": section.title,
-                "content": section.content,
-                "icon": section.icon,
-                "order": section.order,
-                "accent_color": None,
-                "origin": "card_sections",
-            }
-            for section in sorted(card_sections, key=lambda item: item.order)
-            if section.content
-        ]
+        expected = [title.strip().lower() for title in (entity_type.expected_sections or [])]
+        present = {section.title.strip().lower(): section for section in (card_sections or [])}
+        sections = []
+        for section in sorted(card_sections, key=lambda item: item.order):
+            if not section.content:
+                continue
+            sections.append(
+                {
+                    "title": section.title,
+                    "content": section.content,
+                    "icon": section.icon,
+                    "order": section.order,
+                    "accent_color": None,
+                    "origin": "card_sections",
+                    "is_gap": False,
+                }
+            )
+
+        order = len(sections) + 1
+        for expected_title in entity_type.expected_sections or []:
+            key = expected_title.strip().lower()
+            section = present.get(key)
+            if not section or not section.content:
+                sections.append(
+                    {
+                        "title": expected_title,
+                        "content": "",
+                        "icon": "",
+                        "order": order,
+                        "accent_color": None,
+                        "origin": "expected_gap",
+                        "is_gap": True,
+                    }
+                )
+            order += 1
+
+        for section in sorted(card_sections, key=lambda item: item.order):
+            key = section.title.strip().lower()
+            if key in expected or not section.content:
+                continue
+            sections.append(
+                {
+                    "title": section.title,
+                    "content": section.content,
+                    "icon": section.icon,
+                    "order": section.order,
+                    "accent_color": None,
+                    "origin": "card_sections",
+                    "is_gap": False,
+                }
+            )
+        return sections
 
     fallback_fields = (
         ("What", "what", 1),
@@ -209,6 +254,15 @@ def _node_sections(details: dict, card_sections: list | None) -> list[dict]:
                     "order": order,
                     "accent_color": None,
                     "origin": "details_fallback",
+                    "is_gap": False,
                 }
             )
     return sections
+
+
+def _compute_components(graph: Graph) -> dict[str, int]:
+    network = nx.Graph()
+    network.add_nodes_from(node.id for node in graph.nodes if node.id)
+    network.add_edges_from((edge.source, edge.target) for edge in graph.edges if edge.source and edge.target)
+    components = sorted(nx.connected_components(network), key=lambda component: (-len(component), min(component)))
+    return {node_id: index for index, component in enumerate(components) for node_id in component}

@@ -153,6 +153,20 @@ class TestCanvasRendererContracts(unittest.TestCase):
     def test_template_cleanup_has_no_fallback_tokens(self):
         self.assertNotIn("vis-fallback", self.template_text)
 
+    def test_w5_hover_dimming_contract_present(self):
+        self.assertRegex(self.js_text, r"_neighborIndex")
+        self.assertRegex(self.js_text, r"globalAlpha\s*=\s*0\.15")
+        self.assertRegex(self.js_text, r"hoveredNodeId\s*!==\s*null")
+
+    def test_w5_ego_edge_theme_token_contract_present(self):
+        self.assertIn("--color-ego-edge", self.template_text)
+        self.assertRegex(self.js_text, r"egoEdge")
+        self.assertRegex(self.js_text, r"#7c3aed")
+
+    def test_w5_canvas_mouseleave_clears_hover_contract_present(self):
+        self.assertRegex(self.js_text, r"addEventListener\(['\"]mouseleave['\"]")
+        self.assertRegex(self.js_text, r"hoveredNodeId\s*=\s*null")
+
 
 # ── Slice 1a contracts (REQ-1.1, REQ-1.2, REQ-1.9, REQ-1.11, REQ-1.12, REQ-1.13) ──
 

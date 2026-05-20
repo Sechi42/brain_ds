@@ -41,6 +41,14 @@ class TestEntityType(unittest.TestCase):
         self.assertEqual(EntityType.from_string("Legacy Category"), EntityType.UNKNOWN)
         self.assertEqual(EntityType.from_string(None), EntityType.UNKNOWN)
 
+    def test_expected_sections_is_list_for_each_entity(self):
+        for entity in EntityType:
+            self.assertIsInstance(entity.expected_sections, list)
+
+    def test_organization_expected_sections_contains_core_fields(self):
+        self.assertIn("Overview", EntityType.ORGANIZATION.expected_sections)
+        self.assertIn("Mission", EntityType.ORGANIZATION.expected_sections)
+
 
 class TestRelationshipType(unittest.TestCase):
     def test_relationship_labels_count_and_descriptions(self):

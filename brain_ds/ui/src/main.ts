@@ -3,6 +3,8 @@ import './renderer';
 import * as detailPanel from './panels/detail-panel';
 import * as search from './panels/search';
 import * as filterPanel from './panels/filter-panel';
+import * as tree from './panels/tree';
+import * as splitPane from './panels/split-pane';
 import * as scoreFilter from './interactions/score-filter';
 import * as contextMenu from './interactions/context-menu';
 import * as popover from './interactions/popover';
@@ -15,8 +17,11 @@ declare global {
     };
     brainDsUI?: {
       detailPanel: typeof detailPanel;
+      network?: unknown;
       search: typeof search;
       filterPanel: typeof filterPanel;
+      tree: typeof tree;
+      splitPane: typeof splitPane;
       scoreFilter: typeof scoreFilter;
       contextMenu: typeof contextMenu;
       popover: typeof popover;
@@ -30,8 +35,11 @@ declare global {
 // PR 6: contextMenu, popover added.
 window.brainDsUI = {
   detailPanel,
+  network: null,
   search,
   filterPanel,
+  tree,
+  splitPane,
   scoreFilter,
   contextMenu,
   popover,

@@ -52,6 +52,9 @@ class TestGraphContract(unittest.TestCase):
         self.assertIsNone(node.evidence_ids)
         self.assertIsNone(node.editable_fields)
         self.assertIsNone(node.layout_hint)
+        self.assertIsNone(node.parent_id)
+        self.assertEqual(node.depth, 0)
+        self.assertIsNone(node.component_id)
 
     def test_from_v1_upgrades_shape(self):
         v1 = {
@@ -68,6 +71,9 @@ class TestGraphContract(unittest.TestCase):
         self.assertEqual(len(graph.nodes), 1)
         self.assertEqual(len(graph.edges), 1)
         self.assertIsNone(graph.nodes[0].evidence_ids)
+        self.assertIsNone(graph.nodes[0].parent_id)
+        self.assertEqual(graph.nodes[0].depth, 0)
+        self.assertIsNone(graph.nodes[0].component_id)
 
     def test_to_dict_roundtrip_preserves_v2_fields_and_derives_supertype(self):
         graph = Graph(
@@ -112,6 +118,9 @@ class TestGraphContract(unittest.TestCase):
         self.assertEqual(payload["org"], "Acme")
         self.assertEqual(payload["generated_at"], "2026-05-13T23:00:00Z")
         self.assertEqual(payload["nodes"][0]["supertype"], EntityType.DEPARTMENT.supertype)
+        self.assertIn("parent_id", payload["nodes"][0])
+        self.assertIn("depth", payload["nodes"][0])
+        self.assertIn("component_id", payload["nodes"][0])
         self.assertEqual(payload["nodes"][0]["evidence_ids"], ["obs-1"])
         self.assertEqual(payload["edges"][0]["edge_id"], "edge-1")
         self.assertEqual(payload["evidence"][0]["id"], "obs-1")

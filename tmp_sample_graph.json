@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "version": 1,
+  "org": "LogiTrans Demo",
+  "nodes": [
+    {"id": "org-1", "label": "LogiTrans", "type": "Organization", "markdown": "# LogiTrans\n\nA logistics company with deep operational knowledge.\n\nKey actors include [[Operations]] and [[Fleet Manager]].\n\n- Founded 2002\n- 1,200 trucks\n- 45 depots"},
+    {"id": "dept-ops", "label": "Operations", "type": "Department", "markdown": "## Operations\n\nResponsible for fleet coordination and routing.\n\nOwns the [[Monitorist]] role and works closely with [[Fleet Manager]]."},
+    {"id": "role-monitor", "label": "Monitorist", "type": "Role", "markdown": "## Monitorist\n\nWatches the [[Live Telemetry]] data source 24/7. Escalates anomalies to [[Fleet Manager]]."},
+    {"id": "role-fleet", "label": "Fleet Manager", "type": "Role", "markdown": "## Fleet Manager\n\nOwns truck assignment heuristics. Inputs from [[Monitorist]] and outputs to [[Route Plan Heuristic]]."},
+    {"id": "data-telemetry", "label": "Live Telemetry", "type": "Data Source", "markdown": "## Live Telemetry\n\nKafka stream from on-truck GPS units. Refresh: 5s."},
+    {"id": "heur-route", "label": "Route Plan Heuristic", "type": "Heuristic", "markdown": "## Route Plan Heuristic\n\nManual rule: avoid more than 3 left turns when carrying fragile cargo. Used by [[Fleet Manager]]."},
+    {"id": "problem-fuel", "label": "Fuel Cost Spike", "type": "Problem / Improvement Area", "markdown": "## Fuel Cost Spike\n\n**Impact**: +18% YoY\n\nLinked to [[Route Plan Heuristic]] inefficiency."},
+    {"id": "kpi-otd", "label": "On-Time Delivery", "type": "KPI", "markdown": "## On-Time Delivery\n\n**Target**: 95%\n**Current**: 91.2%"},
+    {"id": "solution-ml", "label": "ML Route Optimizer", "type": "Solution", "markdown": "## ML Route Optimizer\n\nProposed replacement for [[Route Plan Heuristic]]. Uses [[Live Telemetry]] features."}
+  ],
+  "edges": [
+    {"source": "org-1", "target": "dept-ops", "type": "owns", "label": "owns"},
+    {"source": "dept-ops", "target": "role-monitor", "type": "owns", "label": "owns"},
+    {"source": "dept-ops", "target": "role-fleet", "type": "owns", "label": "owns"},
+    {"source": "role-monitor", "target": "data-telemetry", "type": "uses", "label": "uses"},
+    {"source": "role-fleet", "target": "heur-route", "type": "uses", "label": "uses"},
+    {"source": "heur-route", "target": "problem-fuel", "type": "degraded-by", "label": "degraded-by"},
+    {"source": "problem-fuel", "target": "kpi-otd", "type": "measured-by", "label": "measured-by"},
+    {"source": "solution-ml", "target": "heur-route", "type": "improves", "label": "improves"},
+    {"source": "solution-ml", "target": "data-telemetry", "type": "uses", "label": "uses"}
+  ]
+}

@@ -15,6 +15,9 @@ wheels = [
 name = "brain-ds"
 version = "0.1.0"
 source = { editable = "." }
+dependencies = [
+    { name = "networkx" },
+]
 
 [package.optional-dependencies]
 simple = [
@@ -22,7 +25,10 @@ simple = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pyvis", marker = "extra == 'simple'", specifier = ">=0.3" }]
+requires-dist = [
+    { name = "networkx", specifier = ">=3.0" },
+    { name = "pyvis", marker = "extra == 'simple'", specifier = ">=0.3" },
+]
 provides-extras = ["simple"]
 
 [[package]]

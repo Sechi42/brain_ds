@@ -6,25 +6,26 @@ from enum import Enum
 
 
 class EntityType(Enum):
-    ORGANIZATION = ("Organization", "actor", "#111827")
-    DEPARTMENT = ("Department", "actor", "#2563eb")
-    ROLE = ("Role", "actor", "#16a34a")
-    DATA_SOURCE = ("Data Source", "data", "#7c3aed")
-    HEURISTIC = ("Heuristic", "process", "#f59e0b")
-    TACIT_KNOWLEDGE = ("Tacit Knowledge", "data", "#0ea5e9")
-    PROBLEM_IMPROVEMENT_AREA = ("Problem / Improvement Area", "problem", "#dc2626")
-    PROJECT = ("Project", "process", "#4f46e5")
-    RISK = ("Risk", "risk", "#b91c1c")
-    DECISION = ("Decision", "process", "#0f766e")
-    KPI = ("KPI", "metric", "#a16207")
-    SOLUTION = ("Solution", "solution", "#059669")
-    UNKNOWN = ("Unknown", "problem", "#6b7280")
+    ORGANIZATION = ("Organization", "actor", "#111827", ("Overview", "Mission", "Members"))
+    DEPARTMENT = ("Department", "actor", "#2563eb", ("Overview", "Responsibilities"))
+    ROLE = ("Role", "actor", "#16a34a", ("Overview", "Responsibilities"))
+    DATA_SOURCE = ("Data Source", "data", "#7c3aed", ("Overview", "Owner", "Refresh Cadence"))
+    HEURISTIC = ("Heuristic", "process", "#f59e0b", ("Overview", "Inputs", "Logic"))
+    TACIT_KNOWLEDGE = ("Tacit Knowledge", "data", "#0ea5e9", ("Overview", "Context", "Capture Notes"))
+    PROBLEM_IMPROVEMENT_AREA = ("Problem / Improvement Area", "problem", "#dc2626", ("Overview", "Impact", "Current State"))
+    PROJECT = ("Project", "process", "#4f46e5", ("Overview", "Scope", "Status"))
+    RISK = ("Risk", "risk", "#b91c1c", ("Overview", "Likelihood", "Mitigation"))
+    DECISION = ("Decision", "process", "#0f766e", ("Overview", "Options", "Rationale"))
+    KPI = ("KPI", "metric", "#a16207", ("Overview", "Definition", "Target"))
+    SOLUTION = ("Solution", "solution", "#059669", ("Overview", "Approach", "Dependencies"))
+    UNKNOWN = ("Unknown", "problem", "#6b7280", ())
 
-    def __new__(cls, value: str, supertype: str, color: str):
+    def __new__(cls, value: str, supertype: str, color: str, expected_sections: tuple[str, ...] = ()):
         obj = object.__new__(cls)
         obj._value_ = value
         obj._supertype = supertype
         obj._color = color
+        obj._expected_sections = expected_sections
         return obj
 
     @property
@@ -34,6 +35,10 @@ class EntityType(Enum):
     @property
     def color(self) -> str:
         return self._color
+
+    @property
+    def expected_sections(self) -> list[str]:
+        return list(self._expected_sections)
 
     @classmethod
     def from_string(cls, value: str | None) -> "EntityType":

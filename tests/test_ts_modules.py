@@ -23,6 +23,7 @@ UI_DIR = Path(__file__).resolve().parent.parent / "brain_ds" / "ui"
 SRC_DIR = UI_DIR / "src"
 TOKENS_DIR = SRC_DIR / "tokens"
 MOTION_DIR = SRC_DIR / "motion"
+PANELS_DIR = SRC_DIR / "panels"
 
 
 class TestThemeBridgeModuleExists(unittest.TestCase):
@@ -368,3 +369,80 @@ class TestMotionTriangulation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMarkdownMiniModuleContracts(unittest.TestCase):
+    """W3 RED contracts for panels/markdown-mini.ts."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.path = PANELS_DIR / "markdown-mini.ts"
+        cls.exists = cls.path.exists()
+        cls.text = cls.path.read_text(encoding="utf-8") if cls.exists else ""
+
+    def _require(self):
+        if not self.exists:
+            self.fail(f"src/panels/markdown-mini.ts not found at {self.path}")
+
+    def test_file_exists(self):
+        self._require()
+
+    def test_exports_escapeHtml(self):
+        self._require()
+        self.assertRegex(self.text, r"export\s+function\s+escapeHtml")
+
+    def test_exports_renderMarkdown(self):
+        self._require()
+        self.assertRegex(self.text, r"export\s+function\s+renderMarkdown")
+
+    def test_escapes_angle_brackets_and_quotes(self):
+        self._require()
+        self.assertRegex(self.text, r"replace\([^\n]*<[^\n]*&lt;")
+        self.assertRegex(self.text, r"replace\([^\n]*>[^\n]*&gt;")
+        self.assertRegex(self.text, r"replace\([^\n]*\"[^\n]*&quot;")
+
+    def test_supports_headers_lists_bold(self):
+        self._require()
+        self.assertRegex(self.text, r"#{1,3}|h1|h2|h3")
+        self.assertRegex(self.text, r"<ul>|<li>|[-*]\\s+")
+        self.assertRegex(self.text, r"<strong>|\*\*")
+
+    def test_supports_wikilinks_without_network(self):
+        self._require()
+        self.assertRegex(self.text, r"\[\[([^\]]+)\]\]")
+        self.assertIn("data-node-label", self.text)
+        self.assertNotIn("fetch(", self.text)
+        self.assertNotIn("XMLHttpRequest", self.text)
+
+
+class TestSplitPaneModuleContracts(unittest.TestCase):
+    """W3 RED contracts for panels/split-pane.ts integration hooks."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.path = PANELS_DIR / "split-pane.ts"
+        cls.exists = cls.path.exists()
+        cls.text = cls.path.read_text(encoding="utf-8") if cls.exists else ""
+        cls.main_text = (SRC_DIR / "main.ts").read_text(encoding="utf-8")
+        cls.template_text = (UI_DIR / "templates" / "graph_viewer.html").read_text(encoding="utf-8")
+
+    def _require(self):
+        if not self.exists:
+            self.fail(f"src/panels/split-pane.ts not found at {self.path}")
+
+    def test_split_pane_file_exists(self):
+        self._require()
+
+    def test_split_pane_exports_mount(self):
+        self._require()
+        self.assertRegex(self.text, r"export\s+function\s+mount")
+
+    def test_main_imports_and_exposes_split_pane(self):
+        self.assertRegex(self.main_text, r"import\s+\*\s+as\s+splitPane\s+from\s+['\"]\./panels/split-pane['\"]")
+        self.assertIn("splitPane", self.main_text)
+
+    def test_template_has_show_more_and_reader_pane_hooks(self):
+        self.assertIn('id="show-more"', self.template_text)
+        self.assertIn('id="markdown-reader"', self.template_text)
+        self.assertIn('id="center-split"', self.template_text)
+        self.assertRegex(self.template_text, r"Show More")

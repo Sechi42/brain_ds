@@ -37,6 +37,9 @@ class Node:
     evidence_ids: list[str] | None = None
     editable_fields: list[str] | None = None
     layout_hint: dict | None = None
+    parent_id: str | None = None
+    depth: int = 0
+    component_id: int | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.type, EntityType):
@@ -94,6 +97,9 @@ class Graph:
                 payload["editable_fields"] = node.editable_fields
             if node.layout_hint is not None:
                 payload["layout_hint"] = node.layout_hint
+            payload["parent_id"] = node.parent_id
+            payload["depth"] = node.depth
+            payload["component_id"] = node.component_id
             return payload
 
         def serialize_edge(edge: Edge) -> dict:
@@ -151,6 +157,9 @@ class Graph:
                 evidence_ids=node.get("evidence_ids"),
                 editable_fields=node.get("editable_fields"),
                 layout_hint=node.get("layout_hint"),
+                parent_id=node.get("parent_id"),
+                depth=int(node.get("depth", 0)),
+                component_id=node.get("component_id"),
             )
             for node in data.get("nodes", [])
         ]

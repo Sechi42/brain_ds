@@ -63,6 +63,9 @@
     this.dragNodeId = null;
     this.expandedNodeIds = new Set();
     this._hierarchyReady = false;
+    this._treeFilterRootId = null;
+    this._treeFilterDescendants = null;
+    this._neighborIndex = new Map();
     this._frameCount = 0;
 
     // Slice 1a: viewport matrix (REQ-1.1)
@@ -148,6 +151,10 @@
     this.canvas.addEventListener("mousemove", this._onMouseMove.bind(this));
     this.canvas.addEventListener("mousedown", this._onMouseDown.bind(this));
     this.canvas.addEventListener("mouseup", this._onMouseUp.bind(this));
+    this.canvas.addEventListener("mouseleave", function () {
+      this.hoveredNodeId = null;
+      this._wake();
+    }.bind(this));
     this.canvas.addEventListener("keydown", this._onCanvasKeydown.bind(this));
     // Slice 1b: wheel zoom handler (REQ-1.3)
     this.canvas.addEventListener("wheel", this._onWheel.bind(this), { passive: false });
@@ -194,10 +201,25 @@
         "Solution": this._readCssVar("--entity-solution-fill", "#059669"),
         "Unknown": this._readCssVar("--entity-unknown-fill", "#6b7280")
       },
+      wccPalette: [
+        this._readCssVar("--wcc-c0", "#3b82f6"),
+        this._readCssVar("--wcc-c1", "#14b8a6"),
+        this._readCssVar("--wcc-c2", "#f59e0b"),
+        this._readCssVar("--wcc-c3", "#a855f7"),
+        this._readCssVar("--wcc-c4", "#ef4444"),
+        this._readCssVar("--wcc-c5", "#22c55e"),
+        this._readCssVar("--wcc-c6", "#06b6d4"),
+        this._readCssVar("--wcc-c7", "#eab308"),
+        this._readCssVar("--wcc-c8", "#f97316"),
+        this._readCssVar("--wcc-c9", "#10b981"),
+        this._readCssVar("--wcc-c10", "#8b5cf6"),
+        this._readCssVar("--wcc-c11", "#ec4899")
+      ],
       outlineFallbackByTheme: {
         dark: { "Organization": true, "Project": true, "Risk": true },
         light: {}
-      }
+      },
+      egoEdge: this._readCssVar("--color-ego-edge", "#7c3aed")
     };
   };
 
@@ -214,6 +236,13 @@
   };
 
   Network.prototype._resolveNodeBackground = function (node) {
+    var componentId = node && node.component_id;
+    if (componentId !== null && componentId !== undefined) {
+      var palette = this._themeTokens.wccPalette || [];
+      if (palette.length) {
+        return palette[Math.abs(Number(componentId)) % palette.length];
+      }
+    }
     var nodeType = node && (node.type || node.group);
     if (nodeType && this._themeTokens.entityFillByType && this._themeTokens.entityFillByType[nodeType]) {
       return this._themeTokens.entityFillByType[nodeType];
@@ -422,6 +451,15 @@
     var nodes = (this.data.nodes && this.data.nodes.get()) || [];
     var edges = (this.data.edges && this.data.edges.get()) || [];
     this._ensureHierarchy(nodes);
+    if (this._treeFilterRootId !== null && this._treeFilterDescendants && this._treeFilterDescendants.size > 0) {
+      var idSet = this._treeFilterDescendants;
+      nodes = nodes.filter(function (n) { return idSet.has(String(n.id)); });
+      edges = edges.filter(function (e) {
+        var fromId = String(e.from || e.source);
+        var toId = String(e.to || e.target);
+        return idSet.has(fromId) && idSet.has(toId);
+      });
+    }
     var i;
     for (i = 0; i < nodes.length; i++) {
       var n = nodes[i];
@@ -439,55 +477,78 @@
       if (from) from.degree += 1;
       if (to) to.degree += 1;
     });
+    var neighborIndex = new Map();
+    nodes.forEach(function (node) {
+      neighborIndex.set(String(node.id), new Set());
+    });
+    edges.forEach(function (e) {
+      var fromId = String(e.from || e.source);
+      var toId = String(e.to || e.target);
+      if (!neighborIndex.has(fromId)) neighborIndex.set(fromId, new Set());
+      if (!neighborIndex.has(toId)) neighborIndex.set(toId, new Set());
+      neighborIndex.get(fromId).add(toId);
+      neighborIndex.get(toId).add(fromId);
+    });
+    this._neighborIndex = neighborIndex;
     return { nodes: nodes, edges: edges };
   };
 
   Network.prototype._ensureHierarchy = function (nodes) {
     if (this._hierarchyReady) return;
-    var root = this._findRootNode(nodes);
-    if (!root) {
-      this._hierarchyReady = true;
-      return;
-    }
-    this.expandedNodeIds.add(String(root.id));
     var self = this;
     nodes.forEach(function (node) {
       var normalizedSupertype = String(node.supertype || node.type || "").toLowerCase();
       node.supertype = node.supertype || normalizedSupertype;
-      node._parentId = self._inferParentId(node, root.id);
-      if (String(node.id) === String(root.id)) {
-        node.hidden = false;
-        return;
+      node._parentId = (node.parent_id === undefined || node.parent_id === null) ? null : String(node.parent_id);
+      node.hidden = false;
+      if (node._parentId === null) {
+        self.expandedNodeIds.add(String(node.id));
       }
-      node.hidden = String(node._parentId) !== String(root.id);
     });
     this._hierarchyReady = true;
   };
 
-  Network.prototype._findRootNode = function (nodes) {
-    for (var i = 0; i < nodes.length; i++) {
-      if (nodes[i] && nodes[i].is_root) return nodes[i];
+  Network.prototype._computeDescendants = function (rootId) {
+    var root = String(rootId);
+    var nodes = (this.data.nodes && this.data.nodes.get()) || [];
+    var childrenByParent = new Map();
+    nodes.forEach(function (node) {
+      if (!node) return;
+      var parentId = (node.parent_id === undefined || node.parent_id === null) ? null : String(node.parent_id);
+      if (parentId === null) return;
+      if (!childrenByParent.has(parentId)) childrenByParent.set(parentId, []);
+      childrenByParent.get(parentId).push(String(node.id));
+    });
+    var result = new Set([root]);
+    var queue = [root];
+    var visited = new Set([root]);
+    while (queue.length > 0) {
+      var current = queue.shift();
+      var children = childrenByParent.get(current) || [];
+      children.forEach(function (childId) {
+        if (visited.has(childId)) return;
+        visited.add(childId);
+        result.add(childId);
+        queue.push(childId);
+      });
     }
-    for (var j = 0; j < nodes.length; j++) {
-      var n = nodes[j];
-      var supertype = String((n && (n.supertype || n.type)) || "").toLowerCase();
-      if (supertype.indexOf("organization") >= 0 || supertype.indexOf("org") >= 0) {
-        n.is_root = true;
-        return n;
-      }
-    }
-    return nodes.length ? nodes[0] : null;
+    return result;
   };
 
-  Network.prototype._inferParentId = function (node, rootId) {
-    if (!node) return rootId;
-    if (node.parent !== undefined && node.parent !== null) return node.parent;
-    if (node.parent_id !== undefined && node.parent_id !== null) return node.parent_id;
-    var supertype = String(node.supertype || node.type || "").toLowerCase();
-    if (supertype.indexOf("department") >= 0 || supertype.indexOf("actor") >= 0 || supertype.indexOf("data") >= 0 || supertype.indexOf("process") >= 0) {
-      return rootId;
+  Network.prototype.setTreeFilter = function (rootId) {
+    if (rootId === undefined || rootId === null) {
+      this.clearTreeFilter();
+      return;
     }
-    return rootId;
+    this._treeFilterRootId = String(rootId);
+    this._treeFilterDescendants = this._computeDescendants(rootId);
+    this._wake();
+  };
+
+  Network.prototype.clearTreeFilter = function () {
+    this._treeFilterRootId = null;
+    this._treeFilterDescendants = null;
+    this._wake();
   };
 
   // Slice 1a: reset viewport on expand/collapse (REQ-1.11)
@@ -581,8 +642,19 @@
       var from = state.nodes.find(function (n) { return String(n.id) === String(edge.from || edge.source); });
       var to = state.nodes.find(function (n) { return String(n.id) === String(edge.to || edge.target); });
       if (!from || !to) return;
+      var hoveredId = self.hoveredNodeId === null ? null : String(self.hoveredNodeId);
+      var fromId = String(edge.from || edge.source);
+      var toId = String(edge.to || edge.target);
+      var isIncident = hoveredId !== null && (fromId === hoveredId || toId === hoveredId);
+      if (hoveredId !== null && !isIncident) {
+        ctx.globalAlpha = 0.15;
+      } else {
+        ctx.globalAlpha = 1;
+      }
       ctx.beginPath();
-      ctx.strokeStyle = (edge.color && edge.color.color) || self._themeTokens.panelBorder || "#64748b";
+      ctx.strokeStyle = isIncident
+        ? (self._themeTokens.egoEdge || "#7c3aed")
+        : ((edge.color && edge.color.color) || self._themeTokens.panelBorder || "#64748b");
       ctx.lineWidth = Math.max(1, Number(edge.width || edge.value || 1));
       var edgeDash = Math.max(1, Number(self._themeTokens.edgeDash || 6));
       ctx.setLineDash([edgeDash + 2, edgeDash]);
@@ -604,6 +676,7 @@
       ctx.closePath();
       ctx.fillStyle = ctx.strokeStyle;
       ctx.fill();
+      ctx.globalAlpha = 1;
     });
     ctx.restore();
   };
@@ -634,8 +707,19 @@
     var ctx = this.ctx;
     var self = this;
     ctx.save();
+    var hoveredId = self.hoveredNodeId === null ? null : String(self.hoveredNodeId);
+    var hoveredNeighborhood = hoveredId !== null
+      ? (self._neighborIndex.get(hoveredId) || new Set())
+      : null;
     state.nodes.forEach(function (node) {
       if (node.hidden) return;
+      if (hoveredId !== null) {
+        var isNeighbor = hoveredNeighborhood && hoveredNeighborhood.has(String(node.id));
+        var keepFull = String(node.id) === hoveredId || isNeighbor;
+        ctx.globalAlpha = keepFull ? 1 : 0.15;
+      } else {
+        ctx.globalAlpha = 1;
+      }
       var degree = node.degree || 0;
       var importance = Number(node.importance || node.score || degree || 1);
       var isRoot = !!node.is_root || String(node.supertype || "").toLowerCase().indexOf("org") >= 0;
@@ -647,6 +731,14 @@
       ctx.fillStyle = self._resolveNodeBackground(node);
       ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
       ctx.fill();
+      var nodeTypeColor = self._themeTokens.entityFillByType[String(node.type || "")];
+      if (nodeTypeColor) {
+        ctx.save();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = nodeTypeColor;
+        ctx.stroke();
+        ctx.restore();
+      }
       var activeTheme = self._activeThemeName();
       var fallbackByTheme = self._themeTokens.outlineFallbackByTheme || {};
       var outlineTypes = fallbackByTheme[activeTheme] || {};
@@ -676,9 +768,10 @@
         ctx.setLineDash([]);
         ctx.restore();
       }
-      ctx.fillStyle = self._themeTokens.panelText || "#e2e8f0";
+      ctx.fillStyle = self._themeTokens.panelText || "#f5f6f7";
       ctx.font = "12px sans-serif";
       ctx.fillText(String(node.label || node.id), node.x + radius + 4, node.y + 4);
+      ctx.globalAlpha = 1;
     });
     ctx.restore();
   };
@@ -786,6 +879,10 @@
     // Slice 4: Esc also dismisses popover without clearing node focus (REQ-4.8 / OBS-4.11)
     if (event.key === "Escape") {
       event.preventDefault();
+      if (this._treeFilterRootId !== null) {
+        this.clearTreeFilter();
+        return;
+      }
       // Dismiss popover first; if popover was shown, keep focus on node (OBS-4.11)
       if (this._popoverNodeId !== null) {
         this._hideHoverPopover();

@@ -38,6 +38,14 @@
         /* radius */
         --radius-workspace: 0px;
         --radius-ui: 6px;
+        /* canvas engine bindings — renderer.ts reads these via _refreshThemeTokens */
+        --vis-panel-bg: var(--bg-panel);
+        --vis-panel-text: var(--text-bright);
+        --vis-panel-border: var(--border-strong);
+        --vis-focus-ring: var(--accent-mora);
+        --vis-popover-muted: var(--text-muted);
+        --vis-marquee-stroke: var(--accent-mora);
+        --vis-marquee-fill: var(--accent-mora-muted);
         /* node-color palette (vis-network edge/node tints) */
         --wcc-c0: #3b82f6;
         --wcc-c1: #14b8a6;
@@ -304,8 +312,8 @@
         <section>
           <h2>Layout</h2>
           <div class="control-row">
-            <button type="button" id="toggle-hierarchical" aria-pressed="true">Hierarchical</button>
-            <button type="button" id="toggle-physics" aria-pressed="false">Physics</button>
+            <button type="button" id="toggle-hierarchical" aria-pressed="false">Hierarchical</button>
+            <button type="button" id="toggle-physics" aria-pressed="true">Physics</button>
             <button type="button" id="zoom-fit">Zoom to fit</button>
             <button type="button" id="theme-toggle" class="vis-theme-toggle" aria-label="Switch to light theme">Theme</button>
           </div>
@@ -372,9 +380,9 @@
       let selectedNodeId = null;
 
       const network = new vis.Network(container, { nodes, edges }, {
-        layout: { hierarchical: { enabled: true, direction: "UD" } },
+        layout: { hierarchical: { enabled: false, direction: "UD" } },
         interaction: { hover: true, navigationButtons: true, keyboard: true },
-        physics: { enabled: false },
+        physics: { enabled: true },
         edges: {
           arrows: { to: { enabled: true, scaleFactor: 0.7 } },
           smooth: { enabled: true, type: "cubicBezier" }
