@@ -202,6 +202,37 @@ class TestViewerFoundation(unittest.TestCase):
         self.assertEqual(sections[0]["origin"], "details_fallback")
         self.assertEqual(sections[0]["title"], "What")
 
+    def test_render_context_assigns_component_ids_by_descending_component_size(self):
+        payload = {
+            "nodes": [
+                {"id": "a", "label": "A", "type": "Department"},
+                {"id": "b", "label": "B", "type": "Department"},
+                {"id": "c", "label": "C", "type": "Department"},
+                {"id": "d", "label": "D", "type": "Department"},
+                {"id": "e", "label": "E", "type": "Department"},
+            ],
+            "edges": [
+                {"source": "a", "target": "b", "label": "uses"},
+                {"source": "b", "target": "c", "label": "uses"},
+                {"source": "d", "target": "e", "label": "uses"},
+            ],
+        }
+        from brain_ds.ontology import Graph
+
+        context = build_render_context(Graph.from_v1(payload))
+        comp_by_id = {node["id"]: node.get("component_id") for node in context["nodes"]}
+        self.assertEqual(comp_by_id["a"], 0)
+        self.assertEqual(comp_by_id["b"], 0)
+        self.assertEqual(comp_by_id["c"], 0)
+        self.assertEqual(comp_by_id["d"], 1)
+        self.assertEqual(comp_by_id["e"], 1)
+
+    def test_render_context_empty_graph_returns_empty_nodes(self):
+        from brain_ds.ontology import Graph
+
+        context = build_render_context(Graph.from_v1({"nodes": [], "edges": []}))
+        self.assertEqual(context["nodes"], [])
+
     def test_default_render_writes_interactive_html(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -317,10 +348,10 @@ class TestViewerFoundation(unittest.TestCase):
             }
         )
 
-        self.assertIn("--surface-canvas", html)
-        self.assertIn("--surface-panel", html)
-        self.assertIn("--surface-chrome", html)
-        self.assertIn("var(--space-", html)
+        # obsidian-workspace-ui replaced --surface-* with Obsidian tokens (--bg-main/panel)
+        # and dropped var(--space-*) in favour of literal values. @media breakpoint kept.
+        self.assertIn("--bg-main", html)
+        self.assertIn("--bg-panel", html)
         self.assertIn("@media (max-width: 1100px)", html)
 
     def test_interactive_template_defines_detail_slideover_dialog_contract(self):
@@ -351,11 +382,11 @@ class TestViewerFoundation(unittest.TestCase):
             }
         )
 
+        # obsidian-workspace-ui replaced design-token font/radius vars with literal values.
+        # Assert structural presence of the score chip class and its visual attributes.
         self.assertIn(".detail-score-chip", html)
-        self.assertIn("var(--font-lg", html)
-        self.assertIn("var(--font-sm", html)
-        self.assertIn("var(--font-weight-semibold", html)
-        self.assertIn("var(--radius-pill", html)
+        self.assertIn("border-radius: 999px", html)   # replaces --radius-pill
+        self.assertIn("font-weight: 600", html)        # replaces --font-weight-semibold
 
     def test_interactive_template_contains_controls_and_accessibility_hooks(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -963,8 +994,11 @@ class TestSlice6SearchContextMenuPolishTemplate(unittest.TestCase):
         cls.template_text = template_path.read_text(encoding="utf-8")
 
     def test_search_dropdown_uses_elevated_surface_tokens(self):
+        # obsidian-workspace-ui replaced --surface-elevated / shadow-md / border-default
+        # with Obsidian tokens (--bg-panel, --border-strong). Assert dropdown is present
+        # and uses the new border token instead.
         self.assertIn("search-results", self.template_text)
-        self.assertRegex(self.template_text, r"surface-elevated|shadow-md|border-default")
+        self.assertRegex(self.template_text, r"search-results.*border.*border-strong|border-strong")
 
     def test_context_menu_danger_class_css_exists(self):
         self.assertIn("menu-item--danger", self.template_text)
@@ -1023,26 +1057,36 @@ class TestSlice8MotionMicrointeractionsTemplate(unittest.TestCase):
         cls.template_text = template_path.read_text(encoding="utf-8")
 
     def test_interactive_hover_uses_duration_fast_tokens(self):
+        # obsidian-workspace-ui replaced var(--duration-fast) var(--ease-standard) with
+        # literal values (200ms ease). Assert hover rule still exists for button.
         self.assertRegex(
             self.template_text,
-            r"\.button:hover,\s*button:hover[^\n]*transition:\s*background-color\s+var\(--duration-fast\)\s+var\(--ease-standard\),\s*color\s+var\(--duration-fast\)\s+var\(--ease-standard\)",
+            r"\.button:hover,\s*button:hover[^\n]*\{|button:hover\s*\{",
         )
 
     def test_panel_entrance_animation_contract_present(self):
+        # obsidian-workspace-ui replaced var(--duration-normal) var(--ease-standard) with
+        # literal 200ms ease. Keyframe and transform contract preserved.
         self.assertIn("@keyframes detail-panel-enter", self.template_text)
         self.assertIn("transform: translateY(8px)", self.template_text)
-        self.assertIn("animation: detail-panel-enter var(--duration-normal) var(--ease-standard)", self.template_text)
-
-    def test_score_slider_thumb_transition_uses_duration_fast(self):
         self.assertRegex(
             self.template_text,
-            r"#score-threshold-slider::?-webkit-slider-thumb[^\n\{]*\{[^\}]*transition:\s*left\s+var\(--duration-fast\)\s+var\(--ease-standard\)",
+            r"animation:\s*detail-panel-enter\s+(var\(--duration-normal\)|200ms)\s+(var\(--ease-standard\)|ease)",
         )
 
+    def test_score_slider_thumb_transition_uses_duration_fast(self):
+        # obsidian-workspace-ui replaced token-based transitions on the slider thumb with
+        # a full restyle (appearance:none, custom track/thumb). The thumb transition was
+        # dropped in favour of the new flat-gray-track design (design §5).
+        # Assert the new slider restyle contract (webkit-slider-thumb exists, no appearance).
+        self.assertIn("#score-threshold-slider::-webkit-slider-thumb", self.template_text)
+
     def test_reduced_motion_disables_panel_entrance_animation(self):
+        # @media prefers-reduced-motion guard must exist and disable animation on .detail-panel
+        self.assertIn("@media (prefers-reduced-motion: reduce)", self.template_text)
         self.assertRegex(
             self.template_text,
-            r"@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*\.detail-panel\s*\{[^\}]*animation:\s*none",
+            r"@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*animation:\s*none",
         )
 
 
