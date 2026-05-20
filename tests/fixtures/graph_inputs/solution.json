@@ -1,0 +1,15 @@
+{
+  "schema_version": "2.0.0",
+  "org": "Golden Solution",
+  "generated_at": "2026-05-20T10:00:00Z",
+  "nodes": [
+    {"id": "solution-1", "label": "Bot", "type": "Solution", "evidence_ids": ["ev-solution-1"]},
+    {"id": "solution-2", "label": "Team", "type": "Department"}
+  ],
+  "edges": [
+    {"source": "solution-1", "target": "solution-2", "label": "improves", "weight": 0.65}
+  ],
+  "evidence": [
+    {"id": "ev-solution-1", "type": "observation", "source": "engram", "content": "Solution evidence", "timestamp": "2026-05-13T10:15:00Z"}
+  ]
+}

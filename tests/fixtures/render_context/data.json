@@ -1,0 +1,181 @@
+{
+  "adjacency": {
+    "data-1": [
+      "data-2"
+    ],
+    "data-2": [
+      "data-1"
+    ]
+  },
+  "contract_version": "1.0.0",
+  "detail_index": {
+    "data-1": {
+      "editable_fields": [],
+      "evidence": [
+        {
+          "content": "Data evidence",
+          "id": "ev-data-1",
+          "provenance": null,
+          "source": "engram",
+          "timestamp": "2026-05-18T11:00:00Z",
+          "type": "observation"
+        }
+      ],
+      "node": {
+        "color": {
+          "background": "#7c3aed",
+          "dark": "#7c3aed",
+          "light": "#6d28d9"
+        },
+        "id": "data-1",
+        "label": "CRM",
+        "supertype": "data",
+        "type": "Data Source"
+      },
+      "relationships": {
+        "incoming": [],
+        "outgoing": [
+          {
+            "edge_label": "shared-with",
+            "evidence_ids": [],
+            "reasons": [],
+            "source_id": "data-1",
+            "source_label": "CRM",
+            "target_id": "data-2",
+            "target_label": "Tacit"
+          }
+        ]
+      },
+      "sections": []
+    },
+    "data-2": {
+      "editable_fields": [],
+      "evidence": [],
+      "node": {
+        "color": {
+          "background": "#0ea5e9",
+          "dark": "#0ea5e9",
+          "light": "#0e7490"
+        },
+        "id": "data-2",
+        "label": "Tacit",
+        "supertype": "data",
+        "type": "Tacit Knowledge"
+      },
+      "relationships": {
+        "incoming": [
+          {
+            "edge_label": "shared-with",
+            "evidence_ids": [],
+            "reasons": [],
+            "source_id": "data-1",
+            "source_label": "CRM",
+            "target_id": "data-2",
+            "target_label": "Tacit"
+          }
+        ],
+        "outgoing": []
+      },
+      "sections": []
+    }
+  },
+  "edges": [
+    {
+      "from": "data-1",
+      "label": "shared-with",
+      "score": 0.7,
+      "title": "shared-with",
+      "to": "data-2",
+      "width": 3.8
+    }
+  ],
+  "evidence_records": {
+    "ev-data-1": {
+      "content": "Data evidence",
+      "id": "ev-data-1",
+      "provenance": null,
+      "source": "engram",
+      "timestamp": "2026-05-18T11:00:00Z",
+      "type": "observation"
+    }
+  },
+  "meta": {
+    "edge_count": 1,
+    "generated_at": "2026-05-20T10:00:00Z",
+    "node_count": 2,
+    "org": "Golden Data",
+    "workspace": {
+      "displayPath": "data.json",
+      "graph": "data",
+      "project": "graph_inputs",
+      "root": "C:\\Users\\sergi\\Documents\\brain_ds\\tests\\fixtures\\graph_inputs"
+    }
+  },
+  "nodes": [
+    {
+      "color": {
+        "background": "#7c3aed",
+        "dark": "#7c3aed",
+        "light": "#6d28d9"
+      },
+      "component_id": 0,
+      "depth": 0,
+      "id": "data-1",
+      "label": "CRM",
+      "neighbor_count": 1,
+      "parent_id": null,
+      "score": 0.7,
+      "supertype": "data",
+      "title": "<b>What</b>: <br><b>Why</b>: <br><b>Where</b>: <br><b>Learned</b>: ",
+      "type": "Data Source",
+      "updated_at": "2026-05-18T11:00:00Z"
+    },
+    {
+      "color": {
+        "background": "#0ea5e9",
+        "dark": "#0ea5e9",
+        "light": "#0e7490"
+      },
+      "component_id": 0,
+      "depth": 0,
+      "id": "data-2",
+      "label": "Tacit",
+      "neighbor_count": 1,
+      "parent_id": null,
+      "score": 0.7,
+      "supertype": "data",
+      "title": "<b>What</b>: <br><b>Why</b>: <br><b>Where</b>: <br><b>Learned</b>: ",
+      "type": "Tacit Knowledge",
+      "updated_at": "2026-05-20T10:00:00Z"
+    }
+  ],
+  "type_groups": [
+    {
+      "supertype": "data",
+      "types": [
+        {
+          "color": {
+            "background": "#7c3aed",
+            "dark": "#7c3aed",
+            "light": "#6d28d9"
+          },
+          "count": 1,
+          "type": "Data Source"
+        },
+        {
+          "color": {
+            "background": "#0ea5e9",
+            "dark": "#0ea5e9",
+            "light": "#0e7490"
+          },
+          "count": 1,
+          "type": "Tacit Knowledge"
+        }
+      ]
+    }
+  ],
+  "ui_defaults": {
+    "hierarchical": true,
+    "physics": false
+  }
+}

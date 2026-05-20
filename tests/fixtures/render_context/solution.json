@@ -1,0 +1,186 @@
+{
+  "adjacency": {
+    "solution-1": [
+      "solution-2"
+    ],
+    "solution-2": [
+      "solution-1"
+    ]
+  },
+  "contract_version": "1.0.0",
+  "detail_index": {
+    "solution-1": {
+      "editable_fields": [],
+      "evidence": [
+        {
+          "content": "Solution evidence",
+          "id": "ev-solution-1",
+          "provenance": null,
+          "source": "engram",
+          "timestamp": "2026-05-13T10:15:00Z",
+          "type": "observation"
+        }
+      ],
+      "node": {
+        "color": {
+          "background": "#059669",
+          "dark": "#059669",
+          "light": "#047857"
+        },
+        "id": "solution-1",
+        "label": "Bot",
+        "supertype": "solution",
+        "type": "Solution"
+      },
+      "relationships": {
+        "incoming": [],
+        "outgoing": [
+          {
+            "edge_label": "improves",
+            "evidence_ids": [],
+            "reasons": [],
+            "source_id": "solution-1",
+            "source_label": "Bot",
+            "target_id": "solution-2",
+            "target_label": "Team"
+          }
+        ]
+      },
+      "sections": []
+    },
+    "solution-2": {
+      "editable_fields": [],
+      "evidence": [],
+      "node": {
+        "color": {
+          "background": "#2563eb",
+          "dark": "#2563eb",
+          "light": "#1d4ed8"
+        },
+        "id": "solution-2",
+        "label": "Team",
+        "supertype": "actor",
+        "type": "Department"
+      },
+      "relationships": {
+        "incoming": [
+          {
+            "edge_label": "improves",
+            "evidence_ids": [],
+            "reasons": [],
+            "source_id": "solution-1",
+            "source_label": "Bot",
+            "target_id": "solution-2",
+            "target_label": "Team"
+          }
+        ],
+        "outgoing": []
+      },
+      "sections": []
+    }
+  },
+  "edges": [
+    {
+      "from": "solution-1",
+      "label": "improves",
+      "score": 0.65,
+      "title": "improves",
+      "to": "solution-2",
+      "width": 3.6
+    }
+  ],
+  "evidence_records": {
+    "ev-solution-1": {
+      "content": "Solution evidence",
+      "id": "ev-solution-1",
+      "provenance": null,
+      "source": "engram",
+      "timestamp": "2026-05-13T10:15:00Z",
+      "type": "observation"
+    }
+  },
+  "meta": {
+    "edge_count": 1,
+    "generated_at": "2026-05-20T10:00:00Z",
+    "node_count": 2,
+    "org": "Golden Solution",
+    "workspace": {
+      "displayPath": "solution.json",
+      "graph": "solution",
+      "project": "graph_inputs",
+      "root": "C:\\Users\\sergi\\Documents\\brain_ds\\tests\\fixtures\\graph_inputs"
+    }
+  },
+  "nodes": [
+    {
+      "color": {
+        "background": "#059669",
+        "dark": "#059669",
+        "light": "#047857"
+      },
+      "component_id": 0,
+      "depth": 0,
+      "id": "solution-1",
+      "label": "Bot",
+      "neighbor_count": 1,
+      "parent_id": null,
+      "score": 0.65,
+      "supertype": "solution",
+      "title": "<b>What</b>: <br><b>Why</b>: <br><b>Where</b>: <br><b>Learned</b>: ",
+      "type": "Solution",
+      "updated_at": "2026-05-13T10:15:00Z"
+    },
+    {
+      "color": {
+        "background": "#2563eb",
+        "dark": "#2563eb",
+        "light": "#1d4ed8"
+      },
+      "component_id": 0,
+      "depth": 0,
+      "id": "solution-2",
+      "label": "Team",
+      "neighbor_count": 1,
+      "parent_id": null,
+      "score": 0.65,
+      "supertype": "actor",
+      "title": "<b>What</b>: <br><b>Why</b>: <br><b>Where</b>: <br><b>Learned</b>: ",
+      "type": "Department",
+      "updated_at": "2026-05-20T10:00:00Z"
+    }
+  ],
+  "type_groups": [
+    {
+      "supertype": "actor",
+      "types": [
+        {
+          "color": {
+            "background": "#2563eb",
+            "dark": "#2563eb",
+            "light": "#1d4ed8"
+          },
+          "count": 1,
+          "type": "Department"
+        }
+      ]
+    },
+    {
+      "supertype": "solution",
+      "types": [
+        {
+          "color": {
+            "background": "#059669",
+            "dark": "#059669",
+            "light": "#047857"
+          },
+          "count": 1,
+          "type": "Solution"
+        }
+      ]
+    }
+  ],
+  "ui_defaults": {
+    "hierarchical": true,
+    "physics": false
+  }
+}

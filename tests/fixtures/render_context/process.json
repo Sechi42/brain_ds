@@ -1,0 +1,181 @@
+{
+  "adjacency": {
+    "process-1": [
+      "process-2"
+    ],
+    "process-2": [
+      "process-1"
+    ]
+  },
+  "contract_version": "1.0.0",
+  "detail_index": {
+    "process-1": {
+      "editable_fields": [],
+      "evidence": [
+        {
+          "content": "Process evidence",
+          "id": "ev-process-1",
+          "provenance": null,
+          "source": "engram",
+          "timestamp": "2026-05-17T08:45:00Z",
+          "type": "observation"
+        }
+      ],
+      "node": {
+        "color": {
+          "background": "#4f46e5",
+          "dark": "#4f46e5",
+          "light": "#4338ca"
+        },
+        "id": "process-1",
+        "label": "Sprint",
+        "supertype": "process",
+        "type": "Project"
+      },
+      "relationships": {
+        "incoming": [],
+        "outgoing": [
+          {
+            "edge_label": "depends-on",
+            "evidence_ids": [],
+            "reasons": [],
+            "source_id": "process-1",
+            "source_label": "Sprint",
+            "target_id": "process-2",
+            "target_label": "Decision"
+          }
+        ]
+      },
+      "sections": []
+    },
+    "process-2": {
+      "editable_fields": [],
+      "evidence": [],
+      "node": {
+        "color": {
+          "background": "#0f766e",
+          "dark": "#0f766e",
+          "light": "#0f766e"
+        },
+        "id": "process-2",
+        "label": "Decision",
+        "supertype": "process",
+        "type": "Decision"
+      },
+      "relationships": {
+        "incoming": [
+          {
+            "edge_label": "depends-on",
+            "evidence_ids": [],
+            "reasons": [],
+            "source_id": "process-1",
+            "source_label": "Sprint",
+            "target_id": "process-2",
+            "target_label": "Decision"
+          }
+        ],
+        "outgoing": []
+      },
+      "sections": []
+    }
+  },
+  "edges": [
+    {
+      "from": "process-1",
+      "label": "depends-on",
+      "score": 0.6,
+      "title": "depends-on",
+      "to": "process-2",
+      "width": 3.4
+    }
+  ],
+  "evidence_records": {
+    "ev-process-1": {
+      "content": "Process evidence",
+      "id": "ev-process-1",
+      "provenance": null,
+      "source": "engram",
+      "timestamp": "2026-05-17T08:45:00Z",
+      "type": "observation"
+    }
+  },
+  "meta": {
+    "edge_count": 1,
+    "generated_at": "2026-05-20T10:00:00Z",
+    "node_count": 2,
+    "org": "Golden Process",
+    "workspace": {
+      "displayPath": "process.json",
+      "graph": "process",
+      "project": "graph_inputs",
+      "root": "C:\\Users\\sergi\\Documents\\brain_ds\\tests\\fixtures\\graph_inputs"
+    }
+  },
+  "nodes": [
+    {
+      "color": {
+        "background": "#4f46e5",
+        "dark": "#4f46e5",
+        "light": "#4338ca"
+      },
+      "component_id": 0,
+      "depth": 0,
+      "id": "process-1",
+      "label": "Sprint",
+      "neighbor_count": 1,
+      "parent_id": null,
+      "score": 0.6,
+      "supertype": "process",
+      "title": "<b>What</b>: <br><b>Why</b>: <br><b>Where</b>: <br><b>Learned</b>: ",
+      "type": "Project",
+      "updated_at": "2026-05-17T08:45:00Z"
+    },
+    {
+      "color": {
+        "background": "#0f766e",
+        "dark": "#0f766e",
+        "light": "#0f766e"
+      },
+      "component_id": 0,
+      "depth": 0,
+      "id": "process-2",
+      "label": "Decision",
+      "neighbor_count": 1,
+      "parent_id": null,
+      "score": 0.6,
+      "supertype": "process",
+      "title": "<b>What</b>: <br><b>Why</b>: <br><b>Where</b>: <br><b>Learned</b>: ",
+      "type": "Decision",
+      "updated_at": "2026-05-20T10:00:00Z"
+    }
+  ],
+  "type_groups": [
+    {
+      "supertype": "process",
+      "types": [
+        {
+          "color": {
+            "background": "#0f766e",
+            "dark": "#0f766e",
+            "light": "#0f766e"
+          },
+          "count": 1,
+          "type": "Decision"
+        },
+        {
+          "color": {
+            "background": "#4f46e5",
+            "dark": "#4f46e5",
+            "light": "#4338ca"
+          },
+          "count": 1,
+          "type": "Project"
+        }
+      ]
+    }
+  ],
+  "ui_defaults": {
+    "hierarchical": true,
+    "physics": false
+  }
+}

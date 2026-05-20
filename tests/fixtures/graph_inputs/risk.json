@@ -1,0 +1,15 @@
+{
+  "schema_version": "2.0.0",
+  "org": "Golden Risk",
+  "generated_at": "2026-05-20T10:00:00Z",
+  "nodes": [
+    {"id": "risk-1", "label": "Outage", "type": "Risk", "evidence_ids": ["ev-risk-1"]},
+    {"id": "risk-2", "label": "Mitigation", "type": "Decision"}
+  ],
+  "edges": [
+    {"source": "risk-1", "target": "risk-2", "label": "blocked-by", "weight": 0.9}
+  ],
+  "evidence": [
+    {"id": "ev-risk-1", "type": "observation", "source": "engram", "content": "Risk evidence", "timestamp": "2026-05-15T15:00:00Z"}
+  ]
+}

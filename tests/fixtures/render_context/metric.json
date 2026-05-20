@@ -1,0 +1,186 @@
+{
+  "adjacency": {
+    "metric-1": [
+      "metric-2"
+    ],
+    "metric-2": [
+      "metric-1"
+    ]
+  },
+  "contract_version": "1.0.0",
+  "detail_index": {
+    "metric-1": {
+      "editable_fields": [],
+      "evidence": [
+        {
+          "content": "Metric evidence",
+          "id": "ev-metric-1",
+          "provenance": null,
+          "source": "engram",
+          "timestamp": "2026-05-14T07:30:00Z",
+          "type": "observation"
+        }
+      ],
+      "node": {
+        "color": {
+          "background": "#a16207",
+          "dark": "#a16207",
+          "light": "#92400e"
+        },
+        "id": "metric-1",
+        "label": "NPS",
+        "supertype": "metric",
+        "type": "KPI"
+      },
+      "relationships": {
+        "incoming": [],
+        "outgoing": [
+          {
+            "edge_label": "measured-by",
+            "evidence_ids": [],
+            "reasons": [],
+            "source_id": "metric-1",
+            "source_label": "NPS",
+            "target_id": "metric-2",
+            "target_label": "Data"
+          }
+        ]
+      },
+      "sections": []
+    },
+    "metric-2": {
+      "editable_fields": [],
+      "evidence": [],
+      "node": {
+        "color": {
+          "background": "#7c3aed",
+          "dark": "#7c3aed",
+          "light": "#6d28d9"
+        },
+        "id": "metric-2",
+        "label": "Data",
+        "supertype": "data",
+        "type": "Data Source"
+      },
+      "relationships": {
+        "incoming": [
+          {
+            "edge_label": "measured-by",
+            "evidence_ids": [],
+            "reasons": [],
+            "source_id": "metric-1",
+            "source_label": "NPS",
+            "target_id": "metric-2",
+            "target_label": "Data"
+          }
+        ],
+        "outgoing": []
+      },
+      "sections": []
+    }
+  },
+  "edges": [
+    {
+      "from": "metric-1",
+      "label": "measured-by",
+      "score": 0.8,
+      "title": "measured-by",
+      "to": "metric-2",
+      "width": 4.2
+    }
+  ],
+  "evidence_records": {
+    "ev-metric-1": {
+      "content": "Metric evidence",
+      "id": "ev-metric-1",
+      "provenance": null,
+      "source": "engram",
+      "timestamp": "2026-05-14T07:30:00Z",
+      "type": "observation"
+    }
+  },
+  "meta": {
+    "edge_count": 1,
+    "generated_at": "2026-05-20T10:00:00Z",
+    "node_count": 2,
+    "org": "Golden Metric",
+    "workspace": {
+      "displayPath": "metric.json",
+      "graph": "metric",
+      "project": "graph_inputs",
+      "root": "C:\\Users\\sergi\\Documents\\brain_ds\\tests\\fixtures\\graph_inputs"
+    }
+  },
+  "nodes": [
+    {
+      "color": {
+        "background": "#a16207",
+        "dark": "#a16207",
+        "light": "#92400e"
+      },
+      "component_id": 0,
+      "depth": 0,
+      "id": "metric-1",
+      "label": "NPS",
+      "neighbor_count": 1,
+      "parent_id": null,
+      "score": 0.8,
+      "supertype": "metric",
+      "title": "<b>What</b>: <br><b>Why</b>: <br><b>Where</b>: <br><b>Learned</b>: ",
+      "type": "KPI",
+      "updated_at": "2026-05-14T07:30:00Z"
+    },
+    {
+      "color": {
+        "background": "#7c3aed",
+        "dark": "#7c3aed",
+        "light": "#6d28d9"
+      },
+      "component_id": 0,
+      "depth": 0,
+      "id": "metric-2",
+      "label": "Data",
+      "neighbor_count": 1,
+      "parent_id": null,
+      "score": 0.8,
+      "supertype": "data",
+      "title": "<b>What</b>: <br><b>Why</b>: <br><b>Where</b>: <br><b>Learned</b>: ",
+      "type": "Data Source",
+      "updated_at": "2026-05-20T10:00:00Z"
+    }
+  ],
+  "type_groups": [
+    {
+      "supertype": "data",
+      "types": [
+        {
+          "color": {
+            "background": "#7c3aed",
+            "dark": "#7c3aed",
+            "light": "#6d28d9"
+          },
+          "count": 1,
+          "type": "Data Source"
+        }
+      ]
+    },
+    {
+      "supertype": "metric",
+      "types": [
+        {
+          "color": {
+            "background": "#a16207",
+            "dark": "#a16207",
+            "light": "#92400e"
+          },
+          "count": 1,
+          "type": "KPI"
+        }
+      ]
+    }
+  ],
+  "ui_defaults": {
+    "hierarchical": true,
+    "physics": false
+  }
+}

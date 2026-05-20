@@ -11,7 +11,7 @@ from typing import Sequence
 from brain_ds.ontology import Graph
 from brain_ds.validation import ValidationError, validate_graph
 
-from .render_context import build_render_context
+from .render_context import WorkspaceContext, build_render_context
 from .simple_renderer import render_simple_html
 from .template_renderer import render_interactive_html
 
@@ -53,6 +53,7 @@ def render_graph_file(
     json_path: Path,
     *,
     output_path: Path | None = None,
+    workspace: WorkspaceContext | None = None,
     open_browser: bool = False,
     simple: bool = False,
     force: bool = False,
@@ -66,6 +67,7 @@ def render_graph_file(
     return render_graph_data(
         payload,
         output_path=final_output,
+        workspace=workspace,
         open_browser=open_browser,
         simple=simple,
         force=force,
@@ -77,6 +79,7 @@ def render_graph_data(
     graph_dict: dict,
     *,
     output_path: Path | str | None = None,
+    workspace: WorkspaceContext | None = None,
     open_browser: bool = False,
     simple: bool = False,
     force: bool = False,
@@ -102,7 +105,7 @@ def render_graph_data(
                 if tmp_path.exists():
                     tmp_path.unlink()
         else:
-            context = build_render_context(graph)
+            context = build_render_context(graph, workspace=workspace)
             html = render_interactive_html(context)
             sys.stdout.write(html)
         return "-"
@@ -118,7 +121,7 @@ def render_graph_data(
             network_cls=network_cls,
         )
 
-    context = build_render_context(graph)
+    context = build_render_context(graph, workspace=workspace)
     html = render_interactive_html(context)
     final_output.write_text(html, encoding="utf-8")
 

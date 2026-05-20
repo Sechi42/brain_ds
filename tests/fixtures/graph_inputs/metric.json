@@ -1,0 +1,15 @@
+{
+  "schema_version": "2.0.0",
+  "org": "Golden Metric",
+  "generated_at": "2026-05-20T10:00:00Z",
+  "nodes": [
+    {"id": "metric-1", "label": "NPS", "type": "KPI", "evidence_ids": ["ev-metric-1"]},
+    {"id": "metric-2", "label": "Data", "type": "Data Source"}
+  ],
+  "edges": [
+    {"source": "metric-1", "target": "metric-2", "label": "measured-by", "weight": 0.8}
+  ],
+  "evidence": [
+    {"id": "ev-metric-1", "type": "observation", "source": "engram", "content": "Metric evidence", "timestamp": "2026-05-14T07:30:00Z"}
+  ]
+}

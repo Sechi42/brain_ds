@@ -1,0 +1,15 @@
+{
+  "schema_version": "2.0.0",
+  "org": "Golden Actor",
+  "generated_at": "2026-05-20T10:00:00Z",
+  "nodes": [
+    {"id": "actor-1", "label": "Ops", "type": "Department", "evidence_ids": ["ev-actor-1"]},
+    {"id": "actor-2", "label": "Lead", "type": "Role"}
+  ],
+  "edges": [
+    {"source": "actor-1", "target": "actor-2", "label": "uses", "weight": 0.5}
+  ],
+  "evidence": [
+    {"id": "ev-actor-1", "type": "observation", "source": "engram", "content": "Actor evidence", "timestamp": "2026-05-19T09:00:00Z"}
+  ]
+}

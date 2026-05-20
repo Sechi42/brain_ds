@@ -1,0 +1,186 @@
+{
+  "adjacency": {
+    "risk-1": [
+      "risk-2"
+    ],
+    "risk-2": [
+      "risk-1"
+    ]
+  },
+  "contract_version": "1.0.0",
+  "detail_index": {
+    "risk-1": {
+      "editable_fields": [],
+      "evidence": [
+        {
+          "content": "Risk evidence",
+          "id": "ev-risk-1",
+          "provenance": null,
+          "source": "engram",
+          "timestamp": "2026-05-15T15:00:00Z",
+          "type": "observation"
+        }
+      ],
+      "node": {
+        "color": {
+          "background": "#b91c1c",
+          "dark": "#b91c1c",
+          "light": "#991b1b"
+        },
+        "id": "risk-1",
+        "label": "Outage",
+        "supertype": "risk",
+        "type": "Risk"
+      },
+      "relationships": {
+        "incoming": [],
+        "outgoing": [
+          {
+            "edge_label": "blocked-by",
+            "evidence_ids": [],
+            "reasons": [],
+            "source_id": "risk-1",
+            "source_label": "Outage",
+            "target_id": "risk-2",
+            "target_label": "Mitigation"
+          }
+        ]
+      },
+      "sections": []
+    },
+    "risk-2": {
+      "editable_fields": [],
+      "evidence": [],
+      "node": {
+        "color": {
+          "background": "#0f766e",
+          "dark": "#0f766e",
+          "light": "#0f766e"
+        },
+        "id": "risk-2",
+        "label": "Mitigation",
+        "supertype": "process",
+        "type": "Decision"
+      },
+      "relationships": {
+        "incoming": [
+          {
+            "edge_label": "blocked-by",
+            "evidence_ids": [],
+            "reasons": [],
+            "source_id": "risk-1",
+            "source_label": "Outage",
+            "target_id": "risk-2",
+            "target_label": "Mitigation"
+          }
+        ],
+        "outgoing": []
+      },
+      "sections": []
+    }
+  },
+  "edges": [
+    {
+      "from": "risk-1",
+      "label": "blocked-by",
+      "score": 0.9,
+      "title": "blocked-by",
+      "to": "risk-2",
+      "width": 4.6
+    }
+  ],
+  "evidence_records": {
+    "ev-risk-1": {
+      "content": "Risk evidence",
+      "id": "ev-risk-1",
+      "provenance": null,
+      "source": "engram",
+      "timestamp": "2026-05-15T15:00:00Z",
+      "type": "observation"
+    }
+  },
+  "meta": {
+    "edge_count": 1,
+    "generated_at": "2026-05-20T10:00:00Z",
+    "node_count": 2,
+    "org": "Golden Risk",
+    "workspace": {
+      "displayPath": "risk.json",
+      "graph": "risk",
+      "project": "graph_inputs",
+      "root": "C:\\Users\\sergi\\Documents\\brain_ds\\tests\\fixtures\\graph_inputs"
+    }
+  },
+  "nodes": [
+    {
+      "color": {
+        "background": "#b91c1c",
+        "dark": "#b91c1c",
+        "light": "#991b1b"
+      },
+      "component_id": 0,
+      "depth": 0,
+      "id": "risk-1",
+      "label": "Outage",
+      "neighbor_count": 1,
+      "parent_id": null,
+      "score": 0.9,
+      "supertype": "risk",
+      "title": "<b>What</b>: <br><b>Why</b>: <br><b>Where</b>: <br><b>Learned</b>: ",
+      "type": "Risk",
+      "updated_at": "2026-05-15T15:00:00Z"
+    },
+    {
+      "color": {
+        "background": "#0f766e",
+        "dark": "#0f766e",
+        "light": "#0f766e"
+      },
+      "component_id": 0,
+      "depth": 0,
+      "id": "risk-2",
+      "label": "Mitigation",
+      "neighbor_count": 1,
+      "parent_id": null,
+      "score": 0.9,
+      "supertype": "process",
+      "title": "<b>What</b>: <br><b>Why</b>: <br><b>Where</b>: <br><b>Learned</b>: ",
+      "type": "Decision",
+      "updated_at": "2026-05-20T10:00:00Z"
+    }
+  ],
+  "type_groups": [
+    {
+      "supertype": "process",
+      "types": [
+        {
+          "color": {
+            "background": "#0f766e",
+            "dark": "#0f766e",
+            "light": "#0f766e"
+          },
+          "count": 1,
+          "type": "Decision"
+        }
+      ]
+    },
+    {
+      "supertype": "risk",
+      "types": [
+        {
+          "color": {
+            "background": "#b91c1c",
+            "dark": "#b91c1c",
+            "light": "#991b1b"
+          },
+          "count": 1,
+          "type": "Risk"
+        }
+      ]
+    }
+  ],
+  "ui_defaults": {
+    "hierarchical": true,
+    "physics": false
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "schema_version": "2.0.0",
+  "org": "Golden Data",
+  "generated_at": "2026-05-20T10:00:00Z",
+  "nodes": [
+    {"id": "data-1", "label": "CRM", "type": "Data Source", "evidence_ids": ["ev-data-1"]},
+    {"id": "data-2", "label": "Tacit", "type": "Tacit Knowledge"}
+  ],
+  "edges": [
+    {"source": "data-1", "target": "data-2", "label": "shared-with", "weight": 0.7}
+  ],
+  "evidence": [
+    {"id": "ev-data-1", "type": "observation", "source": "engram", "content": "Data evidence", "timestamp": "2026-05-18T11:00:00Z"}
+  ]
+}

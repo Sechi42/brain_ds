@@ -1,0 +1,15 @@
+{
+  "schema_version": "2.0.0",
+  "org": "Golden Process",
+  "generated_at": "2026-05-20T10:00:00Z",
+  "nodes": [
+    {"id": "process-1", "label": "Sprint", "type": "Project", "evidence_ids": ["ev-process-1"]},
+    {"id": "process-2", "label": "Decision", "type": "Decision"}
+  ],
+  "edges": [
+    {"source": "process-1", "target": "process-2", "label": "depends-on", "weight": 0.6}
+  ],
+  "evidence": [
+    {"id": "ev-process-1", "type": "observation", "source": "engram", "content": "Process evidence", "timestamp": "2026-05-17T08:45:00Z"}
+  ]
+}

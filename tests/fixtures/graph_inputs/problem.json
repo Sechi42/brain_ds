@@ -1,0 +1,15 @@
+{
+  "schema_version": "2.0.0",
+  "org": "Golden Problem",
+  "generated_at": "2026-05-20T10:00:00Z",
+  "nodes": [
+    {"id": "problem-1", "label": "Churn", "type": "Problem / Improvement Area", "evidence_ids": ["ev-problem-1"]},
+    {"id": "problem-2", "label": "Unknown", "type": "Unknown"}
+  ],
+  "edges": [
+    {"source": "problem-1", "target": "problem-2", "label": "creates-risk", "weight": 0.4}
+  ],
+  "evidence": [
+    {"id": "ev-problem-1", "type": "observation", "source": "engram", "content": "Problem evidence", "timestamp": "2026-05-16T12:00:00Z"}
+  ]
+}

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
+import logging
+from pathlib import Path
 
 from brain_ds.ontology import Graph
 import networkx as nx
@@ -8,9 +11,38 @@ import networkx as nx
 from .theme import color_for_type
 
 
-def build_render_context(graph: Graph) -> dict:
+CONTRACT_VERSION = "1.0.0"
+
+
+@dataclass(frozen=True)
+class WorkspaceContext:
+    root: str
+    graph_path: str
+
+
+_workspace_fallback_warned = False
+
+
+def build_render_context(graph: Graph, workspace: WorkspaceContext | None = None) -> dict:
     adjacency: dict[str, set[str]] = defaultdict(set)
+    incident_edges: dict[str, list] = defaultdict(list)
     component_ids = _compute_components(graph)
+    evidence_records_map = {
+        item.id: {
+            "id": item.id,
+            "type": item.type,
+            "source": item.source,
+            "content": item.content,
+            "provenance": item.provenance,
+            "timestamp": item.timestamp,
+        }
+        for item in graph.evidence
+        if item.id
+    }
+    generated_at = graph.generated_at or ""
+    workspace_meta = _compute_workspace_meta(workspace)
+    node_evidence_ids = {node.id: (node.evidence_ids or []) for node in graph.nodes if node.id}
+
     nodes = []
     for node in graph.nodes:
         if not node.id:
@@ -40,6 +72,9 @@ def build_render_context(graph: Graph) -> dict:
             continue
         adjacency[edge.source].add(edge.target)
         adjacency[edge.target].add(edge.source)
+        incident_edges[edge.source].append(edge)
+        if edge.target != edge.source:
+            incident_edges[edge.target].append(edge)
         edges.append(
             {
                 "from": edge.source,
@@ -73,12 +108,20 @@ def build_render_context(graph: Graph) -> dict:
 
     detail_index, evidence_records = _build_detail_index(graph)
 
+    for node in nodes:
+        node_id = node["id"]
+        node["score"] = _compute_node_score(node_id, incident_edges)
+        node["updated_at"] = _compute_node_updated_at(node_evidence_ids.get(node_id, []), evidence_records_map, generated_at)
+        node["neighbor_count"] = _compute_neighbor_count(node_id, adjacency)
+
     return {
+        "contract_version": CONTRACT_VERSION,
         "meta": {
             "org": graph.org or "Organization",
             "generated_at": graph.generated_at or "",
             "node_count": len(nodes),
             "edge_count": len(edges),
+            "workspace": workspace_meta,
         },
         "nodes": nodes,
         "edges": edges,
@@ -90,6 +133,67 @@ def build_render_context(graph: Graph) -> dict:
             "hierarchical": True,
             "physics": False,
         },
+    }
+
+
+def _compute_node_score(node_id: str, incident_edges: dict[str, list]) -> float:
+    node_incident_edges = incident_edges.get(node_id, [])
+    if not node_incident_edges:
+        return 0.0
+    return max(float(edge.weight or 0.0) for edge in node_incident_edges)
+
+
+def _compute_neighbor_count(node_id: str, adjacency: dict[str, set[str]]) -> int:
+    return len(adjacency.get(node_id, set()))
+
+
+def _compute_node_updated_at(evidence_ids: list[str], evidence_records: dict[str, dict], fallback: str) -> str:
+    incident_timestamps = [
+        evidence_records[evidence_id]["timestamp"]
+        for evidence_id in evidence_ids
+        if evidence_id in evidence_records and evidence_records[evidence_id].get("timestamp")
+    ]
+    if not incident_timestamps:
+        return fallback
+    return max(incident_timestamps)
+
+
+def _compute_workspace_meta(workspace: WorkspaceContext | None) -> dict:
+    global _workspace_fallback_warned
+
+    if workspace is None:
+        if not _workspace_fallback_warned:
+            logging.warning(
+                "build_render_context: no WorkspaceContext supplied; synthesizing project='default' fallback."
+            )
+            _workspace_fallback_warned = True
+        return {
+            "root": str(Path.cwd().resolve()),
+            "displayPath": "",
+            "project": "default",
+            "graph": "(unknown)",
+        }
+
+    root = Path(workspace.root).resolve()
+    graph_path = Path(workspace.graph_path).resolve()
+
+    try:
+        rel = graph_path.relative_to(root)
+        display_path = rel.as_posix()
+    except ValueError:
+        display_path = graph_path.as_posix()
+
+    parts = display_path.split("/") if display_path else []
+    if len(parts) >= 2:
+        project = parts[0]
+    else:
+        project = root.name or "default"
+
+    return {
+        "root": str(root),
+        "displayPath": display_path,
+        "project": project,
+        "graph": graph_path.stem or "(unknown)",
     }
 
 

@@ -8,6 +8,7 @@ from typing import Sequence
 
 from brain_ds.validation import validate_graph
 
+from .render_context import WorkspaceContext
 from .viewer import render_graph_data, render_graph_file
 
 
@@ -17,6 +18,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     ui_parser = subparsers.add_parser("ui", help="Render graph JSON as interactive HTML")
     ui_parser.add_argument("graph_json", help="Path to graph JSON (or '-' to read JSON from stdin)")
+    ui_parser.add_argument("--root", help="Workspace root path used for contract metadata")
     ui_parser.add_argument("--output", help="Output HTML path (optional, or '-' for stdout)")
     ui_parser.add_argument("--open", action="store_true", dest="open_browser", help="Open HTML after generation")
     ui_parser.add_argument(
@@ -41,7 +43,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _run_ui(graph_json: str, *, output: str | None, open_browser: bool, simple: bool, force: bool) -> int:
+def _run_ui(graph_json: str, *, output: str | None, root: str | None, open_browser: bool, simple: bool, force: bool) -> int:
     if open_browser and output == "-":
         print("Error: cannot use --open with --output -", file=sys.stderr)
         return 2
@@ -62,9 +64,13 @@ def _run_ui(graph_json: str, *, output: str | None, open_browser: bool, simple: 
             return 2
 
         try:
+            graph_path = Path.cwd() / "(stdin)"
+            root_resolved = Path(root).resolve() if root else Path.cwd().resolve()
+            workspace = WorkspaceContext(root=str(root_resolved), graph_path=str(graph_path.resolve()))
             output_path = render_graph_data(
                 graph_dict,
                 output_path=output,
+                workspace=workspace,
                 open_browser=open_browser,
                 simple=simple,
                 force=force,
@@ -89,9 +95,12 @@ def _run_ui(graph_json: str, *, output: str | None, open_browser: bool, simple: 
 
     output_path = Path(output).resolve() if output else None
     try:
+        root_resolved = Path(root).resolve() if root else Path.cwd().resolve()
+        workspace = WorkspaceContext(root=str(root_resolved), graph_path=str(json_path.resolve()))
         output_path = render_graph_file(
             json_path,
             output_path=output_path,
+            workspace=workspace,
             open_browser=open_browser,
             simple=simple,
             force=force,
@@ -151,6 +160,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_ui(
             args.graph_json,
             output=args.output,
+            root=args.root,
             open_browser=args.open_browser,
             simple=args.simple,
             force=args.force,

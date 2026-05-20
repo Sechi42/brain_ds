@@ -42,13 +42,13 @@ class TestCli(unittest.TestCase):
                 code = cli.main(["ui", str(graph_path), "--output", str(output_path)])
 
             self.assertEqual(code, 0)
-            render_mock.assert_called_once_with(
-                graph_path.resolve(),
-                output_path=output_path.resolve(),
-                open_browser=False,
-                simple=False,
-                force=False,
-            )
+            render_mock.assert_called_once()
+            self.assertEqual(render_mock.call_args.args[0], graph_path.resolve())
+            self.assertEqual(render_mock.call_args.kwargs["output_path"], output_path.resolve())
+            self.assertEqual(render_mock.call_args.kwargs["open_browser"], False)
+            self.assertEqual(render_mock.call_args.kwargs["simple"], False)
+            self.assertEqual(render_mock.call_args.kwargs["force"], False)
+            self.assertEqual(render_mock.call_args.kwargs["workspace"].graph_path, str(graph_path.resolve()))
 
     def test_open_flag_success(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -98,13 +98,13 @@ class TestCli(unittest.TestCase):
                 code = cli.main(["ui", str(graph_path), "--simple"])
 
             self.assertEqual(code, 0)
-            render_mock.assert_called_once_with(
-                graph_path.resolve(),
-                output_path=None,
-                open_browser=False,
-                simple=True,
-                force=False,
-            )
+            render_mock.assert_called_once()
+            self.assertEqual(render_mock.call_args.args[0], graph_path.resolve())
+            self.assertEqual(render_mock.call_args.kwargs["output_path"], None)
+            self.assertEqual(render_mock.call_args.kwargs["open_browser"], False)
+            self.assertEqual(render_mock.call_args.kwargs["simple"], True)
+            self.assertEqual(render_mock.call_args.kwargs["force"], False)
+            self.assertEqual(render_mock.call_args.kwargs["workspace"].graph_path, str(graph_path.resolve()))
 
     def test_default_mode_routes_to_interactive_renderer(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -130,13 +130,13 @@ class TestCli(unittest.TestCase):
                 code = cli.main(["ui", str(graph_path), "--simple", "--open"])
 
             self.assertEqual(code, 0)
-            render_mock.assert_called_once_with(
-                graph_path.resolve(),
-                output_path=None,
-                open_browser=True,
-                simple=True,
-                force=False,
-            )
+            render_mock.assert_called_once()
+            self.assertEqual(render_mock.call_args.args[0], graph_path.resolve())
+            self.assertEqual(render_mock.call_args.kwargs["output_path"], None)
+            self.assertEqual(render_mock.call_args.kwargs["open_browser"], True)
+            self.assertEqual(render_mock.call_args.kwargs["simple"], True)
+            self.assertEqual(render_mock.call_args.kwargs["force"], False)
+            self.assertEqual(render_mock.call_args.kwargs["workspace"].graph_path, str(graph_path.resolve()))
 
     def test_force_flag_passed_to_renderer_for_file_input(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -149,13 +149,13 @@ class TestCli(unittest.TestCase):
                 code = cli.main(["ui", str(graph_path), "--force"])
 
             self.assertEqual(code, 0)
-            render_mock.assert_called_once_with(
-                graph_path.resolve(),
-                output_path=None,
-                open_browser=False,
-                simple=False,
-                force=True,
-            )
+            render_mock.assert_called_once()
+            self.assertEqual(render_mock.call_args.args[0], graph_path.resolve())
+            self.assertEqual(render_mock.call_args.kwargs["output_path"], None)
+            self.assertEqual(render_mock.call_args.kwargs["open_browser"], False)
+            self.assertEqual(render_mock.call_args.kwargs["simple"], False)
+            self.assertEqual(render_mock.call_args.kwargs["force"], True)
+            self.assertEqual(render_mock.call_args.kwargs["workspace"].graph_path, str(graph_path.resolve()))
 
     def test_ui_force_validation_error_returns_1(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -201,6 +201,21 @@ class TestCli(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertEqual(render_mock.call_args.kwargs["force"], True)
+
+    def test_ui_root_flag_is_forwarded_into_workspace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            graph_path = tmp_path / "graph.json"
+            graph_path.write_text(json.dumps({"nodes": [], "edges": []}), encoding="utf-8")
+            output_path = tmp_path / "viewer.html"
+            root_path = tmp_path / "workspace-root"
+            root_path.mkdir(parents=True)
+
+            with patch("brain_ds.ui.cli.render_graph_file", return_value=output_path) as render_mock:
+                code = cli.main(["ui", str(graph_path), "--root", str(root_path)])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(render_mock.call_args.kwargs["workspace"].root, str(root_path.resolve()))
 
     def test_ui_dash_output_dash_writes_html_to_stdout(self):
         stdin = io.StringIO('{"org":"PipeOrg","nodes":[],"edges":[]}')

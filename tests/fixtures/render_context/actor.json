@@ -1,0 +1,181 @@
+{
+  "adjacency": {
+    "actor-1": [
+      "actor-2"
+    ],
+    "actor-2": [
+      "actor-1"
+    ]
+  },
+  "contract_version": "1.0.0",
+  "detail_index": {
+    "actor-1": {
+      "editable_fields": [],
+      "evidence": [
+        {
+          "content": "Actor evidence",
+          "id": "ev-actor-1",
+          "provenance": null,
+          "source": "engram",
+          "timestamp": "2026-05-19T09:00:00Z",
+          "type": "observation"
+        }
+      ],
+      "node": {
+        "color": {
+          "background": "#2563eb",
+          "dark": "#2563eb",
+          "light": "#1d4ed8"
+        },
+        "id": "actor-1",
+        "label": "Ops",
+        "supertype": "actor",
+        "type": "Department"
+      },
+      "relationships": {
+        "incoming": [],
+        "outgoing": [
+          {
+            "edge_label": "uses",
+            "evidence_ids": [],
+            "reasons": [],
+            "source_id": "actor-1",
+            "source_label": "Ops",
+            "target_id": "actor-2",
+            "target_label": "Lead"
+          }
+        ]
+      },
+      "sections": []
+    },
+    "actor-2": {
+      "editable_fields": [],
+      "evidence": [],
+      "node": {
+        "color": {
+          "background": "#16a34a",
+          "dark": "#16a34a",
+          "light": "#166534"
+        },
+        "id": "actor-2",
+        "label": "Lead",
+        "supertype": "actor",
+        "type": "Role"
+      },
+      "relationships": {
+        "incoming": [
+          {
+            "edge_label": "uses",
+            "evidence_ids": [],
+            "reasons": [],
+            "source_id": "actor-1",
+            "source_label": "Ops",
+            "target_id": "actor-2",
+            "target_label": "Lead"
+          }
+        ],
+        "outgoing": []
+      },
+      "sections": []
+    }
+  },
+  "edges": [
+    {
+      "from": "actor-1",
+      "label": "uses",
+      "score": 0.5,
+      "title": "uses",
+      "to": "actor-2",
+      "width": 3.0
+    }
+  ],
+  "evidence_records": {
+    "ev-actor-1": {
+      "content": "Actor evidence",
+      "id": "ev-actor-1",
+      "provenance": null,
+      "source": "engram",
+      "timestamp": "2026-05-19T09:00:00Z",
+      "type": "observation"
+    }
+  },
+  "meta": {
+    "edge_count": 1,
+    "generated_at": "2026-05-20T10:00:00Z",
+    "node_count": 2,
+    "org": "Golden Actor",
+    "workspace": {
+      "displayPath": "actor.json",
+      "graph": "actor",
+      "project": "graph_inputs",
+      "root": "C:\\Users\\sergi\\Documents\\brain_ds\\tests\\fixtures\\graph_inputs"
+    }
+  },
+  "nodes": [
+    {
+      "color": {
+        "background": "#2563eb",
+        "dark": "#2563eb",
+        "light": "#1d4ed8"
+      },
+      "component_id": 0,
+      "depth": 0,
+      "id": "actor-1",
+      "label": "Ops",
+      "neighbor_count": 1,
+      "parent_id": null,
+      "score": 0.5,
+      "supertype": "actor",
+      "title": "<b>What</b>: <br><b>Why</b>: <br><b>Where</b>: <br><b>Learned</b>: ",
+      "type": "Department",
+      "updated_at": "2026-05-19T09:00:00Z"
+    },
+    {
+      "color": {
+        "background": "#16a34a",
+        "dark": "#16a34a",
+        "light": "#166534"
+      },
+      "component_id": 0,
+      "depth": 0,
+      "id": "actor-2",
+      "label": "Lead",
+      "neighbor_count": 1,
+      "parent_id": null,
+      "score": 0.5,
+      "supertype": "actor",
+      "title": "<b>What</b>: <br><b>Why</b>: <br><b>Where</b>: <br><b>Learned</b>: ",
+      "type": "Role",
+      "updated_at": "2026-05-20T10:00:00Z"
+    }
+  ],
+  "type_groups": [
+    {
+      "supertype": "actor",
+      "types": [
+        {
+          "color": {
+            "background": "#2563eb",
+            "dark": "#2563eb",
+            "light": "#1d4ed8"
+          },
+          "count": 1,
+          "type": "Department"
+        },
+        {
+          "color": {
+            "background": "#16a34a",
+            "dark": "#16a34a",
+            "light": "#166534"
+          },
+          "count": 1,
+          "type": "Role"
+        }
+      ]
+    }
+  ],
+  "ui_defaults": {
+    "hierarchical": true,
+    "physics": false
+  }
+}

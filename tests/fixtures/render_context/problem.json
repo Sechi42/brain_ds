@@ -1,0 +1,181 @@
+{
+  "adjacency": {
+    "problem-1": [
+      "problem-2"
+    ],
+    "problem-2": [
+      "problem-1"
+    ]
+  },
+  "contract_version": "1.0.0",
+  "detail_index": {
+    "problem-1": {
+      "editable_fields": [],
+      "evidence": [
+        {
+          "content": "Problem evidence",
+          "id": "ev-problem-1",
+          "provenance": null,
+          "source": "engram",
+          "timestamp": "2026-05-16T12:00:00Z",
+          "type": "observation"
+        }
+      ],
+      "node": {
+        "color": {
+          "background": "#dc2626",
+          "dark": "#dc2626",
+          "light": "#b91c1c"
+        },
+        "id": "problem-1",
+        "label": "Churn",
+        "supertype": "problem",
+        "type": "Problem / Improvement Area"
+      },
+      "relationships": {
+        "incoming": [],
+        "outgoing": [
+          {
+            "edge_label": "creates-risk",
+            "evidence_ids": [],
+            "reasons": [],
+            "source_id": "problem-1",
+            "source_label": "Churn",
+            "target_id": "problem-2",
+            "target_label": "Unknown"
+          }
+        ]
+      },
+      "sections": []
+    },
+    "problem-2": {
+      "editable_fields": [],
+      "evidence": [],
+      "node": {
+        "color": {
+          "background": "#6b7280",
+          "dark": "#6b7280",
+          "light": "#475569"
+        },
+        "id": "problem-2",
+        "label": "Unknown",
+        "supertype": "problem",
+        "type": "Unknown"
+      },
+      "relationships": {
+        "incoming": [
+          {
+            "edge_label": "creates-risk",
+            "evidence_ids": [],
+            "reasons": [],
+            "source_id": "problem-1",
+            "source_label": "Churn",
+            "target_id": "problem-2",
+            "target_label": "Unknown"
+          }
+        ],
+        "outgoing": []
+      },
+      "sections": []
+    }
+  },
+  "edges": [
+    {
+      "from": "problem-1",
+      "label": "creates-risk",
+      "score": 0.4,
+      "title": "creates-risk",
+      "to": "problem-2",
+      "width": 2.6
+    }
+  ],
+  "evidence_records": {
+    "ev-problem-1": {
+      "content": "Problem evidence",
+      "id": "ev-problem-1",
+      "provenance": null,
+      "source": "engram",
+      "timestamp": "2026-05-16T12:00:00Z",
+      "type": "observation"
+    }
+  },
+  "meta": {
+    "edge_count": 1,
+    "generated_at": "2026-05-20T10:00:00Z",
+    "node_count": 2,
+    "org": "Golden Problem",
+    "workspace": {
+      "displayPath": "problem.json",
+      "graph": "problem",
+      "project": "graph_inputs",
+      "root": "C:\\Users\\sergi\\Documents\\brain_ds\\tests\\fixtures\\graph_inputs"
+    }
+  },
+  "nodes": [
+    {
+      "color": {
+        "background": "#dc2626",
+        "dark": "#dc2626",
+        "light": "#b91c1c"
+      },
+      "component_id": 0,
+      "depth": 0,
+      "id": "problem-1",
+      "label": "Churn",
+      "neighbor_count": 1,
+      "parent_id": null,
+      "score": 0.4,
+      "supertype": "problem",
+      "title": "<b>What</b>: <br><b>Why</b>: <br><b>Where</b>: <br><b>Learned</b>: ",
+      "type": "Problem / Improvement Area",
+      "updated_at": "2026-05-16T12:00:00Z"
+    },
+    {
+      "color": {
+        "background": "#6b7280",
+        "dark": "#6b7280",
+        "light": "#475569"
+      },
+      "component_id": 0,
+      "depth": 0,
+      "id": "problem-2",
+      "label": "Unknown",
+      "neighbor_count": 1,
+      "parent_id": null,
+      "score": 0.4,
+      "supertype": "problem",
+      "title": "<b>What</b>: <br><b>Why</b>: <br><b>Where</b>: <br><b>Learned</b>: ",
+      "type": "Unknown",
+      "updated_at": "2026-05-20T10:00:00Z"
+    }
+  ],
+  "type_groups": [
+    {
+      "supertype": "problem",
+      "types": [
+        {
+          "color": {
+            "background": "#dc2626",
+            "dark": "#dc2626",
+            "light": "#b91c1c"
+          },
+          "count": 1,
+          "type": "Problem / Improvement Area"
+        },
+        {
+          "color": {
+            "background": "#6b7280",
+            "dark": "#6b7280",
+            "light": "#475569"
+          },
+          "count": 1,
+          "type": "Unknown"
+        }
+      ]
+    }
+  ],
+  "ui_defaults": {
+    "hierarchical": true,
+    "physics": false
+  }
+}
