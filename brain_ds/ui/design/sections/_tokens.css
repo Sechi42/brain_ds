@@ -1,0 +1,55 @@
+/*
+ * SOURCE OF TRUTH: brain_ds/ui/theme.py THEME_TOKENS
+ *                  brain_ds/ui/templates/graph_viewer.html :root{}
+ * This file is a COPY for the static design references. Keep in sync manually
+ * until a build step extracts it. Last sync: 2026-05-20.
+ */
+
+/* === Tokens === */
+:root {
+  color-scheme: dark;
+  /* surfaces */
+  --bg-main: #161616;
+  --bg-panel: #1e1e1e;
+  --bg-panel-hover: #2a2a2a;
+  --bg-active: #363636;
+  /* borders */
+  --border-subtle: rgba(255,255,255,0.06);
+  --border-strong: rgba(255,255,255,0.12);
+  /* accent — WCAG AA override: #a78bfa (~6.66:1 on #161616) */
+  --accent-mora: #a78bfa;
+  --accent-mora-muted: rgba(167,139,250,0.15);
+  /* typography */
+  --text-normal: #dcddde;
+  --text-bright: #f5f6f7;
+  --text-muted: #848484;
+  /* radius */
+  --radius-workspace: 0px;
+  --radius-ui: 6px;
+  /* canvas engine bindings — renderer.ts reads these via _refreshThemeTokens */
+  --vis-panel-bg: var(--bg-panel);
+  --vis-panel-text: var(--text-bright);
+  --vis-panel-border: var(--border-strong);
+  --vis-focus-ring: var(--accent-mora);
+  --vis-popover-muted: var(--text-muted);
+  --vis-marquee-stroke: var(--accent-mora);
+  --vis-marquee-fill: var(--accent-mora-muted);
+  /* node-color palette (vis-network edge/node tints) */
+  --wcc-c0: #3b82f6;
+  --wcc-c1: #14b8a6;
+  --wcc-c2: #f59e0b;
+  --wcc-c3: #a855f7;
+  --wcc-c4: #ef4444;
+  --wcc-c5: #22c55e;
+  --wcc-c6: #06b6d4;
+  --wcc-c7: #eab308;
+  --wcc-c8: #f97316;
+  --wcc-c9: #10b981;
+  --wcc-c10: #8b5cf6;
+  --wcc-c11: #ec4899;
+  --color-ego-edge: #a78bfa;
+}
+
+/* light overrides — populate from graph_viewer.html when theme.py exposes them */
+[data-theme='light'] {
+}

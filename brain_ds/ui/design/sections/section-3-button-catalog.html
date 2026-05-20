@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Section 3 — Button / Icon Catalog (Design Reference)</title>
+  <link rel="stylesheet" href="_tokens.css" />
+  <link rel="stylesheet" href="_shared.css" />
+  <style>
+    html, body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg-main);
+      color: var(--text-normal);
+      font-family: Aptos, "Segoe UI Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .catalog-page {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 1rem;
+    }
+
+    .catalog-title {
+      margin: 0 0 0.75rem;
+      font-size: 1rem;
+      color: var(--text-bright);
+      font-weight: 650;
+    }
+
+    .catalog-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-panel);
+    }
+
+    .catalog-table th,
+    .catalog-table td {
+      border-bottom: 1px solid var(--border-subtle);
+      padding: 0.45rem 0.5rem;
+      vertical-align: middle;
+      text-align: left;
+    }
+
+    .catalog-table th {
+      color: var(--text-bright);
+      font-size: 0.76rem;
+      font-weight: 650;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      background: var(--bg-main);
+    }
+
+    .state-grid {
+      display: inline-flex;
+      gap: 0.25rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .catalog-btn {
+      width: 44px;
+      height: 44px;
+      border: 1px solid transparent;
+      border-radius: var(--radius-ui);
+      background: transparent;
+      color: var(--text-muted);
+      display: grid;
+      place-items: center;
+      padding: 0;
+      position: relative;
+    }
+
+    .catalog-btn svg { width: 18px; height: 18px; }
+
+    .catalog-btn[data-state="hover"] {
+      background: var(--bg-panel-hover);
+      color: var(--text-normal);
+    }
+
+    .catalog-btn[data-state="active"] {
+      background: var(--bg-active);
+      color: var(--accent-mora);
+    }
+
+    .catalog-btn[data-state="focus"] {
+      outline: 2px solid var(--accent-mora);
+      outline-offset: 2px;
+      color: var(--text-normal);
+    }
+
+    .catalog-btn[data-state="disabled"] {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .chip {
+      min-width: 44px;
+      height: 44px;
+      border-radius: var(--radius-ui);
+      border: 1px solid transparent;
+      background: var(--bg-panel-hover);
+      color: var(--text-bright);
+      font-size: 0.75rem;
+      font-weight: 650;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      display: inline-grid;
+      place-items: center;
+      padding: 0 0.45rem;
+    }
+
+    .shortcut { color: var(--text-muted); font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <main class="catalog-page" aria-label="Section 3 button and icon catalog reference">
+    <h1 class="catalog-title">Section 3 — Button / Icon Catalog</h1>
+
+    <table class="catalog-table" aria-label="Master icon button catalog">
+      <thead>
+        <tr>
+          <th>ID</th><th>Area</th><th>States</th><th>Shortcut</th><th>ARIA label</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><code>file-tree</code></td><td>Left rail</td><td class="state-grid">
+          <button class="catalog-btn" data-catalog-id="file-tree" data-state="default" aria-label="Open file tree panel"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h5l2 2h11v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2"/></svg></button>
+          <button class="catalog-btn" data-catalog-id="file-tree" data-state="hover" aria-label="Open file tree panel"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h5l2 2h11v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2"/></svg></button>
+          <button class="catalog-btn" data-catalog-id="file-tree" data-state="active" aria-label="Open file tree panel"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h5l2 2h11v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2"/></svg></button>
+          <button class="catalog-btn" data-catalog-id="file-tree" data-state="focus" aria-label="Open file tree panel"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h5l2 2h11v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2"/></svg></button>
+          <button class="catalog-btn" data-catalog-id="file-tree" data-state="disabled" aria-label="Open file tree panel" disabled><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h5l2 2h11v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2"/></svg></button>
+        </td><td class="shortcut">Ctrl+1 / Cmd+1</td><td>Open file tree panel</td></tr>
+
+        <tr><td><code>search</code></td><td>Left rail</td><td class="state-grid"><button class="catalog-btn" data-catalog-id="search" data-state="default" aria-label="Open search panel"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></button></td><td class="shortcut">Ctrl+2 / Cmd+2</td><td>Open search panel</td></tr>
+        <tr><td><code>filters</code></td><td>Left rail</td><td class="state-grid"><button class="catalog-btn" data-catalog-id="filters" data-state="default" aria-label="Open filters panel"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16"/><path d="M7 12h10"/><path d="M10 18h4"/></svg></button></td><td class="shortcut">Ctrl+3 / Cmd+3</td><td>Open filters panel</td></tr>
+        <tr><td><code>hierarchy</code></td><td>Left rail</td><td class="state-grid"><button class="catalog-btn" data-catalog-id="hierarchy" data-state="default" aria-label="Open hierarchy panel"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM10 6h4M17 10v4"/></svg></button></td><td class="shortcut">Ctrl+4 / Cmd+4</td><td>Open hierarchy panel</td></tr>
+        <tr><td><code>layout</code></td><td>Left rail</td><td class="state-grid"><button class="catalog-btn" data-catalog-id="layout" data-state="default" aria-label="Open layout panel"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8"/><rect x="13" y="3" width="8" height="5"/><rect x="13" y="10" width="8" height="11"/><rect x="3" y="13" width="8" height="8"/></svg></button></td><td class="shortcut">Ctrl+5 / Cmd+5</td><td>Open layout panel</td></tr>
+
+        <tr><td><code>gear</code></td><td>Right rail</td><td class="state-grid"><button class="catalog-btn" data-catalog-id="gear" data-state="default" aria-label="Open settings panel"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.82-.33 1.7 1.7 0 0 0-1 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.56 1.7 1.7 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .33-1.82 1.7 1.7 0 0 0-1.56-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1 1.7 1.7 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.82.33h.01a1.7 1.7 0 0 0 1-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.56h.01a1.7 1.7 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.33 1.82v.01a1.7 1.7 0 0 0 1.56 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1Z"/></svg></button></td><td class="shortcut">Ctrl+, / Cmd+,</td><td>Open settings panel</td></tr>
+
+        <tr><td><code>tab-new</code></td><td>Tab strip</td><td class="state-grid"><button class="catalog-btn" data-catalog-id="tab-new" data-state="default" aria-label="Open new tab"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button></td><td class="shortcut">Ctrl+T / Cmd+T</td><td>Open new tab</td></tr>
+        <tr><td><code>tab-close</code></td><td>Tab strip</td><td class="state-grid"><button class="catalog-btn" data-catalog-id="tab-close" data-state="hover" aria-label="Close tab"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></td><td class="shortcut">Ctrl+W / Cmd+W</td><td>Close tab</td></tr>
+
+        <tr><td><code>nav-back</code></td><td>Top toolbar</td><td class="state-grid"><button class="catalog-btn" data-catalog-id="nav-back" data-state="default" aria-label="Back"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg></button></td><td class="shortcut">Alt+← / Option+←</td><td>Back</td></tr>
+        <tr><td><code>nav-forward</code></td><td>Top toolbar</td><td class="state-grid"><button class="catalog-btn" data-catalog-id="nav-forward" data-state="disabled" aria-label="Forward" disabled><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></button></td><td class="shortcut">Alt+→ / Option+→</td><td>Forward</td></tr>
+        <tr><td><code>overflow</code></td><td>Top toolbar</td><td class="state-grid"><button class="catalog-btn" data-catalog-id="overflow" data-state="active" aria-label="Open more actions" aria-pressed="true"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></td><td class="shortcut">none</td><td>Open more actions</td></tr>
+
+        <tr><td><code>status-chip</code></td><td>Left rail</td><td class="state-grid"><button class="chip" data-catalog-id="status-chip" data-state="default" aria-label="Switch workspace (current: ACME)">ACME</button></td><td class="shortcut">none</td><td>Switch workspace (current: ACME)</td></tr>
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>

@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Section 4 — Center Canvas (Design Reference)</title>
+  <link rel="stylesheet" href="_tokens.css" />
+  <link rel="stylesheet" href="_shared.css" />
+  <style>
+    /* ── Page chrome ── */
+    html, body {
+      margin: 0;
+      height: 100vh;
+      overflow: hidden;
+      background: var(--bg-main);
+      color: var(--text-normal);
+      font-family: Aptos, "Segoe UI Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 15px;
+      line-height: 1.45;
+      font-kerning: normal;
+      text-rendering: optimizeLegibility;
+    }
+
+    /* ── Theme toggle (demo-only, kept away from toolbar chrome) ── */
+    #theme-toggle {
+      position: fixed;
+      right: 12px;
+      bottom: 12px;
+      z-index: 200;
+      min-width: 44px;
+      height: 44px;
+      padding: 0 0.6rem;
+      background: var(--bg-panel-hover);
+      color: var(--text-normal);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-ui);
+      cursor: pointer;
+      font-size: 0.8rem;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    #theme-toggle:hover {
+      background: var(--bg-active);
+      color: var(--text-bright);
+    }
+    [data-theme='light'] { color-scheme: light; }
+    [data-theme='light'] #theme-toggle { border-color: var(--border-strong); }
+
+    /* ── Section 4 layout (center-column only — in isolation) ── */
+    .section-4-demo {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      min-height: 0;
+    }
+
+    /* ── Tab Strip — 36px (ADR-009 tablist exemption) ── */
+    .tab-strip {
+      flex: 0 0 36px;
+      display: flex;
+      align-items: stretch;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border-subtle);
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 0 2px;
+      gap: 1px;
+    }
+
+    /* Individual tab wrapper + tab button */
+    .tab-item {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      height: 36px;
+      max-width: 180px;
+      background: var(--bg-panel);
+    }
+
+    .tab {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0 1.7rem 0 0.55rem;
+      min-width: 80px;
+      max-width: 180px;
+      height: 36px;
+      background: transparent;
+      color: var(--text-muted);
+      border: none;
+      border-radius: 0;
+      cursor: pointer;
+      font-size: 0.82rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-family: inherit;
+    }
+
+    .tab-item[data-tab-active='true'] {
+      background: var(--bg-main); /* blends with canvas below */
+      /* 2px accent underline on active tab */
+      box-shadow: inset 0 -2px 0 var(--accent-mora);
+    }
+
+    .tab-item[data-tab-active='true'] .tab {
+      color: var(--text-bright);
+    }
+
+    .tab-item:hover:not([data-tab-active='true']) {
+      background: var(--bg-panel-hover);
+    }
+
+    .tab-item:hover:not([data-tab-active='true']) .tab {
+      color: var(--text-normal);
+    }
+
+    /* Close button on each tab */
+    .tab-close {
+      display: grid;
+      place-items: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 3px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 0;
+      flex-shrink: 0;
+      position: absolute;
+      right: 6px;
+      top: 9px;
+      /* ADR-008: visible on active tab; visible on hover for inactive tabs */
+      opacity: 0;
+      transition: opacity 0.1s, background 0.1s;
+    }
+
+    /* Close button always visible on the ACTIVE tab */
+    .tab-item[data-tab-active='true'] .tab-close {
+      opacity: 1;
+      color: var(--text-muted);
+    }
+
+    /* Close button revealed on hover for any tab */
+    .tab-item:hover .tab-close {
+      opacity: 1;
+    }
+
+    .tab-close:hover {
+      background: var(--bg-active);
+      color: var(--text-bright);
+    }
+
+    /* New-tab button */
+    .tab-new {
+      display: grid;
+      place-items: center;
+      width: 44px;
+      height: 36px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      flex-shrink: 0;
+      border-radius: 0;
+      padding: 0;
+    }
+
+    .tab-new:hover {
+      background: var(--bg-panel-hover);
+      color: var(--text-normal);
+    }
+
+    /* ── Top Toolbar — 44px LOCKED (spec-amendment-dr5, ADR-001) ── */
+    .top-toolbar {
+      flex: 0 0 44px;
+      display: flex;
+      align-items: center;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border-subtle);
+      gap: 0;
+      padding: 0 4px;
+    }
+
+    /* Toolbar zone: nav */
+    [data-toolbar-zone='nav'] {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+
+    /* Toolbar zone: view (flex 1 — takes remaining space) */
+    [data-toolbar-zone='view'] {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      padding: 0 8px;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+
+    /* Toolbar zone: overflow */
+    [data-toolbar-zone='overflow'] {
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    /* Toolbar zone: system-chrome — reserved, MUST be empty */
+    [data-toolbar-zone='system-chrome'] {
+      /* Reserved for native window controls — DO NOT PAINT */
+      width: 0;
+      flex-shrink: 0;
+    }
+
+    /* Generic toolbar button (44×44 hit target) */
+    .toolbar-btn {
+      display: grid;
+      place-items: center;
+      width: 44px;
+      height: 44px;
+      background: transparent;
+      color: var(--text-muted);
+      border: none;
+      border-radius: var(--radius-ui);
+      cursor: pointer;
+      padding: 0;
+      flex-shrink: 0;
+    }
+
+    .toolbar-btn:hover {
+      background: var(--bg-panel-hover);
+      color: var(--text-normal);
+    }
+
+    .toolbar-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    /* ── Canvas Area ── */
+    .canvas-area {
+      flex: 1 1 auto;
+      min-height: 0;
+      position: relative;
+      overflow: hidden;
+      background: var(--bg-main);
+    }
+
+    /* Canvas mount point — checkerboard placeholder (no hardcoded hex — uses var tokens) */
+    #network {
+      width: 100%;
+      height: 100%;
+      background-image:
+        linear-gradient(45deg, var(--bg-panel) 25%, transparent 25%),
+        linear-gradient(-45deg, var(--bg-panel) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, var(--bg-panel) 75%),
+        linear-gradient(-45deg, transparent 75%, var(--bg-panel) 75%);
+      background-size: 20px 20px;
+      background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+      background-color: var(--bg-main);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .canvas-placeholder-label {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      background: var(--bg-panel);
+      padding: 0.5rem 1rem;
+      border-radius: var(--radius-ui);
+      border: 1px solid var(--border-subtle);
+      pointer-events: none;
+      user-select: none;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Theme toggle (design §7.5) — demo-only; kept off the toolbar so it does not overlap overflow -->
+  <button id="theme-toggle" aria-label="Toggle color theme" aria-pressed="false">
+    <!-- Lucide sun icon (light mode indicator) — aria-hidden: decorative -->
+    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="4"/>
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
+    </svg>
+    <span>Theme</span>
+  </button>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       Section 4 — Center Canvas (standalone demo — in a full workspace
+       this .section-4-demo would be .center-column inside .workspace-shell)
+  ════════════════════════════════════════════════════════════════════ -->
+  <div class="section-4-demo" role="main" aria-label="Center canvas section demo">
+
+    <!-- ── Tab Strip (36px, tablist semantics — ADR-009) ── -->
+    <div class="tab-strip" role="tablist" aria-label="Open graphs" aria-orientation="horizontal">
+
+      <!-- Active tab: Vista gráfica -->
+      <div class="tab-item" data-tab-id="tab-vista-grafica" data-tab-active="true">
+        <button
+          class="tab"
+          role="tab"
+          id="tab-vista-grafica"
+          aria-selected="true"
+          aria-controls="canvas-area"
+          tabindex="0"
+        >
+          <span class="tab-label">Vista gráfica</span>
+        </button>
+        <!-- Close button — visible on active tab (ADR-008) -->
+        <button
+          class="tab-close"
+          aria-label="Close tab Vista gráfica"
+          data-catalog-id="tab-close"
+          tabindex="-1"
+          data-tab-close-for="tab-vista-grafica"
+        >
+          <!-- Lucide x icon — decorative -->
+          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 6 6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Inactive tab: alpha -->
+      <div class="tab-item" data-tab-id="tab-alpha" data-tab-active="false">
+        <button
+          class="tab"
+          role="tab"
+          id="tab-alpha"
+          aria-selected="false"
+          aria-controls="canvas-area"
+          tabindex="-1"
+        >
+          <span class="tab-label">alpha</span>
+        </button>
+        <!-- Close button — hidden by default, revealed on hover (ADR-008) -->
+        <button
+          class="tab-close"
+          aria-label="Close tab alpha"
+          data-catalog-id="tab-close"
+          tabindex="-1"
+          data-tab-close-for="tab-alpha"
+        >
+          <!-- Lucide x icon — decorative -->
+          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 6 6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- New-tab button -->
+      <button
+        class="tab-new"
+        aria-label="New tab"
+        data-catalog-id="tab-new"
+        tabindex="0"
+      >
+        <!-- Lucide plus icon — decorative -->
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+      </button>
+
+    </div><!-- /.tab-strip -->
+
+    <!-- ── Top Toolbar (44px LOCKED — spec-amendment-dr5 / ADR-001) ── -->
+    <div class="top-toolbar" role="toolbar" aria-label="Canvas toolbar">
+
+      <!-- Zone: nav — back + forward navigation -->
+      <div data-toolbar-zone="nav">
+        <button
+          class="toolbar-btn"
+          aria-label="Back"
+          data-catalog-id="nav-back"
+        >
+          <!-- Lucide arrow-left — decorative -->
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+        </button>
+        <button
+          class="toolbar-btn"
+          aria-label="Forward"
+          data-catalog-id="nav-forward"
+          disabled
+          aria-disabled="true"
+        >
+          <!-- Lucide arrow-right — decorative — disabled: no graph history yet -->
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h14M12 5l7 7-7 7"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Zone: view — view-label slot (shipped .topbar info per ADR-002) -->
+      <div data-toolbar-zone="view" aria-label="Graph metadata">
+        Acme Co &middot; 142 nodes &middot; 318 edges &middot; 2026-05-20
+        <!-- C-5 migration contract slots (documented static placeholders; no overlap with demo toggle) -->
+        <span class="visually-hidden" data-migration-slot="zoom-fit">slot: zoom-fit control migrates to toolbar overflow/view</span>
+        <span class="visually-hidden" data-migration-slot="theme-toggle">slot: theme-toggle migrates to toolbar overflow/view</span>
+      </div>
+
+      <!-- Zone: overflow — more-horizontal button -->
+      <div data-toolbar-zone="overflow">
+        <button
+          class="toolbar-btn"
+          aria-label="More actions"
+          data-catalog-id="overflow"
+          aria-haspopup="menu"
+        >
+          <!-- Lucide more-horizontal — decorative -->
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Zone: system-chrome — RESERVED for native window controls. DO NOT PAINT. -->
+      <div data-toolbar-zone="system-chrome"><!-- reserved for native window controls — do not paint --></div>
+
+    </div><!-- /.top-toolbar -->
+
+    <!-- ── Canvas Area (flex 1) ── -->
+    <div class="canvas-area" id="canvas-area" role="region" aria-label="Graph canvas">
+      <!-- canvas mount point — renderer.ts instantiated at runtime, not here -->
+      <div id="network" data-canvas-mount>
+        <span class="canvas-placeholder-label" aria-hidden="true">
+          canvas mount point — renderer.ts renders here at runtime
+        </span>
+      </div>
+    </div><!-- /.canvas-area -->
+
+  </div><!-- /.section-4-demo -->
+
+  <script>
+    /* State demonstrations only — NO module loading, NO imports (spec X-5) */
+
+    /* Theme toggle: flips data-theme on <html> between 'dark' and 'light' */
+    (function () {
+      var toggle = document.getElementById('theme-toggle');
+      var root = document.documentElement;
+      toggle.addEventListener('click', function () {
+        var current = root.getAttribute('data-theme');
+        var next = current === 'dark' ? 'light' : 'dark';
+        root.setAttribute('data-theme', next);
+        toggle.setAttribute('aria-pressed', next === 'light' ? 'true' : 'false');
+      });
+    }());
+
+    /* Tab switching demo — sets aria-selected and data-tab-active */
+    (function () {
+      var tabStrip = document.querySelector('[role="tablist"]');
+      if (!tabStrip) return;
+      tabStrip.addEventListener('click', function (e) {
+        var btn = e.target.closest('[role="tab"]');
+        if (!btn) return;
+        /* Deactivate all tabs */
+        tabStrip.querySelectorAll('.tab-item').forEach(function (item) {
+          item.setAttribute('data-tab-active', 'false');
+        });
+        tabStrip.querySelectorAll('[role="tab"]').forEach(function (t) {
+          t.setAttribute('aria-selected', 'false');
+          t.setAttribute('tabindex', '-1');
+        });
+        /* Activate clicked tab */
+        var parentItem = btn.closest('.tab-item');
+        if (parentItem) parentItem.setAttribute('data-tab-active', 'true');
+        btn.setAttribute('aria-selected', 'true');
+        btn.setAttribute('tabindex', '0');
+        btn.focus();
+      });
+    }());
+  </script>
+</body>
+</html>
