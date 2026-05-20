@@ -228,6 +228,12 @@ class TestMainTsWiring(unittest.TestCase):
             "main.ts must expose detailPanel on the brainDsUI namespace",
         )
 
+    def test_exposes_network_slot_on_window_namespace(self):
+        """W7: main.ts must expose a brainDsUI.network slot for click-to-focus wiring."""
+        self._require()
+        self.assertIn("brainDsUI", self.text)
+        self.assertIn("network", self.text)
+
 
 # ---------------------------------------------------------------------------
 # 4. Template delegation — graph_viewer.html calls the mounted module
@@ -393,6 +399,62 @@ class TestDetailPanelTriangulation(unittest.TestCase):
             "aria-expanded",
             self.text,
             "detail-panel.ts must set aria-expanded on collapse/expand",
+        )
+
+    def test_w6_gap_slots_render_dashed_placeholder_contract(self):
+        self._require()
+        self.assertIn("section--gap", self.text)
+        self.assertIn("[Information Missing / Pending Capture]", self.text)
+
+    def test_w7_relationships_group_by_type_contract(self):
+        self._require()
+        self.assertRegex(self.text, r"edge_label")
+        self.assertRegex(self.text, r"relationship-group")
+        self.assertRegex(self.text, r"No relationships")
+        self.assertNotIn('gHeading.textContent = direction[0].toUpperCase() + direction.slice(1)', self.text)
+
+    def test_w7_relationship_row_click_focuses_target_contract(self):
+        self._require()
+        self.assertRegex(self.text, r"data-target-id")
+        self.assertRegex(self.text, r"brainDsUI\.network")
+        self.assertRegex(self.text, r"focus\(")
+
+
+# ---------------------------------------------------------------------------
+# 6. R11 — TS prerequisite: --card-accent via setProperty (obsidian-workspace-ui)
+# ---------------------------------------------------------------------------
+
+class TestCardAccentProperty(unittest.TestCase):
+    """R11: detail-panel.ts must set --card-accent via setProperty, not borderLeftColor."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.path = PANELS_DIR / "detail-panel.ts"
+        cls.exists = cls.path.exists()
+        cls.text = cls.path.read_text(encoding="utf-8") if cls.exists else ""
+
+    def _require(self):
+        if not self.exists:
+            self.fail(f"panels/detail-panel.ts not found at {self.path}")
+
+    def test_no_border_left_color_assignment(self):
+        """R11-scenario-1: borderLeftColor must not appear anywhere in detail-panel.ts."""
+        self._require()
+        self.assertNotIn(
+            "borderLeftColor",
+            self.text,
+            "detail-panel.ts must not use borderLeftColor; use setProperty('--card-accent', ...) instead",
+        )
+
+    def test_set_property_card_accent_called(self):
+        """R11-scenario-2: setProperty('--card-accent', ...) must appear at least twice."""
+        self._require()
+        # Accept both single-quoted and double-quoted string forms
+        count = self.text.count("'--card-accent'") + self.text.count('"--card-accent"')
+        self.assertGreaterEqual(
+            count,
+            2,
+            f"setProperty('--card-accent', ...) must appear at least 2 times; found {count}",
         )
 
 
