@@ -21,6 +21,7 @@ See `_shared/skill-resolver.md` for the full resolution protocol.
 | Discover or install agent skills for a specialized capability | find-skills | <USER_HOME>/.agents/skills/find-skills/SKILL.md |
 | Building, designing, or validating n8n workflows | n8n-workflow-patterns | <USER_HOME>/.agents/skills/n8n-workflow-patterns/SKILL.md |
 | UI design best practices for accessible, performant, user-friendly interfaces | ui-design | .agents/skills/ui-design/SKILL.md |
+| When building or validating brain_ds frontend UI, workspace shell, graph viewer, design sections, or UI contracts | spectacular-frontend-ui | .opencode/skills/spectacular-frontend-ui/SKILL.md |
 | When user says `/elicit-context` or needs domain context | elicit-context | skills\elicit-context\SKILL.md |
 | When user says `/map-connections`, `/map-connections --graph`, or `/map-connections --save` | map-connections | skills\map-connections\SKILL.md |
 | When user says `/generate-brd` or `/generate-brd --save` | generate-brd | skills\generate-brd\SKILL.md |
@@ -125,6 +126,15 @@ Pre-digested rules per skill. Delegators copy matching blocks into sub-agent pro
 - Use familiar interaction patterns, clear calls to action, and helpful error/recovery messages.
 - Apply motion sparingly to enhance orientation, never to distract or hide state.
 - Optimize assets and non-critical loading so visual polish does not harm performance.
+
+### spectacular-frontend-ui
+- Preserve the committed brain_ds aesthetic: dark-first IDE/knowledge-tool, near-black canvas, restrained chrome, `--accent-mora` only for active/focus states, WCC palette only for graph data.
+- Before non-trivial UI code, read `_tokens.css`, `_shared.css`, `ui-workspace-shell.md`, nearest section reference, and `graph_viewer.html :root{}` if touching the live viewer.
+- Maintain the locked 5-column workspace grid and spatial contracts: 48px rails, 36px tab strip, 44px toolbar, 28px tree rows, 44x44 primary interactive targets.
+- Use token discipline: no hardcoded CSS colors; new tokens must sync across `_tokens.css`, `theme.py`, and `graph_viewer.html :root{}`.
+- Enforce accessibility: WCAG AA contrast, visible focus ring, ARIA for icon-only controls/tabs/toggles, keyboard reachability, and reduced-motion support.
+- Refuse anti-slop patterns: gradient hero washes, glassmorphism, emoji icons, external fonts, detached floating toolbars, neon glow, decorative motion, oversized marketing UI.
+- For visual implementation, work one section at a time and stop for user review before continuing to the next section.
 
 ### elicit-context
 - Trigger only on explicit `/elicit-context`; ask exactly one question at a time and wait.
