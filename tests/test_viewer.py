@@ -17,6 +17,28 @@ EMOJI_TOKENS = ("✏️", "💾")
 
 
 class TestViewerFoundation(unittest.TestCase):
+    def test_render_graph_data_default_output_does_not_call_path_cwd_when_workspace_present(self):
+        graph_payload = {
+            "schema_version": "1.0",
+            "org": "NoCwdOrg",
+            "nodes": [{"id": "n1", "label": "N1", "type": "Department"}],
+            "edges": [],
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            graph_path = root / "graph.json"
+            graph_path.write_text(json.dumps(graph_payload), encoding="utf-8")
+
+            from brain_ds.ui.render_context import WorkspaceContext
+
+            workspace = WorkspaceContext.from_root_and_graph(root, graph_path)
+
+            with patch("brain_ds.ui.viewer.Path.cwd", side_effect=AssertionError("Path.cwd must not be called")):
+                output = render_graph_data(graph_payload, workspace=workspace)
+            self.assertEqual(output, workspace.store_path.parent / "graph-output.html")
+            self.assertTrue(output.exists())
+
     def test_render_graph_data_blocks_invalid_graph_before_graph_from_v1(self):
         invalid_graph = {
             "schema_version": "1.0",
@@ -92,11 +114,10 @@ class TestViewerFoundation(unittest.TestCase):
             "nodes": [{"id": "n1", "label": "N1", "type": "Department"}],
             "edges": [],
         }
-        with tempfile.TemporaryDirectory() as tmp:
-            with patch("pathlib.Path.cwd", return_value=Path(tmp)):
-                out = render_graph_data(graph_dict)
-            self.assertEqual(out, Path(tmp) / "graph-output.html")
-            self.assertTrue(out.exists())
+        out = render_graph_data(graph_dict)
+        self.assertEqual(out.name, "graph-output.html")
+        self.assertTrue(out.exists())
+        out.unlink(missing_ok=True)
 
     def test_interactive_template_renders_from_package_resources(self):
         html = render_interactive_html(

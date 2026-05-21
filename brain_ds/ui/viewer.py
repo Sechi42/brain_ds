@@ -110,7 +110,12 @@ def render_graph_data(
             sys.stdout.write(html)
         return "-"
 
-    final_output = Path(output_path) if output_path else (Path.cwd() / "graph-output.html")
+    if output_path:
+        final_output = Path(output_path)
+    elif workspace is not None:
+        final_output = workspace.store_path.parent / "graph-output.html"
+    else:
+        final_output = Path(".").resolve() / "graph-output.html"
     final_output.parent.mkdir(parents=True, exist_ok=True)
 
     if simple:
