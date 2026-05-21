@@ -25,9 +25,9 @@ def _load_graph_payload(supertype: str) -> dict:
 
 def _build_context_for(supertype: str) -> dict:
     graph_input_path = _fixture_root() / "graph_inputs" / f"{supertype}.json"
-    workspace = WorkspaceContext(
-        root=str((_fixture_root() / "graph_inputs").resolve()),
-        graph_path=str(graph_input_path.resolve()),
+    workspace = WorkspaceContext.from_root_and_graph(
+        (_fixture_root() / "graph_inputs").resolve(),
+        graph_input_path.resolve(),
     )
     return build_render_context(Graph.from_v1(_load_graph_payload(supertype)), workspace=workspace)
 

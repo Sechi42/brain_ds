@@ -1,7 +1,7 @@
 import unittest
 import logging
 import json
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from brain_ds.ontology import Graph
 from brain_ds.ui.render_context import WorkspaceContext, build_render_context
@@ -40,9 +40,9 @@ class TestRenderContextContract(unittest.TestCase):
 
     def test_meta_workspace_present_and_well_formed(self):
         graph = Graph.from_v1(_sample_graph_payload())
-        workspace = WorkspaceContext(
-            root="/workspace",
-            graph_path="/workspace/acme-corp/billing/v2-graph.json",
+        workspace = WorkspaceContext.from_root_and_graph(
+            Path("/workspace"),
+            Path("/workspace/acme-corp/billing/v2-graph.json"),
         )
         context = build_render_context(graph, workspace=workspace)
         meta_workspace = context["meta"]["workspace"]
@@ -54,7 +54,7 @@ class TestRenderContextContract(unittest.TestCase):
 
     def test_meta_workspace_depth_zero_fallback(self):
         graph = Graph.from_v1(_sample_graph_payload())
-        workspace = WorkspaceContext(root="/workspace", graph_path="/workspace/my-graph.json")
+        workspace = WorkspaceContext.from_root_and_graph(Path("/workspace"), Path("/workspace/my-graph.json"))
         context = build_render_context(graph, workspace=workspace)
 
         self.assertEqual(context["meta"]["workspace"]["displayPath"], "my-graph.json")
@@ -62,16 +62,19 @@ class TestRenderContextContract(unittest.TestCase):
 
     def test_meta_workspace_depth_one_project_only(self):
         graph = Graph.from_v1(_sample_graph_payload())
-        workspace = WorkspaceContext(root="/ws", graph_path="/ws/acme-corp/billing/2026/v3-graph.json")
+        workspace = WorkspaceContext.from_root_and_graph(
+            Path("/ws"),
+            Path("/ws/acme-corp/billing/2026/v3-graph.json"),
+        )
         context = build_render_context(graph, workspace=workspace)
 
         self.assertEqual(context["meta"]["workspace"]["project"], "acme-corp")
 
     def test_meta_workspace_display_path_uses_posix_slashes(self):
         graph = Graph.from_v1(_sample_graph_payload())
-        workspace = WorkspaceContext(
-            root="C:\\workspace",
-            graph_path="C:\\workspace\\acme-corp\\billing\\v2-graph.json",
+        workspace = WorkspaceContext.from_root_and_graph(
+            Path("C:/workspace"),
+            Path("C:/workspace/acme-corp/billing/v2-graph.json"),
         )
         context = build_render_context(graph, workspace=workspace)
 

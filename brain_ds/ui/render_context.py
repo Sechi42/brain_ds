@@ -16,8 +16,35 @@ CONTRACT_VERSION = "1.0.0"
 
 @dataclass(frozen=True)
 class WorkspaceContext:
-    root: str
-    graph_path: str
+    project_root: Path
+    display_path: str
+    store_path: Path
+
+    @classmethod
+    def from_root_and_graph(cls, project_root: Path, graph_path: Path) -> "WorkspaceContext":
+        root = project_root.resolve()
+        graph = graph_path.resolve()
+        try:
+            rel = graph.relative_to(root)
+            display_path = rel.as_posix()
+        except ValueError:
+            display_path = graph.as_posix()
+        return cls(
+            project_root=root,
+            display_path=display_path,
+            store_path=root / ".brain_ds" / "store.db",
+        )
+
+    @property
+    def root(self) -> str:
+        return str(self.project_root)
+
+    @property
+    def graph_path(self) -> str:
+        display = Path(self.display_path)
+        if display.is_absolute():
+            return str(display)
+        return str((self.project_root / display).resolve())
 
 
 _workspace_fallback_warned = False
@@ -168,20 +195,14 @@ def _compute_workspace_meta(workspace: WorkspaceContext | None) -> dict:
             )
             _workspace_fallback_warned = True
         return {
-            "root": str(Path.cwd().resolve()),
+            "root": "",
             "displayPath": "",
             "project": "default",
             "graph": "(unknown)",
         }
 
-    root = Path(workspace.root).resolve()
-    graph_path = Path(workspace.graph_path).resolve()
-
-    try:
-        rel = graph_path.relative_to(root)
-        display_path = rel.as_posix()
-    except ValueError:
-        display_path = graph_path.as_posix()
+    root = workspace.project_root.resolve()
+    display_path = workspace.display_path
 
     parts = display_path.split("/") if display_path else []
     if len(parts) >= 2:
@@ -193,7 +214,7 @@ def _compute_workspace_meta(workspace: WorkspaceContext | None) -> dict:
         "root": str(root),
         "displayPath": display_path,
         "project": project,
-        "graph": graph_path.stem or "(unknown)",
+        "graph": Path(display_path).stem or "(unknown)",
     }
 
 
