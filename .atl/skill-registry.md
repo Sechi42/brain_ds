@@ -21,7 +21,7 @@ See `_shared/skill-resolver.md` for the full resolution protocol.
 | Discover or install agent skills for a specialized capability | find-skills | <USER_HOME>/.agents/skills/find-skills/SKILL.md |
 | Building, designing, or validating n8n workflows | n8n-workflow-patterns | <USER_HOME>/.agents/skills/n8n-workflow-patterns/SKILL.md |
 | UI design best practices for accessible, performant, user-friendly interfaces | ui-design | .agents/skills/ui-design/SKILL.md |
-| When building or validating brain_ds frontend UI, workspace shell, graph viewer, design sections, or UI contracts | spectacular-frontend-ui | .opencode/skills/spectacular-frontend-ui/SKILL.md |
+| When modifying brain_ds graph_viewer.html, brain_ds/ui/templates/*, brain_ds/ui/src/**, or any workspace-shell/center-canvas/rail/panel chrome | frontend-spectacular-design | .opencode/skills/frontend-spectacular-design/SKILL.md |
 | When user says `/elicit-context` or needs domain context | elicit-context | skills\elicit-context\SKILL.md |
 | When user says `/map-connections`, `/map-connections --graph`, or `/map-connections --save` | map-connections | skills\map-connections\SKILL.md |
 | When user says `/generate-brd` or `/generate-brd --save` | generate-brd | skills\generate-brd\SKILL.md |
@@ -127,13 +127,17 @@ Pre-digested rules per skill. Delegators copy matching blocks into sub-agent pro
 - Apply motion sparingly to enhance orientation, never to distract or hide state.
 - Optimize assets and non-critical loading so visual polish does not harm performance.
 
-### spectacular-frontend-ui
+### frontend-spectacular-design
 - Preserve the committed brain_ds aesthetic: dark-first IDE/knowledge-tool, near-black canvas, restrained chrome, `--accent-mora` only for active/focus states, WCC palette only for graph data.
 - Before non-trivial UI code, read `_tokens.css`, `_shared.css`, `ui-workspace-shell.md`, nearest section reference, and `graph_viewer.html :root{}` if touching the live viewer.
-- Maintain the locked 5-column workspace grid and spatial contracts: 48px rails, 36px tab strip, 44px toolbar, 28px tree rows, 44x44 primary interactive targets.
+- Maintain the locked 5-column workspace grid and spatial contracts: 48px rails, 36px tab strip (ADR-009), 44px toolbar (ADR-001), 28px tree rows (ADR-004), 44x44 primary interactive targets.
+- Toolbar must expose four `data-toolbar-zone` slots: `nav`, `view`, `overflow`, `system-chrome` (reserved — do not paint).
+- Tab strip must use `role="tablist"`/`role="tab"`, active tab indicated by `box-shadow: inset 0 -2px 0 var(--accent-mora)` + bg blending with canvas, close button hover-reveal (ADR-008), separate `tab-new` button.
+- Use Lucide inline SVG icons with `aria-hidden` on the SVG and `aria-label` on the button; stroke `currentColor`, width 2 (2.5 for small `x`).
 - Use token discipline: no hardcoded CSS colors; new tokens must sync across `_tokens.css`, `theme.py`, and `graph_viewer.html :root{}`.
-- Enforce accessibility: WCAG AA contrast, visible focus ring, ARIA for icon-only controls/tabs/toggles, keyboard reachability, and reduced-motion support.
+- Enforce accessibility: WCAG AA contrast, visible focus ring (2px `var(--accent-mora)`, offset 2px), ARIA for icon-only controls/tabs/toggles, keyboard reachability, and reduced-motion support.
 - Refuse anti-slop patterns: gradient hero washes, glassmorphism, emoji icons, external fonts, detached floating toolbars, neon glow, decorative motion, oversized marketing UI.
+- MANDATORY post-PR review artifact: every chrome PR must emit `openspec/changes/<change>/review/<pr-slug>-preview.html` (links to `_tokens.css` + `_shared.css`, no inlined hex) AND `<pr-slug>-review.md` (what to inspect, what is out of scope, live-viewer command, section reference). No PR is complete without it.
 - For visual implementation, work one section at a time and stop for user review before continuing to the next section.
 
 ### elicit-context

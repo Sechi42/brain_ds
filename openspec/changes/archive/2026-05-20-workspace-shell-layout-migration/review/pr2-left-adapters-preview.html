@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PR2 Left Adapters Preview (Review Artifact)</title>
+    <!-- Tokens and shared component CSS from design references — NOT inlined -->
+    <link rel="stylesheet" href="../../../../brain_ds/ui/design/sections/_tokens.css" />
+    <link rel="stylesheet" href="../../../../brain_ds/ui/design/sections/_shared.css" />
+    <style>
+      /* ── Page chrome ── */
+      html, body {
+        margin: 0;
+        height: 100vh;
+        overflow: hidden;
+        background: var(--bg-main);
+        color: var(--text-normal);
+        font-family: Aptos, "Segoe UI Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        font-size: 15px;
+        line-height: 1.45;
+      }
+
+      /* ── Workspace shell (preview — left rail + L-panel live; center/right are placeholders) ── */
+      .workspace-shell {
+        display: grid;
+        grid-template-columns: 48px minmax(220px,300px) minmax(0,1fr) minmax(280px,360px) 48px;
+        grid-template-rows: 1fr;
+        height: 100vh;
+      }
+
+      /* ── Left rail ── */
+      .left-rail {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        border-right: 1px solid var(--border-subtle);
+        background: var(--bg-panel);
+        padding: 2px 0;
+      }
+      .left-rail-icons {
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: 100%;
+        gap: 2px;
+        padding-top: 4px;
+      }
+
+      /* ── Left panel shell ── */
+      .left-panel-shell {
+        background: var(--bg-panel);
+        border-right: 1px solid var(--border-subtle);
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .panel-header {
+        flex: 0 0 44px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 0.65rem;
+        border-bottom: 1px solid var(--border-subtle);
+        color: var(--text-bright);
+        font-size: 0.85rem;
+        font-weight: 650;
+        letter-spacing: 0.01em;
+      }
+      .panel-collapse {
+        width: 44px;
+        height: 44px;
+        border: none;
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+        border-radius: var(--radius-ui);
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+        padding: 0;
+      }
+      .panel-collapse:hover { background: var(--bg-panel-hover); color: var(--text-normal); }
+      .panel-body {
+        flex: 1 1 auto;
+        overflow: auto;
+        padding: 0.75rem;
+        display: grid;
+        gap: 0.75rem;
+        align-content: start;
+      }
+      .panel-body h2, .panel-body h3 {
+        margin: 0 0 0.25rem;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-muted);
+        font-weight: 600;
+      }
+      .control-row {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+      button.control-btn {
+        min-height: 44px;
+        padding: 0.45rem 0.75rem;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-ui);
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+        font-size: 0.85rem;
+      }
+      button.control-btn:hover {
+        background: var(--bg-panel-hover);
+        color: var(--text-normal);
+      }
+      .score-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+      }
+      .score-row label {
+        white-space: nowrap;
+        font-size: 0.875rem;
+      }
+      .score-row input[type=range] { flex: 1; }
+      .score-badge {
+        font-size: 0.875rem;
+        min-width: 2.5rem;
+        text-align: right;
+        color: var(--text-muted);
+      }
+
+      /* ── Center / right placeholders ── */
+      .center-placeholder {
+        background: var(--bg-main);
+        display: grid;
+        place-items: center;
+        color: var(--text-muted);
+        font-size: 0.82rem;
+      }
+      .right-panel-placeholder {
+        background: var(--bg-panel);
+        border-left: 1px solid var(--border-subtle);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-muted);
+        font-size: 0.82rem;
+      }
+      .right-rail-placeholder {
+        background: var(--bg-panel);
+        border-left: 1px solid var(--border-subtle);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-muted);
+        font-size: 0.7rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="workspace-shell">
+
+      <!-- ── Left rail (PR2 — section-1 pattern) ── -->
+      <!-- Rail-icon click behavior is a STUB (panel routing wired in follow-up PRs) -->
+      <nav class="left-rail" role="tablist" aria-orientation="vertical" aria-label="Left workspace rail" data-rail-side="left">
+        <div class="left-rail-icons">
+          <button class="rail-icon" role="tab" aria-selected="true" aria-label="Open file tree panel" data-catalog-id="file-tree" data-rail-icon="file-tree" tabindex="0">
+            <!-- Lucide folder — decorative -->
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 7h5l2 2h11v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2"/>
+            </svg>
+          </button>
+          <button class="rail-icon" role="tab" aria-selected="false" aria-label="Open search panel" data-catalog-id="search" data-rail-icon="search" tabindex="-1">
+            <!-- Lucide search — decorative -->
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+            </svg>
+          </button>
+          <button class="rail-icon" role="tab" aria-selected="false" aria-label="Open filters panel" data-catalog-id="filters" data-rail-icon="filters" tabindex="-1">
+            <!-- Lucide filter — decorative -->
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 6h16M7 12h10M10 18h4"/>
+            </svg>
+          </button>
+          <button class="rail-icon" role="tab" aria-selected="false" aria-label="Open hierarchy panel" data-catalog-id="hierarchy" data-rail-icon="hierarchy" tabindex="-1">
+            <!-- Lucide network — decorative -->
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/>
+              <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 8v5"/>
+            </svg>
+          </button>
+          <button class="rail-icon" role="tab" aria-selected="false" aria-label="Open layout panel" data-catalog-id="layout" data-rail-icon="layout" tabindex="-1">
+            <!-- Lucide layout-dashboard — decorative -->
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>
+            </svg>
+          </button>
+        </div>
+      </nav>
+
+      <!-- ── Left panel shell (PR2) ── -->
+      <aside class="left-panel-shell" aria-label="Left workspace panel">
+        <header class="panel-header" role="region" aria-label="Left panel controls">
+          <strong>Graph Controls</strong>
+          <button class="panel-collapse" aria-label="Collapse left panel" aria-expanded="true" aria-pressed="false">
+            <!-- Lucide chevron-left — decorative -->
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 18l-6-6 6-6"/>
+            </svg>
+          </button>
+        </header>
+        <div class="panel-body">
+          <section aria-labelledby="search-label-preview">
+            <label id="search-label-preview">Search node</label>
+            <input type="search" autocomplete="off" placeholder="Type a name or id" style="width:100%;margin-top:0.25rem;padding:0.4rem 0.5rem;border:1px solid var(--border-subtle);border-radius:var(--radius-ui);background:var(--bg-main);color:var(--text-normal);" />
+          </section>
+          <section>
+            <h2>Filters</h2>
+            <div class="control-row">
+              <button class="control-btn">Show all</button>
+              <button class="control-btn">Hide all</button>
+            </div>
+            <div style="margin-top:0.5rem;font-size:0.82rem;color:var(--text-muted);">[Type filter chips — mounted by filter-panel.ts]</div>
+            <div class="score-row">
+              <label>Score threshold</label>
+              <input type="range" min="0" max="1" step="0.05" value="0" style="flex:1;" />
+              <span class="score-badge">0.00</span>
+            </div>
+          </section>
+          <section>
+            <h2>Legend</h2>
+            <div style="font-size:0.82rem;color:var(--text-muted);">[Legend chips — mounted by filter-panel.ts]</div>
+          </section>
+          <section>
+            <h2>Hierarchy</h2>
+            <div style="font-size:0.82rem;color:var(--text-muted);">[Tree — mounted by panels/tree.ts]</div>
+          </section>
+          <section>
+            <h2>Layout</h2>
+            <div class="control-row">
+              <button class="control-btn">Hierarchical</button>
+              <button class="control-btn">Physics</button>
+            </div>
+          </section>
+        </div>
+      </aside>
+
+      <!-- ── Center placeholder ── -->
+      <div class="center-placeholder" aria-label="Center area placeholder">
+        Center canvas (PR1.5 — out of scope for PR2)
+      </div>
+
+      <!-- ── Right panel + rail placeholders ── -->
+      <div class="right-panel-placeholder" aria-label="Right panel placeholder">
+        Inspector (PR3)
+      </div>
+      <div class="right-rail-placeholder" aria-label="Right rail placeholder">
+        R-rail (PR3)
+      </div>
+
+    </div>
+  </body>
+</html>

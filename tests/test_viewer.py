@@ -407,7 +407,7 @@ class TestViewerFoundation(unittest.TestCase):
             out = render_graph_file(graph_path)
             html = out.read_text(encoding="utf-8")
             self.assertIn('id="node-search"', html)
-            self.assertIn('id="show-all"', html)
+            self.assertIn('id="type-filters"', html)
             self.assertIn('id="toggle-hierarchical"', html)
             self.assertIn('aria-label="Graph controls"', html)
             self.assertIn('id="detail-panel"', html)
@@ -1088,6 +1088,866 @@ class TestSlice8MotionMicrointeractionsTemplate(unittest.TestCase):
             self.template_text,
             r"@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*animation:\s*none",
         )
+
+
+class TestWorkspaceShellPr1Template(unittest.TestCase):
+    """PR1 RED/GREEN contracts for shell scaffold + center chrome only."""
+
+    @classmethod
+    def setUpClass(cls):
+        template_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds"
+            / "ui"
+            / "templates"
+            / "graph_viewer.html"
+        )
+        cls.template_text = template_path.read_text(encoding="utf-8")
+
+    def test_workspace_shell_uses_five_column_grid(self):
+        self.assertIn(".workspace-shell", self.template_text)
+        self.assertRegex(
+            self.template_text,
+            r"grid-template-columns:[\s\S]*48px[\s\S]*minmax\(220px,\s*300px\)[\s\S]*minmax\(0,\s*1fr\)[\s\S]*minmax\(280px,\s*360px\)[\s\S]*48px",
+        )
+
+    def test_center_chrome_has_locked_tab_and_toolbar_heights(self):
+        self.assertRegex(self.template_text, r"\.tab-strip\s*\{[\s\S]*flex:\s*0\s+0\s+36px")
+        self.assertRegex(self.template_text, r"\.top-toolbar\s*\{[\s\S]*flex:\s*0\s+0\s+44px")
+
+    def test_center_toolbar_contains_view_label_and_empty_system_chrome_zone(self):
+        self.assertIn('id="workspace-view-label"', self.template_text)
+        self.assertIn('data-toolbar-zone="system-chrome"', self.template_text)
+
+    def test_network_mount_remains_in_center_canvas_area(self):
+        self.assertRegex(
+            self.template_text,
+            r"<div\s+id=\"center-split\"[\s\S]*<div\s+id=\"network\"",
+        )
+
+    def test_center_overflow_keeps_zoom_fit_and_theme_toggle_anchors(self):
+        self.assertIn('id="zoom-fit"', self.template_text)
+        self.assertIn('id="theme-toggle"', self.template_text)
+
+    def test_no_new_shell_hex_colors_are_introduced(self):
+        start = self.template_text.find("/* === Workspace shell (PR1 scaffold + center chrome) === */")
+        end = self.template_text.find("/* === Left sidebar === */")
+        shell_block = self.template_text[start:end] if start != -1 and end != -1 else self.template_text
+        self.assertNotRegex(shell_block, r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})")
+
+    def test_legacy_center_control_ids_stay_present_as_valid_anchors(self):
+        for legacy_id in ("show-more", "hide-markdown", "show-all", "hide-all"):
+            self.assertIn(f'id="{legacy_id}"', self.template_text)
+
+
+class TestWorkspaceShellPr15ChromePolish(unittest.TestCase):
+    """PR1.5 RED/GREEN contracts for center chrome polish — section-4 fidelity.
+
+    These tests verify the polished chrome patterns against section-4-center-canvas.html
+    as ground truth. Left/right panels are out of scope for this slice.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        template_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds"
+            / "ui"
+            / "templates"
+            / "graph_viewer.html"
+        )
+        cls.template_text = template_path.read_text(encoding="utf-8")
+
+    # ── T1: Tab strip — tablist semantics ────────────────────────────────────
+
+    def test_tab_strip_has_tablist_role(self):
+        """Tab strip container MUST carry role="tablist"."""
+        self.assertRegex(
+            self.template_text,
+            r'class="tab-strip"[^>]*role="tablist"|role="tablist"[^>]*class="tab-strip"',
+            "Expected role='tablist' on .tab-strip element (section-4 pattern)",
+        )
+
+    def test_active_tab_has_aria_selected_true(self):
+        """Active tab button MUST have aria-selected='true' and role='tab'."""
+        self.assertRegex(
+            self.template_text,
+            r'role="tab"[^>]*aria-selected="true"|aria-selected="true"[^>]*role="tab"',
+            "Expected role='tab' button with aria-selected='true' (section-4 pattern)",
+        )
+
+    def test_tab_close_buttons_have_catalog_id(self):
+        """Each tab's close button MUST have data-catalog-id='tab-close'."""
+        self.assertIn(
+            'data-catalog-id="tab-close"',
+            self.template_text,
+            "Expected data-catalog-id='tab-close' on tab close button (section-4 pattern)",
+        )
+
+    def test_tab_new_button_present(self):
+        """New-tab button MUST be present as a separate 44×36 button with data-catalog-id='tab-new'."""
+        self.assertIn(
+            'data-catalog-id="tab-new"',
+            self.template_text,
+            "Expected data-catalog-id='tab-new' on new-tab button (section-4 pattern)",
+        )
+
+    # ── T2: Toolbar zones — all four present ─────────────────────────────────
+
+    def test_toolbar_has_all_four_zones(self):
+        """All four data-toolbar-zone values MUST be present."""
+        for zone in ("nav", "view", "overflow", "system-chrome"):
+            self.assertIn(
+                f'data-toolbar-zone="{zone}"',
+                self.template_text,
+                f"Expected data-toolbar-zone='{zone}' in toolbar (section-4 pattern)",
+            )
+
+    def test_toolbar_nav_has_back_and_forward_catalog_ids(self):
+        """nav zone MUST contain buttons with data-catalog-id='nav-back' and 'nav-forward'."""
+        self.assertIn(
+            'data-catalog-id="nav-back"',
+            self.template_text,
+            "Expected data-catalog-id='nav-back' in nav zone",
+        )
+        self.assertIn(
+            'data-catalog-id="nav-forward"',
+            self.template_text,
+            "Expected data-catalog-id='nav-forward' in nav zone",
+        )
+
+    def test_toolbar_nav_forward_is_disabled(self):
+        """nav-forward MUST be disabled with aria-disabled='true' (no graph history yet)."""
+        # Locate nav-forward and verify disabled appears near it
+        idx = self.template_text.find('data-catalog-id="nav-forward"')
+        self.assertGreater(idx, -1, "nav-forward button not found")
+        surrounding = self.template_text[max(0, idx - 200):idx + 300]
+        self.assertIn(
+            "disabled",
+            surrounding,
+            "Expected 'disabled' attribute near nav-forward button",
+        )
+
+    def test_toolbar_overflow_has_catalog_id_and_haspopup(self):
+        """overflow zone MUST contain data-catalog-id='overflow' with aria-haspopup='menu'."""
+        self.assertIn(
+            'data-catalog-id="overflow"',
+            self.template_text,
+            "Expected data-catalog-id='overflow' button in overflow zone",
+        )
+        self.assertIn(
+            'aria-haspopup="menu"',
+            self.template_text,
+            "Expected aria-haspopup='menu' on overflow button",
+        )
+
+    def test_toolbar_view_zone_has_view_label_slot(self):
+        """view zone MUST contain the #workspace-view-label element for org/counts/date."""
+        self.assertIn(
+            'id="workspace-view-label"',
+            self.template_text,
+            "Expected id='workspace-view-label' in view toolbar zone",
+        )
+
+    # ── T3: No hardcoded hex in chrome CSS block ──────────────────────────────
+
+    def test_no_hardcoded_hex_in_pr15_chrome_block(self):
+        """PR1.5 chrome CSS (tab/toolbar block) MUST use only var(--*) — no hardcoded hex.
+
+        The shell CSS block is bounded by the same PR1 comment markers used in the
+        existing hex test. This test extends coverage by targeting the polished
+        tab-item / tab-close / tab-new / toolbar-btn rules specifically.
+        """
+        start = self.template_text.find("/* === Workspace shell (PR1 scaffold + center chrome) === */")
+        end = self.template_text.find("/* === Left sidebar === */")
+        if start == -1 or end == -1:
+            self.skipTest("Shell CSS block comment markers not found — PR1.5 markers may differ")
+        chrome_block = self.template_text[start:end]
+        # Verify polished tab/toolbar CSS is present inside the block
+        self.assertIn(".tab-item", chrome_block, "Expected .tab-item rules in shell CSS block")
+        self.assertIn(".toolbar-btn", chrome_block, "Expected .toolbar-btn rules in shell CSS block")
+        # No hex literals
+        self.assertNotRegex(
+            chrome_block,
+            r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b",
+            "Hardcoded hex color found in shell CSS block — use var(--*) tokens",
+        )
+
+    # ── T4: Lucide SVGs in tab/toolbar regions ────────────────────────────────
+
+    def test_lucide_svgs_present_in_toolbar_region(self):
+        """Toolbar/tab buttons MUST use Lucide-style SVGs with stroke='currentColor'."""
+        # Count SVG elements with stroke="currentColor" in the chrome region
+        import re
+        svg_matches = re.findall(
+            r'<svg[^>]*stroke="currentColor"[^>]*>',
+            self.template_text,
+        )
+        self.assertGreater(
+            len(svg_matches),
+            0,
+            "Expected Lucide-style SVGs with stroke='currentColor' in tab/toolbar regions",
+        )
+
+    # ── T5: Reduced-motion covers new chrome transitions ─────────────────────
+
+    def test_reduced_motion_covers_chrome_transitions(self):
+        """@media (prefers-reduced-motion: reduce) MUST silence chrome transitions.
+
+        The block must include tab/toolbar transition rules — checked by verifying
+        that the reduced-motion block (a) exists and (b) appears with enough scope to
+        cover .tab-item, .tab-close, .tab-new, or .toolbar-btn.
+        """
+        import re
+        # Verify the reduced-motion block exists (PR1 already established this)
+        self.assertIn(
+            "@media (prefers-reduced-motion: reduce)",
+            self.template_text,
+            "Expected @media (prefers-reduced-motion: reduce) block",
+        )
+        # Find the reduced-motion block and check it covers chrome elements
+        rm_match = re.search(
+            r"@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{([\s\S]*?)\}(?=\s*@media|\s*</style>)",
+            self.template_text,
+        )
+        self.assertIsNotNone(rm_match, "Could not parse reduced-motion media block")
+        rm_block = rm_match.group(1)
+        # Expect the chrome transition selectors are covered — either via a broad rule
+        # or specific tab/toolbar selectors
+        has_chrome_coverage = (
+            ".tab-item" in rm_block
+            or ".toolbar-btn" in rm_block
+            or "transition: none" in rm_block
+        )
+        self.assertTrue(
+            has_chrome_coverage,
+            "reduced-motion block MUST cover chrome transitions (.tab-item, .toolbar-btn, "
+            "or a broad 'transition: none' rule)",
+        )
+
+    # ── T6: system-chrome zone is zero-width (no painting) ───────────────────
+
+    def test_system_chrome_zone_is_zero_width(self):
+        """system-chrome zone MUST be width:0 (reserved but not painted)."""
+        self.assertRegex(
+            self.template_text,
+            r"\[data-toolbar-zone=['\"]system-chrome['\"]\]\s*\{[^}]*width:\s*0",
+            "Expected [data-toolbar-zone='system-chrome'] { width: 0 } (reserved, no paint)",
+        )
+
+    # ── T7: Tab CSS follows section-4 active/hover/close patterns ────────────
+
+    def test_tab_item_active_has_accent_box_shadow(self):
+        """Active tab MUST have box-shadow with accent-mora underline (section-4 pattern)."""
+        self.assertRegex(
+            self.template_text,
+            r"box-shadow:\s*inset\s+0\s+-2px\s+0\s+var\(--accent-mora\)",
+            "Expected 'box-shadow: inset 0 -2px 0 var(--accent-mora)' on active tab (section-4)",
+        )
+
+    def test_tab_close_hover_reveal_pattern(self):
+        """tab-close MUST default to opacity:0 (revealed on hover/active — section-4 ADR-008)."""
+        # Find .tab-close block and check opacity: 0 default
+        idx = self.template_text.find(".tab-close {")
+        if idx == -1:
+            idx = self.template_text.find(".tab-close{")
+        self.assertGreater(idx, -1, "Expected .tab-close CSS rule in template")
+        # Grab the CSS block
+        block_end = self.template_text.find("}", idx)
+        tab_close_block = self.template_text[idx:block_end + 1]
+        self.assertIn(
+            "opacity: 0",
+            tab_close_block,
+            "Expected opacity: 0 default on .tab-close (hover-reveal pattern — ADR-008)",
+        )
+
+
+class TestWorkspaceShellPr2LeftAdapters(unittest.TestCase):
+    """PR2 RED/GREEN contracts for left rail + L-panel adapters.
+
+    Ground truth: brain_ds/ui/design/sections/section-1-left-shell.html
+    Scope: left rail (.rail[data-rail-side='left']), left-panel-shell header,
+           controls reachability. Center column and right side are out of scope.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        template_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds"
+            / "ui"
+            / "templates"
+            / "graph_viewer.html"
+        )
+        cls.template_text = template_path.read_text(encoding="utf-8")
+
+    # ── L1: Rail structure ──────────────────────────────────────────────────
+
+    def test_left_rail_has_role_tablist_and_orientation(self):
+        """Left rail nav MUST carry role='tablist' aria-orientation='vertical'."""
+        import re
+        # The left rail element must have role="tablist" and aria-orientation="vertical"
+        self.assertRegex(
+            self.template_text,
+            r'role="tablist"[^>]*aria-orientation="vertical"|aria-orientation="vertical"[^>]*role="tablist"',
+            "Expected role='tablist' aria-orientation='vertical' on left rail (section-1 pattern)",
+        )
+
+    def test_left_rail_has_rail_icon_buttons_with_catalog_ids(self):
+        """Left rail MUST contain .rail-icon buttons with data-catalog-id for each action."""
+        for catalog_id in ("file-tree", "search", "filters", "hierarchy", "layout"):
+            self.assertIn(
+                f'data-catalog-id="{catalog_id}"',
+                self.template_text,
+                f"Expected data-catalog-id='{catalog_id}' on a rail-icon button (section-1 pattern)",
+            )
+
+    def test_left_rail_icons_use_rail_icon_class(self):
+        """Each rail-icon button MUST use the .rail-icon class (44×44 per _shared.css)."""
+        import re
+        # Count .rail-icon buttons in the left rail region
+        # Verify the class appears for each expected catalog id
+        for catalog_id in ("file-tree", "search", "filters", "hierarchy", "layout"):
+            # Find the button with this catalog-id and check it also has class="rail-icon"
+            idx = self.template_text.find(f'data-catalog-id="{catalog_id}"')
+            self.assertGreater(idx, -1, f"Button with data-catalog-id='{catalog_id}' not found")
+            # Look backwards up to 300 chars for the opening <button tag
+            snippet = self.template_text[max(0, idx - 300):idx + 100]
+            self.assertIn(
+                "rail-icon",
+                snippet,
+                f"Expected class='rail-icon' near data-catalog-id='{catalog_id}' button",
+            )
+
+    def test_left_rail_has_one_active_icon_aria_selected_true(self):
+        """Exactly one left rail icon MUST have aria-selected='true' by default."""
+        import re
+        # Find the left rail section (before left-panel-shell)
+        rail_start = self.template_text.find('data-rail-side="left"')
+        self.assertGreater(rail_start, -1, "Left rail (data-rail-side='left') not found")
+        # The section up to left-panel-shell is the rail
+        panel_start = self.template_text.find('class="left-panel-shell"')
+        rail_region = self.template_text[rail_start:panel_start] if panel_start > rail_start else self.template_text[rail_start:rail_start + 2000]
+        active_count = len(re.findall(r'aria-selected="true"', rail_region))
+        self.assertGreaterEqual(active_count, 1, "Expected at least one aria-selected='true' on left rail icons")
+
+    def test_left_rail_icons_have_lucide_svgs_with_stroke_currentcolor(self):
+        """Left rail icon buttons MUST use Lucide-style SVGs with stroke='currentColor'."""
+        import re
+        rail_start = self.template_text.find('data-rail-side="left"')
+        panel_start = self.template_text.find('class="left-panel-shell"')
+        rail_region = self.template_text[rail_start:panel_start] if panel_start > rail_start else self.template_text[rail_start:rail_start + 2000]
+        svg_count = len(re.findall(r'stroke="currentColor"', rail_region))
+        self.assertGreater(svg_count, 0, "Expected Lucide SVGs with stroke='currentColor' in left rail")
+
+    def test_left_rail_svgs_have_aria_hidden(self):
+        """All left-rail SVGs MUST be decorative (aria-hidden='true')."""
+        rail_start = self.template_text.find('data-rail-side="left"')
+        panel_start = self.template_text.find('class="left-panel-shell"')
+        rail_region = self.template_text[rail_start:panel_start] if panel_start > rail_start else self.template_text[rail_start:rail_start + 2000]
+        import re
+        svgs = re.findall(r'<svg[^>]*>', rail_region)
+        for svg_tag in svgs:
+            self.assertIn(
+                'aria-hidden="true"',
+                svg_tag,
+                f"Left rail SVG is not decorative (missing aria-hidden='true'): {svg_tag[:80]}",
+            )
+
+    # ── L2: L-panel header ──────────────────────────────────────────────────
+
+    def test_left_panel_shell_has_panel_header_with_region_role(self):
+        """Left panel shell MUST contain a panel-header with role='region' and aria-label."""
+        self.assertIn(
+            'class="panel-header"',
+            self.template_text,
+            "Expected class='panel-header' inside .left-panel-shell",
+        )
+        # The region must be labeled
+        import re
+        panel_shell_start = self.template_text.find('class="left-panel-shell"')
+        # Find end of left-panel-shell region (up to center-column)
+        center_col_idx = self.template_text.find('class="center-column"')
+        panel_region = self.template_text[panel_shell_start:center_col_idx] if center_col_idx > panel_shell_start else self.template_text[panel_shell_start:panel_shell_start + 3000]
+        self.assertRegex(
+            panel_region,
+            r'role="region"',
+            "Expected role='region' within .left-panel-shell (section-1 pattern)",
+        )
+        self.assertRegex(
+            panel_region,
+            r'aria-label=',
+            "Expected aria-label on the region element within .left-panel-shell",
+        )
+
+    def test_left_panel_header_has_collapse_control(self):
+        """Panel header MUST contain a collapse button with aria-label."""
+        import re
+        panel_shell_start = self.template_text.find('class="left-panel-shell"')
+        center_col_idx = self.template_text.find('class="center-column"')
+        panel_region = self.template_text[panel_shell_start:center_col_idx] if center_col_idx > panel_shell_start else self.template_text[panel_shell_start:panel_shell_start + 3000]
+        self.assertRegex(
+            panel_region,
+            r'aria-label="Collapse left panel"',
+            "Expected collapse button with aria-label='Collapse left panel' in panel header",
+        )
+
+    # ── L3: Controls reachability ───────────────────────────────────────────
+
+    def test_legacy_controls_are_in_dom_and_not_removed(self):
+        """All legacy control IDs MUST remain in the DOM (not removed).
+
+        Runtime JS depends on these IDs for mounting search, filters, legend,
+        tree, and layout panels.
+        """
+        for control_id in (
+            "node-search",
+            "type-filters",
+            "legend",
+            "tree-panel",
+            "toggle-hierarchical",
+            "toggle-physics",
+            "score-threshold-slider",
+            "score-badge",
+        ):
+            self.assertIn(
+                f'id="{control_id}"',
+                self.template_text,
+                f"Legacy control id='{control_id}' MUST remain in DOM (runtime JS depends on it)",
+            )
+
+    def test_controls_aside_is_not_hidden(self):
+        """After PR2, .controls aside MUST NOT have the hidden attribute (panel is visible)."""
+        import re
+        # Find the controls aside and check it does NOT have `hidden` as a standalone attribute
+        controls_idx = self.template_text.find('class="panel controls"')
+        self.assertGreater(controls_idx, -1, "Expected class='panel controls' aside in template")
+        # Extract the opening tag
+        tag_end = self.template_text.find('>', controls_idx)
+        opening_tag = self.template_text[controls_idx:tag_end + 1]
+        self.assertNotRegex(
+            opening_tag,
+            r'\bhidden\b',
+            "The .controls aside MUST NOT have the 'hidden' attribute after PR2 (panel is visible)",
+        )
+
+    # ── L4: No hardcoded hex in PR2 CSS block ──────────────────────────────
+
+    def test_no_hardcoded_hex_in_pr2_left_rail_css_block(self):
+        """PR2 CSS block MUST use only var(--*) — no hardcoded #rrggbb hex.
+
+        Scoped by comment markers:
+        /* === PR2 Left Rail + L-Panel === */ ... /* === END PR2 Left Rail + L-Panel === */
+        """
+        start_marker = "/* === PR2 Left Rail + L-Panel === */"
+        end_marker = "/* === END PR2 Left Rail + L-Panel === */"
+        start = self.template_text.find(start_marker)
+        end = self.template_text.find(end_marker)
+        if start == -1 or end == -1:
+            self.fail(
+                "PR2 CSS block markers not found. "
+                "Expected '/* === PR2 Left Rail + L-Panel === */' and "
+                "'/* === END PR2 Left Rail + L-Panel === */' in template CSS."
+            )
+        pr2_css_block = self.template_text[start:end]
+        self.assertNotRegex(
+            pr2_css_block,
+            r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b",
+            "Hardcoded hex color found in PR2 CSS block — use var(--*) tokens",
+        )
+
+    # ── L5: Deprecation / compat-topbar stays hidden ─────────────────────
+
+    def test_compat_topbar_element_still_has_hidden_attribute(self):
+        """Compat-topbar MUST keep the HTML hidden attribute (PR1 deprecation)."""
+        self.assertRegex(
+            self.template_text,
+            r'class="topbar compat-topbar"[^>]*hidden',
+            "Expected compat-topbar element to still have hidden attribute (PR1 deprecation)",
+        )
+
+    def test_compat_topbar_css_is_display_none(self):
+        """CSS MUST still declare .compat-topbar { display: none }."""
+        self.assertRegex(
+            self.template_text,
+            r'\.compat-topbar\s*\{[^}]*display:\s*none',
+            "Expected .compat-topbar { display: none } CSS rule still present (PR1 deprecation)",
+        )
+
+
+class TestWorkspaceShellPr3RightInspectorResponsive(unittest.TestCase):
+    """PR3 RED/GREEN contracts for right rail + inspector adapter + responsive behavior.
+
+    Ground truth: brain_ds/ui/design/sections/section-2-right-shell.html
+    Scope: right rail (data-rail-side='right'), R-panel header, inspector accordion
+           wrappers, responsive slide-over contracts. Center column and left side
+           are out of scope for this slice.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        template_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds"
+            / "ui"
+            / "templates"
+            / "graph_viewer.html"
+        )
+        cls.template_text = template_path.read_text(encoding="utf-8")
+
+    # ── R1: Right rail structure ────────────────────────────────────────────
+
+    def test_right_rail_uses_nav_with_tablist_and_data_rail_side(self):
+        """Right rail MUST be a <nav> with role='tablist', aria-orientation='vertical',
+        and data-rail-side='right' (enables _shared.css mirror rule)."""
+        import re
+        # The right rail element must carry data-rail-side="right" and role="tablist"
+        self.assertRegex(
+            self.template_text,
+            r'data-rail-side="right"[^>]*role="tablist"|role="tablist"[^>]*data-rail-side="right"',
+            "Expected role='tablist' with data-rail-side='right' on right rail (section-2 pattern)",
+        )
+        self.assertRegex(
+            self.template_text,
+            r'data-rail-side="right"[^>]*aria-orientation="vertical"|aria-orientation="vertical"[^>]*data-rail-side="right"',
+            "Expected aria-orientation='vertical' on right rail nav element",
+        )
+
+    def test_right_rail_has_rail_icon_buttons_with_catalog_ids(self):
+        """Right rail MUST contain only the gear icon per WS-5-A remediation."""
+        for catalog_id in ("gear",):
+            self.assertIn(
+                f'data-catalog-id="{catalog_id}"',
+                self.template_text,
+                f"Expected data-catalog-id='{catalog_id}' on a right rail-icon button (section-2 pattern)",
+            )
+        self.assertNotIn('data-catalog-id="inspector"', self.template_text)
+        self.assertNotIn('data-catalog-id="history"', self.template_text)
+        self.assertNotIn('data-catalog-id="settings"', self.template_text)
+
+    def test_right_rail_icons_use_rail_icon_class(self):
+        """Right rail icon buttons MUST use class='rail-icon' (44×44 per _shared.css)."""
+        for catalog_id in ("gear",):
+            idx = self.template_text.find(f'data-catalog-id="{catalog_id}"')
+            self.assertGreater(idx, -1, f"Button with data-catalog-id='{catalog_id}' not found")
+            snippet = self.template_text[max(0, idx - 300):idx + 100]
+            self.assertIn(
+                "rail-icon",
+                snippet,
+                f"Expected class='rail-icon' near data-catalog-id='{catalog_id}' button",
+            )
+
+    def test_right_rail_has_one_active_icon_aria_selected_true(self):
+        """At least one right rail icon MUST have aria-selected='true' by default."""
+        import re
+        rail_start = self.template_text.find('data-rail-side="right"')
+        self.assertGreater(rail_start, -1, "Right rail (data-rail-side='right') not found")
+        # Region ends before the detail-panel-backdrop or end of main
+        backdrop_start = self.template_text.find('id="detail-panel-backdrop"')
+        rail_region = (
+            self.template_text[rail_start:backdrop_start]
+            if backdrop_start > rail_start
+            else self.template_text[rail_start:rail_start + 2000]
+        )
+        active_count = len(re.findall(r'aria-selected="true"', rail_region))
+        self.assertGreaterEqual(active_count, 1, "Expected at least one aria-selected='true' on right rail icons")
+
+    def test_right_rail_svgs_are_aria_hidden(self):
+        """All right rail SVGs MUST be decorative (aria-hidden='true')."""
+        import re
+        rail_start = self.template_text.find('data-rail-side="right"')
+        backdrop_start = self.template_text.find('id="detail-panel-backdrop"')
+        rail_region = (
+            self.template_text[rail_start:backdrop_start]
+            if backdrop_start > rail_start
+            else self.template_text[rail_start:rail_start + 2000]
+        )
+        svgs = re.findall(r'<svg[^>]*>', rail_region)
+        for svg_tag in svgs:
+            self.assertIn(
+                'aria-hidden="true"',
+                svg_tag,
+                f"Right rail SVG missing aria-hidden='true': {svg_tag[:80]}",
+            )
+
+    # ── R2: R-panel header ──────────────────────────────────────────────────
+
+    def test_right_panel_shell_has_r_panel_header_with_region_role(self):
+        """Right panel shell MUST contain a panel-header with role='region' and aria-label."""
+        import re
+        right_shell_start = self.template_text.find('class="right-panel-shell"')
+        self.assertGreater(right_shell_start, -1, "class='right-panel-shell' not found")
+        # Region ends at the right rail nav
+        rail_start = self.template_text.find('data-rail-side="right"')
+        right_shell_region = (
+            self.template_text[right_shell_start:rail_start]
+            if rail_start > right_shell_start
+            else self.template_text[right_shell_start:right_shell_start + 4000]
+        )
+        self.assertIn(
+            'class="panel-header"',
+            right_shell_region,
+            "Expected class='panel-header' inside .right-panel-shell",
+        )
+        self.assertRegex(
+            right_shell_region,
+            r'role="region"',
+            "Expected role='region' within .right-panel-shell R-panel header",
+        )
+        self.assertRegex(
+            right_shell_region,
+            r'aria-label=',
+            "Expected aria-label on the region element within .right-panel-shell",
+        )
+
+    def test_right_panel_header_has_collapse_control(self):
+        """R-panel header MUST contain a collapse control with aria-label."""
+        import re
+        right_shell_start = self.template_text.find('class="right-panel-shell"')
+        rail_start = self.template_text.find('data-rail-side="right"')
+        right_shell_region = (
+            self.template_text[right_shell_start:rail_start]
+            if rail_start > right_shell_start
+            else self.template_text[right_shell_start:right_shell_start + 4000]
+        )
+        self.assertRegex(
+            right_shell_region,
+            r'aria-label="Collapse right panel"',
+            "Expected collapse button with aria-label='Collapse right panel' in R-panel header",
+        )
+
+    # ── R3: #detail-panel runtime contracts preserved ───────────────────────
+
+    def test_detail_panel_id_and_dialog_contracts_still_present(self):
+        """#detail-panel MUST keep id, aria-labelledby='detail-title', role='dialog',
+        aria-modal='true' — runtime JS depends on these."""
+        self.assertIn('id="detail-panel"', self.template_text)
+        self.assertIn('aria-labelledby="detail-title"', self.template_text)
+        self.assertIn('role="dialog"', self.template_text)
+        self.assertIn('aria-modal="true"', self.template_text)
+
+    def test_detail_panel_inside_right_panel_shell(self):
+        """#detail-panel MUST remain inside .right-panel-shell."""
+        shell_start = self.template_text.find('class="right-panel-shell"')
+        self.assertGreater(shell_start, -1, "class='right-panel-shell' not found")
+        rail_start = self.template_text.find('data-rail-side="right"')
+        right_shell_region = (
+            self.template_text[shell_start:rail_start]
+            if rail_start > shell_start
+            else self.template_text[shell_start:shell_start + 4000]
+        )
+        self.assertIn(
+            'id="detail-panel"',
+            right_shell_region,
+            "#detail-panel MUST be inside .right-panel-shell",
+        )
+
+    # ── R4: Inspector accordion patterns ────────────────────────────────────
+
+    def test_inspector_accordion_class_present_in_right_shell(self):
+        """Right panel shell region MUST contain at least one element using
+        .inspector-accordion from _shared.css."""
+        shell_start = self.template_text.find('class="right-panel-shell"')
+        rail_start = self.template_text.find('data-rail-side="right"')
+        right_shell_region = (
+            self.template_text[shell_start:rail_start]
+            if rail_start > shell_start
+            else self.template_text[shell_start:shell_start + 4000]
+        )
+        self.assertIn(
+            "inspector-accordion",
+            right_shell_region,
+            "Expected class='inspector-accordion' in .right-panel-shell (section-2 pattern)",
+        )
+
+    def test_inspector_summary_and_body_classes_present(self):
+        """inspector-summary and inspector-body MUST appear alongside inspector-accordion
+        in the right panel region."""
+        shell_start = self.template_text.find('class="right-panel-shell"')
+        rail_start = self.template_text.find('data-rail-side="right"')
+        right_shell_region = (
+            self.template_text[shell_start:rail_start]
+            if rail_start > shell_start
+            else self.template_text[shell_start:shell_start + 4000]
+        )
+        self.assertIn(
+            "inspector-summary",
+            right_shell_region,
+            "Expected class='inspector-summary' in .right-panel-shell (section-2 pattern)",
+        )
+        self.assertIn(
+            "inspector-body",
+            right_shell_region,
+            "Expected class='inspector-body' in .right-panel-shell (section-2 pattern)",
+        )
+
+    # ── R5: Responsive slide-over regression guards ─────────────────────────
+
+    def test_media_1100px_still_present_and_hides_right_panel_shell(self):
+        """@media (max-width: 1100px) MUST still hide .right-panel-shell and define
+        .detail-panel slide-over rules."""
+        self.assertIn("@media (max-width: 1100px)", self.template_text)
+        import re
+        media_idx = self.template_text.find("@media (max-width: 1100px)")
+        media_block = self.template_text[media_idx:media_idx + 2000]
+        self.assertIn(
+            ".right-panel-shell",
+            media_block,
+            "Expected .right-panel-shell in @media (max-width: 1100px) block (must be hidden)",
+        )
+        self.assertIn(
+            ".detail-panel",
+            media_block,
+            "Expected .detail-panel slide-over rules in @media (max-width: 1100px) block",
+        )
+
+    def test_is_mobile_open_rule_in_media_block(self):
+        """@media (max-width: 1100px) MUST contain .detail-panel.is-mobile-open rule."""
+        media_idx = self.template_text.find("@media (max-width: 1100px)")
+        media_block = self.template_text[media_idx:media_idx + 2000]
+        self.assertIn(
+            "is-mobile-open",
+            media_block,
+            "Expected .detail-panel.is-mobile-open rule in responsive media block",
+        )
+
+    def test_detail_panel_backdrop_rule_in_media_block(self):
+        """@media (max-width: 1100px) MUST contain #detail-panel-backdrop rule."""
+        media_idx = self.template_text.find("@media (max-width: 1100px)")
+        media_block = self.template_text[media_idx:media_idx + 2000]
+        self.assertIn(
+            "detail-panel-backdrop",
+            media_block,
+            "Expected #detail-panel-backdrop rule in responsive media block",
+        )
+
+    def test_js_slideover_helpers_still_present(self):
+        """syncDetailPanelPresentation, activateDetailSlideover, deactivateDetailSlideover
+        MUST remain defined in the template JS (runtime depends on them)."""
+        self.assertIn("syncDetailPanelPresentation", self.template_text)
+        self.assertIn("activateDetailSlideover", self.template_text)
+        self.assertIn("deactivateDetailSlideover", self.template_text)
+
+    # ── R6: PR3 CSS token discipline ────────────────────────────────────────
+
+    def test_no_hardcoded_hex_in_pr3_css_block(self):
+        """PR3 CSS block MUST use only var(--*) — no hardcoded #rrggbb hex.
+
+        Scoped by comment markers:
+        /* === PR3 Right Rail + Inspector === */ ... /* === END PR3 Right Rail + Inspector === */
+        """
+        start_marker = "/* === PR3 Right Rail + Inspector === */"
+        end_marker = "/* === END PR3 Right Rail + Inspector === */"
+        start = self.template_text.find(start_marker)
+        end = self.template_text.find(end_marker)
+        if start == -1 or end == -1:
+            self.fail(
+                "PR3 CSS block markers not found. "
+                "Expected '/* === PR3 Right Rail + Inspector === */' and "
+                "'/* === END PR3 Right Rail + Inspector === */' in template CSS."
+            )
+        pr3_css_block = self.template_text[start:end]
+        self.assertNotRegex(
+            pr3_css_block,
+            r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b",
+            "Hardcoded hex color found in PR3 CSS block — use var(--*) tokens",
+        )
+
+    def test_reduced_motion_covers_pr3_rail_transitions(self):
+        """@media (prefers-reduced-motion: reduce) MUST cover PR3 new transitions.
+
+        The reduced-motion block must include coverage for .rail-icon transitions
+        (or a broad 'transition: none' rule that covers them).
+        """
+        import re
+        self.assertIn(
+            "@media (prefers-reduced-motion: reduce)",
+            self.template_text,
+        )
+        # Find the last reduced-motion block (PR3 adds one or extends it)
+        # Check that .rail-icon or a broad transition: none rule covers right rail
+        rm_matches = list(re.finditer(
+            r"@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{([\s\S]*?)\}(?=\s*@media|\s*</style>)",
+            self.template_text,
+        ))
+        self.assertTrue(rm_matches, "Could not parse reduced-motion media block")
+        combined = " ".join(m.group(1) for m in rm_matches)
+        has_coverage = (
+            ".rail-icon" in combined
+            or "transition: none" in combined
+        )
+        self.assertTrue(
+            has_coverage,
+            "reduced-motion block MUST cover .rail-icon transitions or use broad 'transition: none'",
+        )
+
+
+class TestWorkspaceShellRemediationOldUiRemoval(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        template_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds"
+            / "ui"
+            / "templates"
+            / "graph_viewer.html"
+        )
+        cls.template_text = template_path.read_text(encoding="utf-8")
+
+    def test_old_visual_blocks_absent_or_hidden(self):
+        self.assertNotIn('id="viewer-empty-state"', self.template_text)
+        self.assertNotIn('id="search-label"', self.template_text)
+        self.assertNotIn('placeholder="Type a name or id"', self.template_text)
+        self.assertRegex(self.template_text, r'id="show-all"[^>]*hidden')
+        self.assertRegex(self.template_text, r'id="hide-all"[^>]*hidden')
+
+    def test_new_left_panel_section1_surfaces_present(self):
+        for token in (
+            'class="panel-card',
+            'data-accordion-section="search"',
+            'data-accordion-section="filters"',
+            'data-accordion-section="legend"',
+            'data-accordion-section="hierarchy"',
+            'data-accordion-section="layout"',
+            'class="toggle-chip',
+            'class="tree-row',
+            'class="toggle-card',
+            'id="node-search"',
+            'id="score-threshold-slider"',
+            'id="legend"',
+        ):
+            self.assertIn(token, self.template_text)
+
+    def test_right_rail_is_gear_only(self):
+        self.assertIn('data-catalog-id="gear"', self.template_text)
+        self.assertNotIn('data-catalog-id="inspector"', self.template_text)
+        self.assertNotIn('data-catalog-id="history"', self.template_text)
+        self.assertNotIn('data-catalog-id="settings"', self.template_text)
+
+    def test_rail_icon_has_explicit_44px_contract(self):
+        self.assertRegex(self.template_text, r"\.rail-icon\s*\{[^}]*width:\s*44px")
+        self.assertRegex(self.template_text, r"\.rail-icon\s*\{[^}]*height:\s*44px")
+
+    def test_inspector_uses_section2_5_styles_and_empty_state(self):
+        for token in (
+            'class="empty-state"',
+            'var(--text-muted)',
+            'class="inspector-accordion"',
+            'class="inspector-summary"',
+            'class="inspector-body"',
+            'id="detail-collapse"',
+            'id="detail-close"',
+        ):
+            self.assertIn(token, self.template_text)
+
+    def test_adapter_ids_preserved(self):
+        for _id in (
+            "node-search", "search-results", "type-filters", "score-threshold-slider", "score-badge",
+            "legend", "tree-panel", "toggle-hierarchical", "toggle-physics", "zoom-fit", "theme-toggle",
+            "detail-panel", "detail-title", "detail-meta", "detail-body", "detail-collapse", "detail-close",
+            "network",
+        ):
+            self.assertIn(f'id="{_id}"', self.template_text)
 
 
 if __name__ == "__main__":

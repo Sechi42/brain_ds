@@ -221,7 +221,7 @@ class El {
   }
   closest(){ return document.body; }
 }
-const ids = ["org-name","org-meta","org-ts","network","detail-panel","detail-collapse","detail-close","score-badge","score-threshold-slider","theme-toggle","detail-panel-backdrop","viewer-loading","viewer-empty-state","empty-reset-filters","viewer-live-region","detail-body","search-results","node-search","type-filters","legend","show-all","hide-all","toggle-hierarchical","toggle-physics","zoom-fit","edit-toggle","export-json","search-group","controls"]; 
+const ids = ["org-name","org-meta","org-ts","network","detail-panel","detail-collapse","detail-close","score-badge","score-threshold-slider","theme-toggle","detail-panel-backdrop","viewer-loading","viewer-empty","empty-reset-filters","viewer-live-region","detail-body","search-results","node-search","type-filters","legend","show-all","hide-all","toggle-hierarchical","toggle-physics","zoom-fit","edit-toggle","export-json","search-group","controls"];
 const byId = new Map(ids.map((id)=>[id,new El(id)]));
 byId.get("detail-panel").classList.add("is-mobile-open");
 byId.get("search-group").appendChild(byId.get("node-search"));
@@ -331,7 +331,7 @@ class El {
   closest(){ return document.body; }
 }
 
-const ids=["org-name","org-meta","org-ts","network","detail-panel","detail-collapse","detail-close","score-badge","score-threshold-slider","theme-toggle","detail-panel-backdrop","viewer-loading","viewer-empty-state","empty-reset-filters","viewer-live-region","detail-body","search-results","node-search","type-filters","legend","show-all","hide-all","toggle-hierarchical","toggle-physics","zoom-fit","edit-toggle","export-json","search-group","controls","detail-title","detail-meta"];
+const ids=["org-name","org-meta","org-ts","network","detail-panel","detail-collapse","detail-close","score-badge","score-threshold-slider","theme-toggle","detail-panel-backdrop","viewer-loading","viewer-empty","empty-reset-filters","viewer-live-region","detail-body","search-results","node-search","type-filters","legend","show-all","hide-all","toggle-hierarchical","toggle-physics","zoom-fit","edit-toggle","export-json","search-group","controls","detail-title","detail-meta"];
 const byId=new Map(ids.map((id)=>[id,new El(id)]));
 byId.get("detail-collapse").setAttribute("aria-expanded","true");
 byId.get("detail-panel").appendChild(new El("btn-a","button"));
@@ -450,7 +450,7 @@ class El {
 const ids=[
   "org-name","org-meta","org-ts","network","detail-panel","detail-collapse","detail-close",
   "score-badge","score-threshold-slider","theme-toggle","detail-panel-backdrop","viewer-loading",
-  "viewer-empty-state","empty-reset-filters","viewer-live-region","detail-body","search-results",
+  "viewer-empty","empty-reset-filters","viewer-live-region","detail-body","search-results",
   "node-search","type-filters","legend","show-all","hide-all","toggle-hierarchical","toggle-physics",
   "zoom-fit","edit-toggle","export-json","search-group","controls","detail-title","detail-meta"
 ];
@@ -515,7 +515,7 @@ globalThis.window = windowObj; globalThis.document = document; globalThis.vis = 
 
 eval(appScript);
 
-const emptyStateEl = byId.get("viewer-empty-state");
+const emptyStateEl = byId.get("viewer-empty");
 const emptyResetBtn = byId.get("empty-reset-filters");
 
 // Step 1: Apply a filter that yields zero visible nodes.

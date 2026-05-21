@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PR3 Right Rail + Inspector Preview (Review Artifact)</title>
+    <!-- Tokens and shared component CSS from design references — NOT inlined -->
+    <link rel="stylesheet" href="../../../../brain_ds/ui/design/sections/_tokens.css" />
+    <link rel="stylesheet" href="../../../../brain_ds/ui/design/sections/_shared.css" />
+    <style>
+      /* ── Page chrome ── */
+      html, body {
+        margin: 0;
+        height: 100vh;
+        overflow: hidden;
+        background: var(--bg-main);
+        color: var(--text-normal);
+        font-family: Aptos, "Segoe UI Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        font-size: 15px;
+        line-height: 1.45;
+      }
+
+      /* ── Workspace shell (preview — right rail + R-panel live; left/center are placeholders) ── */
+      .workspace-shell {
+        display: grid;
+        grid-template-columns: 48px minmax(220px,300px) minmax(0,1fr) minmax(280px,360px) 48px;
+        grid-template-rows: 1fr;
+        height: 100vh;
+      }
+
+      /* ── Left rail placeholder ── */
+      .left-rail-placeholder {
+        background: var(--bg-panel);
+        border-right: 1px solid var(--border-subtle);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-muted);
+        font-size: 0.7rem;
+        writing-mode: vertical-rl;
+      }
+
+      /* ── L-panel placeholder ── */
+      .left-panel-placeholder {
+        background: var(--bg-panel);
+        border-right: 1px solid var(--border-subtle);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-muted);
+        font-size: 0.82rem;
+      }
+
+      /* ── Center placeholder ── */
+      .center-placeholder {
+        background: var(--bg-main);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-muted);
+        font-size: 0.82rem;
+        border-right: 1px solid var(--border-subtle);
+      }
+
+      /* ── Right panel shell ── */
+      .right-panel-shell {
+        background: var(--bg-panel);
+        border-left: 1px solid var(--border-subtle);
+        display: flex;
+        flex-direction: column;
+        min-width: 280px;
+        max-width: 360px;
+        overflow: hidden;
+      }
+
+      /* ── R-panel header ── */
+      .panel-header {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 0.7rem;
+        border-bottom: 1px solid var(--border-subtle);
+        color: var(--text-bright);
+        font-size: 0.85rem;
+        font-weight: 650;
+        flex: 0 0 44px;
+      }
+      .panel-collapse-right {
+        width: 44px;
+        height: 44px;
+        border: none;
+        background: transparent;
+        color: var(--text-muted);
+        border-radius: var(--radius-ui);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 200ms ease, color 200ms ease;
+      }
+      .panel-collapse-right:hover { background: var(--bg-panel-hover); color: var(--text-normal); }
+      .panel-collapse-right:focus-visible { outline: 2px solid var(--accent-mora); outline-offset: -2px; }
+
+      /* ── Detail panel (simulated selected node) ── */
+      .detail-panel {
+        flex: 1 1 0;
+        min-height: 0;
+        overflow: auto;
+        padding: 0.75rem;
+        display: grid;
+        gap: 0.55rem;
+        align-content: start;
+      }
+
+      /* ── Inspector accordion stub scroll area ── */
+      .inspector-stub-scroll {
+        padding: 0 0.55rem 0.55rem;
+      }
+
+      /* ── Right rail ── */
+      .right-rail {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        border-left: 1px solid var(--border-subtle);
+        background: var(--bg-panel);
+        padding: 2px 0;
+        width: 48px;
+      }
+      .right-rail-icons {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding-top: 4px;
+        gap: 2px;
+      }
+
+      /* ── Responsive preview note ── */
+      .responsive-note {
+        position: fixed;
+        bottom: 1rem;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--bg-active);
+        color: var(--text-muted);
+        font-size: 0.78rem;
+        padding: 0.4rem 0.8rem;
+        border-radius: var(--radius-ui);
+        border: 1px solid var(--border-subtle);
+        pointer-events: none;
+        z-index: 9999;
+      }
+
+      /* ── Reduced motion ── */
+      @media (prefers-reduced-motion: reduce) {
+        .rail-icon, .panel-collapse-right { transition: none; animation: none; }
+      }
+
+      /* ── Responsive: narrow viewport simulation ── */
+      @media (max-width: 1100px) {
+        .workspace-shell { grid-template-columns: 48px minmax(0,1fr) 48px; }
+        .left-panel-placeholder, .right-panel-shell { display: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="workspace-shell" role="main" aria-label="PR3 right rail + inspector preview">
+
+      <!-- Left rail placeholder (PR2 — not focus of this review) -->
+      <div class="left-rail-placeholder" aria-hidden="true">Left rail (PR2)</div>
+
+      <!-- L-panel placeholder -->
+      <div class="left-panel-placeholder" aria-hidden="true">L-panel (PR2)</div>
+
+      <!-- Center canvas placeholder -->
+      <div class="center-placeholder" aria-hidden="true">Center canvas (PR1.5)</div>
+
+      <!-- Right panel shell (PR3 focus) -->
+      <aside class="right-panel-shell" aria-label="Right panel shell">
+        <!-- R-panel header -->
+        <header class="panel-header" data-panel-side="right" role="region" aria-label="Inspector panel">
+          <strong>Inspector</strong>
+          <!-- Collapse is a STUB (panel routing: follow-up PR) -->
+          <button type="button" class="panel-collapse-right" aria-label="Collapse right panel" aria-expanded="true">
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          </button>
+        </header>
+
+        <!-- Simulated detail panel content (runtime renders this dynamically) -->
+        <div class="detail-panel" aria-label="Simulated node details">
+          <details class="inspector-accordion" open data-accordion-section="properties">
+            <summary class="inspector-summary" aria-label="Toggle properties section">
+              <span>Properties</span>
+              <svg class="chevron" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+            </summary>
+            <div class="inspector-body">
+              <ul style="margin:0;padding-left:1rem;font-size:0.82rem;color:var(--text-normal)">
+                <li>Entity: Department</li>
+                <li>Name: Growth Operations</li>
+                <li style="color:var(--text-muted)">Score: 0.82</li>
+              </ul>
+            </div>
+          </details>
+
+          <details class="inspector-accordion" data-accordion-section="metadata">
+            <summary class="inspector-summary" aria-label="Toggle metadata section">
+              <span>Metadata</span>
+              <svg class="chevron" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+            </summary>
+            <div class="inspector-body">
+              <ul style="margin:0;padding-left:1rem;font-size:0.82rem;color:var(--text-normal)">
+                <li>ID: node_dep_0042</li>
+                <li>Updated: 2026-05-20</li>
+              </ul>
+            </div>
+          </details>
+
+          <details class="inspector-accordion" open data-accordion-section="related">
+            <summary class="inspector-summary" aria-label="Toggle related section">
+              <span>Related</span>
+              <svg class="chevron" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+            </summary>
+            <div class="inspector-body">
+              <ul style="margin:0;padding-left:1rem;font-size:0.82rem;color:var(--text-normal)">
+                <li>owns → Project Atlas</li>
+                <li>depends_on → Data Platform</li>
+              </ul>
+            </div>
+          </details>
+        </div>
+
+        <!-- AI Actions stub (section-2 pattern — MCP bridge not wired) -->
+        <div class="inspector-stub-scroll">
+          <details class="inspector-accordion" data-accordion-section="ai-actions">
+            <summary class="inspector-summary" aria-label="Toggle AI actions section">
+              <span>AI Actions</span>
+              <svg class="chevron" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+            </summary>
+            <div class="inspector-body">
+              <div style="padding:0.4rem 0;font-size:0.82rem;color:var(--text-muted)" aria-disabled="true">MCP bridge — not wired</div>
+            </div>
+          </details>
+        </div>
+      </aside>
+
+      <!-- Right rail (PR3) — data-rail-side="right" activates _shared.css ::before mirror rule -->
+      <nav class="right-rail" role="tablist" aria-orientation="vertical" aria-label="Right workspace rail" data-rail-side="right">
+        <div class="right-rail-icons">
+          <!-- Inspector — active by default -->
+          <button class="rail-icon" role="tab" aria-selected="true" aria-label="Open inspector panel" data-catalog-id="inspector" tabindex="0">
+            <!-- Lucide panel-right -->
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg>
+          </button>
+          <!-- History — stub -->
+          <button class="rail-icon" role="tab" aria-selected="false" aria-label="Open history panel" data-catalog-id="history" tabindex="-1">
+            <!-- Lucide clock -->
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </button>
+          <!-- Settings — stub -->
+          <button class="rail-icon" role="tab" aria-selected="false" aria-label="Open settings panel" data-catalog-id="settings" tabindex="-1">
+            <!-- Lucide settings/gear -->
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.82-.33 1.7 1.7 0 0 0-1 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.56 1.7 1.7 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .33-1.82 1.7 1.7 0 0 0-1.56-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1 1.7 1.7 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.82.33h.01a1.7 1.7 0 0 0 1-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.56h.01a1.7 1.7 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.33 1.82v.01a1.7 1.7 0 0 0 1.56 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1Z"/></svg>
+          </button>
+        </div>
+      </nav>
+
+    </div>
+
+    <div class="responsive-note">Resize browser below 1100px to test responsive slide-over behavior</div>
+  </body>
+</html>
