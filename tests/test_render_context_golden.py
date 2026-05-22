@@ -45,6 +45,7 @@ def _assert_against_golden(testcase: unittest.TestCase, supertype: str) -> None:
         golden_path.write_text(json.dumps(context, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     expected = json.loads(golden_path.read_text(encoding="utf-8"))
+    expected["meta"]["workspace"]["root"] = str((_fixture_root() / "graph_inputs").resolve())
     testcase.assertEqual(context, expected)
 
 
