@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import socket
 import sys
 from pathlib import Path
 from typing import Sequence
 
+from brain_ds.mcp.config import generate_claude_config
+from brain_ds.mcp.security import SecurityError
+from brain_ds.mcp.server import run_mcp_server
 from brain_ds.validation import validate_graph
 
 from .render_context import WorkspaceContext
@@ -22,6 +27,11 @@ def _build_parser() -> argparse.ArgumentParser:
     ui_parser.add_argument("--root", dest="project_root", help="Workspace root path used for contract metadata")
     ui_parser.add_argument("--project-root", dest="project_root", help="Project root path for serve mode")
     ui_parser.add_argument("--port", type=int, default=8765, help="Serve port (default: 8765)")
+    ui_parser.add_argument(
+        "--probe",
+        action="store_true",
+        help="Bind an ephemeral localhost port, print READY, and exit (installer smoke check)",
+    )
     ui_parser.add_argument("--output", help="Output HTML path (optional, or '-' for stdout)")
     ui_parser.add_argument("--open", action="store_true", dest="open_browser", help="Open HTML after generation")
     ui_parser.add_argument(
@@ -42,6 +52,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print safely normalized JSON to stdout (does not mutate the input file)",
     )
+
+    mcp_parser = subparsers.add_parser("mcp", help="Run MCP stdio server")
+    mcp_parser.add_argument("--project-root", dest="project_root", help="Project root containing .brain_ds/store.db")
+    mcp_parser.add_argument("mcp_command", nargs="?", choices=["print-config"], help="MCP utility command")
+    mcp_parser.add_argument("--absolute", action="store_true", help="Resolve --project-root to an absolute path")
 
     return parser
 
@@ -167,6 +182,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "ui":
         project_root = Path(args.project_root).resolve() if args.project_root else Path(".").resolve()
+        if args.probe:
+            with socket.create_server(("127.0.0.1", 0)):
+                print("READY")
+            return 0
+
         if args.graph_json in (None, "serve"):
             run_server(project_root=project_root, port=args.port)
             return 0
@@ -182,6 +202,41 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "validate":
         return _run_validate(args.graph_json, fix=args.fix)
+
+    if args.command == "mcp":
+        if args.mcp_command == "print-config":
+            root_value = args.project_root if args.project_root is not None else "."
+            if root_value == "":
+                print("usage: brain_ds mcp print-config [--project-root PROJECT_ROOT] [--absolute]", file=sys.stderr)
+                return 2
+
+            root_path = Path(root_value)
+            if not root_path.exists():
+                print(f"Error: project root does not exist: {root_value}", file=sys.stderr)
+                return 2
+
+            try:
+                config = generate_claude_config(root_path, absolute=args.absolute)
+            except RuntimeError as exc:
+                print(str(exc), file=sys.stderr)
+                return 2
+
+            json.dump(config, sys.stdout, indent=2)
+            sys.stdout.write("\n")
+            return 0
+
+        project_root = args.project_root or os.environ.get("BRAIN_DS_PROJECT_ROOT")
+
+        if not project_root:
+            print("usage: brain_ds mcp [-h] [--project-root PROJECT_ROOT]", file=sys.stderr)
+            return 2
+
+        try:
+            run_mcp_server(Path(project_root).resolve())
+            return 0
+        except SecurityError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
 
     parser.print_help(sys.stderr)
     return 2

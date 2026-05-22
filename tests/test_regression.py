@@ -28,9 +28,11 @@ class TestRuntimeRegression(unittest.TestCase):
             "__future__",
             "argparse",
             "json",
+            "os",
             "pathlib",
             "sys",
             "typing",
+            "socket",
             "signal",
             "http",
         }
