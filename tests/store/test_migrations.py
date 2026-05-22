@@ -15,8 +15,8 @@ class TestMigrations(unittest.TestCase):
             "SELECT value FROM store_meta WHERE key = 'schema_version'"
         ).fetchone()[0]
 
-        self.assertEqual(applied, [1])
-        self.assertEqual(version, "1")
+        self.assertEqual(applied, list(range(1, len(MIGRATIONS) + 1)))
+        self.assertEqual(version, str(len(MIGRATIONS)))
 
     def test_second_connect_is_noop(self):
         conn = sqlite3.connect(":memory:")
@@ -25,7 +25,7 @@ class TestMigrations(unittest.TestCase):
         first = apply_pending(conn)
         second = apply_pending(conn)
 
-        self.assertEqual(first, [1])
+        self.assertEqual(first, list(range(1, len(MIGRATIONS) + 1)))
         self.assertEqual(second, [])
 
     def test_forward_version_raises_incompatible(self):

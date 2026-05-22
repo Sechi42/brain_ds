@@ -24,7 +24,23 @@ def v1_initial_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(DDL_SCRIPT)
 
 
-MIGRATIONS: Sequence[Migration] = (v1_initial_schema,)
+def v2_tools_audit(conn: sqlite3.Connection) -> None:
+    """Create audit log table for write-tool operations."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tools_audit(
+            id INTEGER PRIMARY KEY,
+            timestamp TEXT NOT NULL,
+            tool_name TEXT NOT NULL,
+            input_hash TEXT NOT NULL,
+            result_status TEXT NOT NULL,
+            caller_id TEXT
+        )
+        """
+    )
+
+
+MIGRATIONS: Sequence[Migration] = (v1_initial_schema, v2_tools_audit)
 
 
 def _current_schema_version(conn: sqlite3.Connection) -> int:

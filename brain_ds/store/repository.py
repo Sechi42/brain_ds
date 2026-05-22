@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
+import hashlib
+import json
 from heapq import nlargest
 from math import fsum, sqrt
 from datetime import datetime, timedelta, timezone
@@ -209,6 +211,104 @@ class NodeRepository:
             for row in rows
         ]
 
+    def upsert_node(self, graph_id: str, node_input: dict) -> None:
+        now = _utc_now()
+        existing_row = self.conn.execute(
+            """
+            SELECT label, type, supertype, details, card_sections, editable_fields,
+                   evidence_ids, layout_hint, parent_id, depth, created_at, modified_at
+              FROM nodes
+             WHERE graph_id = ? AND id = ?
+            """,
+            (graph_id, node_input["id"]),
+        ).fetchone()
+        if existing_row is not None:
+            existing_modified = datetime.fromisoformat(existing_row[11])
+            now_dt = datetime.fromisoformat(now)
+            if now_dt <= existing_modified:
+                now = (existing_modified + timedelta(microseconds=1)).isoformat()
+
+        payload = {
+            "label": node_input.get("label") if existing_row is None else node_input.get("label", existing_row[0]),
+            "type": node_input.get("type") if existing_row is None else node_input.get("type", existing_row[1]),
+            "supertype": node_input.get("supertype") if existing_row is None else node_input.get("supertype", existing_row[2]),
+            "details": (
+                encode_json(node_input.get("details", {}))
+                if existing_row is None
+                else encode_json(node_input["details"]) if "details" in node_input else existing_row[3]
+            ),
+            "card_sections": (
+                encode_json(node_input.get("card_sections")) if node_input.get("card_sections") is not None else None
+            )
+            if existing_row is None
+            else (
+                encode_json(node_input["card_sections"]) if "card_sections" in node_input and node_input["card_sections"] is not None else (None if "card_sections" in node_input else existing_row[4])
+            ),
+            "editable_fields": (
+                encode_json(node_input.get("editable_fields")) if node_input.get("editable_fields") is not None else None
+            )
+            if existing_row is None
+            else (
+                encode_json(node_input["editable_fields"]) if "editable_fields" in node_input and node_input["editable_fields"] is not None else (None if "editable_fields" in node_input else existing_row[5])
+            ),
+            "evidence_ids": (
+                encode_json(node_input.get("evidence_ids")) if node_input.get("evidence_ids") is not None else None
+            )
+            if existing_row is None
+            else (
+                encode_json(node_input["evidence_ids"]) if "evidence_ids" in node_input and node_input["evidence_ids"] is not None else (None if "evidence_ids" in node_input else existing_row[6])
+            ),
+            "layout_hint": (
+                encode_json(node_input.get("layout_hint")) if node_input.get("layout_hint") is not None else None
+            )
+            if existing_row is None
+            else (
+                encode_json(node_input["layout_hint"]) if "layout_hint" in node_input and node_input["layout_hint"] is not None else (None if "layout_hint" in node_input else existing_row[7])
+            ),
+            "parent_id": node_input.get("parent_id") if existing_row is None else node_input.get("parent_id", existing_row[8]),
+            "depth": int(node_input.get("depth", 0)) if existing_row is None else int(node_input.get("depth", existing_row[9])),
+            "created_at": now if existing_row is None else existing_row[10],
+        }
+
+        self.conn.execute(
+            """
+            INSERT INTO nodes(
+                graph_id, id, label, type, supertype, details, card_sections,
+                editable_fields, evidence_ids, layout_hint, parent_id, depth,
+                created_at, modified_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(graph_id, id) DO UPDATE SET
+                label=COALESCE(excluded.label, nodes.label),
+                type=COALESCE(excluded.type, nodes.type),
+                supertype=COALESCE(excluded.supertype, nodes.supertype),
+                details=COALESCE(excluded.details, nodes.details),
+                card_sections=COALESCE(excluded.card_sections, nodes.card_sections),
+                editable_fields=COALESCE(excluded.editable_fields, nodes.editable_fields),
+                evidence_ids=COALESCE(excluded.evidence_ids, nodes.evidence_ids),
+                layout_hint=COALESCE(excluded.layout_hint, nodes.layout_hint),
+                parent_id=COALESCE(excluded.parent_id, nodes.parent_id),
+                depth=COALESCE(excluded.depth, nodes.depth),
+                modified_at=excluded.modified_at
+            """,
+            (
+                graph_id,
+                node_input["id"],
+                payload["label"],
+                payload["type"],
+                payload["supertype"],
+                payload["details"],
+                payload["card_sections"],
+                payload["editable_fields"],
+                payload["evidence_ids"],
+                payload["layout_hint"],
+                payload["parent_id"],
+                payload["depth"],
+                payload["created_at"],
+                now,
+            ),
+        )
+        self.conn.commit()
+
     def delete_nodes(self, graph_id: str) -> None:
         self.conn.execute("DELETE FROM nodes WHERE graph_id = ?", (graph_id,))
         self.conn.commit()
@@ -302,6 +402,83 @@ class EdgeRepository:
             )
             for row in rows
         ]
+
+    def upsert_edge(self, graph_id: str, edge_input: dict) -> None:
+        edge_id = edge_input.get("edge_id")
+        if edge_id is None:
+            source = edge_input["source"]
+            target = edge_input["target"]
+            count = self.conn.execute(
+                "SELECT COUNT(*) FROM edges WHERE graph_id = ? AND source = ? AND target = ?",
+                (graph_id, source, target),
+            ).fetchone()[0]
+            edge_id = f"{source}->{target}#{count + 1}"
+
+        existing = self.conn.execute(
+            """
+            SELECT source, target, label, weight, reasons, evidence_ids
+              FROM edges
+             WHERE graph_id = ? AND edge_id = ?
+            """,
+            (graph_id, edge_id),
+        ).fetchone()
+
+        source = edge_input.get("source") if existing is None else edge_input.get("source", existing[0])
+        target = edge_input.get("target") if existing is None else edge_input.get("target", existing[1])
+        label = edge_input.get("label") if existing is None else edge_input.get("label", existing[2])
+        weight = edge_input.get("weight") if existing is None else edge_input.get("weight", existing[3])
+        reasons = (
+            encode_json(edge_input.get("reasons")) if edge_input.get("reasons") is not None else None
+        ) if existing is None else (
+            encode_json(edge_input["reasons"]) if "reasons" in edge_input and edge_input["reasons"] is not None else (None if "reasons" in edge_input else existing[4])
+        )
+        evidence_ids = (
+            encode_json(edge_input.get("evidence_ids")) if edge_input.get("evidence_ids") is not None else None
+        ) if existing is None else (
+            encode_json(edge_input["evidence_ids"]) if "evidence_ids" in edge_input and edge_input["evidence_ids"] is not None else (None if "evidence_ids" in edge_input else existing[5])
+        )
+
+        self.conn.execute(
+            """
+            INSERT INTO edges(
+                graph_id, edge_id, source, target, label, weight, reasons, evidence_ids, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(graph_id, edge_id) DO UPDATE SET
+                source=COALESCE(excluded.source, edges.source),
+                target=COALESCE(excluded.target, edges.target),
+                label=COALESCE(excluded.label, edges.label),
+                weight=COALESCE(excluded.weight, edges.weight),
+                reasons=COALESCE(excluded.reasons, edges.reasons),
+                evidence_ids=COALESCE(excluded.evidence_ids, edges.evidence_ids)
+            """,
+            (graph_id, edge_id, source, target, label, weight, reasons, evidence_ids, _utc_now()),
+        )
+        self.conn.commit()
+
+
+class AuditRepository:
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def log_audit(
+        self,
+        tool_name: str,
+        tool_input: dict,
+        result_status: str,
+        *,
+        caller_id: str | None = None,
+    ) -> None:
+        if result_status not in {"ok", "error"}:
+            raise ValueError("result_status must be 'ok' or 'error'")
+        input_hash = hashlib.sha256(json.dumps(tool_input, sort_keys=True).encode()).hexdigest()
+        self.conn.execute(
+            """
+            INSERT INTO tools_audit(timestamp, tool_name, input_hash, result_status, caller_id)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (_utc_now(), tool_name, input_hash, result_status, caller_id),
+        )
+        self.conn.commit()
 
 
 class EvidenceRepository:

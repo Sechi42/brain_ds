@@ -14,6 +14,7 @@ from .migrations import MIGRATIONS, apply_pending, configure_connection
 from .models import ClusterRow, EdgeRow, EvidenceRow, GraphMeta, NearestHit, NodeRow
 from .repository import (
     ClusterRepository,
+    AuditRepository,
     EmbeddingRepository,
     EdgeRepository,
     EvidenceRepository,
@@ -46,6 +47,7 @@ class GraphStore:
         self.evidence_repo = EvidenceRepository(self.conn)
         self.cluster_repo = ClusterRepository(self.conn)
         self.embedding_repo = EmbeddingRepository(self.conn)
+        self.audit_repo = AuditRepository(self.conn)
 
     def _connect(self, *, path: str, read_only: bool, allow_cross_thread: bool) -> sqlite3.Connection:
         check_same_thread = not allow_cross_thread
@@ -179,6 +181,27 @@ class GraphStore:
         self._ensure_writable()
         self._assert_graph_exists(graph_id)
         self.embedding_repo.upsert_embedding(graph_id, target_type, target_id, model, vector)
+
+    def upsert_node(self, graph_id: str, node_input: dict[str, Any]) -> None:
+        self._ensure_writable()
+        self._assert_graph_exists(graph_id)
+        self.node_repo.upsert_node(graph_id, node_input)
+
+    def upsert_edge(self, graph_id: str, edge_input: dict[str, Any]) -> None:
+        self._ensure_writable()
+        self._assert_graph_exists(graph_id)
+        self.edge_repo.upsert_edge(graph_id, edge_input)
+
+    def log_audit(
+        self,
+        tool_name: str,
+        tool_input: dict[str, Any],
+        result_status: str,
+        *,
+        caller_id: str | None = None,
+    ) -> None:
+        self._ensure_writable()
+        self.audit_repo.log_audit(tool_name, tool_input, result_status, caller_id=caller_id)
 
     def nearest_embeddings(
         self,
