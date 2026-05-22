@@ -11,5 +11,6 @@ node_modules/
 .build-venv/
 build/pyinstaller/
 src-tauri/binaries-stage/
+src-tauri/target/
 
 *.stackdump
