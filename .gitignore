@@ -8,3 +8,8 @@ brain_ds.egg-info/
 dist/
 .pytest_cache/
 node_modules/
+.build-venv/
+build/pyinstaller/
+src-tauri/binaries-stage/
+
+*.stackdump
