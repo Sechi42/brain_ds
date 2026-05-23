@@ -96,24 +96,22 @@ Left-rail icon click MUST call `window.brainDsUI.search.mount()` / `.unmount()`,
 
 ---
 
-### Requirement GV-4: Layout Control Redistribution (New-Shell Visuals)
+### Requirement GV-4: Layout Control Redistribution (Segmented Control)
 
-Hierarchical toggle and Physics toggle MUST reside in L-panel Layout module rendered as new-style `.toggle-card` elements with `--bg-panel` surface, `--bg-panel-hover` hover, `aria-pressed` state, and `--accent-mora` active indicator. Zoom-fit and Theme-toggle MUST reside in toolbar overflow zone rendered as toolbar icon buttons. All four controls MUST retain existing click handler logic (`network.setOptions`, `network.fit`, theme switching) unchanged. Old raw `<button>` / `<div>` layout blocks with pre-migration styling MUST NOT render.
+Hierarchical/Physics MUST render as `.segmented-control[role="radiogroup"][aria-label="View mode"]` > `.segment-btn[role="radio"]` with `aria-checked`. `.toggle-card` class, `aria-pressed` on these controls, and `◉` glyph MUST NOT exist. Active segment: `--accent-mora-muted` bg + `--text-bright` text. Inactive: transparent bg + `--text-muted`. Track: `--bg-active` bg + `--border-subtle` border + `--radius-md`. JS MUST enforce mutual exclusion via `aria-checked` on both buttons. Zoom-fit/Theme-toggle unchanged. Same `network.setOptions` calls preserved.
+(Previously: `.toggle-card` elements with `aria-pressed` toggle and `◉` glyph indicator.)
 
-#### Scenario GV-4-A: hierarchical and physics in L-panel as toggle cards
+#### Scenario GV-4-A: segmented control mutual exclusion
 
-- GIVEN the Layout rail icon is active
-- WHEN the Layout panel module renders
-- THEN `#toggle-hierarchical` and `#toggle-physics` render inside `.toggle-card` elements with `aria-pressed`
-- AND `.toggle-card` uses `--bg-panel` background with `--accent-mora` active indicator
-- AND no old raw layout control block with pre-migration styling exists
-- AND clicking them calls the same `network.setOptions` calls as pre-migration
+- GIVEN Layout panel visible
+- THEN `#toggle-hierarchical` and `#toggle-physics` are `.segment-btn` children of `[role="radiogroup"]`
+- AND each has `role="radio"` with mutually exclusive `aria-checked`
+- AND click updates both `aria-checked` values and calls same `network.setOptions` logic
 
-#### Scenario GV-4-B: zoom-fit and theme in toolbar overflow
+#### Scenario GV-4-B: zoom-fit and theme unchanged
 
-- GIVEN toolbar overflow is rendered
-- THEN `#zoom-fit` calls `network.fit({ animation: true })` on click
-- AND `#theme-toggle` toggles `data-theme` attribute and persists to localStorage key `brain_ds.theme`
+- GIVEN toolbar overflow rendered
+- THEN `#zoom-fit` calls `network.fit({animation:true})`; `#theme-toggle` persists theme to localStorage
 
 ---
 
@@ -138,6 +136,66 @@ Hierarchical toggle and Physics toggle MUST reside in L-panel Layout module rend
 - WHEN the user hovers or right-clicks the node
 - THEN popover tether and context menu appear identically to pre-migration
 - AND popover `z-index: 50` does not conflict with drawer overlay `z-index: 1000`
+
+---
+
+### Requirement GV-14: Pill Filter Action Buttons
+
+Show/Hide MUST render as `.pill-group` > `.pill-btn` / `.pill-btn--primary`. No `.toggle-chip` class or `aria-pressed`. `#show-all`: `.pill-btn--primary` (`--accent-mora-muted` bg, `--accent-mora` color/border). `#hide-all`: `.pill-btn` (`--bg-active` bg, `--text-muted` color, `--border-subtle` border). Min-height 44px, `--radius-md`. Clicks MUST call unchanged `onShowAll()`/`onHideAll()`.
+
+#### Scenario GV-14-A: pill buttons trigger unchanged behavior
+
+- GIVEN Filters panel visible
+- WHEN `#show-all` or `#hide-all` clicked
+- THEN `onShowAll()` / `onHideAll()` called (same as pre-D.2)
+- AND neither button has `aria-pressed`
+
+---
+
+### Requirement GV-15: Control Accessibility
+
+Segmented control: `role="radiogroup"` + `aria-label="View mode"`, buttons `role="radio"` + `aria-checked`. Arrow keys MUST navigate per WAI-ARIA radiogroup (Left/Up=prev, Right/Down=next). All interactive controls MUST show `:focus-visible` ring: 2px `var(--accent-mora)` outline, 2px offset. Active segment text MUST meet WCAG AA contrast against `--bg-canvas-deep`.
+
+#### Scenario GV-15-A: ARIA semantics and keyboard
+
+- GIVEN DOM rendered → `.segmented-control` has `role="radiogroup"` + `aria-label`
+- AND `.segment-btn` children have `role="radio"` + `aria-checked` (exactly one true at load)
+- WHEN ArrowRight on checked segment → focus and `aria-checked` move to next
+- AND focused control shows 2px `var(--accent-mora)` outline via `:focus-visible`
+
+---
+
+### Requirement GV-16: Implementation Constraints
+
+| Constraint | Rule |
+|---|---|
+| Tokens | Only D.1 `tokens.css`: `--bg-active`, `--border-subtle`, `--accent-mora`, `--accent-mora-muted`, `--text-muted`, `--text-bright`, `--radius-md`, `--duration-fast`, `--ease-standard`. Zero new custom properties. |
+| Layout | 5-column grid, `.panel-card` sections, toolbar `data-toolbar-zone` slots unchanged. |
+| Behavior | `network.setOptions`, `onShowAll`, `onHideAll`, renderer.ts, popover, context menu all unchanged. |
+| Stack | No React, no Tailwind, no new TS component files. |
+| IDs | `toggle-hierarchical`, `toggle-physics`, `show-all`, `hide-all` preserve exact `id` values. |
+| Removals | `.toggle-card` and `.toggle-chip` classes removed; `aria-pressed` removed from these 4 controls. |
+
+#### Scenario GV-16-A: all constraints met
+
+- GIVEN D.2 rendered viewer
+- THEN CSS uses only D.1 token references (zero new `:root` variables outside `tokens.css`)
+- AND shell layout matches D.1 structure
+- AND all 4 IDs exist with identical pre-D.2 values
+- AND `.toggle-card`, `.toggle-chip` classes and `aria-pressed` on these controls are absent
+
+---
+
+### Requirement GV-17: Visual Checkpoint
+
+`d2-viewer-sample.html` MUST be rendered from real `graph_viewer.html` template after D.2 changes, demonstrating: segmented control with token styling, pill primary/outline distinction, active/inactive states, and visible focus rings. Control CSS rules MUST use `var(--*)` tokens — no hardcoded hex values.
+
+#### Scenario GV-17-A: checkpoint from real template
+
+- GIVEN D.2 changes applied to `graph_viewer.html`
+- WHEN `d2-viewer-sample.html` generated via template renderer
+- THEN output contains `.segmented-control`, `.segment-btn`, `.pill-btn`, `.pill-btn--primary` elements
+- AND control color rules use `var(--*)` only
 
 ---
 
@@ -169,8 +227,15 @@ Hierarchical toggle and Physics toggle MUST reside in L-panel Layout module rend
 | `test_accordion_wrapper_preserves_inner_detail_structure` | GV-3 | GV-3-B |
 | `test_detail_collapse_close_preserved` | GV-3 | GV-3-C |
 | `test_empty_state_uses_restrained_token_styling` | GV-3 | GV-3-D |
-| `test_hierarchical_physics_in_l_panel_as_toggle_cards` | GV-4 | GV-4-A |
+| `test_d2_segmented_control_aria_structure` | GV-4 | GV-4-A |
+| `test_runtime_segmented_control_mutual_exclusion` | GV-4 | GV-4-A |
 | `test_zoom_fit_theme_in_toolbar_overflow` | GV-4 | GV-4-B |
 | `test_canvas_mount_network_element_in_center_column` | GV-5 | GV-5-A |
 | `test_renderer_source_files_zero_diff` | GV-5 | GV-5-B |
 | `test_hover_popover_context_menu_functional` | GV-5 | GV-5-C |
+| `test_d2_pill_buttons_structure` | GV-14 | GV-14-A |
+| `test_d2_no_hidden_proxy_buttons` | GV-14 | GV-14-A |
+| `test_d2_pill_buttons_have_min_height_css` | GV-14 | GV-14-A |
+| `test_runtime_segmented_control_keyboard_navigation` | GV-15 | GV-15-A |
+| `test_d2_segmented_buttons_have_ids_and_tabindex` | GV-16 | GV-16-A |
+| `test_d2_segmented_and_pill_css_uses_only_tokens` | GV-16 | GV-16-A |

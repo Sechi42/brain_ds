@@ -29,4 +29,5 @@ include = ["brain_ds*"]
   "assets/*.js",
   "assets/*.svg",
   "assets/icons/*.svg",
+  "static/*.css",
 ]
