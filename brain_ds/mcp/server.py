@@ -89,7 +89,7 @@ def _handle_tools_call(request_id: Any, params: dict[str, Any], store: GraphStor
     return {
         "jsonrpc": "2.0",
         "id": request_id,
-        "result": {"content": [{"type": "json", "json": result}]},
+        "result": {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}]},
     }
 
 

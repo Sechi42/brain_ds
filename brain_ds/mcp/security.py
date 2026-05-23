@@ -22,6 +22,12 @@ class ValidationError(Exception):
 
 
 TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
+    "list_graphs": {
+        "type": "object",
+        "required": [],
+        "properties": {},
+        "additionalProperties": False,
+    },
     "list_nodes": {
         "type": "object",
         "required": ["graph_id"],
@@ -90,11 +96,9 @@ def resolve_store_path(project_root: str) -> Path:
     except FileNotFoundError as exc:
         raise SecurityError("Project root does not exist") from exc
 
+    (canonical_root / ".brain_ds").mkdir(parents=True, exist_ok=True)
     store_path = canonical_root / ".brain_ds" / "store.db"
-    try:
-        resolved_store = store_path.resolve(strict=True)
-    except FileNotFoundError as exc:
-        raise SecurityError("Store path does not exist") from exc
+    resolved_store = store_path.resolve(strict=False)
 
     root_real = os.path.realpath(str(canonical_root))
     store_real = os.path.realpath(str(store_path))

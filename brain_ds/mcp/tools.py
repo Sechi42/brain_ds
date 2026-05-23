@@ -20,15 +20,28 @@ def _details_text(details: dict[str, Any]) -> str:
     return " ".join(str(value).lower() for value in details.values())
 
 
+def _normalize_optional_filter(value: Any) -> Any:
+    if isinstance(value, str) and value.strip() == "":
+        return None
+    return value
+
+
+@error_boundary
+def list_graphs(store: GraphStore, params: dict[str, Any]) -> list[dict[str, Any]] | dict[str, Any]:
+    validate_tool_input("list_graphs", params, TOOL_SCHEMAS["list_graphs"])
+    rows = store.list_graphs()
+    return [asdict(row) for row in rows]
+
+
 @error_boundary
 def list_nodes(store: GraphStore, params: dict[str, Any]) -> list[dict[str, Any]] | dict[str, Any]:
     validated = validate_tool_input("list_nodes", params, TOOL_SCHEMAS["list_nodes"])
     try:
         rows = store.query_nodes(
             validated["graph_id"],
-            type=validated.get("type"),
-            supertype=validated.get("supertype"),
-            parent_id=validated.get("parent_id"),
+            type=_normalize_optional_filter(validated.get("type")),
+            supertype=_normalize_optional_filter(validated.get("supertype")),
+            parent_id=_normalize_optional_filter(validated.get("parent_id")),
         )
     except GraphNotFoundError as exc:
         raise ValidationError(code=-32000, message=str(exc)) from exc
@@ -59,7 +72,6 @@ def search_graph(store: GraphStore, params: dict[str, Any]) -> list[dict[str, An
     query = validated["query"].strip().lower()
 
     try:
-        store.search_evidence(graph_id, content_substr=validated["query"])
         rows = store.query_nodes(graph_id)
     except GraphNotFoundError as exc:
         raise ValidationError(code=-32000, message=str(exc)) from exc
@@ -106,13 +118,18 @@ def add_edge(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     graph_id = validated["graph_id"]
 
     try:
-        source_nodes = store.query_nodes(graph_id, parent_id=None)
-        source_exists = any(node.id == validated["source"] for node in source_nodes)
-        if not source_exists:
+        try:
+            get_node.__wrapped__(store, {"graph_id": graph_id, "node_id": validated["source"]})
+        except ValidationError as exc:
+            if exc.message.startswith("Graph '"):
+                raise
             raise ValidationError(code=-32000, message=f"Source node '{validated['source']}' not found")
 
-        target_exists = any(node.id == validated["target"] for node in source_nodes)
-        if not target_exists:
+        try:
+            get_node.__wrapped__(store, {"graph_id": graph_id, "node_id": validated["target"]})
+        except ValidationError as exc:
+            if exc.message.startswith("Graph '"):
+                raise
             raise ValidationError(code=-32000, message=f"Target node '{validated['target']}' not found")
 
         edge_input = {
@@ -169,6 +186,13 @@ def _safe_log_error(store: GraphStore, tool_name: str, payload: dict[str, Any]) 
 
 
 TOOL_REGISTRY: dict[str, dict[str, Any]] = {
+    "list_graphs": {
+        "handler": list_graphs,
+        "schema": TOOL_SCHEMAS["list_graphs"],
+        "description": "List available graph metadata",
+        "rw": "read",
+        "requires_ai_agent": False,
+    },
     "list_nodes": {
         "handler": list_nodes,
         "schema": TOOL_SCHEMAS["list_nodes"],
