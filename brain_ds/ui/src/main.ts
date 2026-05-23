@@ -1,5 +1,6 @@
 import './main.css';
 import './renderer';
+import * as rendererDom from './renderer-dom';
 import * as detailPanel from './panels/detail-panel';
 import * as search from './panels/search';
 import * as filterPanel from './panels/filter-panel';
@@ -50,7 +51,10 @@ window.brainDsUI = {
   if (!context || !window.vis) return;
 
   const container = document.getElementById('network');
-  if (!container) return;
+  const nodesRoot = document.getElementById('d4-nodes');
+  const edgesRoot = document.getElementById('d4-edges') as SVGSVGElement | null;
+  const canvasContainer = document.querySelector('.canvas-container') as HTMLElement | null;
+  if (!container || !nodesRoot || !edgesRoot || !canvasContainer) return;
 
   const RENDER_CONTEXT = context as {
     nodes: unknown[];
@@ -59,11 +63,20 @@ window.brainDsUI = {
 
   const nodes = new vis.DataSet(RENDER_CONTEXT.nodes || []);
   const edges = new vis.DataSet(RENDER_CONTEXT.edges || []);
-  new vis.Network(container, { nodes, edges }, {
+  const network = new vis.Network(container, { nodes, edges }, {
     layout: { hierarchical: { enabled: true, direction: 'UD' } },
     interaction: { hover: true, navigationButtons: true, keyboard: true },
     physics: { enabled: false },
     edges: { arrows: { to: { enabled: true, scaleFactor: 0.7 } }, smooth: { enabled: true, type: 'cubicBezier' } },
     nodes: { shape: 'dot', size: 18 },
+  });
+
+  rendererDom.mount({
+    network,
+    dataset: nodes,
+    edgesDataset: edges,
+    nodesRoot,
+    edgesRoot,
+    container: canvasContainer,
   });
 })();

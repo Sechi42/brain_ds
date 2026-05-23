@@ -259,37 +259,14 @@ VIS_OPTIONS = {
 }
 
 
-def theme_tokens_css() -> str:
-    dark_tokens = THEME_TOKENS["dark"]
-    light_tokens = THEME_TOKENS["light"]
-
-    lines = [":root {"]
-    for key, value in dark_tokens.items():
-        lines.append(f"  --theme-{key}: {value};")
-    lines.append("}")
-
-    lines.append('[data-theme="light"] {')
-    for key, value in light_tokens.items():
-        lines.append(f"  --theme-{key}: {value};")
-    lines.append("}")
-
-    # Cross-theme motion tokens (Slice 2)
-    lines.append(":root {")
-    lines.append("  --duration-fast: 120ms;")
-    lines.append("  --duration-normal: 200ms;")
-    lines.append("  --duration-slow: 320ms;")
-    lines.append("  --ease-standard: cubic-bezier(0.2, 0, 0, 1);")
-    lines.append("  --ease-emphasized: cubic-bezier(0.3, 0, 0, 1);")
-    lines.append("}")
-    lines.append("@media (prefers-reduced-motion: reduce) {")
-    lines.append("  :root {")
-    lines.append("    --duration-fast: 0ms;")
-    lines.append("    --duration-normal: 0ms;")
-    lines.append("    --duration-slow: 0ms;")
-    lines.append("  }")
-    lines.append("}")
-
-    return "\n".join(lines)
+# NOTE (Phase D.1, modern-design-tokens): the previous `theme_tokens_css()`
+# function emitted `--theme-*` CSS variables that no CSS file ever consumed.
+# All runtime CSS tokens (palette, borders, radius, font weights, motion) now
+# live in brain_ds/ui/static/tokens.css and are inlined at render time via
+# template_renderer.py. THEME_TOKENS above is preserved as DATA for contrast
+# tooling (contrast-audit.json) and the test suite — it is no longer used to
+# generate CSS. Do not reintroduce a CSS emitter here; extend tokens.css
+# instead.
 
 
 def vis_options_json() -> str:

@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from brain_ds.mcp.config import generate_claude_config
+from brain_ds.mcp.config import generate_claude_config, generate_opencode_config
 from brain_ds.mcp.security import SecurityError
 from brain_ds.mcp.server import run_mcp_server
 from brain_ds.validation import validate_graph
@@ -57,6 +57,12 @@ def _build_parser() -> argparse.ArgumentParser:
     mcp_parser.add_argument("--project-root", dest="project_root", help="Project root containing .brain_ds/store.db")
     mcp_parser.add_argument("mcp_command", nargs="?", choices=["print-config"], help="MCP utility command")
     mcp_parser.add_argument("--absolute", action="store_true", help="Resolve --project-root to an absolute path")
+    mcp_parser.add_argument(
+        "--format",
+        choices=["claude", "opencode"],
+        default="claude",
+        help="Output format for print-config (default: claude)",
+    )
 
     return parser
 
@@ -216,7 +222,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return 2
 
             try:
-                config = generate_claude_config(root_path, absolute=args.absolute)
+                if args.format == "opencode":
+                    config = generate_opencode_config(root_path, absolute=args.absolute)
+                else:
+                    config = generate_claude_config(root_path, absolute=args.absolute)
             except RuntimeError as exc:
                 print(str(exc), file=sys.stderr)
                 return 2

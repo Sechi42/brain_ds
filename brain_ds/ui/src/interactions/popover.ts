@@ -25,6 +25,9 @@ let _listeners: Array<{ target: EventTarget; type: string; handler: EventListene
 
 export function mount(deps: PopoverDeps): void {
   _deps = deps;
+  if (deps.network) {
+    deps.network.hoverDelayMs = 150;
+  }
 
   // Register the content factory with the renderer.
   if (typeof deps.network.setPopoverContentFactory === "function") {
@@ -57,15 +60,50 @@ export function createContentFactory(deps: PopoverDeps): (nodeId: any) => HTMLEl
     );
     if (!node) return null;
 
+    const adjacency = (deps.RENDER_CONTEXT && deps.RENDER_CONTEXT.adjacency) || {};
+    const neighbors = Array.isArray(adjacency[String(node.id)]) ? adjacency[String(node.id)].length : 0;
+    const cluster = node.group !== undefined && node.group !== null ? String(node.group) : "N/A";
+    const scoreValue = node.score !== undefined && node.score !== null ? Number(node.score).toFixed(2) : "N/A";
+
     const container = document.createElement("div");
     container.className = "vis-popover-content";
 
-    if (node.label) {
-      const nameEl = document.createElement("strong");
-      nameEl.className = "vis-popover-name";
-      nameEl.textContent = String(node.label);
-      container.appendChild(nameEl);
-    }
+    const title = document.createElement("div");
+    title.className = "hover-popover-title";
+
+    const dot = document.createElement("span");
+    dot.className = "hover-popover-dot";
+    dot.setAttribute("aria-hidden", "true");
+    title.appendChild(dot);
+
+    const nameEl = document.createElement("strong");
+    nameEl.className = "vis-popover-name";
+    nameEl.textContent = String(node.label || node.id);
+    title.appendChild(nameEl);
+    container.appendChild(title);
+
+    const grid = document.createElement("dl");
+    grid.className = "hover-popover-grid";
+
+    const appendMetric = (label: string, value: string): void => {
+      const term = document.createElement("dt");
+      term.textContent = label;
+      const detail = document.createElement("dd");
+      detail.textContent = value;
+      grid.appendChild(term);
+      grid.appendChild(detail);
+    };
+
+    appendMetric("Score", scoreValue);
+    appendMetric("Neighbors", String(neighbors));
+    appendMetric("Cluster", cluster);
+    appendMetric("Type", String(node.type || "Node"));
+    container.appendChild(grid);
+
+    const hint = document.createElement("span");
+    hint.className = "hover-popover-hint";
+    hint.textContent = "Enter to select";
+    container.appendChild(hint);
 
     if (node.type || node.group) {
       const typeEl = document.createElement("span");
@@ -77,7 +115,7 @@ export function createContentFactory(deps: PopoverDeps): (nodeId: any) => HTMLEl
     if (node.score !== undefined && node.score !== null) {
       const scoreEl = document.createElement("span");
       scoreEl.className = "vis-popover-score";
-      scoreEl.textContent = "Score: " + Number(node.score).toFixed(2);
+      scoreEl.textContent = "Score: " + scoreValue;
       container.appendChild(scoreEl);
     }
 
