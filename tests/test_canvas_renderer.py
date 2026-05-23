@@ -2,7 +2,10 @@ import re
 import unittest
 from pathlib import Path
 
-from test_viewer import FORBIDDEN_REMOTE_TOKENS
+try:
+    from test_viewer import FORBIDDEN_REMOTE_TOKENS
+except ModuleNotFoundError:  # Direct module execution: `python -m unittest tests.test_canvas_renderer`
+    from tests.test_viewer import FORBIDDEN_REMOTE_TOKENS
 
 
 class TestCanvasRendererContracts(unittest.TestCase):
@@ -159,7 +162,13 @@ class TestCanvasRendererContracts(unittest.TestCase):
         self.assertRegex(self.js_text, r"hoveredNodeId\s*!==\s*null")
 
     def test_w5_ego_edge_theme_token_contract_present(self):
-        self.assertIn("--color-ego-edge", self.template_text)
+        # Phase D.1: tokens moved from inline :root{} in graph_viewer.html to
+        # the canonical brain_ds/ui/static/tokens.css; the runtime inlines it
+        # via __BRAIN_DS_TOKENS_CSS__ substitution. Assert the declaration
+        # lives in the canonical file.
+        tokens_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "static" / "tokens.css"
+        tokens_text = tokens_path.read_text(encoding="utf-8")
+        self.assertIn("--color-ego-edge", tokens_text)
         self.assertRegex(self.js_text, r"egoEdge")
         self.assertRegex(self.js_text, r"#7c3aed")
 

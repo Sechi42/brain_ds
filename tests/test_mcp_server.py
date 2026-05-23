@@ -144,7 +144,7 @@ class MCPServerLifecycleTests(unittest.TestCase):
 
             self.assertIn("capabilities", initialize_response["result"])
             tools = tools_response["result"]["tools"]
-            self.assertEqual(len(tools), 8)
+            self.assertEqual(len(tools), 9)
             self.assertTrue(all("inputSchema" in tool for tool in tools))
 
     def test_run_mcp_server_tools_call_dispatches_read_tool(self) -> None:
@@ -178,8 +178,8 @@ class MCPServerLifecycleTests(unittest.TestCase):
             self.assertEqual(len(lines), 2)
             call_response = json.loads(lines[1])
             self.assertIn("result", call_response)
-            self.assertEqual(call_response["result"]["content"][0]["type"], "json")
-            result_payload = call_response["result"]["content"][0]["json"]
+            self.assertEqual(call_response["result"]["content"][0]["type"], "text")
+            result_payload = json.loads(call_response["result"]["content"][0]["text"])
             self.assertEqual(len(result_payload), 1)
             self.assertEqual(result_payload[0]["id"], "N-1")
 

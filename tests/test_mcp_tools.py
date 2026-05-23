@@ -9,6 +9,7 @@ from brain_ds.mcp.tools import (
     add_edge,
     generate_brd,
     get_node,
+    list_graphs,
     list_nodes,
     map_connections,
     run_elicit,
@@ -80,6 +81,12 @@ class MCPToolsTests(unittest.TestCase):
         by_parent = list_nodes(self.store, {"graph_id": self.graph_id, "parent_id": "ROOT"})
         self.assertEqual(len(by_parent), 2)
 
+        by_empty_supertype = list_nodes(self.store, {"graph_id": self.graph_id, "supertype": "  "})
+        self.assertEqual(len(by_empty_supertype), 2)
+
+        by_empty_type = list_nodes(self.store, {"graph_id": self.graph_id, "type": ""})
+        self.assertEqual(len(by_empty_type), 2)
+
         missing_graph = list_nodes(self.store, {"graph_id": "missing"})
         self.assertEqual(missing_graph["code"], -32000)
         self.assertEqual(missing_graph["message"], "Graph 'missing' not found")
@@ -104,6 +111,10 @@ class MCPToolsTests(unittest.TestCase):
 
         no_match = search_graph(self.store, {"graph_id": self.graph_id, "query": "zzz"})
         self.assertEqual(no_match, [])
+
+        missing_graph = search_graph(self.store, {"graph_id": "missing", "query": "x"})
+        self.assertEqual(missing_graph["code"], -32000)
+        self.assertEqual(missing_graph["message"], "Graph 'missing' not found")
 
         invalid = search_graph(self.store, {"graph_id": self.graph_id, "query": 42})
         self.assertEqual(invalid["code"], -32602)
@@ -189,15 +200,47 @@ class MCPToolsTests(unittest.TestCase):
         self.assertEqual(brd["code"], -32001)
         self.assertIn("commands/generate-brd.md", brd["message"])
 
-    def test_registry_has_eight_tools_and_reads_do_not_audit(self) -> None:
+    def test_list_graphs_empty_and_populated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            empty_store = GraphStore(str(Path(tmp) / "store.db"))
+            try:
+                empty = list_graphs(empty_store, {})
+            finally:
+                empty_store.close()
+            self.assertEqual(empty, [])
+
+        self.store.meta_repo.save_graph_meta(
+            graph_id="graph-two",
+            workspace_root=self.temp_dir.name,
+            workspace_path=self.temp_dir.name,
+            project="project-two",
+            org="org-two",
+            schema_version="2.0.0",
+            contract_version="1.0.0",
+            node_count=3,
+            edge_count=1,
+            imported_from=None,
+            generated_at="",
+        )
+
+        populated = list_graphs(self.store, {})
+        self.assertEqual(len(populated), 2)
+        self.assertTrue(all("id" in graph for graph in populated))
+        self.assertTrue(all("org" in graph for graph in populated))
+        self.assertTrue(all("project" in graph for graph in populated))
+        self.assertTrue(all("node_count" in graph for graph in populated))
+        self.assertTrue(all("edge_count" in graph for graph in populated))
+
+    def test_registry_has_nine_tools_and_reads_do_not_audit(self) -> None:
         names = sorted(TOOL_REGISTRY.keys())
-        self.assertEqual(len(names), 8)
+        self.assertEqual(len(names), 9)
         self.assertEqual(
             names,
             [
                 "add_edge",
                 "generate_brd",
                 "get_node",
+                "list_graphs",
                 "list_nodes",
                 "map_connections",
                 "run_elicit",

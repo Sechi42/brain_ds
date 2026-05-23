@@ -445,4 +445,177 @@ class TestSplitPaneModuleContracts(unittest.TestCase):
         self.assertIn('id="show-more"', self.template_text)
         self.assertIn('id="markdown-reader"', self.template_text)
         self.assertIn('id="center-split"', self.template_text)
-        self.assertRegex(self.template_text, r"Show More")
+        # D.4 visual port: button label aligned with reference (Spanish "Ver Más").
+        # "Show More" / "Ver Más" / "Mostrar más" all acceptable.
+        self.assertRegex(self.template_text, r"Show More|Ver M[áa]s|Mostrar m[áa]s")
+
+
+class TestGraphVisualRichnessD4aContracts(unittest.TestCase):
+    """D.4.a RED/GREEN contracts: dual-engine architecture skeleton only."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.renderer_dom_path = SRC_DIR / "renderer-dom.ts"
+        cls.renderer_dom_exists = cls.renderer_dom_path.exists()
+        cls.renderer_dom_text = cls.renderer_dom_path.read_text(encoding="utf-8") if cls.renderer_dom_exists else ""
+        cls.main_text = (SRC_DIR / "main.ts").read_text(encoding="utf-8")
+        cls.template_text = (UI_DIR / "templates" / "graph_viewer.html").read_text(encoding="utf-8")
+
+    def _require_renderer_dom(self):
+        if not self.renderer_dom_exists:
+            self.fail(f"src/renderer-dom.ts not found at {self.renderer_dom_path}")
+
+    def test_renderer_dom_file_exists(self):
+        self._require_renderer_dom()
+
+    def test_renderer_dom_exports_mount_and_deps_interface(self):
+        self._require_renderer_dom()
+        self.assertRegex(self.renderer_dom_text, r"export\s+interface\s+DomRendererDeps")
+        self.assertRegex(self.renderer_dom_text, r"export\s+function\s+mount\s*\(")
+
+    def test_renderer_dom_subscribes_to_dataset(self):
+        self._require_renderer_dom()
+        self.assertIn("deps.dataset._subscribe", self.renderer_dom_text)
+
+    def test_main_imports_and_wires_renderer_dom_mount(self):
+        self.assertRegex(self.main_text, r"import\s+\*\s+as\s+rendererDom\s+from\s+['\"]\./renderer-dom['\"]")
+        self.assertIn("rendererDom.mount", self.main_text)
+        self.assertIn("dataset: nodes", self.main_text)
+
+    def test_template_contains_d4_mount_points_and_isolated_style_block(self):
+        self.assertIn('<style id="d4-visual-richness">', self.template_text)
+        self.assertIn('id="d4-edges"', self.template_text)
+        self.assertIn('id="d4-nodes"', self.template_text)
+
+
+class TestGraphVisualRichnessD4bcContracts(unittest.TestCase):
+    """D.4.b + D.4.c contracts for node-state engine and SVG edge layer."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.renderer_dom_path = SRC_DIR / "renderer-dom.ts"
+        cls.renderer_dom_exists = cls.renderer_dom_path.exists()
+        cls.renderer_dom_text = cls.renderer_dom_path.read_text(encoding="utf-8") if cls.renderer_dom_exists else ""
+        cls.template_text = (UI_DIR / "templates" / "graph_viewer.html").read_text(encoding="utf-8")
+
+    def _require_renderer_dom(self):
+        if not self.renderer_dom_exists:
+            self.fail(f"src/renderer-dom.ts not found at {self.renderer_dom_path}")
+
+    def test_renderer_dom_declares_node_state_and_ego_dimming_contract(self):
+        self._require_renderer_dom()
+        for token in [
+            "default",
+            "hover-target",
+            "hover-related",
+            "selected-target",
+            "selected-related",
+            "data-has-hover",
+            "data-has-selection",
+        ]:
+            self.assertIn(token, self.renderer_dom_text)
+
+    def test_renderer_dom_has_wcc_color_and_muted_color_mapping(self):
+        self._require_renderer_dom()
+        self.assertIn("--node-color", self.renderer_dom_text)
+        self.assertIn("--node-color-muted", self.renderer_dom_text)
+        self.assertIn("var(--wcc-c${", self.renderer_dom_text)
+
+    def test_renderer_dom_creates_svg_line_edges_and_marks_related_state(self):
+        self._require_renderer_dom()
+        self.assertRegex(self.renderer_dom_text, r"createElementNS\([^\n]*line")
+        self.assertIn("data-related", self.renderer_dom_text)
+        self.assertIn("aria-hidden", self.renderer_dom_text)
+
+    def test_renderer_dom_has_accessibility_and_roving_tabindex_contract(self):
+        self._require_renderer_dom()
+        self.assertIn(":focus-visible", self.template_text)
+        self.assertIn("aria-label", self.renderer_dom_text)
+        self.assertIn("tabIndex", self.renderer_dom_text)
+        self.assertRegex(self.renderer_dom_text, r"ArrowLeft|ArrowRight|ArrowUp|ArrowDown")
+
+    def test_template_style_block_contains_d4b_d4c_and_reduced_motion_rules(self):
+        for token in [
+            '.d4-node[data-state="selected-target"]',
+            '.d4-node[data-state="hover-target"]',
+            "@keyframes node-hover-breathe",
+            "prefers-reduced-motion: reduce",
+            "#d4-edges .d4-edge",
+            ".canvas-container[data-has-hover='true']",
+            ".canvas-container[data-has-selection='true']",
+        ]:
+            self.assertIn(token, self.template_text)
+
+    def test_checkpoint_files_for_pr2_exist(self):
+        checkpoints_dir = UI_DIR / "design" / "checkpoints"
+        self.assertTrue((checkpoints_dir / "d4b-node-states.html").exists())
+        self.assertTrue((checkpoints_dir / "d4c-edge-glow.html").exists())
+
+
+class TestGraphVisualRichnessD4deContracts(unittest.TestCase):
+    """D.4.d + D.4.e contracts for rich popover and canvas atmosphere."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.popover_path = SRC_DIR / "interactions" / "popover.ts"
+        cls.popover_exists = cls.popover_path.exists()
+        cls.popover_text = cls.popover_path.read_text(encoding="utf-8") if cls.popover_exists else ""
+        cls.template_text = (UI_DIR / "templates" / "graph_viewer.html").read_text(encoding="utf-8")
+
+    def _require_popover(self):
+        if not self.popover_exists:
+            self.fail(f"src/interactions/popover.ts not found at {self.popover_path}")
+
+    def test_popover_factory_contains_d4d_content_contract(self):
+        self._require_popover()
+        for token in [
+            "hover-popover-title",
+            "hover-popover-dot",
+            "hover-popover-grid",
+            "Score",
+            "Neighbors",
+            "Cluster",
+            "Type",
+            "hover-popover-hint",
+            "adjacency",
+        ]:
+            self.assertIn(token, self.popover_text)
+
+    def test_popover_mount_sets_hover_delay_150ms(self):
+        self._require_popover()
+        self.assertRegex(self.popover_text, r"hoverDelayMs\s*=\s*150")
+
+    def test_template_contains_popover_chrome_css_contract(self):
+        for token in [
+            ".vis-popover",
+            "width: 188px",
+            "backdrop-filter: blur(8px)",
+            "rgba(18,18,20,0.85)",
+            ".vis-popover::before",
+            "@keyframes d4-popover-reveal",
+            "pointer-events: none",
+            "aria-hidden",
+        ]:
+            self.assertIn(token, self.template_text)
+
+    def test_template_contains_atmosphere_pattern_and_labels_contract(self):
+        for token in [
+            ".canvas-bg-gradient",
+            "linear-gradient(#0a0a0c, #0f0f13)",
+            ".canvas-bg-pattern",
+            "radial-gradient(circle at 2px 2px, var(--text-bright) 1px, transparent 1px)",
+            "opacity: 0.03",
+            "pointer-events: none",
+            ".off-side-label",
+            "backdrop-filter: blur(4px)",
+            "rgba(10,10,12,0.8)",
+            "left: calc(100% + 10px)",
+            "color: var(--text-bright)",
+        ]:
+            self.assertIn(token, self.template_text)
+
+    def test_checkpoint_files_for_pr3_exist(self):
+        checkpoints_dir = UI_DIR / "design" / "checkpoints"
+        self.assertTrue((checkpoints_dir / "d4d-popover.html").exists())
+        self.assertTrue((checkpoints_dir / "d4e-atmosphere.html").exists())
+        self.assertTrue((checkpoints_dir / "d4-final-parity.html").exists())

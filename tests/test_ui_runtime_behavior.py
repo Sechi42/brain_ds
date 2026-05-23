@@ -674,3 +674,324 @@ console.log(JSON.stringify({ editFocusedInput, hasSelectionLine, hasFocusDashed 
         self.assertTrue(out["editFocusedInput"])
         self.assertTrue(out["hasSelectionLine"])
         self.assertTrue(out["hasFocusDashed"])
+
+    def test_runtime_segmented_control_mutual_exclusion(self):
+        """T1.4 / GV-4-A: clicking a segment flips aria-checked on both buttons."""
+        html = render_interactive_html(
+            {
+                "meta": {"org": "SegCtrlOrg", "node_count": 1, "edge_count": 0, "generated_at": ""},
+                "nodes": [{"id": "n1", "label": "N1", "type": "Department"}],
+                "edges": [],
+                "type_groups": [],
+                "adjacency": {},
+                "detail_index": {"n1": {"node": {"id": "n1", "label": "N1", "type": "Department"}, "sections": [], "relationships": {"incoming": [], "outgoing": []}, "evidence": []}},
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            html_path = Path(tmp) / "seg-ctrl.html"
+            html_path.write_text(html, encoding="utf-8")
+            code = r'''
+const fs = require("fs");
+const html = fs.readFileSync(process.argv[1], "utf8");
+const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+const appScript = scripts[scripts.length - 1];
+
+class ClassList { constructor(){ this.s=new Set(); } add(c){this.s.add(c);} remove(c){this.s.delete(c);} contains(c){return this.s.has(c);} toggle(c,f){ if(f===undefined){ this.s.has(c)?this.s.delete(c):this.s.add(c);} else {f?this.s.add(c):this.s.delete(c);} } }
+class El {
+  constructor(id="", tag="div"){
+    this.id=id; this.tagName=tag.toUpperCase(); this.classList=new ClassList();
+    this.attrs={}; this.listeners={}; this.children=[]; this.hidden=false;
+    this.textContent=""; this.innerHTML=""; this.className=""; this.style={};
+    this.value=""; this.disabled=false; this.type="";
+  }
+  addEventListener(t,fn){ (this.listeners[t] ||= []).push(fn); }
+  removeEventListener(t,fn){ this.listeners[t]=(this.listeners[t]||[]).filter((f)=>f!==fn); }
+  dispatch(t,e){ (this.listeners[t]||[]).forEach((fn)=>fn(Object.assign({currentTarget:this},e))); }
+  setAttribute(k,v){ this.attrs[k]=String(v); }
+  getAttribute(k){ return this.attrs[k]??null; }
+  removeAttribute(k){ delete this.attrs[k]; }
+  appendChild(c){ this.children.push(c); return c; }
+  focus(){ document.activeElement=this; }
+  closest(){ return document.body; }
+  querySelectorAll(sel){
+    if (!sel) return this.children;
+    if (sel===".segment-btn") return this.children.filter((c)=>c.className&&c.className.includes("segment-btn"));
+    return this.children;
+  }
+  querySelector(sel){
+    if (sel && sel.startsWith("#")) return document.getElementById(sel.slice(1));
+    if (sel===".segmented-control") return this.children.find((c)=>c.className&&c.className.includes("segmented-control"))||null;
+    return null;
+  }
+  contains(n){ if(n===this) return true; return this.children.some((c)=>typeof c.contains==="function"&&c.contains(n)); }
+}
+
+const ids=[
+  "org-name","org-meta","org-ts","network","detail-panel","detail-collapse","detail-close",
+  "score-badge","score-threshold-slider","theme-toggle","detail-panel-backdrop","viewer-loading",
+  "viewer-empty","empty-reset-filters","viewer-live-region","detail-body","search-results",
+  "node-search","type-filters","legend","show-all","hide-all","toggle-hierarchical","toggle-physics",
+  "zoom-fit","edit-toggle","export-json","search-group","controls","detail-title","detail-meta"
+];
+const byId = new Map(ids.map((id) => [id, new El(id)]));
+byId.get("search-group").appendChild(byId.get("node-search"));
+byId.get("search-group").appendChild(byId.get("search-results"));
+
+// Wire toggle-hierarchical and toggle-physics as segment-btn children of a segmented-control.
+const segCtrl = new El("segmented-control", "div");
+segCtrl.className = "segmented-control";
+const hierBtn = byId.get("toggle-hierarchical");
+hierBtn.className = "segment-btn";
+hierBtn.setAttribute("role", "radio");
+hierBtn.setAttribute("aria-checked", "false");
+hierBtn.setAttribute("tabindex", "-1");
+const physBtn = byId.get("toggle-physics");
+physBtn.className = "segment-btn";
+physBtn.setAttribute("role", "radio");
+physBtn.setAttribute("aria-checked", "true");
+physBtn.setAttribute("tabindex", "0");
+segCtrl.children = [hierBtn, physBtn];
+
+const setOptionsLog = [];
+const document = {
+  activeElement: null,
+  body: new El("body"),
+  getElementById: (id) => byId.get(id) || null,
+  querySelector: (sel) => {
+    if (sel === ".search-group") return byId.get("search-group");
+    if (sel === ".controls") return byId.get("controls");
+    if (sel === ".segmented-control") return segCtrl;
+    if (sel && sel.startsWith("#")) return byId.get(sel.slice(1)) || null;
+    return null;
+  },
+  querySelectorAll: (sel) => {
+    if (sel === ".segment-btn") return [hierBtn, physBtn];
+    return [];
+  },
+  createElement: () => new El(),
+  createElementNS: () => new El(),
+  createTextNode: (txt) => { const e = new El(); e.textContent = String(txt); return e; },
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  documentElement: new El("html"),
+};
+
+const windowObj = {
+  document,
+  vis: {
+    DataSet: function(items){ this._items=items||[]; this.update=()=>{}; this.get=()=>this._items; },
+    Network: function(){
+      this._handlers={};
+      this.on=(ev,fn)=>{this._handlers[ev]=fn;};
+      this.once=(ev,fn)=>{this._handlers[ev]=fn;};
+      this.fit=()=>{}; this.setOptions=(o)=>{setOptionsLog.push(o);}; this.redraw=()=>{}; this.canvas={focus:()=>{}};
+    }
+  },
+  brainDsUI: {
+    detailPanel:{ mount:()=>{}, setEditMode:()=>{}, setSelectedNodeId:()=>{}, renderDetailPanel:()=>{} },
+    search:{ mount:()=>{} }, filterPanel:{ mount:()=>{}, setAllChecked:()=>{} },
+    scoreFilter:{ mount:()=>{}, setThreshold:()=>{} }, popover:{ mount:()=>{} }, contextMenu:{ mount:()=>{} },
+  },
+  innerWidth: 1280,
+  matchMedia: ()=>({ matches:false }),
+  setTimeout: (fn)=>{ fn(); return 1; },
+  clearTimeout: ()=>{},
+  addEventListener: ()=>{},
+};
+global.window=windowObj; global.document=document;
+globalThis.window=windowObj; globalThis.document=document; globalThis.vis=windowObj.vis;
+
+eval(appScript);
+
+// Initial state: Physics checked=true, Hierarchical checked=false
+const initPhysicsChecked = physBtn.getAttribute("aria-checked") === "true";
+const initHierChecked = hierBtn.getAttribute("aria-checked") === "false";
+
+// Click Hierarchical — should flip both
+hierBtn.dispatch("click", {});
+const afterClickHierChecked = hierBtn.getAttribute("aria-checked") === "true";
+const afterClickPhysUnchecked = physBtn.getAttribute("aria-checked") === "false";
+const setOptionsCalledAfterHier = setOptionsLog.length >= 1;
+
+// Click Physics — should flip back
+physBtn.dispatch("click", {});
+const afterClickPhysChecked = physBtn.getAttribute("aria-checked") === "true";
+const afterClickHierUnchecked = hierBtn.getAttribute("aria-checked") === "false";
+
+// Roving tabindex: only one should have tabindex="0" at a time
+const tabindexAfterPhysClick = physBtn.getAttribute("tabindex") === "0" && hierBtn.getAttribute("tabindex") === "-1";
+
+console.log(JSON.stringify({
+  initPhysicsChecked, initHierChecked,
+  afterClickHierChecked, afterClickPhysUnchecked, setOptionsCalledAfterHier,
+  afterClickPhysChecked, afterClickHierUnchecked, tabindexAfterPhysClick
+}));
+'''
+            out = _run_node(code, str(html_path))
+            self.assertTrue(out["initPhysicsChecked"], "Physics must start checked")
+            self.assertTrue(out["initHierChecked"], "Hierarchical must start unchecked")
+            self.assertTrue(out["afterClickHierChecked"], "Hierarchical must be checked after click")
+            self.assertTrue(out["afterClickPhysUnchecked"], "Physics must be unchecked after Hierarchical click (mutual exclusion)")
+            self.assertTrue(out["setOptionsCalledAfterHier"], "network.setOptions must be called on segment click")
+            self.assertTrue(out["afterClickPhysChecked"], "Physics must be checked after clicking it back")
+            self.assertTrue(out["afterClickHierUnchecked"], "Hierarchical must be unchecked after Physics re-click")
+            self.assertTrue(out["tabindexAfterPhysClick"], "Roving tabindex: Physics=0, Hierarchical=-1 after Physics click")
+
+    def test_runtime_segmented_control_keyboard_navigation(self):
+        """T1.5 / GV-15-A: ArrowRight/Left navigate focus+aria-checked on segmented control."""
+        html = render_interactive_html(
+            {
+                "meta": {"org": "KbdNavOrg", "node_count": 1, "edge_count": 0, "generated_at": ""},
+                "nodes": [{"id": "n1", "label": "N1", "type": "Department"}],
+                "edges": [],
+                "type_groups": [],
+                "adjacency": {},
+                "detail_index": {"n1": {"node": {"id": "n1", "label": "N1", "type": "Department"}, "sections": [], "relationships": {"incoming": [], "outgoing": []}, "evidence": []}},
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            html_path = Path(tmp) / "kbd-nav.html"
+            html_path.write_text(html, encoding="utf-8")
+            code = r'''
+const fs = require("fs");
+const html = fs.readFileSync(process.argv[1], "utf8");
+const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+const appScript = scripts[scripts.length - 1];
+
+class ClassList { constructor(){ this.s=new Set(); } add(c){this.s.add(c);} remove(c){this.s.delete(c);} contains(c){return this.s.has(c);} toggle(c,f){ if(f===undefined){ this.s.has(c)?this.s.delete(c):this.s.add(c);} else {f?this.s.add(c):this.s.delete(c);} } }
+class El {
+  constructor(id="", tag="div"){
+    this.id=id; this.tagName=tag.toUpperCase(); this.classList=new ClassList();
+    this.attrs={}; this.listeners={}; this.children=[]; this.hidden=false;
+    this.textContent=""; this.innerHTML=""; this.className=""; this.style={};
+    this.value=""; this.disabled=false; this.type="";
+  }
+  addEventListener(t,fn){ (this.listeners[t] ||= []).push(fn); }
+  removeEventListener(t,fn){ this.listeners[t]=(this.listeners[t]||[]).filter((f)=>f!==fn); }
+  dispatch(t,e){ (this.listeners[t]||[]).forEach((fn)=>fn(Object.assign({currentTarget:this, target:this},e))); }
+  setAttribute(k,v){ this.attrs[k]=String(v); }
+  getAttribute(k){ return this.attrs[k]??null; }
+  removeAttribute(k){ delete this.attrs[k]; }
+  appendChild(c){ this.children.push(c); return c; }
+  focus(){ document.activeElement=this; }
+  closest(){ return document.body; }
+  querySelectorAll(sel){
+    if (!sel) return this.children;
+    if (sel===".segment-btn") return this.children.filter((c)=>c.className&&c.className.includes("segment-btn"));
+    return this.children;
+  }
+  querySelector(sel){
+    if (sel && sel.startsWith("#")) return document.getElementById(sel.slice(1));
+    if (sel===".segmented-control") return this.children.find((c)=>c.className&&c.className.includes("segmented-control"))||null;
+    return null;
+  }
+  contains(n){ if(n===this) return true; return this.children.some((c)=>typeof c.contains==="function"&&c.contains(n)); }
+}
+
+const ids=[
+  "org-name","org-meta","org-ts","network","detail-panel","detail-collapse","detail-close",
+  "score-badge","score-threshold-slider","theme-toggle","detail-panel-backdrop","viewer-loading",
+  "viewer-empty","empty-reset-filters","viewer-live-region","detail-body","search-results",
+  "node-search","type-filters","legend","show-all","hide-all","toggle-hierarchical","toggle-physics",
+  "zoom-fit","edit-toggle","export-json","search-group","controls","detail-title","detail-meta"
+];
+const byId = new Map(ids.map((id) => [id, new El(id)]));
+byId.get("search-group").appendChild(byId.get("node-search"));
+byId.get("search-group").appendChild(byId.get("search-results"));
+
+const segCtrl = new El("segmented-control", "div");
+segCtrl.className = "segmented-control";
+const hierBtn = byId.get("toggle-hierarchical");
+hierBtn.className = "segment-btn";
+hierBtn.setAttribute("role", "radio");
+hierBtn.setAttribute("aria-checked", "false");
+hierBtn.setAttribute("tabindex", "-1");
+const physBtn = byId.get("toggle-physics");
+physBtn.className = "segment-btn";
+physBtn.setAttribute("role", "radio");
+physBtn.setAttribute("aria-checked", "true");
+physBtn.setAttribute("tabindex", "0");
+segCtrl.children = [hierBtn, physBtn];
+
+const document = {
+  activeElement: physBtn,
+  body: new El("body"),
+  getElementById: (id) => byId.get(id) || null,
+  querySelector: (sel) => {
+    if (sel === ".search-group") return byId.get("search-group");
+    if (sel === ".controls") return byId.get("controls");
+    if (sel === ".segmented-control") return segCtrl;
+    if (sel && sel.startsWith("#")) return byId.get(sel.slice(1)) || null;
+    return null;
+  },
+  querySelectorAll: (sel) => {
+    if (sel === ".segment-btn") return [hierBtn, physBtn];
+    return [];
+  },
+  createElement: () => new El(),
+  createElementNS: () => new El(),
+  createTextNode: (txt) => { const e = new El(); e.textContent = String(txt); return e; },
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  documentElement: new El("html"),
+};
+
+const windowObj = {
+  document,
+  vis: {
+    DataSet: function(items){ this._items=items||[]; this.update=()=>{}; this.get=()=>this._items; },
+    Network: function(){
+      this._handlers={};
+      this.on=(ev,fn)=>{this._handlers[ev]=fn;};
+      this.once=(ev,fn)=>{this._handlers[ev]=fn;};
+      this.fit=()=>{}; this.setOptions=()=>{}; this.redraw=()=>{}; this.canvas={focus:()=>{}};
+    }
+  },
+  brainDsUI: {
+    detailPanel:{ mount:()=>{}, setEditMode:()=>{}, setSelectedNodeId:()=>{}, renderDetailPanel:()=>{} },
+    search:{ mount:()=>{} }, filterPanel:{ mount:()=>{}, setAllChecked:()=>{} },
+    scoreFilter:{ mount:()=>{}, setThreshold:()=>{} }, popover:{ mount:()=>{} }, contextMenu:{ mount:()=>{} },
+  },
+  innerWidth: 1280,
+  matchMedia: ()=>({ matches:false }),
+  setTimeout: (fn)=>{ fn(); return 1; },
+  clearTimeout: ()=>{},
+  addEventListener: ()=>{},
+};
+global.window=windowObj; global.document=document;
+globalThis.window=windowObj; globalThis.document=document; globalThis.vis=windowObj.vis;
+
+eval(appScript);
+
+// Initial state: Physics active (aria-checked=true), focus on Physics
+// ArrowLeft from Physics → should move focus+check to Hierarchical
+let prevented = false;
+physBtn.dispatch("keydown", {
+  key: "ArrowLeft",
+  preventDefault(){ prevented = true; }
+});
+const arrowLeftMovedFocusToHier = document.activeElement === hierBtn;
+const arrowLeftCheckedHier = hierBtn.getAttribute("aria-checked") === "true";
+const arrowLeftUncheckedPhys = physBtn.getAttribute("aria-checked") === "false";
+
+// ArrowRight from Hierarchical → should move focus+check to Physics
+hierBtn.dispatch("keydown", {
+  key: "ArrowRight",
+  preventDefault(){ prevented = true; }
+});
+const arrowRightMovedFocusToPhys = document.activeElement === physBtn;
+const arrowRightCheckedPhys = physBtn.getAttribute("aria-checked") === "true";
+const arrowRightUncheckedHier = hierBtn.getAttribute("aria-checked") === "false";
+
+console.log(JSON.stringify({
+  arrowLeftMovedFocusToHier, arrowLeftCheckedHier, arrowLeftUncheckedPhys,
+  arrowRightMovedFocusToPhys, arrowRightCheckedPhys, arrowRightUncheckedHier
+}));
+'''
+            out = _run_node(code, str(html_path))
+            self.assertTrue(out["arrowLeftMovedFocusToHier"], "ArrowLeft must move focus to Hierarchical")
+            self.assertTrue(out["arrowLeftCheckedHier"], "ArrowLeft must check Hierarchical")
+            self.assertTrue(out["arrowLeftUncheckedPhys"], "ArrowLeft must uncheck Physics")
+            self.assertTrue(out["arrowRightMovedFocusToPhys"], "ArrowRight must move focus to Physics")
+            self.assertTrue(out["arrowRightCheckedPhys"], "ArrowRight must check Physics")
+            self.assertTrue(out["arrowRightUncheckedHier"], "ArrowRight must uncheck Hierarchical")

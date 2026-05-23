@@ -4,7 +4,7 @@ from pathlib import Path
 
 from brain_ds.ontology import Graph
 from brain_ds.ui.render_context import build_render_context
-from brain_ds.ui.theme import ENTITY_TYPE_COLORS, THEME_TOKENS, theme_tokens_css
+from brain_ds.ui.theme import ENTITY_TYPE_COLORS, THEME_TOKENS
 
 
 CONTRAST_AUDIT_PATH = Path("brain_ds/ui/contrast-audit.json")
@@ -148,7 +148,11 @@ class TestThemePalettes(unittest.TestCase):
             self.assertEqual(tokens["radius_md"], tokens["card_radius"])
 
     def test_motion_tokens_and_reduced_motion_block_present(self):
-        css = theme_tokens_css()
+        # Phase D.1: motion tokens migrated from theme_tokens_css() into
+        # brain_ds/ui/static/tokens.css. Assert they live there now.
+        tokens_path = Path("brain_ds/ui/static/tokens.css")
+        self.assertTrue(tokens_path.exists(), "canonical tokens.css must exist")
+        css = tokens_path.read_text(encoding="utf-8")
         self.assertIn("--duration-fast: 120ms;", css)
         self.assertIn("--duration-normal: 200ms;", css)
         self.assertIn("--duration-slow: 320ms;", css)
@@ -158,6 +162,17 @@ class TestThemePalettes(unittest.TestCase):
         self.assertIn("--duration-fast: 0ms;", css)
         self.assertIn("--duration-normal: 0ms;", css)
         self.assertIn("--duration-slow: 0ms;", css)
+
+    def test_theme_tokens_css_function_removed(self):
+        # Sentinel: prevents reintroduction. tokens.css is the single source of
+        # CSS-emitted tokens; theme.py keeps only THEME_TOKENS (data) +
+        # ENTITY_TYPE_COLORS + color_for_type + vis_options_json.
+        import brain_ds.ui.theme as theme_module
+
+        self.assertFalse(
+            hasattr(theme_module, "theme_tokens_css"),
+            "theme_tokens_css() must be retired; tokens.css is the source of truth",
+        )
 
     def test_contrast_audit_has_26_entries_and_no_fail_status(self):
         self.assertTrue(CONTRAST_AUDIT_PATH.exists(), "contrast-audit.json must exist")

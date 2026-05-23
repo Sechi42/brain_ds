@@ -1,5 +1,6 @@
 import json
 import io
+import re
 import subprocess
 import sys
 import tempfile
@@ -796,9 +797,9 @@ class TestSlice5ScoreThresholdFilter(unittest.TestCase):
             "Expected step='0.05' on the score threshold slider (REQ-5.1)",
         )
         self.assertIn(
-            "Score threshold",
+            "Umbral de score",
             self.template_text,
-            "Expected 'Score threshold' label text in graph_viewer.html (REQ-5.1)",
+            "Expected score-threshold sr-only label in graph_viewer.html (REQ-5.1, Spanish UI)",
         )
 
     def test_template_score_badge_present(self):
@@ -1045,9 +1046,10 @@ class TestSlice7StateDesignTemplate(unittest.TestCase):
         self.assertRegex(self.template_text, r"150")
 
     def test_empty_state_contract_present(self):
-        self.assertIn("No nodes visible", self.template_text)
-        self.assertIn("Try adjusting your filters or score threshold.", self.template_text)
-        self.assertIn("Reset filters", self.template_text)
+        # Spanish UI parity (visual polish pass): visible empty-state copy is in es-419.
+        self.assertIn("No hay nodos visibles", self.template_text)
+        self.assertIn("Ajusta los filtros o el umbral de score.", self.template_text)
+        self.assertIn("Limpiar filtros", self.template_text)
         self.assertIn("icon-filter", self.template_text)
 
     def test_skeleton_contract_present(self):
@@ -1133,11 +1135,13 @@ class TestWorkspaceShellPr1Template(unittest.TestCase):
         )
 
     def test_center_chrome_has_locked_tab_and_toolbar_heights(self):
-        self.assertRegex(self.template_text, r"\.tab-strip\s*\{[\s\S]*flex:\s*0\s+0\s+36px")
+        # D.4 visual port: tab-strip aligned with reference moderngraphui_notailwind
+        # (48px). Toolbar height stays 44px (ADR-001 locked).
+        self.assertRegex(self.template_text, r"\.tab-strip\s*\{[\s\S]*flex:\s*0\s+0\s+48px")
         self.assertRegex(self.template_text, r"\.top-toolbar\s*\{[\s\S]*flex:\s*0\s+0\s+44px")
 
-    def test_center_toolbar_contains_view_label_and_empty_system_chrome_zone(self):
-        self.assertIn('id="workspace-view-label"', self.template_text)
+    def test_center_toolbar_contains_breadcrumb_and_empty_system_chrome_zone(self):
+        self.assertIn('aria-label="Breadcrumb"', self.template_text)
         self.assertIn('data-toolbar-zone="system-chrome"', self.template_text)
 
     def test_network_mount_remains_in_center_canvas_area(self):
@@ -1224,30 +1228,12 @@ class TestWorkspaceShellPr15ChromePolish(unittest.TestCase):
                 f"Expected data-toolbar-zone='{zone}' in toolbar (section-4 pattern)",
             )
 
-    def test_toolbar_nav_has_back_and_forward_catalog_ids(self):
-        """nav zone MUST contain buttons with data-catalog-id='nav-back' and 'nav-forward'."""
-        self.assertIn(
-            'data-catalog-id="nav-back"',
-            self.template_text,
-            "Expected data-catalog-id='nav-back' in nav zone",
-        )
-        self.assertIn(
-            'data-catalog-id="nav-forward"',
-            self.template_text,
-            "Expected data-catalog-id='nav-forward' in nav zone",
-        )
-
-    def test_toolbar_nav_forward_is_disabled(self):
-        """nav-forward MUST be disabled with aria-disabled='true' (no graph history yet)."""
-        # Locate nav-forward and verify disabled appears near it
-        idx = self.template_text.find('data-catalog-id="nav-forward"')
-        self.assertGreater(idx, -1, "nav-forward button not found")
-        surrounding = self.template_text[max(0, idx - 200):idx + 300]
-        self.assertIn(
-            "disabled",
-            surrounding,
-            "Expected 'disabled' attribute near nav-forward button",
-        )
+    def test_toolbar_nav_zone_is_reserved_and_empty(self):
+        """nav zone MUST be present and reserved (no controls rendered)."""
+        import re
+        match = re.search(r'<div\s+data-toolbar-zone="nav">([\s\S]*?)</div>', self.template_text)
+        self.assertIsNotNone(match, "Expected data-toolbar-zone='nav' container")
+        self.assertNotIn("<button", match.group(1), "nav zone must remain empty/reserved")
 
     def test_toolbar_overflow_has_catalog_id_and_haspopup(self):
         """overflow zone MUST contain data-catalog-id='overflow' with aria-haspopup='menu'."""
@@ -1262,13 +1248,11 @@ class TestWorkspaceShellPr15ChromePolish(unittest.TestCase):
             "Expected aria-haspopup='menu' on overflow button",
         )
 
-    def test_toolbar_view_zone_has_view_label_slot(self):
-        """view zone MUST contain the #workspace-view-label element for org/counts/date."""
-        self.assertIn(
-            'id="workspace-view-label"',
-            self.template_text,
-            "Expected id='workspace-view-label' in view toolbar zone",
-        )
+    def test_toolbar_view_zone_has_breadcrumb_nav(self):
+        """view zone MUST contain breadcrumb nav with semantic list."""
+        self.assertIn('aria-label="Breadcrumb"', self.template_text)
+        self.assertIn('id="workspace-view-label"', self.template_text)
+        self.assertIn('<ol id="workspace-view-label"', self.template_text)
 
     # ── T3: No hardcoded hex in chrome CSS block ──────────────────────────────
 
@@ -1326,6 +1310,32 @@ class TestWorkspaceShellPr15ChromePolish(unittest.TestCase):
             self.template_text,
             "Expected @media (prefers-reduced-motion: reduce) block",
         )
+
+
+class TestGraphVisualRichnessTemplateIsolation(unittest.TestCase):
+    """D.4 Phase 6 template contracts: style block exists and is isolated from shell."""
+
+    @classmethod
+    def setUpClass(cls):
+        template_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds"
+            / "ui"
+            / "templates"
+            / "graph_viewer.html"
+        )
+        cls.template_text = template_path.read_text(encoding="utf-8")
+
+    def test_d4_visual_richness_style_block_present(self):
+        self.assertIn('<style id="d4-visual-richness">', self.template_text)
+
+    def test_d4_selectors_do_not_leak_into_shell_css_block(self):
+        start = self.template_text.find("/* === Workspace shell (PR1 scaffold + center chrome) === */")
+        end = self.template_text.find("/* === Left sidebar === */")
+        self.assertNotEqual(start, -1, "Shell CSS block start marker missing")
+        self.assertNotEqual(end, -1, "Shell CSS block end marker missing")
+        shell_block = self.template_text[start:end]
+        self.assertNotRegex(shell_block, r"\.d4-|#d4-", "D.4 selectors leaked into shell CSS block")
         # Find the reduced-motion block and check it covers chrome elements
         rm_match = re.search(
             r"@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{([\s\S]*?)\}(?=\s*@media|\s*</style>)",
@@ -1536,6 +1546,32 @@ class TestWorkspaceShellPr2LeftAdapters(unittest.TestCase):
                 self.template_text,
                 f"Legacy control id='{control_id}' MUST remain in DOM (runtime JS depends on it)",
             )
+
+    def test_search_shortcut_pill_is_adjacent_to_node_search(self):
+        """Search panel MUST include '/' shortcut pill adjacent to #node-search."""
+        search_idx = self.template_text.find('id="node-search"')
+        self.assertGreater(search_idx, -1, "node-search input not found")
+        around = self.template_text[max(0, search_idx - 400):search_idx + 400]
+        self.assertIn('class="search-pill"', around)
+        self.assertIn('aria-keyshortcuts="/"', around)
+
+    def test_left_rail_status_chip_is_last_child(self):
+        """[data-status-chip] MUST be the last child of left rail container."""
+        import re
+        rail_match = re.search(
+            r'<nav[^>]*data-rail-side="left"[^>]*>([\s\S]*?)</nav>',
+            self.template_text,
+        )
+        self.assertIsNotNone(rail_match, "Left rail markup not found")
+        rail_region = rail_match.group(1)
+        status_idx = rail_region.find('data-status-chip')
+        self.assertGreater(status_idx, -1, "Expected data-status-chip inside left rail")
+        self.assertEqual(rail_region.count('data-status-chip'), 1, "Status chip should appear exactly once")
+        self.assertRegex(
+            rail_region,
+            r'<span\s+data-status-chip[^>]*>[^<]*</span>\s*$',
+            "Status chip must be the last child element in left rail",
+        )
 
     def test_controls_aside_is_not_hidden(self):
         """After PR2, .controls aside MUST NOT have the hidden attribute (panel is visible)."""
@@ -1919,8 +1955,9 @@ class TestWorkspaceShellRemediationOldUiRemoval(unittest.TestCase):
         self.assertNotIn('id="viewer-empty-state"', self.template_text)
         self.assertNotIn('id="search-label"', self.template_text)
         self.assertNotIn('placeholder="Type a name or id"', self.template_text)
-        self.assertRegex(self.template_text, r'id="show-all"[^>]*hidden')
-        self.assertRegex(self.template_text, r'id="hide-all"[^>]*hidden')
+        # D.2: hidden proxy buttons removed — show-all/hide-all now live on visible pill buttons.
+        self.assertNotRegex(self.template_text, r'id="show-all"[^>]*hidden')
+        self.assertNotRegex(self.template_text, r'id="hide-all"[^>]*hidden')
 
     def test_new_left_panel_section1_surfaces_present(self):
         for token in (
@@ -1930,14 +1967,91 @@ class TestWorkspaceShellRemediationOldUiRemoval(unittest.TestCase):
             'data-accordion-section="legend"',
             'data-accordion-section="hierarchy"',
             'data-accordion-section="layout"',
-            'class="toggle-chip',
+            # D.2: pill-group replaces toggle-chip-row
+            'class="pill-group"',
             'class="tree-row',
-            'class="toggle-card',
+            # D.2: segmented-control replaces toggle-card
+            'class="segmented-control"',
             'id="node-search"',
             'id="score-threshold-slider"',
             'id="legend"',
         ):
             self.assertIn(token, self.template_text)
+
+    # ── D.2 segmented control ARIA (T1.1) ─────────────────────────────────────
+
+    def test_d2_segmented_control_aria_structure(self):
+        """GV-4 / GV-15: segmented control must use radiogroup+radio+aria-checked."""
+        self.assertIn('role="radiogroup"', self.template_text)
+        self.assertIn('aria-label="View mode"', self.template_text)
+        self.assertIn('role="radio"', self.template_text)
+        self.assertIn('aria-checked="true"', self.template_text)
+        self.assertIn('aria-checked="false"', self.template_text)
+        # toggle-card and aria-pressed on view controls must be gone
+        self.assertNotIn('class="toggle-card"', self.template_text)
+        self.assertNotIn('◉', self.template_text)
+
+    def test_d2_segmented_buttons_have_ids_and_tabindex(self):
+        """GV-4 / GV-16: IDs preserved, roving tabindex present."""
+        # toggle-hierarchical and toggle-physics must be segment-btn
+        self.assertIn('id="toggle-hierarchical"', self.template_text)
+        self.assertIn('id="toggle-physics"', self.template_text)
+        self.assertIn('class="segment-btn"', self.template_text)
+        # Roving tabindex: exactly one tabindex="0" and at least one tabindex="-1" on segment-btn
+        self.assertIn('tabindex="0"', self.template_text)
+        self.assertIn('tabindex="-1"', self.template_text)
+
+    # ── D.2 pill filter buttons (T1.2) ────────────────────────────────────────
+
+    def test_d2_pill_buttons_structure(self):
+        """GV-14: pill-btn + pill-btn--primary, IDs on visible buttons, no aria-pressed."""
+        self.assertIn('class="pill-btn pill-btn--primary"', self.template_text)
+        self.assertIn('class="pill-btn"', self.template_text)
+        # show-all and hide-all IDs must exist on non-hidden elements
+        self.assertIn('id="show-all"', self.template_text)
+        self.assertIn('id="hide-all"', self.template_text)
+        # toggle-chip must be gone
+        self.assertNotIn('class="toggle-chip"', self.template_text)
+        self.assertNotIn('class="toggle-chip-row"', self.template_text)
+
+    def test_d2_no_hidden_proxy_buttons(self):
+        """D-4 / D-6: hidden proxy buttons must be removed."""
+        # Old pattern: <button ... id="show-all" hidden ...>
+        import re
+        self.assertIsNone(
+            re.search(r'id="show-all"[^>]*hidden', self.template_text),
+            "Hidden proxy #show-all must not exist after D.2",
+        )
+        self.assertIsNone(
+            re.search(r'id="hide-all"[^>]*hidden', self.template_text),
+            "Hidden proxy #hide-all must not exist after D.2",
+        )
+
+    def test_d2_pill_buttons_have_min_height_css(self):
+        """GV-14: pill-btn must declare min-height: 44px in CSS."""
+        self.assertRegex(self.template_text, r'\.pill-btn\s*\{[^}]*min-height:\s*44px')
+
+    # ── D.2 CSS token compliance (T1.3) ───────────────────────────────────────
+
+    def test_d2_segmented_and_pill_css_uses_only_tokens(self):
+        """GV-17: no hex literals in new segmented-control / pill CSS rules."""
+        import re
+        # Extract the segmented-control CSS block from the <style> section
+        style_match = re.search(r'<style>([\s\S]*?)</style>', self.template_text)
+        self.assertIsNotNone(style_match, "No <style> block found")
+        style_text = style_match.group(1)
+        # Find .segmented-control / .segment-btn / .pill-btn / .pill-group blocks
+        d2_blocks = re.findall(
+            r'\.(segmented-control|segment-btn|pill-group|pill-btn)[^{]*\{[^}]*\}',
+            style_text,
+        )
+        self.assertTrue(len(d2_blocks) > 0, "No D.2 CSS rules found in <style> block")
+        combined = " ".join(d2_blocks)
+        hex_match = re.search(r'#(?:[0-9a-fA-F]{3,6})\b', combined)
+        self.assertIsNone(
+            hex_match,
+            f"Hex literal found in D.2 CSS rules: {hex_match.group() if hex_match else ''}",
+        )
 
     def test_right_rail_is_gear_only(self):
         self.assertIn('data-catalog-id="gear"', self.template_text)

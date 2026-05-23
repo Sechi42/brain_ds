@@ -36,14 +36,32 @@ class ResolveStorePathTests(unittest.TestCase):
             (outside / ".brain_ds" / "store.db").write_text("db")
 
             traversal = base / "outside" / ".." / "outside"
-            with self.assertRaises(SecurityError):
+            with self.assertRaisesRegex(SecurityError, "Path traversal is not allowed"):
                 resolve_store_path(str(traversal))
 
     def test_resolve_store_path_rejects_nonexistent_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             missing = Path(tmp) / "does-not-exist"
-            with self.assertRaises(SecurityError):
+            with self.assertRaisesRegex(SecurityError, "Project root does not exist"):
                 resolve_store_path(str(missing))
+
+    def test_resolve_store_path_bootstraps_missing_dir_on_fresh_install(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            resolved = resolve_store_path(str(root))
+
+            self.assertTrue((root / ".brain_ds").is_dir())
+            self.assertEqual(resolved, (root / ".brain_ds" / "store.db").resolve(strict=False))
+
+    def test_resolve_store_path_allows_missing_store_db_when_dir_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".brain_ds").mkdir()
+
+            resolved = resolve_store_path(str(root))
+
+            self.assertEqual(resolved, (root / ".brain_ds" / "store.db").resolve(strict=False))
 
     def test_resolve_store_path_rejects_symlinked_store_escaping_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -60,7 +78,7 @@ class ResolveStorePathTests(unittest.TestCase):
             except OSError as exc:
                 self.skipTest(f"Symlink creation unavailable on this platform: {exc}")
 
-            with self.assertRaises(SecurityError):
+            with self.assertRaisesRegex(SecurityError, "Store path escapes project root"):
                 resolve_store_path(str(root))
 
     def test_resolve_store_path_rejects_symlinked_dot_brain_ds_escaping_root(self) -> None:
@@ -76,7 +94,7 @@ class ResolveStorePathTests(unittest.TestCase):
             except OSError as exc:
                 self.skipTest(f"Symlink creation unavailable on this platform: {exc}")
 
-            with self.assertRaises(SecurityError):
+            with self.assertRaisesRegex(SecurityError, "Store path escapes canonical root"):
                 resolve_store_path(str(root))
 
 

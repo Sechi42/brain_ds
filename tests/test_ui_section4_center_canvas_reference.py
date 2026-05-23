@@ -117,10 +117,16 @@ class TestUiSection4CenterCanvasReference(unittest.TestCase):
         self.assertRegex(html_4, r'aria-pressed="(true|false)"')
 
         # X-2: token source file includes required root variables.
-        tokens = TOKENS_CSS.read_text(encoding="utf-8")
-        self.assertIn(":root", tokens)
+        # Phase D.1: `_tokens.css` is a forwarding @import shim; canonical
+        # tokens live in `brain_ds/ui/static/tokens.css`. Assert the shim
+        # forwards to canonical, then assert the canonical file contains the
+        # locked root variables.
+        shim_tokens = TOKENS_CSS.read_text(encoding="utf-8")
+        self.assertIn('@import url("../../static/tokens.css")', shim_tokens)
+        canonical_tokens = (ROOT / "brain_ds" / "ui" / "static" / "tokens.css").read_text(encoding="utf-8")
+        self.assertIn(":root", canonical_tokens)
         for token in ["--bg-main", "--bg-panel", "--accent-mora", "--text-normal", "--border-subtle"]:
-            self.assertIn(token, tokens)
+            self.assertIn(token, canonical_tokens)
 
         # X-4: reduced-motion pattern targets transition and animation.
         self.assertIn("@media (prefers-reduced-motion: reduce)", shared_css)

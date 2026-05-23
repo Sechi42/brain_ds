@@ -10,6 +10,45 @@ from brain_ds.ui import cli
 
 
 class TestCli(unittest.TestCase):
+    def test_mcp_print_config_format_opencode_outputs_opencode_schema(self):
+        stdout = io.StringIO()
+
+        with patch("brain_ds.mcp.config.shutil.which", return_value="/fake/bin/brain_ds"):
+            with redirect_stdout(stdout):
+                code = cli.main(["mcp", "print-config", "--project-root", ".", "--format", "opencode"])
+
+        self.assertEqual(code, 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertIn("mcp", payload)
+        self.assertIn("brain_ds", payload["mcp"])
+
+    def test_mcp_print_config_default_format_is_claude(self):
+        stdout = io.StringIO()
+
+        with patch("brain_ds.mcp.config.shutil.which", return_value="/fake/bin/brain_ds"):
+            with redirect_stdout(stdout):
+                code = cli.main(["mcp", "print-config", "--project-root", "."])
+
+        self.assertEqual(code, 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertIn("mcpServers", payload)
+        server = payload["mcpServers"]["brain_ds"]
+        self.assertEqual(server["type"], "stdio")
+        self.assertTrue(Path(server["command"]).is_absolute())
+        self.assertIsInstance(server["args"], list)
+        self.assertTrue(all(isinstance(item, str) for item in server["args"]))
+        self.assertIn("env", server)
+        self.assertIn("BRAIN_DS_PROJECT_ROOT", server["env"])
+
+    def test_mcp_print_config_invalid_format_exits_nonzero(self):
+        stderr = io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, redirect_stderr(stderr):
+            cli.main(["mcp", "print-config", "--project-root", ".", "--format", "invalid"])
+
+        self.assertNotEqual(ctx.exception.code, 0)
+        self.assertIn("claude", stderr.getvalue())
+        self.assertIn("opencode", stderr.getvalue())
+
     def test_bare_command_prints_help_and_fails(self):
         stdout = io.StringIO()
         stderr = io.StringIO()

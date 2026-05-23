@@ -185,7 +185,7 @@ class MCPClaudeConfigTests(unittest.TestCase):
 
                 self.assertEqual(initialize_response["result"]["protocolVersion"], "2024-11-05")
                 tools = tools_response["result"]["tools"]
-                self.assertEqual(len(tools), 8)
+                self.assertEqual(len(tools), 9)
 
     def test_claude_md_contains_required_sections(self) -> None:
         claude_path = Path(__file__).resolve().parents[1] / "CLAUDE.md"
@@ -204,6 +204,7 @@ class MCPClaudeConfigTests(unittest.TestCase):
             "run_elicit",
             "map_connections",
             "generate_brd",
+            "list_graphs",
         ]
         for marker in required_markers:
             self.assertIn(marker, content)
