@@ -1,0 +1,127 @@
+/*
+ * brain_ds — CANONICAL DESIGN TOKENS (single source of truth)
+ *
+ * Phase D.1 of roadmap `live-graph-workspace`. Carbon/zinc visual language.
+ * Consumed by:
+ *   - brain_ds/ui/templates/graph_viewer.html  (inlined at render time via
+ *     template_renderer.py token placeholder substitution)
+ *   - brain_ds/ui/design/sections/_tokens.css  (forwarding @import shim;
+ *     keeps the 5 design-section HTMLs working unchanged)
+ *
+ * Do not declare these tokens anywhere else. If a value must move, change
+ * it here. THEME_TOKENS in brain_ds/ui/theme.py is data for contrast tooling
+ * + tests, NOT a CSS source.
+ *
+ * Locked decisions (engram sdd/modern-design-tokens):
+ *   - DIV-2: font-weight tokens use --fw-* namespace.
+ *   - DIV-4: --radius-md is 8px (spec wins).
+ *   - DIV-5: text tokens are --text-normal #f4f4f5, --text-bright #ffffff,
+ *            --text-muted #71717a (spec wins).
+ *   - No absolute black — use #09090b / #0a0a0a.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* === Surfaces (carbon/zinc) === */
+  --bg-main: #09090b;
+  --bg-canvas-deep: #0a0a0a;
+  --bg-panel: #121214;
+  --bg-panel-elevated: #141414;
+  --bg-panel-hover: #1a1a1d;
+  --bg-active: #26262b;
+
+  /* === Borders (refined zinc) === */
+  --border-subtle: rgba(63, 63, 70, 0.4);
+  --border-strong: rgba(63, 63, 70, 0.7);
+
+  /* === Accent === */
+  /* --accent-mora on --bg-main ≈ 7.4:1 (AA pass) */
+  --accent-mora: #a78bfa;
+  --accent-mora-muted: rgba(167, 139, 250, 0.15);
+
+  /* Reference-aligned aliases (moderngraphui_notailwind chrome parity).
+     These are name-equivalents the design reference uses; brain_ds palette is the
+     source of truth. Added as ADDITIONAL names (do not rename existing tokens). */
+  --accent-color: var(--accent-mora);
+  --accent-color-soft: #818cf8;
+  --accent-bg: var(--accent-mora-muted);
+  --bg-input: #18181b;
+  --bg-hover: rgba(255, 255, 255, 0.05);
+  --border-focus: rgba(99, 102, 241, 0.5);
+  --text-secondary: var(--text-muted);
+  --text-primary: var(--text-normal);
+  --tab-active-bg: rgba(39, 39, 42, 0.8);
+  --tabs-bar-bg: rgba(18, 18, 20, 0.5);
+  --canvas-bg-from: #0a0a0c;
+  --canvas-bg-to: #0f0f13;
+  --breadcrumb-dot: #52525b;
+  --scroll-thumb: #27272a;
+  --shadow-panel: -10px 0 20px rgba(0, 0, 0, 0.3);
+
+  /* === Typography (DIV-5 spec values) === */
+  --text-normal: #f4f4f5;
+  --text-bright: #ffffff;
+  --text-muted: #71717a;
+
+  /* Font weights (DIV-2 — --fw-* namespace) */
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --font-mono: ui-monospace, "Cascadia Code", "Fira Code", Consolas, monospace;
+
+  /* === Shadows (mirrored from theme.py dark tokens) === */
+  --shadow-xs: 0 1px 2px rgba(2, 6, 23, 0.40);
+  --shadow-sm: 0 6px 18px rgba(15, 23, 40, 0.35);
+  --shadow-md: 0 12px 28px rgba(15, 23, 40, 0.45);
+  --shadow-lg: 0 20px 40px rgba(15, 23, 40, 0.50);
+  --shadow-overlay: 0 24px 64px rgba(2, 6, 23, 0.55);
+
+  /* === Radius scale === */
+  /* DIV-4: --radius-md is 8px (spec wins over design catalog 6px). */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+  --radius-ui: var(--radius-md);
+  --radius-workspace: 0px;
+
+  /* === Motion (migrated from theme_tokens_css()) === */
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --duration-slow: 320ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasized: cubic-bezier(0.3, 0, 0, 1);
+
+  /* === Canvas engine bindings (read by renderer.ts) === */
+  --vis-panel-bg: var(--bg-panel);
+  --vis-panel-text: var(--text-bright);
+  --vis-panel-border: var(--border-strong);
+  --vis-focus-ring: var(--accent-mora);
+  --vis-popover-muted: var(--text-muted);
+  --vis-marquee-stroke: var(--accent-mora);
+  --vis-marquee-fill: var(--accent-mora-muted);
+
+  /* === WCC palette (graph node/edge tints — unchanged) === */
+  --wcc-c0: #3b82f6;
+  --wcc-c1: #14b8a6;
+  --wcc-c2: #f59e0b;
+  --wcc-c3: #a855f7;
+  --wcc-c4: #ef4444;
+  --wcc-c5: #22c55e;
+  --wcc-c6: #06b6d4;
+  --wcc-c7: #eab308;
+  --wcc-c8: #f97316;
+  --wcc-c9: #10b981;
+  --wcc-c10: #8b5cf6;
+  --wcc-c11: #ec4899;
+  --color-ego-edge: #a78bfa;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-normal: 0ms;
+    --duration-slow: 0ms;
+  }
+}
