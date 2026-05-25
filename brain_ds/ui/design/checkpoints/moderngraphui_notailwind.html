@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Modern Graph UI - Pure CSS / Vanilla JS</title>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    /* --- CSS RESET & VARIABLES --- */
+    :root {
+      --bg-base: #09090b;
+      --bg-panel: #121214;
+      --bg-input: #18181b;
+      --bg-hover: rgba(255, 255, 255, 0.05);
+      --bg-active: #18181b; /* Obsidian state */
+      --bg-panel-hover: #27272a;
+      
+      --border-light: rgba(63, 63, 70, 0.4);
+      --border-focus: rgba(99, 102, 241, 0.5);
+      --border-subtle: rgba(255, 255, 255, 0.1);
+      --border-strong: rgba(63, 63, 70, 0.8);
+      --vis-panel-border: rgba(63, 63, 70, 0.4);
+      
+      --text-primary: #f4f4f5;
+      --text-secondary: #a1a1aa;
+      --text-muted: #71717a;
+      --text-bright: #ffffff;
+      --vis-popover-muted: rgba(255, 255, 255, 0.4);
+      
+      --accent-color: #6366f1;
+      --accent-bg: rgba(99, 102, 241, 0.1);
+      
+      --radius-sm: 4px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --radius-full: 9999px;
+      
+      --shadow-panel: -10px 0 20px rgba(0, 0, 0, 0.3);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg-base);
+      color: var(--text-primary);
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+      display: flex;
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #27272a; border-radius: var(--radius-md); }
+
+    /* --- LAYOUT COMPONENTS --- */
+    .app-container {
+      display: flex;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* 1. Mini Sidebar */
+    .mini-sidebar {
+      width: 56px;
+      flex-shrink: 0;
+      background-color: var(--bg-base);
+      border-right: 1px solid var(--border-light);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px 0;
+      z-index: 20;
+    }
+
+    .icon-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 10px;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+
+    .icon-btn:hover {
+      color: var(--text-primary);
+      background-color: var(--bg-hover);
+    }
+
+    .icon-btn.brand {
+      color: #818cf8;
+      background-color: var(--accent-bg);
+      border-radius: var(--radius-lg);
+      margin-bottom: 24px;
+    }
+    .icon-btn.brand:hover { background-color: rgba(99, 102, 241, 0.2); }
+    .icon-btn.active { color: var(--text-primary); background-color: rgba(63, 63, 70, 0.4); }
+
+    .nav-group { display: flex; flex-direction: column; gap: 16px; width: 100%; align-items: center; }
+    .nav-bottom { margin-top: auto; }
+
+    /* Tooltip */
+    .tooltip {
+      position: absolute;
+      left: 60px;
+      background-color: #27272a;
+      color: var(--text-primary);
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+      white-space: nowrap;
+    }
+    .icon-btn:hover .tooltip { opacity: 1; }
+
+    /* 2. Left Panel */
+    .panel-left {
+      width: 288px;
+      flex-shrink: 0;
+      background-color: var(--bg-panel);
+      border-right: 1px solid var(--border-light);
+      display: flex;
+      flex-direction: column;
+      z-index: 10;
+      box-shadow: 10px 0 20px rgba(0,0,0,0.1);
+    }
+
+    .panel-header {
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--border-light);
+    }
+    .panel-header h2 { font-size: 14px; font-weight: 500; }
+
+    .panel-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+    }
+
+    /* Form Controls */
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .input-wrapper { position: relative; }
+    .input-text {
+      width: 100%;
+      background-color: var(--bg-input);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-md);
+      padding: 8px 32px 8px 12px;
+      color: var(--text-primary);
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s ease;
+    }
+    .input-text:focus { border-color: var(--border-focus); }
+    .input-shortcut {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(63, 63, 70, 0.5);
+      border-radius: 4px;
+      font-size: 10px;
+      color: var(--text-muted);
+      background-color: rgba(63, 63, 70, 0.2);
+    }
+
+    /* Segmented Controls & Buttons */
+    .btn-group { display: flex; gap: 8px; }
+    .btn {
+      flex: 1;
+      padding: 6px 12px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      border: 1px solid transparent;
+    }
+    .btn-outline { background-color: var(--bg-input); color: var(--text-secondary); border-color: var(--border-light); }
+    .btn-outline:hover { background-color: var(--bg-hover); color: var(--text-primary); }
+    .btn-primary-outline { background-color: var(--accent-bg); color: #818cf8; border-color: rgba(99, 102, 241, 0.2); }
+    .btn-primary-outline:hover { background-color: rgba(99, 102, 241, 0.2); }
+    .btn-danger-outline { background-color: var(--bg-input); color: var(--text-secondary); border-color: var(--border-light); }
+    .btn-danger-outline:hover { background-color: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3); color: #f87171; }
+
+    .segmented-control { display: flex; background-color: var(--bg-input); border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 4px; }
+    .segment-btn { flex: 1; background: transparent; border: none; color: var(--text-muted); padding: 6px 0; font-size: 13px; font-weight: 500; border-radius: 4px; cursor: pointer; transition: all 0.2s ease; }
+    .segment-btn.active { background-color: #27272a; color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+    .segment-btn:not(.active):hover { color: var(--text-secondary); }
+
+    /* Slider */
+    .slider-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .score-badge { background-color: var(--bg-input); border: 1px solid var(--border-light); padding: 2px 8px; border-radius: var(--radius-sm); font-size: 12px; font-family: monospace; }
+    input[type=range] { width: 100%; -webkit-appearance: none; background: transparent; }
+    input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 6px; background: #27272a; border-radius: var(--radius-full); }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 14px; width: 14px; border-radius: 50%; background: var(--accent-color); cursor: pointer; margin-top: -4px; }
+
+    /* 3. Main Area */
+    .main-area { flex: 1; display: flex; flex-direction: column; min-width: 0; background-color: #0a0a0c; position: relative; }
+    .tabs-bar { height: 48px; border-bottom: 1px solid var(--border-light); display: flex; align-items: center; padding: 0 8px; background-color: rgba(18, 18, 20, 0.5); backdrop-filter: blur(4px); z-index: 10; }
+    .tab { display: flex; align-items: center; gap: 8px; padding: 6px 16px; font-size: 13px; font-weight: 500; border-radius: var(--radius-md); cursor: pointer; background: transparent; border: none; color: var(--text-muted); transition: all 0.2s ease; }
+    .tab.active { background-color: rgba(39, 39, 42, 0.8); color: var(--text-primary); }
+    .tab:not(.active):hover { background-color: rgba(39, 39, 42, 0.4); color: var(--text-secondary); }
+
+    .toolbar { display: flex; align-items: center; justify-content: space-between; padding: 12px 24px; border-bottom: 1px solid rgba(63, 63, 70, 0.3); z-index: 10; }
+    .breadcrumb { display: flex; align-items: center; gap: 8px; font-size: 12px; font-family: monospace; color: var(--text-muted); }
+    .breadcrumb-highlight { color: #818cf8; font-weight: 500; font-family: sans-serif;}
+    .breadcrumb-dot { color: #52525b; }
+    .toolbar-actions { display: flex; align-items: center; gap: 12px; }
+    .action-group { display: flex; background-color: var(--bg-input); border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 2px; }
+    .action-btn { background: transparent; border: none; color: var(--text-secondary); font-size: 12px; padding: 4px 12px; cursor: pointer; }
+    .action-btn:hover { color: var(--text-primary); }
+    .divider-v { width: 1px; background-color: var(--border-light); margin: 0 4px; }
+
+    /* Canvas Area */
+    .canvas-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background: linear-gradient(to bottom right, #0a0a0c, #0f0f13);
+      cursor: grab;
+    }
+    .canvas-container:active { cursor: grabbing; }
+
+    .canvas-bg-pattern {
+      position: absolute;
+      inset: 0;
+      opacity: 0.03;
+      background-image: radial-gradient(circle at 2px 2px, white 1px, transparent 0);
+      background-size: 32px 32px;
+      pointer-events: none;
+    }
+
+    svg.edges-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .nodes-layer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* -------------------------------------------------------------------------
+       GRAPH VISUAL CONTRACTS (Hover, Selection, Edges, Breathing Animations)
+       ------------------------------------------------------------------------- */
+    
+    /* EDGES */
+    .edge-line {
+      stroke: var(--border-strong);
+      stroke-width: 1px;
+      opacity: 0.6;
+      transition: stroke 0.3s ease, stroke-width 0.3s ease, opacity 0.3s ease, filter 0.3s ease;
+    }
+    
+    /* EGO-DIMMING (Global Graph Fade when hovering/selecting) */
+    .canvas-container.has-hover .edge-line,
+    .canvas-container.has-selection .edge-line {
+      opacity: 0.15;
+    }
+    .canvas-container.has-hover .graph-node,
+    .canvas-container.has-selection .graph-node {
+      opacity: 0.25;
+    }
+
+    /* EDGE OVERRIDES (Related edges glow beautifully) */
+    .edge-line.selected-related { 
+      stroke: var(--node-color); 
+      stroke-width: 2px; 
+      opacity: 0.9;
+      filter: drop-shadow(0 0 4px var(--node-color-muted));
+    }
+    .edge-line.hover-related { 
+      stroke: var(--node-color); 
+      stroke-width: 2px; 
+      opacity: 1; 
+      filter: drop-shadow(0 0 6px var(--node-color-muted));
+    }
+
+    /* NODE BASE 
+       Correction: Removed Flex layout so width is strictly 26x26.
+       This ensures the center origin of the node perfectly matches the SVG coordinate points. */
+    .graph-node {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      width: 26px;
+      height: 26px;
+      cursor: pointer;
+      z-index: 10;
+      transition: opacity 0.3s ease;
+    }
+
+    /* NODE CIRCLE (Obsidian rest state) */
+    .node-circle {
+      position: absolute;
+      inset: 0;
+      border-radius: 999px;
+      border: 1px solid var(--vis-panel-border);
+      background: var(--bg-active);
+      box-shadow: inset 0 0 0 1px var(--border-subtle);
+      transition: transform 0.25s ease-out, border-color 0.25s ease-out, background 0.25s ease-out, box-shadow 0.25s ease-out;
+      z-index: 2;
+    }
+    .node-circle::after {
+      content: '';
+      position: absolute;
+      inset: 6px;
+      border-radius: inherit;
+      background: var(--bg-panel-hover);
+      transition: background 0.25s ease-out, inset 0.25s ease-out, opacity 0.25s ease-out;
+    }
+
+    /* NODE LABEL (Now hangs off to the side, mathematically detached from node center) */
+    .node-label {
+      position: absolute;
+      left: calc(100% + 10px);
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 12px;
+      font-weight: 500;
+      white-space: nowrap;
+      padding: 4px 8px;
+      border-radius: var(--radius-md);
+      background-color: rgba(10, 10, 12, 0.8);
+      color: var(--text-secondary);
+      backdrop-filter: blur(4px);
+      transition: all 0.3s ease;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* SELECTED STATES (Refined for a 'Cyber Glass' look instead of flat opaque) */
+    .graph-node.selected-related { opacity: 1; z-index: 15; }
+    .graph-node.selected-target { opacity: 1; z-index: 20; }
+
+    .graph-node.selected-related .node-circle {
+      border-color: var(--node-color);
+      box-shadow: 0 0 12px var(--node-color-muted), inset 0 0 0 1px var(--node-color);
+    }
+    .graph-node.selected-related .node-circle::after {
+      background: var(--node-color);
+      opacity: 0.4;
+    }
+
+    .graph-node.selected-target .node-circle {
+      border-width: 2px;
+      border-color: var(--node-color);
+      background: var(--bg-active);
+      box-shadow: 0 0 0 4px var(--node-color-muted), inset 0 0 0 1px var(--node-color);
+    }
+    .graph-node.selected-target .node-circle::after { 
+      background: var(--node-color); 
+      inset: 4px;
+      opacity: 0.85; /* Soft translucency lets it breathe */
+    }
+    .graph-node.selected-target .node-label { 
+      color: white; 
+      background-color: var(--node-color-muted); 
+      border: 1px solid rgba(255,255,255,0.1);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+
+    /* HOVER STATES */
+    .graph-node.hover-related { opacity: 1; z-index: 25; }
+    .graph-node.hover-target { opacity: 1; z-index: 30; }
+
+    .graph-node.hover-related .node-circle {
+      border-color: var(--node-color);
+      box-shadow: 0 0 12px var(--node-color-muted), inset 0 0 0 1px var(--node-color);
+    }
+    .graph-node.hover-related .node-circle::after {
+      background: var(--node-color);
+      opacity: 0.4;
+    }
+
+    .graph-node.hover-target .node-circle {
+      transform: scale(1.22);
+      border-width: 2px;
+      border-color: var(--node-color);
+      background: var(--bg-active);
+      animation: node-hover-breathe 1.6s ease-in-out infinite;
+    }
+    .graph-node.hover-target .node-circle::after { 
+      background: var(--node-color); 
+      inset: 4px;
+      opacity: 0.7;
+    }
+    .graph-node.hover-target .node-label { 
+      color: white; 
+      background-color: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    /* Breathing Animation */
+    @keyframes node-hover-breathe {
+      0%, 100% { box-shadow: 0 0 0 5px var(--node-color-muted), inset 0 0 0 1px var(--node-color); }
+      50%      { box-shadow: 0 0 0 10px var(--node-color-muted), inset 0 0 0 1px var(--node-color); }
+    }
+
+    /* Hover Popover (Preview Card) */
+    .hover-popover {
+      position: absolute;
+      width: 188px;
+      padding: 0.55rem 0.6rem 0.6rem;
+      border: 1px solid var(--vis-panel-border);
+      border-radius: var(--radius-md);
+      background: rgba(18, 18, 20, 0.85); /* --bg-panel slightly transparent */
+      color: var(--text-primary);
+      box-shadow: 0 14px 28px -16px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--node-color-muted);
+      backdrop-filter: blur(8px);
+      z-index: 50;
+      animation: popover-reveal 0.18s ease-out;
+      pointer-events: none;
+    }
+    .hover-popover::before {
+      content: '';
+      position: absolute;
+      left: -6px;
+      top: 18px;
+      width: 10px;
+      height: 10px;
+      border-left: 1px solid var(--vis-panel-border);
+      border-bottom: 1px solid var(--vis-panel-border);
+      background: var(--bg-panel);
+      transform: rotate(45deg);
+    }
+    .hover-popover-title { margin: 0; font-size: 0.82rem; font-weight: 600; letter-spacing: 0.005em; color: var(--text-bright); display: flex; align-items: center; gap: 0.4rem; }
+    .hover-popover-title::before {
+      content: ''; width: 6px; height: 6px; border-radius: 999px;
+      background: var(--node-color); box-shadow: 0 0 0 3px var(--node-color-muted);
+    }
+    .hover-popover-meta { margin-top: 0.4rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0.25rem 0.5rem; font-size: 0.7rem; color: var(--text-muted); }
+    .hover-popover-meta span:nth-child(odd) { text-transform: uppercase; letter-spacing: 0.06em; color: var(--vis-popover-muted); }
+    .hover-popover-meta span:nth-child(even) { color: var(--text-primary); font-variant-numeric: tabular-nums; text-align: right; }
+    .hover-popover-hint { margin-top: 0.45rem; padding-top: 0.4rem; border-top: 1px solid var(--border-subtle); font-size: 0.66rem; color: var(--vis-popover-muted); letter-spacing: 0.04em; }
+
+    @keyframes popover-reveal {
+      from { opacity: 0; transform: translate(-4px, 2px); }
+      to { opacity: 1; transform: translate(0, 0); }
+    }
+
+
+    /* 4. Right Panel (Inspector) */
+    .panel-right {
+      width: 320px;
+      flex-shrink: 0;
+      background-color: var(--bg-panel);
+      border-left: 1px solid var(--border-light);
+      display: flex;
+      flex-direction: column;
+      z-index: 10;
+      box-shadow: var(--shadow-panel);
+    }
+    .inspector-body { flex: 1; padding: 24px; overflow-y: auto; }
+
+    .empty-state { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; opacity: 0.6; gap: 12px; }
+    .empty-icon-wrapper { width: 64px; height: 64px; border-radius: 50%; background-color: rgba(39, 39, 42, 0.5); border: 1px solid rgba(63, 63, 70, 0.5); display: flex; align-items: center; justify-content: center; }
+    .empty-state h3 { font-size: 14px; font-weight: 500; color: var(--text-primary); }
+    .empty-state p { font-size: 13px; color: var(--text-muted); }
+
+    .inspector-content { display: none; flex-direction: column; gap: 24px; animation: fadeIn 0.3s ease; }
+    .inspector-content.visible { display: flex; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }
+
+    .inspector-title { font-size: 18px; font-weight: 600; color: white; margin-bottom: 4px; }
+    .inspector-subtitle { font-size: 13px; color: var(--text-secondary); display: flex; align-items: center; gap: 8px; }
+    .color-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+    .inspector-actions { display: flex; gap: 8px; padding-bottom: 24px; border-bottom: 1px solid var(--border-light); }
+    .property-group { display: flex; flex-direction: column; gap: 4px; }
+    .property-label { font-size: 11px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .property-value { font-size: 13px; color: var(--text-primary); }
+    .property-value.code { font-family: monospace; background-color: rgba(0,0,0,0.3); padding: 8px; border-radius: var(--radius-sm); border: 1px solid rgba(63, 63, 70, 0.5); }
+  </style>
+</head>
+<body>
+
+  <div class="app-container">
+    
+    <!-- 1. Far Left Mini Sidebar -->
+    <nav class="mini-sidebar">
+      <button class="icon-btn brand">
+        <i data-lucide="network" width="20" height="20"></i>
+      </button>
+      <div class="nav-group">
+        <button class="icon-btn">
+          <i data-lucide="folder" width="20" height="20"></i>
+          <span class="tooltip">Proyectos</span>
+        </button>
+        <button class="icon-btn active">
+          <i data-lucide="search" width="20" height="20"></i>
+        </button>
+        <button class="icon-btn">
+          <i data-lucide="layout-grid" width="20" height="20"></i>
+        </button>
+        <button class="icon-btn">
+          <i data-lucide="share-2" width="20" height="20"></i>
+        </button>
+      </div>
+      <div class="nav-group nav-bottom">
+        <button class="icon-btn">
+          <i data-lucide="settings" width="20" height="20"></i>
+        </button>
+      </div>
+    </nav>
+
+    <!-- 2. Left Panel: Graph Controls -->
+    <aside class="panel-left">
+      <div class="panel-header">
+        <h2>Controles del Grafo</h2>
+        <button class="icon-btn" style="padding: 4px;">
+          <i data-lucide="chevron-left" width="16" height="16"></i>
+        </button>
+      </div>
+
+      <div class="panel-content">
+        <section>
+          <label class="section-title"><i data-lucide="search" width="12" height="12"></i> BÚSQUEDA</label>
+          <div class="input-wrapper">
+            <input type="text" class="input-text" placeholder="Buscar nodos...">
+            <div class="input-shortcut">/</div>
+          </div>
+        </section>
+
+        <section>
+          <label class="section-title"><i data-lucide="filter" width="12" height="12"></i> FILTROS</label>
+          <div class="btn-group">
+            <button class="btn btn-primary-outline"><i data-lucide="eye" width="14" height="14"></i> Mostrar</button>
+            <button class="btn btn-outline"><i data-lucide="eye-off" width="14" height="14"></i> Ocultar</button>
+          </div>
+        </section>
+
+        <section>
+          <label class="section-title"><i data-lucide="layout-grid" width="12" height="12"></i> DISEÑO (LAYOUT)</label>
+          <div class="segmented-control">
+            <button id="btn-hierarchical" class="segment-btn">Jerárquico</button>
+            <button id="btn-physics" class="segment-btn active">Física</button>
+          </div>
+        </section>
+
+        <section>
+          <div class="slider-header">
+            <label class="section-title" style="margin: 0;"><i data-lucide="sliders-horizontal" width="12" height="12"></i> UMBRAL</label>
+            <span id="score-value" class="score-badge">0.00</span>
+          </div>
+          <input type="range" id="score-slider" min="0" max="1" step="0.01" value="0">
+        </section>
+      </div>
+    </aside>
+
+    <!-- 3. Main Center Area (Canvas) -->
+    <main class="main-area">
+      
+      <!-- Top Tabs -->
+      <div class="tabs-bar">
+        <button class="tab active">
+          Vista gráfica
+          <span style="color: var(--text-muted); margin-left: 4px; display: flex;">
+             <i data-lucide="minimize-2" width="12" height="12" style="transform: rotate(45deg);"></i>
+          </span>
+        </button>
+        <button class="tab" style="padding: 6px 12px;">+</button>
+      </div>
+
+      <!-- Toolbar below tabs -->
+      <div class="toolbar">
+        <div class="breadcrumb">
+          <span class="breadcrumb-highlight">Grupo Topete</span>
+          <span class="breadcrumb-dot">•</span>
+          <span>10 nodos</span>
+          <span class="breadcrumb-dot">•</span>
+          <span>12 aristas</span>
+        </div>
+
+        <div class="toolbar-actions">
+           <div class="action-group">
+             <button class="action-btn">Ver Más</button>
+             <div class="divider-v"></div>
+             <button class="action-btn">Ocultar markdown</button>
+           </div>
+           <div style="display: flex; gap: 4px; border-left: 1px solid var(--border-light); padding-left: 12px; margin-left: 4px;">
+             <button class="icon-btn" style="padding: 6px;"><i data-lucide="maximize-2" width="16" height="16"></i></button>
+             <button class="icon-btn" style="padding: 6px;"><i data-lucide="sun" width="16" height="16"></i></button>
+           </div>
+        </div>
+      </div>
+
+      <!-- Canvas Area -->
+      <div id="graph-container" class="canvas-container">
+        <div class="canvas-bg-pattern"></div>
+        
+        <!-- SVG for Edges -->
+        <svg id="edges-container" class="edges-svg"></svg>
+        
+        <!-- Container for HTML Nodes -->
+        <div id="nodes-container" class="nodes-layer"></div>
+
+        <!-- Hover Popover (Preview Card) -->
+        <aside id="hover-popover" class="hover-popover" style="display: none;">
+          <h3 class="hover-popover-title" id="popover-title">Nodo</h3>
+          <div class="hover-popover-meta">
+            <span>Score</span><span id="popover-score">0.92</span>
+            <span>Vecinos</span><span id="popover-neighbors">3</span>
+            <span>Cluster</span><span id="popover-cluster">WCC-1</span>
+          </div>
+          <div class="hover-popover-hint">Clic para inspeccionar a detalle</div>
+        </aside>
+
+      </div>
+    </main>
+
+    <!-- 4. Right Panel: Inspector -->
+    <aside class="panel-right">
+      <div class="panel-header">
+        <h2>Inspector</h2>
+        <button class="icon-btn" style="padding: 4px;">
+          <i data-lucide="chevron-right" width="16" height="16"></i>
+        </button>
+      </div>
+
+      <div class="inspector-body">
+        <div id="inspector-empty" class="empty-state">
+          <div class="empty-icon-wrapper">
+            <i data-lucide="network" width="24" height="24" style="color: var(--text-muted);"></i>
+          </div>
+          <div>
+            <h3>Detalles del nodo</h3>
+            <p>Selecciona un nodo en el lienzo para ver sus propiedades.</p>
+          </div>
+        </div>
+
+        <div id="inspector-content" class="inspector-content">
+          <div>
+            <h3 id="inspector-title" class="inspector-title">Nombre</h3>
+            <p class="inspector-subtitle">
+              <span id="inspector-color" class="color-dot"></span>
+              Detalles del nodo activo
+            </p>
+          </div>
+
+          <div class="inspector-actions">
+            <button id="btn-colapsar" class="btn btn-outline">Colapsar</button>
+            <button id="btn-cerrar" class="btn btn-danger-outline">Cerrar</button>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 16px;">
+             <div class="property-group">
+                <label class="property-label">ID Interno</label>
+                <div id="inspector-id" class="property-value code">id</div>
+             </div>
+             <div class="property-group">
+                <label class="property-label">Tipo</label>
+                <div class="property-value">Entidad de Sistema</div>
+             </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <script>
+    lucide.createIcons();
+
+    // --- DATA ---
+    const nodesData = [
+      { id: 'finanzas', label: 'Finanzas', x: 55, y: 30, color: '#3b82f6', cluster: 'WCC-1' },
+      { id: 'it', label: 'IT', x: 45, y: 35, color: '#3b82f6', cluster: 'WCC-1' },
+      { id: 'sit', label: 'SIT (Trazabilidad)', x: 35, y: 45, color: '#a855f7', cluster: 'WCC-2' },
+      { id: 'torre', label: 'Torre de Control', x: 48, y: 50, color: '#a855f7', cluster: 'WCC-2' },
+      { id: 'sheets', label: 'Google Sheets (ERP DVC)', x: 65, y: 45, color: '#a855f7', cluster: 'WCC-2' },
+      { id: 'samsara', label: 'Samsara API', x: 40, y: 60, color: '#a855f7', cluster: 'WCC-2' },
+      { id: 'grupo', label: 'Grupo Topete', x: 65, y: 65, color: '#6366f1', cluster: 'WCC-3' },
+      { id: 'contpaq', label: 'Contpaq DB (AWS)', x: 50, y: 72, color: '#6366f1', cluster: 'WCC-3' },
+      { id: 'diego', label: 'Diego Topete', x: 38, y: 82, color: '#22c55e', cluster: 'WCC-4' },
+      { id: 'manto', label: 'Mantenimiento', x: 48, y: 88, color: '#3b82f6', cluster: 'WCC-1' },
+      { id: 'director', label: 'Director General', x: 60, y: 82, color: '#6b7280', cluster: 'WCC-5' },
+    ];
+
+    const edgesData = [
+      ['it', 'finanzas'], ['it', 'sit'], ['it', 'torre'],
+      ['torre', 'sheets'], ['torre', 'samsara'], ['samsara', 'contpaq'],
+      ['torre', 'grupo'], ['diego', 'contpaq'], ['diego', 'manto'], ['director', 'grupo']
+    ];
+
+    // Helper: Hex to RGB for muted variable shadow calculations
+    function hexToRgb(hex) {
+       const bigint = parseInt(hex.replace('#',''), 16);
+       return `${(bigint >> 16) & 255}, ${(bigint >> 8) & 255}, ${bigint & 255}`;
+    }
+
+    // --- GRAPH INITIALIZATION & STATE ---
+    let selectedNodeId = null;
+    let hoveredNodeId = null;
+    
+    const adj = {};
+    nodesData.forEach(n => adj[n.id] = []);
+    edgesData.forEach(e => {
+      adj[e[0]].push(e[1]);
+      adj[e[1]].push(e[0]);
+    });
+
+    const graphContainer = document.getElementById('graph-container');
+    const nodesContainer = document.getElementById('nodes-container');
+    const edgesContainer = document.getElementById('edges-container');
+    const popover = document.getElementById('hover-popover');
+    
+    const nodeElements = {};
+    const edgeElements = {};
+
+    function initGraphDOM() {
+      // 1. Init Edges (SVG)
+      edgesData.forEach(edge => {
+        const n1 = nodesData.find(n => n.id === edge[0]);
+        const n2 = nodesData.find(n => n.id === edge[1]);
+        if (!n1 || !n2) return;
+
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', `${n1.x}%`);
+        line.setAttribute('y1', `${n1.y}%`);
+        line.setAttribute('x2', `${n2.x}%`);
+        line.setAttribute('y2', `${n2.y}%`);
+        line.setAttribute('class', 'edge-line');
+        
+        edgesContainer.appendChild(line);
+        const edgeId = [n1.id, n2.id].sort().join('-');
+        edgeElements[edgeId] = line;
+      });
+
+      // 2. Init Nodes (HTML)
+      nodesData.forEach(node => {
+        const nodeEl = document.createElement('div');
+        nodeEl.className = 'graph-node';
+        nodeEl.style.left = `${node.x}%`;
+        nodeEl.style.top = `${node.y}%`;
+
+        const rgb = hexToRgb(node.color);
+        nodeEl.style.setProperty('--node-color', node.color);
+        nodeEl.style.setProperty('--node-color-muted', `rgba(${rgb}, 0.25)`);
+
+        nodeEl.innerHTML = `
+          <div class="node-circle"></div>
+          <span class="node-label">${node.label}</span>
+        `;
+
+        nodeEl.addEventListener('mouseenter', () => {
+          hoveredNodeId = node.id;
+          showPopover(node);
+          updateGraphState();
+        });
+        
+        nodeEl.addEventListener('mouseleave', () => {
+          hoveredNodeId = null;
+          hidePopover();
+          updateGraphState();
+        });
+
+        nodeEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          selectedNodeId = node.id;
+          updateGraphState();
+          updateInspector();
+        });
+
+        nodesContainer.appendChild(nodeEl);
+        nodeElements[node.id] = nodeEl;
+      });
+
+      graphContainer.addEventListener('click', () => {
+        selectedNodeId = null;
+        updateGraphState();
+        updateInspector();
+      });
+    }
+
+    // --- VISUAL CONTRACTS UPDATER ---
+    function updateGraphState() {
+      const hasSelection = selectedNodeId !== null;
+      const hasHover = hoveredNodeId !== null;
+
+      if (hasHover) graphContainer.classList.add('has-hover');
+      else graphContainer.classList.remove('has-hover');
+
+      if (hasSelection) graphContainer.classList.add('has-selection');
+      else graphContainer.classList.remove('has-selection');
+
+      // Reset base classes
+      Object.values(nodeElements).forEach(el => el.className = 'graph-node');
+      Object.values(edgeElements).forEach(el => el.setAttribute('class', 'edge-line'));
+
+      // Apply Selection State
+      if (hasSelection) {
+        const selNodeData = nodesData.find(n => n.id === selectedNodeId);
+        const selColor = selNodeData.color;
+        const selMuted = `rgba(${hexToRgb(selColor)}, 0.4)`;
+
+        nodeElements[selectedNodeId].classList.add('selected-target');
+        
+        adj[selectedNodeId].forEach(neighborId => {
+          nodeElements[neighborId].classList.add('selected-related');
+          
+          const edgeId = [selectedNodeId, neighborId].sort().join('-');
+          if(edgeElements[edgeId]) {
+            edgeElements[edgeId].setAttribute('class', 'edge-line selected-related');
+            edgeElements[edgeId].style.setProperty('--node-color', selColor);
+            edgeElements[edgeId].style.setProperty('--node-color-muted', selMuted);
+          }
+        });
+      }
+
+      // Apply Hover State
+      if (hasHover) {
+        const hovNodeData = nodesData.find(n => n.id === hoveredNodeId);
+        const hovColor = hovNodeData.color;
+        const hovMuted = `rgba(${hexToRgb(hovColor)}, 0.4)`;
+
+        nodeElements[hoveredNodeId].classList.add('hover-target');
+        
+        adj[hoveredNodeId].forEach(neighborId => {
+          nodeElements[neighborId].classList.add('hover-related');
+          
+          const edgeId = [hoveredNodeId, neighborId].sort().join('-');
+          if(edgeElements[edgeId]) {
+            let currentClasses = edgeElements[edgeId].getAttribute('class');
+            edgeElements[edgeId].setAttribute('class', `${currentClasses} hover-related`.trim());
+            edgeElements[edgeId].style.setProperty('--node-color', hovColor);
+            edgeElements[edgeId].style.setProperty('--node-color-muted', hovMuted);
+          }
+        });
+      }
+    }
+
+    // --- POPOVER (Preview Card) LOGIC ---
+    function showPopover(node) {
+      const rgb = hexToRgb(node.color);
+      popover.style.setProperty('--node-color', node.color);
+      popover.style.setProperty('--node-color-muted', `rgba(${rgb}, 0.25)`);
+
+      document.getElementById('popover-title').textContent = node.label;
+      document.getElementById('popover-neighbors').textContent = adj[node.id].length;
+      document.getElementById('popover-cluster').textContent = node.cluster;
+      document.getElementById('popover-score').textContent = (0.7 + Math.random() * 0.29).toFixed(2); // Simulated score
+
+      popover.style.left = `calc(${node.x}% + 24px)`;
+      popover.style.top = `calc(${node.y}% - 14px)`;
+      popover.style.display = 'block';
+    }
+
+    function hidePopover() {
+      popover.style.display = 'none';
+    }
+
+    // --- INSPECTOR LOGIC ---
+    const inspectorEmpty = document.getElementById('inspector-empty');
+    const inspectorContent = document.getElementById('inspector-content');
+
+    function updateInspector() {
+      if (!selectedNodeId) {
+        inspectorEmpty.style.display = 'flex';
+        inspectorContent.classList.remove('visible');
+        return;
+      }
+
+      const node = nodesData.find(n => n.id === selectedNodeId);
+      if (node) {
+        inspectorEmpty.style.display = 'none';
+        inspectorContent.classList.add('visible');
+        
+        document.getElementById('inspector-title').textContent = node.label;
+        document.getElementById('inspector-color').style.backgroundColor = node.color;
+        document.getElementById('inspector-id').textContent = node.id;
+      }
+    }
+
+    // --- UI LISTENERS ---
+    document.getElementById('score-slider').addEventListener('input', (e) => {
+      document.getElementById('score-value').textContent = parseFloat(e.target.value).toFixed(2);
+    });
+
+    document.getElementById('btn-colapsar').addEventListener('click', () => {
+      selectedNodeId = null;
+      updateGraphState();
+      updateInspector();
+    });
+
+    document.getElementById('btn-cerrar').addEventListener('click', () => {
+      selectedNodeId = null;
+      updateGraphState();
+      updateInspector();
+    });
+
+    // Layout Toggle
+    const btnHierarchical = document.getElementById('btn-hierarchical');
+    const btnPhysics = document.getElementById('btn-physics');
+    btnHierarchical.addEventListener('click', () => { btnHierarchical.classList.add('active'); btnPhysics.classList.remove('active'); });
+    btnPhysics.addEventListener('click', () => { btnPhysics.classList.add('active'); btnHierarchical.classList.remove('active'); });
+
+    // --- START ---
+    initGraphDOM();
+
+  </script>
+</body>
+</html>
