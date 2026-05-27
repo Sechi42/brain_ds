@@ -131,6 +131,11 @@ export class LiveDataStore {
         this.pendingPlacement.add(id);
       }
       this.context.nodes = this.getNodes();
+      this.detailIndex[id] = {
+        ...(this.detailIndex[id] || {}),
+        node,
+        sections: Array.isArray(node.card_sections) ? node.card_sections : (this.detailIndex[id]?.sections || []),
+      };
       this._setNodeHighlight(id, event?.highlight_type || 'update');
       return;
     }

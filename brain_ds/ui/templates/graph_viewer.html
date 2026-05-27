@@ -1577,7 +1577,17 @@
           }
           originalApplyEvent.call(this, event);
           const payload = (event && event.payload) || {};
-          if (String((event && event.event) || "").startsWith("node.")) this._setNodeHighlight(payload.id, event.highlight_type || "update");
+          if (String((event && event.event) || "").startsWith("node.")) {
+            if (payload && payload.id && typeof editedDetailIndex !== "undefined") {
+              editedDetailIndex[payload.id] = {
+                ...(editedDetailIndex[payload.id] || {}),
+                node: payload,
+                sections: Array.isArray(payload.card_sections) ? payload.card_sections : ((editedDetailIndex[payload.id] || {}).sections || []),
+              };
+              if (originalNodes && originalNodes.set) originalNodes.set(payload.id, { ...(originalNodes.get(payload.id) || {}), ...payload });
+            }
+            this._setNodeHighlight(payload.id, event.highlight_type || "update");
+          }
           if (String((event && event.event) || "").startsWith("edge.")) this._setEdgeHighlight(payload, event.highlight_type || "update");
         };
         proto.queueOrApply = function (event) {
