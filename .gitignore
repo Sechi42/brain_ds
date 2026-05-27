@@ -19,3 +19,12 @@ src-tauri/target/
 .brain_ds/
 .vscode/
 openspec/
+
+# Local Playwright/opencode runtime artifacts
+.opencode/.opencode/
+.opencode/playwright-mcp-output/
+.opencode/package-lock.json
+.opencode/*preview*.png
+.opencode/*preview*.json
+.opencode/*preview*.md
+phase5_offline_viewer.html

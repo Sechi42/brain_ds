@@ -1,0 +1,13 @@
+{
+  "dependencies": {
+    "@opencode-ai/plugin": "1.15.10"
+  },
+  "devDependencies": {
+    "@playwright/mcp": "^0.0.75"
+  },
+  "pnpm": {
+    "ignoredBuiltDependencies": [
+      "msgpackr-extract"
+    ]
+  }
+}

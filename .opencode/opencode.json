@@ -1,0 +1,24 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "playwright": {
+      "type": "local",
+      "enabled": true,
+      "command": [
+        "pnpm",
+        "--dir",
+        ".opencode",
+        "exec",
+        "playwright-mcp",
+        "--browser",
+        "chrome",
+        "--caps",
+        "vision,devtools",
+        "--output-dir",
+        "playwright-mcp-output",
+        "--save-session"
+      ],
+      "env": {}
+    }
+  }
+}
