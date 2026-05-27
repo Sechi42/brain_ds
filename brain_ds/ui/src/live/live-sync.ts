@@ -17,6 +17,7 @@ export class LiveDataStore {
     this.onNodeAdded = NOOP;
     this.onNodeRemoved = NOOP;
     this.onEventBuffered = NOOP;
+    this.onReceipt = NOOP;
     this.bufferQueue = [];
     this.isFetchComplete = false;
     this.nodeMap = new Map();
@@ -24,6 +25,7 @@ export class LiveDataStore {
     this.adjacency = new Map();
     this.detailIndex = { ...(this.context.detail_index || {}) };
     this.pendingPlacement = new Set();
+    this.highlightTimers = new Map();
     this.seedFromContext(this.context);
   }
 
@@ -109,6 +111,11 @@ export class LiveDataStore {
   applyEvent(event) {
     const name = String(event?.event || '');
     const payload = event?.payload || {};
+    if (name === 'tool.invoked') {
+      this.renderReceipt(payload);
+      this.onReceipt(payload);
+      return;
+    }
     if (name === 'node.updated' && this._shouldPreserveUnsavedEdits(payload)) {
       this._setConflictStale();
       return;
@@ -124,6 +131,7 @@ export class LiveDataStore {
         this.pendingPlacement.add(id);
       }
       this.context.nodes = this.getNodes();
+      this._setNodeHighlight(id, event?.highlight_type || 'update');
       return;
     }
     if (name === 'node.deleted') {
@@ -144,6 +152,7 @@ export class LiveDataStore {
       this.edgesDataSet?.update?.([{ ...edge, id }]);
       this.rebuildAdjacency();
       this.context.edges = this.getEdges();
+      this._setEdgeHighlight(edge, event?.highlight_type || 'update');
       return;
     }
     if (name === 'edge.deleted') {
@@ -154,6 +163,58 @@ export class LiveDataStore {
       this.rebuildAdjacency();
       this.context.edges = this.getEdges();
     }
+  }
+
+  renderReceipt(payload) {
+    const list = document.getElementById('ai-actions-receipts');
+    if (!list) return;
+    const item = document.createElement('li');
+    const status = String(payload?.status || 'ok').toLowerCase() === 'error' ? 'error' : 'ok';
+    const summary = String(payload?.params_summary || '').trim();
+    const tool = String(payload?.tool || 'tool');
+    const targetId = payload?.target_id ? String(payload.target_id) : '';
+    const timestamp = String(payload?.timestamp || '');
+    item.className = status === 'error' ? 'receipt-error' : 'receipt-ok';
+    item.tabIndex = 0;
+    item.dataset.targetId = targetId;
+    item.innerHTML = `<strong>${tool}</strong> · ${summary || 'sin detalles'}${timestamp ? ` · ${timestamp}` : ''}`;
+    item.addEventListener('click', () => {
+      if (targetId) this._setNodeHighlight(targetId, 'update');
+      item.focus({ preventScroll: true });
+    });
+    list.insertBefore(item, list.firstChild);
+    while (list.children.length > 50) {
+      list.removeChild(list.lastChild);
+    }
+  }
+
+  _setNodeHighlight(nodeId, kind) {
+    const selector = `.d4-node[data-id="${String(nodeId)}"], .graph-node[data-id="${String(nodeId)}"]`;
+    const el = document.querySelector(selector);
+    if (!el) return;
+    this._armHighlight(el, kind);
+  }
+
+  _setEdgeHighlight(edge, kind) {
+    const source = String(edge?.from || edge?.source || '');
+    const target = String(edge?.to || edge?.target || '');
+    if (!source || !target) return;
+    const selector = `.d4-edge[data-source="${source}"][data-target="${target}"]`;
+    const el = document.querySelector(selector);
+    if (!el) return;
+    this._armHighlight(el, kind);
+  }
+
+  _armHighlight(el, kind) {
+    const key = el;
+    const previous = this.highlightTimers.get(key);
+    if (previous) window.clearTimeout(previous);
+    el.setAttribute('data-highlight', String(kind || 'update'));
+    const timeoutId = window.setTimeout(() => {
+      el.removeAttribute('data-highlight');
+      this.highlightTimers.delete(key);
+    }, 2000);
+    this.highlightTimers.set(key, timeoutId);
   }
 
   _shouldPreserveUnsavedEdits(payload) {
@@ -176,6 +237,10 @@ export class LiveDataStore {
   }
 
   queueOrApply(event) {
+    if (String(event?.event || '') === 'tool.invoked') {
+      this.applyEvent(event);
+      return;
+    }
     if (!this.isFetchComplete) {
       this.bufferQueue.push(event);
       this.onEventBuffered(event);

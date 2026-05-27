@@ -28,6 +28,31 @@ class TestUiMarkdownSaveContracts(unittest.TestCase):
         text = VIEWER_HTML.read_text(encoding="utf-8")
         self.assertIn("detail-conflict-banner", text)
 
+    def test_ai_actions_receipts_contract(self) -> None:
+        text = VIEWER_HTML.read_text(encoding="utf-8")
+        self.assertIn('id="ai-actions-receipts"', text)
+        self.assertIn("receipt-ok", text)
+        self.assertIn("receipt-error", text)
+
+    def test_live_sync_receipt_immediate_render_and_focus_contract(self) -> None:
+        text = LIVE_SYNC_TS.read_text(encoding="utf-8")
+        self.assertIn("tool.invoked", text)
+        self.assertIn("onReceipt", text)
+        self.assertIn("document.getElementById('ai-actions-receipts')", text)
+        self.assertIn("focus({ preventScroll: true })", text)
+
+    def test_live_sync_highlight_contract(self) -> None:
+        text = LIVE_SYNC_TS.read_text(encoding="utf-8")
+        self.assertIn("data-highlight", text)
+        self.assertIn("removeAttribute('data-highlight')", text)
+        self.assertIn("window.setTimeout", text)
+
+    def test_viewer_reduced_motion_highlight_contract(self) -> None:
+        text = VIEWER_HTML.read_text(encoding="utf-8")
+        self.assertIn("@media (prefers-reduced-motion: reduce)", text)
+        self.assertIn("[data-highlight] .node-circle", text)
+        self.assertIn("animation: none", text)
+
 
 if __name__ == "__main__":
     unittest.main()

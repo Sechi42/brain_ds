@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from datetime import datetime, timezone
 from typing import Any
 
 from brain_ds.mcp.security import TOOL_SCHEMAS, ValidationError, error_boundary, validate_tool_input
@@ -24,6 +25,33 @@ def _normalize_optional_filter(value: Any) -> Any:
     if isinstance(value, str) and value.strip() == "":
         return None
     return value
+
+
+def _receipt_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _enqueue_tool_receipt(
+    store: GraphStore,
+    *,
+    graph_id: str,
+    tool: str,
+    status: str,
+    target_id: str | None,
+    params_summary: str,
+) -> None:
+    store.enqueue_event(
+        "tool.invoked",
+        graph_id,
+        {
+            "timestamp": _receipt_now(),
+            "tool": tool,
+            "params_summary": params_summary,
+            "status": status,
+            "graph_id": graph_id,
+            "target_id": target_id,
+        },
+    )
 
 
 @error_boundary
@@ -115,6 +143,15 @@ def update_node(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
             graph_id,
             result,
         )
+        changed_fields = [field for field in ("label", "type", "details", "card_sections", "supertype") if field in validated]
+        _enqueue_tool_receipt(
+            store,
+            graph_id=graph_id,
+            tool="update_node",
+            status="ok",
+            target_id=node_id,
+            params_summary=f"node={node_id} fields={','.join(changed_fields) or 'none'}",
+        )
         return result
     except ValidationError:
         raise
@@ -167,8 +204,24 @@ def add_edge(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
             graph_id,
             result,
         )
+        _enqueue_tool_receipt(
+            store,
+            graph_id=graph_id,
+            tool="add_edge",
+            status="ok",
+            target_id=f"{validated['source']}->{validated['target']}",
+            params_summary=f"edge={validated['source']}->{validated['target']} label={validated['label']}",
+        )
         return result
     except ValidationError as exc:
+        _enqueue_tool_receipt(
+            store,
+            graph_id=validated.get("graph_id", ""),
+            tool="add_edge",
+            status="error",
+            target_id=f"{validated.get('source', '?')}->{validated.get('target', '?')}",
+            params_summary=f"edge={validated.get('source', '?')}->{validated.get('target', '?')} error={exc.message}",
+        )
         _safe_log_error(store, "add_edge", validated)
         raise exc
     except StoreError as exc:

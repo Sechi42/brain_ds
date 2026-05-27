@@ -1110,6 +1110,29 @@
         from { opacity: 0; transform: scale(0.3); }
         to { opacity: 1; transform: scale(1); }
       }
+      @keyframes highlight-pulse {
+        0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-color-soft) 60%, transparent); }
+        100% { box-shadow: 0 0 0 12px transparent; }
+      }
+
+      #ai-actions-receipts {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+      }
+      #ai-actions-receipts li {
+        border: 1px solid var(--border-subtle);
+        border-radius: 8px;
+        padding: 0.35rem 0.45rem;
+        font-size: 0.78rem;
+        color: var(--text-normal);
+        background: var(--bg-panel);
+      }
+      #ai-actions-receipts li.receipt-ok { border-inline-start: 3px solid var(--status-active); }
+      #ai-actions-receipts li.receipt-error { border-inline-start: 3px solid var(--status-danger); }
 
       @media (prefers-reduced-motion: no-preference) {
         .d4-edge,
@@ -1139,6 +1162,10 @@
           animation: d4-popover-reveal 0.18s ease-out, popover-reveal 0.18s ease-out;
         }
         .d4-node--entering .node-circle { animation: node-entrance 200ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+        .d4-node[data-highlight] .node-circle,
+        .graph-node[data-highlight] .node-circle {
+          animation: highlight-pulse 2s ease-out;
+        }
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -1154,6 +1181,12 @@
           transform: none;
         }
         .d4-node--entering .node-circle { animation: none; }
+        .d4-node[data-highlight] .node-circle,
+        .graph-node[data-highlight] .node-circle,
+        .d4-edge[data-highlight] {
+          animation: none;
+          outline: 2px solid var(--accent-color-soft);
+        }
       }
     </style>
   </head>
@@ -1445,7 +1478,7 @@
               <svg class="chevron" aria-hidden="true" width="16" height="16"><use href="#icon-chevron-right"/></svg>
             </summary>
             <div class="inspector-body">
-              <div style="padding: 0.4rem 0; font-size: 0.82rem; color: var(--text-muted);" aria-disabled="true">Puente MCP — no conectado</div>
+              <ol id="ai-actions-receipts" aria-live="polite"></ol>
             </div>
           </details>
         </div>

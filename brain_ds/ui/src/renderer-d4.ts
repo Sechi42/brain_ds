@@ -241,6 +241,8 @@ export function mount(args: D4MountArgs) {
       line.setAttribute('y1', String(fromPos.y));
       line.setAttribute('x2', String(toPos.x));
       line.setAttribute('y2', String(toPos.y));
+      line.setAttribute('data-source', fromId);
+      line.setAttribute('data-target', toId);
       const isRelated = !hasInteraction
         ? true
         : (

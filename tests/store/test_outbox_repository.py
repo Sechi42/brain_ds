@@ -62,6 +62,27 @@ class TestOutboxRepository(unittest.TestCase):
         self.assertEqual(remaining[0][0], "node.updated")
         self.assertEqual(remaining[0][1], 0)
 
+    def test_tool_invoked_event_written_to_outbox(self) -> None:
+        payload = {
+            "timestamp": "2026-01-01T00:00:00Z",
+            "tool": "update_node",
+            "params_summary": "node=n-1 fields=label",
+            "status": "ok",
+            "graph_id": "g-1",
+            "target_id": "n-1",
+        }
+        self.repo.enqueue_event("tool.invoked", "g-1", payload)
+
+        row = self.conn.execute(
+            "SELECT event, graph_id, payload FROM event_outbox ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        self.assertEqual(row[0], "tool.invoked")
+        self.assertEqual(row[1], "g-1")
+        stored = json.loads(row[2])
+        self.assertEqual(stored["tool"], "update_node")
+        self.assertEqual(stored["status"], "ok")
+        self.assertEqual(stored["target_id"], "n-1")
+
 
 if __name__ == "__main__":
     unittest.main()

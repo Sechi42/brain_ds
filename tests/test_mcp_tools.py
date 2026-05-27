@@ -72,7 +72,7 @@ class MCPToolsTests(unittest.TestCase):
 
     def _last_outbox_event(self) -> tuple[str, str, str]:
         row = self.store.conn.execute(
-            "SELECT event, graph_id, payload FROM event_outbox ORDER BY id DESC LIMIT 1"
+            "SELECT event, graph_id, payload FROM event_outbox WHERE event != 'tool.invoked' ORDER BY id DESC LIMIT 1"
         ).fetchone()
         return (row[0], row[1], row[2])
 
@@ -180,6 +180,21 @@ class MCPToolsTests(unittest.TestCase):
         self.assertEqual(graph_id, self.graph_id)
         self.assertEqual(json.loads(payload)["id"], "N-1")
 
+    def test_update_node_enqueues_tool_invoked_ok(self) -> None:
+        update_node(self.store, {"graph_id": self.graph_id, "node_id": "N-1", "label": "Renamed"})
+
+        row = self.store.conn.execute(
+            "SELECT event, graph_id, payload FROM event_outbox WHERE event = 'tool.invoked' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row[0], "tool.invoked")
+        self.assertEqual(row[1], self.graph_id)
+        payload = json.loads(row[2])
+        self.assertEqual(payload["tool"], "update_node")
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["target_id"], "N-1")
+        self.assertIn("N-1", payload["params_summary"])
+
     def test_update_node_card_sections_persists(self) -> None:
         updated = update_node(
             self.store,
@@ -241,6 +256,22 @@ class MCPToolsTests(unittest.TestCase):
         ).fetchall()
         self.assertEqual(error_rows[0][0], "error")
         self.assertEqual(error_rows[1][0], "error")
+
+    def test_add_edge_error_receipt(self) -> None:
+        add_edge(
+            self.store,
+            {"graph_id": self.graph_id, "source": "N-404", "target": "N-2", "label": "rel"},
+        )
+        row = self.store.conn.execute(
+            "SELECT event, graph_id, payload FROM event_outbox WHERE event = 'tool.invoked' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row[0], "tool.invoked")
+        self.assertEqual(row[1], self.graph_id)
+        payload = json.loads(row[2])
+        self.assertEqual(payload["tool"], "add_edge")
+        self.assertEqual(payload["status"], "error")
+        self.assertIn("N-404", payload["params_summary"])
 
     def test_add_edge_enqueues_edge_created(self) -> None:
         created = add_edge(
