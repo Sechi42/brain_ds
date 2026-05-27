@@ -1,13 +1,13 @@
 import json
 import io
 import tempfile
-import threading
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
-from urllib.request import urlopen
+
+from fastapi.testclient import TestClient
 
 from brain_ds.ontology import Graph
 
@@ -31,13 +31,13 @@ class TestServerRuntime(unittest.TestCase):
             store_path = root / ".brain_ds" / "store.db"
             self.assertFalse(store_path.exists())
 
-            fake_httpd = SimpleNamespace(serve_forever=Mock())
-            with patch("brain_ds.ui.server.ThreadingHTTPServer", return_value=fake_httpd), patch(
-                "brain_ds.ui.server.signal.signal"
-            ):
+            fake_server = Mock()
+            fake_server.config.bind_socket.return_value = None
+            with patch("brain_ds.ui.server.uvicorn.Server", return_value=fake_server), patch("brain_ds.ui.server.signal.signal"):
                 server.run_server(project_root=root, port=8765)
 
             self.assertTrue(store_path.exists())
+            fake_server.run.assert_called_once()
 
     def test_run_server_port_conflict_reports_clear_error_and_exits_1(self):
         from brain_ds.ui import server
@@ -47,7 +47,9 @@ class TestServerRuntime(unittest.TestCase):
             stderr = io.StringIO()
             with self.assertRaises(SystemExit) as ctx:
                 with redirect_stderr(stderr):
-                    with patch("brain_ds.ui.server.ThreadingHTTPServer", side_effect=OSError("Address in use")):
+                    fake_server = Mock()
+                    fake_server.config.bind_socket.side_effect = OSError("Address in use")
+                    with patch("brain_ds.ui.server.uvicorn.Server", return_value=fake_server):
                         server.run_server(project_root=root, port=8765)
 
         self.assertEqual(ctx.exception.code, 1)
@@ -65,19 +67,11 @@ class TestServerRuntime(unittest.TestCase):
             ]
             fake_store.load_graph.return_value = Graph.from_v1(_sample_graph_payload("Latest Org"))
 
-            runtime = server.ServerRuntime(project_root=root, store=fake_store)
-            httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), runtime.handler_class())
-            thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-            thread.start()
-            try:
-                with urlopen(f"http://127.0.0.1:{httpd.server_port}/", timeout=2) as response:
-                    body = response.read().decode("utf-8")
-                    self.assertEqual(response.status, 200)
-                    self.assertIn("Latest Org", body)
-            finally:
-                httpd.shutdown()
-                thread.join(timeout=2)
-                httpd.server_close()
+            app = server.build_ui_app(project_root=root, store=fake_store)
+            with TestClient(app) as client:
+                response = client.get("/")
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("Latest Org", response.text)
 
     def test_get_root_with_empty_store_returns_200(self):
         from brain_ds.ui import server
@@ -87,19 +81,11 @@ class TestServerRuntime(unittest.TestCase):
             fake_store = Mock()
             fake_store.list_graphs.return_value = []
 
-            runtime = server.ServerRuntime(project_root=root, store=fake_store)
-            httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), runtime.handler_class())
-            thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-            thread.start()
-            try:
-                with urlopen(f"http://127.0.0.1:{httpd.server_port}/", timeout=2) as response:
-                    body = response.read().decode("utf-8")
-                    self.assertEqual(response.status, 200)
-                    self.assertIn("RENDER_CONTEXT", body)
-            finally:
-                httpd.shutdown()
-                thread.join(timeout=2)
-                httpd.server_close()
+            app = server.build_ui_app(project_root=root, store=fake_store)
+            with TestClient(app) as client:
+                response = client.get("/")
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("RENDER_CONTEXT", response.text)
 
     def test_get_api_graphs_returns_id_and_label_json(self):
         from brain_ds.ui import server
@@ -110,19 +96,11 @@ class TestServerRuntime(unittest.TestCase):
             fake_store.list_graphs.return_value = [
                 SimpleNamespace(id="graph-1", org="Label Org", imported_from=str(root / "graph.json"))
             ]
-            runtime = server.ServerRuntime(project_root=root, store=fake_store)
-            httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), runtime.handler_class())
-            thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-            thread.start()
-            try:
-                with urlopen(f"http://127.0.0.1:{httpd.server_port}/api/graphs", timeout=2) as response:
-                    body = json.loads(response.read().decode("utf-8"))
-                    self.assertEqual(response.status, 200)
-                    self.assertEqual(body, [{"id": "graph-1", "label": "Label Org"}])
-            finally:
-                httpd.shutdown()
-                thread.join(timeout=2)
-                httpd.server_close()
+            app = server.build_ui_app(project_root=root, store=fake_store)
+            with TestClient(app) as client:
+                response = client.get("/api/graphs")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json(), [{"id": "graph-1", "label": "Label Org"}])
 
     def test_sigint_handler_closes_store_and_exits_0(self):
         from brain_ds.ui import server

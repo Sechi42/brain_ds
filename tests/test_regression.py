@@ -35,6 +35,8 @@ class TestRuntimeRegression(unittest.TestCase):
             "socket",
             "signal",
             "http",
+            "fastapi",
+            "uvicorn",
         }
 
         for module_path in (project_root / "brain_ds" / "ui" / "cli.py", project_root / "brain_ds" / "ui" / "server.py"):
