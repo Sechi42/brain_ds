@@ -40,6 +40,14 @@
   --accent-mora: #a78bfa;
   --accent-mora-muted: rgba(167, 139, 250, 0.15);
 
+  /* === Danger (destructive chrome: inspector "Cerrar", future delete) ===
+     Chrome-only. NOT a WCC graph-data color. Mirrored in theme.py
+     (state_danger_fg / _bg as DATA for contrast tooling). --danger ≈ #f87171
+     on --bg-panel passes AA for non-text UI; --danger-soft is the hover wash. */
+  --danger: #f87171;
+  --danger-soft: rgba(239, 68, 68, 0.1);
+  --danger-border: rgba(239, 68, 68, 0.3);
+
   /* Reference-aligned aliases (moderngraphui_notailwind chrome parity).
      These are name-equivalents the design reference uses; brain_ds palette is the
      source of truth. Added as ADDITIONAL names (do not rename existing tokens). */

@@ -70,6 +70,10 @@ THEME_TOKENS = {
         "state_disabled_fg": "#94a3b8",
         "state_danger_bg": "#7f1d1d",
         "state_danger_fg": "#fee2e2",
+        # Danger chrome token mirror (canonical CSS source: tokens.css --danger).
+        # DATA for contrast tooling only — NOT a CSS emitter.
+        "danger": "#f87171",
+        "danger_soft": "rgba(239, 68, 68, 0.1)",
         "state_success_bg": "#14532d",
         "state_success_fg": "#dcfce7",
         "state_info_bg": "#0c4a6e",
@@ -165,6 +169,9 @@ THEME_TOKENS = {
         "state_disabled_fg": "#64748b",
         "state_danger_bg": "#fee2e2",
         "state_danger_fg": "#7f1d1d",
+        # Danger chrome token mirror (canonical CSS source: tokens.css --danger).
+        "danger": "#dc2626",
+        "danger_soft": "rgba(220, 38, 38, 0.1)",
         "state_success_bg": "#dcfce7",
         "state_success_fg": "#14532d",
         "state_info_bg": "#dbeafe",

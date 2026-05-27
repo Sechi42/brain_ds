@@ -184,10 +184,12 @@ class TestTemplateRenderer(unittest.TestCase):
 
     def test_workspace_shell_layout_intact_after_migration(self):
         html = self._render()
-        # Shell grid + canonical heights for tab-strip (48px, D.4 visual port —
-        # aligned with moderngraphui_notailwind reference) and toolbar (44px).
+        # Shell grid + canonical heights for tab-strip (36px — PR #4 chrome parity,
+        # ADR-009 project override; the reference's 48px .tabs-bar is intentionally
+        # NOT adopted under the 5-column grid, per design ADR-F #1208. Stale-contract
+        # migration #1194: was 48px at the D.4 port) and toolbar (44px LOCKED).
         self.assertIn(".workspace-shell", html)
-        self.assertIn("flex: 0 0 48px", html)  # .tab-strip
+        self.assertIn("flex: 0 0 36px", html)  # .tab-strip (ADR-009 project contract)
         self.assertIn("flex: 0 0 44px", html)  # .top-toolbar / .panel-header
 
 
