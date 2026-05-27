@@ -151,6 +151,26 @@ console.log(JSON.stringify({
         self.assertGreaterEqual(out["nodeCount"], 3)
         self.assertGreaterEqual(out["edgeCount"], 2)
 
+    def test_hover_enter_marks_hover_target_contract(self):
+        out = self._run_overlay_case(
+            """
+emit("hoverNode", { node: "b" });
+const canvas = byId.get("center-split");
+console.log(JSON.stringify({
+  hoverTarget: stateFor("b"),
+  relatedA: stateFor("a"),
+  relatedC: stateFor("c"),
+  hasHover: canvas.getAttribute("data-has-hover"),
+  hasSelection: canvas.getAttribute("data-has-selection")
+}));
+"""
+        )
+        self.assertEqual(out["hoverTarget"], "hover-target")
+        self.assertEqual(out["relatedA"], "hover-related")
+        self.assertEqual(out["relatedC"], "hover-related")
+        self.assertEqual(out["hasHover"], "true")
+        self.assertEqual(out["hasSelection"], "false")
+
     def test_hover_selected_and_edge_emphasis_contract(self):
         out = self._run_overlay_case(
             """
