@@ -180,6 +180,26 @@ class MCPToolsTests(unittest.TestCase):
         self.assertEqual(graph_id, self.graph_id)
         self.assertEqual(json.loads(payload)["id"], "N-1")
 
+    def test_update_node_card_sections_persists(self) -> None:
+        updated = update_node(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "node_id": "N-1",
+                "card_sections": [{"title": "Risks", "content": "Budget overrun", "icon": "", "order": 1}],
+            },
+        )
+        self.assertIn("card_sections", updated)
+        self.assertEqual(updated["card_sections"][0]["title"], "Risks")
+
+        reread = get_node(self.store, {"graph_id": self.graph_id, "node_id": "N-1"})
+        self.assertEqual(reread["card_sections"][0]["content"], "Budget overrun")
+
+        event, graph_id, payload = self._last_outbox_event()
+        self.assertEqual(event, "node.updated")
+        self.assertEqual(graph_id, self.graph_id)
+        self.assertEqual(json.loads(payload)["card_sections"][0]["title"], "Risks")
+
     def test_add_edge_success_and_missing_nodes_log_error(self) -> None:
         before = self._audit_count()
         created = add_edge(

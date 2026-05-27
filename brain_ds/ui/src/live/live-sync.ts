@@ -109,6 +109,10 @@ export class LiveDataStore {
   applyEvent(event) {
     const name = String(event?.event || '');
     const payload = event?.payload || {};
+    if (name === 'node.updated' && this._shouldPreserveUnsavedEdits(payload)) {
+      this._setConflictStale();
+      return;
+    }
     if (name === 'node.created' || name === 'node.updated') {
       const node = { ...payload };
       const id = String(node.id);
@@ -150,6 +154,25 @@ export class LiveDataStore {
       this.rebuildAdjacency();
       this.context.edges = this.getEdges();
     }
+  }
+
+  _shouldPreserveUnsavedEdits(payload) {
+    const api = window.brainDsUI && window.brainDsUI.detailPanel;
+    if (!api) return false;
+    const selected = typeof api.getSelectedNodeId === 'function' ? api.getSelectedNodeId() : null;
+    const hasEdits = typeof api.getHasEdits === 'function' ? api.getHasEdits() : false;
+    const editMode = typeof api.isEditMode === 'function' ? api.isEditMode() : false;
+    return Boolean(editMode && hasEdits && selected && String(selected) === String(payload?.id || ''));
+  }
+
+  _setConflictStale() {
+    const body = document.getElementById('detail-body');
+    const parent = body && body.parentElement;
+    if (parent) parent.setAttribute('data-conflict', 'stale'); // data-conflict="stale"
+    const banner = document.getElementById('detail-conflict-banner'); // #detail-conflict-banner
+    if (banner) banner.removeAttribute('hidden');
+    const api = window.brainDsUI && window.brainDsUI.detailPanel;
+    if (api && typeof api.markConflictStale === 'function') api.markConflictStale();
   }
 
   queueOrApply(event) {

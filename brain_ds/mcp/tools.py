@@ -103,7 +103,7 @@ def update_node(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
                 raise
 
         payload = {"id": node_id}
-        for field in ("label", "type", "details", "supertype"):
+        for field in ("label", "type", "details", "card_sections", "supertype"):
             if field in validated:
                 payload[field] = validated[field]
 

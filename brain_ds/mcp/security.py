@@ -66,6 +66,7 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "label": {"type": "string"},
             "type": {"type": "string"},
             "details": {"type": "object"},
+            "card_sections": {"type": "array"},
             "supertype": {"type": "string"},
         },
         "additionalProperties": False,

@@ -1415,6 +1415,7 @@
             <div class="detail-actions">
               <button type="button" id="edit-toggle" class="pill-btn btn-outline" aria-pressed="false" hidden><svg class="card-icon" aria-hidden="true"><use href="#icon-edit"/></svg> Editar</button>
               <button type="button" id="export-json" class="pill-btn btn-outline" hidden><svg class="card-icon" aria-hidden="true"><use href="#icon-save"/></svg> Exportar JSON</button>
+              <button type="button" id="detail-save" class="pill-btn btn-outline" hidden><svg class="card-icon" aria-hidden="true"><use href="#icon-save"/></svg> Guardar</button>
               <button type="button" id="detail-collapse" class="pill-btn btn-outline" aria-controls="detail-panel" aria-expanded="true" aria-label="Collapse detail panel">Colapsar</button>
               <button type="button" id="detail-close" class="pill-btn btn-danger-outline" aria-label="Clear selected node">Cerrar</button>
             </div>
@@ -1432,6 +1433,7 @@
               <p>Selecciona un nodo en el lienzo para ver sus propiedades.</p>
             </div>
           </div>
+          <div id="detail-conflict-banner" class="detail-conflict-banner" hidden>Hay cambios remotos más nuevos. Tus ediciones locales no guardadas se conservaron.</div>
           <div id="detail-body" class="detail-body" data-state="empty">Selecciona un nodo en el lienzo para ver sus propiedades.</div>
         </aside>
         <!-- Static inspector stub sections — rendered by runtime; accordion classes satisfy _shared.css contract -->
@@ -1492,6 +1494,9 @@
       const nodes = new vis.DataSet(RENDER_CONTEXT.nodes || []);
       const edges = new vis.DataSet(RENDER_CONTEXT.edges || []);
       const graphId = String((meta && meta.graph_id) || "");
+      if (window.brainDsUI) {
+        window.brainDsUI.graphId = graphId;
+      }
       const liveSyncApi = window.brainDsUI && window.brainDsUI.liveSync;
       const liveDataStore = liveSyncApi
         ? new liveSyncApi.LiveDataStore(RENDER_CONTEXT, nodes, edges)

@@ -21,6 +21,7 @@ declare global {
     };
     brainDsUI?: {
       detailPanel: typeof detailPanel;
+      graphId?: string;
       network?: unknown;
       search: typeof search;
       filterPanel: typeof filterPanel;

@@ -95,6 +95,7 @@ let _detailMeta: Element | null = null;
 let _detailBody: Element | null = null;
 let _editToggleBtn: HTMLButtonElement | null = null;
 let _exportJsonBtn: HTMLButtonElement | null = null;
+let _detailSaveBtn: HTMLButtonElement | null = null;
 let _detailCollapseBtn: HTMLButtonElement | null = null;
 
 // Edit state (lives inside the mounted panel instance)
@@ -139,6 +140,54 @@ function toggleEditControls(): void {
   const hasSelection = _selectedNodeId !== null;
   _editToggleBtn.hidden = !hasSelection;
   _exportJsonBtn.hidden = !_hasEdits;
+  if (_detailSaveBtn) {
+    _detailSaveBtn.hidden = !(_editMode && _hasEdits && hasSelection);
+  }
+}
+
+function _graphId(): string {
+  const api = (window as unknown as { brainDsUI?: { graphId?: string } }).brainDsUI;
+  return String(api?.graphId || "");
+}
+
+function _clearConflictStale(): void {
+  const parent = _detailBody?.parentElement;
+  if (parent) parent.removeAttribute("data-conflict");
+  const banner = document.getElementById("detail-conflict-banner");
+  if (banner) banner.setAttribute("hidden", "true");
+}
+
+function _markConflictStale(): void {
+  const parent = _detailBody?.parentElement;
+  if (parent) parent.setAttribute("data-conflict", "stale");
+  const banner = document.getElementById("detail-conflict-banner");
+  if (banner) banner.removeAttribute("hidden");
+}
+
+async function _saveEdits(): Promise<void> {
+  if (!_selectedNodeId || !_deps) return;
+  const detail = _deps.editedDetailIndex[_selectedNodeId];
+  const editedNode = getEditedNode(_selectedNodeId);
+  if (!detail || !editedNode) return;
+  const graph_id = _graphId();
+  if (!graph_id) return;
+  const changes: Record<string, unknown> = {};
+  changes.label = editedNode.label;
+  changes.card_sections = (detail.sections || []).map((section, order) => ({
+    title: section.title || "Section",
+    content: section.content || "",
+    icon: section.icon || "",
+    order: typeof (section as { order?: unknown }).order === "number" ? (section as { order: number }).order : order + 1,
+  }));
+  const response = await fetch(`/api/nodes/${encodeURIComponent(_selectedNodeId)}` , {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ graph_id, changes }),
+  });
+  if (!response.ok) return;
+  _hasEdits = false;
+  _clearConflictStale();
+  toggleEditControls();
 }
 
 function createSectionHeading(iconName: string, label: string): HTMLHeadingElement {
@@ -300,6 +349,7 @@ export function renderDetailPanel(nodeId: string | null): void {
     return;
   }
   _detailPanel.classList.remove("is-empty");
+  _clearConflictStale();
   _detailBody.setAttribute("data-state", "ready");
   _detailTitle.textContent = detail.node.label ?? detail.node.id;
   _detailMeta.textContent = `${detail.node.type} · ${detail.node.supertype}`;
@@ -359,6 +409,7 @@ export function renderDetailPanelEditable(nodeId: string): void {
     return;
   }
   _detailPanel.classList.remove("is-empty");
+  _clearConflictStale();
   _detailBody.setAttribute("data-state", "ready");
   _detailTitle.textContent = editedNode.label ?? detail.node.label ?? editedNode.id;
   _detailMeta.textContent = `${detail.node.type} · ${detail.node.supertype}`;
@@ -483,7 +534,14 @@ export function mount(root: Element, deps: DetailPanelDeps): void {
   _detailBody = document.getElementById("detail-body");
   _editToggleBtn = document.getElementById("edit-toggle") as HTMLButtonElement | null;
   _exportJsonBtn = document.getElementById("export-json") as HTMLButtonElement | null;
+  _detailSaveBtn = document.getElementById("detail-save") as HTMLButtonElement | null;
   _detailCollapseBtn = document.getElementById("detail-collapse") as HTMLButtonElement | null;
+
+  if (_detailSaveBtn) {
+    _on(_detailSaveBtn, "click", () => {
+      void _saveEdits();
+    });
+  }
 
   // Wire edit toggle
   if (_editToggleBtn) {
@@ -518,6 +576,7 @@ export function mount(root: Element, deps: DetailPanelDeps): void {
         if (_editMode) {
           _editMode = false;
           if (_editToggleBtn) _editToggleBtn.setAttribute("aria-pressed", "false");
+          _clearConflictStale();
           if (_selectedNodeId) renderDetailPanel(_selectedNodeId);
           return;
         }
@@ -557,6 +616,7 @@ export function unmount(): void {
   _editMode = false;
   _selectedNodeId = null;
   _hasEdits = false;
+  _detailSaveBtn = null;
 }
 
 // ── Public API beyond mount/unmount ────────────────────────────────────────
@@ -574,6 +634,7 @@ export function getSelectedNodeId(): string | null {
 /** Called by template to set edit mode programmatically. */
 export function setEditMode(enabled: boolean): void {
   _editMode = Boolean(enabled && _selectedNodeId !== null);
+  if (!_editMode) _clearConflictStale();
   if (_editToggleBtn) _editToggleBtn.setAttribute("aria-pressed", String(_editMode));
   if (_selectedNodeId === null) {
     renderDetailPanel(null);
@@ -589,4 +650,16 @@ export function setEditMode(enabled: boolean): void {
 /** Called by template to get current hasEdits state. */
 export function getHasEdits(): boolean {
   return _hasEdits;
+}
+
+export function isEditMode(): boolean {
+  return _editMode;
+}
+
+export function markConflictStale(): void {
+  _markConflictStale();
+}
+
+export function clearConflictStale(): void {
+  _clearConflictStale();
 }

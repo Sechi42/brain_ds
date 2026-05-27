@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from dataclasses import asdict
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
@@ -65,13 +66,22 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
     async def patch_node(node_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         graph_id = str(payload["graph_id"])
         changes = dict(payload.get("changes") or {})
+        try:
+            existing_nodes = store.query_nodes(graph_id)
+        except GraphNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if not any(item.id == node_id for item in existing_nodes):
+            raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found in graph '{graph_id}'")
         node_payload = {"id": node_id, **changes}
         try:
             store.upsert_node(graph_id, node_payload)
         except GraphNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        await event_bus.publish("node.updated", graph_id, node_payload)
-        return {"graph_id": graph_id, "node": node_payload, "timestamp": _utc_timestamp()}
+        refreshed = next((asdict(item) for item in store.query_nodes(graph_id) if item.id == node_id), None)
+        if refreshed is None:
+            raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found in graph '{graph_id}'")
+        await event_bus.publish("node.updated", graph_id, refreshed)
+        return {"graph_id": graph_id, "node": refreshed, "timestamp": _utc_timestamp()}
 
     @router.get("/edges")
     def list_edges(graph_id: str, source: str | None = None, target: str | None = None) -> dict[str, Any]:
