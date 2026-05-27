@@ -169,7 +169,8 @@ function _updateClearBtn(): void {
  *               It also injects the search icon and clear button via DOM manipulation.
  * @param deps - SearchDeps bag: { nodes, onSelect, onClear }
  */
-export function mount(root: HTMLElement, deps: SearchDeps): void {
+export function mount(root: HTMLElement | null, deps: SearchDeps): void {
+  if (!root) return;
   _root = root;
   _deps = deps;
   _listeners = [];

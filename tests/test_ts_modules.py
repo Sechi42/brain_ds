@@ -451,7 +451,7 @@ class TestSplitPaneModuleContracts(unittest.TestCase):
 
 
 class TestGraphVisualRichnessD4aContracts(unittest.TestCase):
-    """D.4.a RED/GREEN contracts: dual-engine architecture skeleton only."""
+    """Dead-path cleanup contracts for removing renderer-dom wiring."""
 
     @classmethod
     def setUpClass(cls):
@@ -461,26 +461,12 @@ class TestGraphVisualRichnessD4aContracts(unittest.TestCase):
         cls.main_text = (SRC_DIR / "main.ts").read_text(encoding="utf-8")
         cls.template_text = (UI_DIR / "templates" / "graph_viewer.html").read_text(encoding="utf-8")
 
-    def _require_renderer_dom(self):
-        if not self.renderer_dom_exists:
-            self.fail(f"src/renderer-dom.ts not found at {self.renderer_dom_path}")
+    def test_renderer_dom_file_is_removed(self):
+        self.assertFalse(self.renderer_dom_exists, f"renderer-dom.ts should be removed at {self.renderer_dom_path}")
 
-    def test_renderer_dom_file_exists(self):
-        self._require_renderer_dom()
-
-    def test_renderer_dom_exports_mount_and_deps_interface(self):
-        self._require_renderer_dom()
-        self.assertRegex(self.renderer_dom_text, r"export\s+interface\s+DomRendererDeps")
-        self.assertRegex(self.renderer_dom_text, r"export\s+function\s+mount\s*\(")
-
-    def test_renderer_dom_subscribes_to_dataset(self):
-        self._require_renderer_dom()
-        self.assertIn("deps.dataset._subscribe", self.renderer_dom_text)
-
-    def test_main_imports_and_wires_renderer_dom_mount(self):
-        self.assertRegex(self.main_text, r"import\s+\*\s+as\s+rendererDom\s+from\s+['\"]\./renderer-dom['\"]")
-        self.assertIn("rendererDom.mount", self.main_text)
-        self.assertIn("dataset: nodes", self.main_text)
+    def test_main_does_not_import_or_mount_renderer_dom(self):
+        self.assertNotRegex(self.main_text, r"import\s+\*\s+as\s+rendererDom\s+from\s+['\"]\./renderer-dom['\"]")
+        self.assertNotIn("rendererDom.mount", self.main_text)
 
     def test_template_contains_d4_mount_points_and_isolated_style_block(self):
         self.assertIn('<style id="d4-visual-richness">', self.template_text)
@@ -489,7 +475,7 @@ class TestGraphVisualRichnessD4aContracts(unittest.TestCase):
 
 
 class TestGraphVisualRichnessD4bcContracts(unittest.TestCase):
-    """D.4.b + D.4.c contracts for node-state engine and SVG edge layer."""
+    """D.4.b + D.4.c contracts still enforced from template styles."""
 
     @classmethod
     def setUpClass(cls):
@@ -498,41 +484,11 @@ class TestGraphVisualRichnessD4bcContracts(unittest.TestCase):
         cls.renderer_dom_text = cls.renderer_dom_path.read_text(encoding="utf-8") if cls.renderer_dom_exists else ""
         cls.template_text = (UI_DIR / "templates" / "graph_viewer.html").read_text(encoding="utf-8")
 
-    def _require_renderer_dom(self):
-        if not self.renderer_dom_exists:
-            self.fail(f"src/renderer-dom.ts not found at {self.renderer_dom_path}")
+    def test_renderer_dom_file_is_removed(self):
+        self.assertFalse(self.renderer_dom_exists, f"renderer-dom.ts should be removed at {self.renderer_dom_path}")
 
-    def test_renderer_dom_declares_node_state_and_ego_dimming_contract(self):
-        self._require_renderer_dom()
-        for token in [
-            "default",
-            "hover-target",
-            "hover-related",
-            "selected-target",
-            "selected-related",
-            "data-has-hover",
-            "data-has-selection",
-        ]:
-            self.assertIn(token, self.renderer_dom_text)
-
-    def test_renderer_dom_has_wcc_color_and_muted_color_mapping(self):
-        self._require_renderer_dom()
-        self.assertIn("--node-color", self.renderer_dom_text)
-        self.assertIn("--node-color-muted", self.renderer_dom_text)
-        self.assertIn("var(--wcc-c${", self.renderer_dom_text)
-
-    def test_renderer_dom_creates_svg_line_edges_and_marks_related_state(self):
-        self._require_renderer_dom()
-        self.assertRegex(self.renderer_dom_text, r"createElementNS\([^\n]*line")
-        self.assertIn("data-related", self.renderer_dom_text)
-        self.assertIn("aria-hidden", self.renderer_dom_text)
-
-    def test_renderer_dom_has_accessibility_and_roving_tabindex_contract(self):
-        self._require_renderer_dom()
+    def test_template_keeps_accessibility_contract(self):
         self.assertIn(":focus-visible", self.template_text)
-        self.assertIn("aria-label", self.renderer_dom_text)
-        self.assertIn("tabIndex", self.renderer_dom_text)
-        self.assertRegex(self.renderer_dom_text, r"ArrowLeft|ArrowRight|ArrowUp|ArrowDown")
 
     def test_template_style_block_contains_d4b_d4c_and_reduced_motion_rules(self):
         for token in [
@@ -550,6 +506,49 @@ class TestGraphVisualRichnessD4bcContracts(unittest.TestCase):
         checkpoints_dir = UI_DIR / "design" / "checkpoints"
         self.assertTrue((checkpoints_dir / "d4b-node-states.html").exists())
         self.assertTrue((checkpoints_dir / "d4c-edge-glow.html").exists())
+
+
+class TestGraphVisualRichnessD4ExtractionContracts(unittest.TestCase):
+    """Phase 3 extraction contracts for renderer-d4 module wiring."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.renderer_d4_path = SRC_DIR / "renderer-d4.ts"
+        cls.renderer_d4_exists = cls.renderer_d4_path.exists()
+        cls.renderer_d4_text = cls.renderer_d4_path.read_text(encoding="utf-8") if cls.renderer_d4_exists else ""
+        cls.main_text = (SRC_DIR / "main.ts").read_text(encoding="utf-8")
+        cls.template_text = (UI_DIR / "templates" / "graph_viewer.html").read_text(encoding="utf-8")
+
+    def _require_renderer_d4(self):
+        if not self.renderer_d4_exists:
+            self.fail(f"src/renderer-d4.ts not found at {self.renderer_d4_path}")
+
+    def test_renderer_d4_file_exists(self):
+        self._require_renderer_d4()
+
+    def test_renderer_d4_exports_mount_and_unmount(self):
+        self._require_renderer_d4()
+        self.assertRegex(self.renderer_d4_text, r"export\s+function\s+mount")
+        self.assertRegex(self.renderer_d4_text, r"export\s+function\s+unmount")
+
+    def test_renderer_d4_contains_extracted_d4_state_machine_tokens(self):
+        self._require_renderer_d4()
+        for token in [
+            "d4StateForNode",
+            "d4SyncContainerState",
+            "d4ShowPopover",
+            "d4PaintLoop",
+        ]:
+            self.assertIn(token, self.renderer_d4_text)
+
+    def test_main_exposes_renderer_d4(self):
+        self.assertRegex(self.main_text, r"import\s+\*\s+as\s+rendererD4\s+from\s+['\"]\./renderer-d4['\"]")
+        self.assertIn("rendererD4", self.main_text)
+
+    def test_template_wires_renderer_d4_mount_with_inline_fallback(self):
+        self.assertRegex(self.template_text, r"window\.brainDsUI\s*&&\s*window\.brainDsUI\.rendererD4")
+        self.assertRegex(self.template_text, r"rendererD4\.mount\s*\(")
+        self.assertRegex(self.template_text, r"if\s*\(\s*!d4ModuleMounted\s*\)")
 
 
 class TestGraphVisualRichnessD4deContracts(unittest.TestCase):

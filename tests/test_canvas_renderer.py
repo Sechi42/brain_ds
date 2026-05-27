@@ -176,6 +176,21 @@ class TestCanvasRendererContracts(unittest.TestCase):
         self.assertRegex(self.js_text, r"addEventListener\(['\"]mouseleave['\"]")
         self.assertRegex(self.js_text, r"hoveredNodeId\s*=\s*null")
 
+    def test_d4OverlayActive_flag_exists(self):
+        self.assertRegex(self.js_text, r"this\._d4OverlayActive\s*=\s*false")
+
+    def test_draw_calls_gated_when_overlay_active(self):
+        self.assertRegex(self.js_text, r"if\s*\(\s*!this\._d4OverlayActive\s*\)\s*\{")
+        self.assertRegex(self.js_text, r"if\s*\(\s*!this\._d4OverlayActive\s*\)\s*\{[\s\S]*_drawEdges\(")
+        self.assertRegex(self.js_text, r"if\s*\(\s*!this\._d4OverlayActive\s*\)\s*\{[\s\S]*_drawMarquee\(")
+        self.assertRegex(self.js_text, r"if\s*\(\s*!this\._d4OverlayActive\s*\)\s*\{[\s\S]*_drawNodes\(")
+        self.assertRegex(self.js_text, r"if\s*\(\s*!this\._d4OverlayActive\s*\)\s*\{[\s\S]*_syncA11yList\(")
+
+    def test_physics_viewport_run_when_gated(self):
+        self.assertIn("_applyForces(state, dt)", self.js_text)
+        self.assertIn("ctx.setTransform(", self.js_text)
+        self.assertIn("this._stepInertia(dt)", self.js_text)
+
 
 # ── Slice 1a contracts (REQ-1.1, REQ-1.2, REQ-1.9, REQ-1.11, REQ-1.12, REQ-1.13) ──
 

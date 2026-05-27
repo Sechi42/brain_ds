@@ -59,6 +59,15 @@ class TestSearchModuleExists(unittest.TestCase):
             "search.ts must reference 'onClear' in deps",
         )
 
+    def test_search_mount_guards_null_root(self):
+        """mount must safely no-op when called with null root."""
+        src = SEARCH_MODULE.read_text(encoding="utf-8")
+        self.assertIn(
+            "if (!root) return;",
+            src,
+            "search.ts mount must guard null root to prevent runtime crashes",
+        )
+
 
 class TestSearchUXContracts(unittest.TestCase):
     """REQ-GVP-6.1, REQ-GVP-6.4, REQ-GVP-6.8 contracts in search.ts source."""

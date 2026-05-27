@@ -340,6 +340,104 @@ class TestViewerFoundation(unittest.TestCase):
         for name in required:
             self.assertIn(f'id="icon-{name}"', html)
 
+    def test_interactive_template_sprite_contains_phase1_lucide_symbols(self):
+        html = render_interactive_html(
+            {
+                "meta": {"org": "IconPhase1", "node_count": 0, "edge_count": 0, "generated_at": ""},
+                "nodes": [],
+                "edges": [],
+                "type_groups": [],
+                "adjacency": {},
+            }
+        )
+
+        required_phase1 = {
+            "arrow-left",
+            "arrow-right",
+            "eye",
+            "eye-off",
+            "layout-grid",
+            "maximize-2",
+            "minimize-2",
+            "more-horizontal",
+            "network",
+            "plus",
+            "share-2",
+            "sliders-horizontal",
+            "sun",
+        }
+        for name in required_phase1:
+            self.assertIn(f'id="icon-{name}"', html)
+
+    def test_d4_overlay_disabled_above_threshold(self):
+        template_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
+        template_text = template_path.read_text(encoding="utf-8")
+        self.assertIn("const D4_OVERLAY_MAX_NODES = 500;", template_text)
+        self.assertRegex(template_text, r"const\s+d4OverlayEnabled\s*=\s*initialNodes\.length\s*<=\s*D4_OVERLAY_MAX_NODES")
+        self.assertRegex(template_text, r"if\s*\(\s*d4OverlayEnabled\s*\)\s*\{[\s\S]*d4PaintLoop\(\)")
+
+    def test_network_opacity_visible_on_canvas_fallback(self):
+        template_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
+        template_text = template_path.read_text(encoding="utf-8")
+        self.assertIn("d4NetworkEl.style.opacity = d4OverlayEnabled ? \"0\" : \"1\";", template_text)
+        self.assertIn("d4NetworkEl.style.pointerEvents = d4OverlayEnabled ? \"none\" : \"auto\";", template_text)
+
+    def test_d4_node_click_handler_has_no_build_safe_selection_fallback(self):
+        template_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
+        template_text = template_path.read_text(encoding="utf-8")
+        self.assertRegex(
+            template_text,
+            r"if\s*\(\s*typeof\s+network\.selectNodes\s*===\s*['\"]function['\"]\s*\)\s*\{\s*network\.selectNodes\(\[node\.id\]\);\s*\}\s*"
+            r"else\s+if\s*\(\s*typeof\s+network\._selectNodeById\s*===\s*['\"]function['\"]\s*\)\s*\{\s*network\._selectNodeById\(node\.id\);\s*\}",
+        )
+
+    def test_interactive_template_toolbar_and_rail_icons_use_sprite_references(self):
+        html = render_interactive_html(
+            {
+                "meta": {"org": "SpriteUsageOrg", "node_count": 0, "edge_count": 0, "generated_at": ""},
+                "nodes": [],
+                "edges": [],
+                "type_groups": [],
+                "adjacency": {},
+            }
+        )
+
+        expected_uses = {
+            '#icon-folder',
+            '#icon-search',
+            '#icon-filter',
+            '#icon-network',
+            '#icon-layout-grid',
+            '#icon-chevron-left',
+            '#icon-plus',
+            '#icon-maximize-2',
+            '#icon-sun',
+            '#icon-more-horizontal',
+            '#icon-settings',
+        }
+        for href in expected_uses:
+            self.assertIn(f'<use href="{href}"', html)
+
+    def test_interactive_template_icon_only_buttons_keep_a11y_contract(self):
+        html = render_interactive_html(
+            {
+                "meta": {"org": "A11yIconOrg", "node_count": 0, "edge_count": 0, "generated_at": ""},
+                "nodes": [],
+                "edges": [],
+                "type_groups": [],
+                "adjacency": {},
+            }
+        )
+
+        self.assertIn('aria-label="Open file tree panel"', html)
+        self.assertIn('<svg aria-hidden="true" width="18" height="18"><use href="#icon-folder"/></svg>', html)
+        self.assertIn('id="zoom-fit"', html)
+        self.assertIn('aria-label="Zoom to fit"', html)
+        self.assertIn('<svg aria-hidden="true" width="18" height="18"><use href="#icon-maximize-2"/></svg>', html)
+        self.assertIn('id="theme-toggle"', html)
+        self.assertIn('aria-label="Switch to light theme"', html)
+        self.assertIn('<svg aria-hidden="true" width="18" height="18"><use href="#icon-sun"/></svg>', html)
+
     def test_interactive_template_replaces_detail_panel_emojis_with_svg_icons(self):
         html = render_interactive_html(
             {
@@ -1135,9 +1233,12 @@ class TestWorkspaceShellPr1Template(unittest.TestCase):
         )
 
     def test_center_chrome_has_locked_tab_and_toolbar_heights(self):
-        # D.4 visual port: tab-strip aligned with reference moderngraphui_notailwind
-        # (48px). Toolbar height stays 44px (ADR-001 locked).
-        self.assertRegex(self.template_text, r"\.tab-strip\s*\{[\s\S]*flex:\s*0\s+0\s+48px")
+        # PR #4 chrome parity: tab-strip is 36px per ADR-009 project override
+        # (#1208 ADR-F) — the reference's 48px .tabs-bar is intentionally NOT adopted
+        # because production runs the 5-column grid, not the reference standalone shell.
+        # Stale-contract migration (#1194): was 48px at the D.4 port, now 36px.
+        # Toolbar height stays 44px (ADR-001 locked).
+        self.assertRegex(self.template_text, r"\.tab-strip\s*\{[\s\S]*flex:\s*0\s+0\s+36px")
         self.assertRegex(self.template_text, r"\.top-toolbar\s*\{[\s\S]*flex:\s*0\s+0\s+44px")
 
     def test_center_toolbar_contains_breadcrumb_and_empty_system_chrome_zone(self):
@@ -1281,18 +1382,11 @@ class TestWorkspaceShellPr15ChromePolish(unittest.TestCase):
     # ── T4: Lucide SVGs in tab/toolbar regions ────────────────────────────────
 
     def test_lucide_svgs_present_in_toolbar_region(self):
-        """Toolbar/tab buttons MUST use Lucide-style SVGs with stroke='currentColor'."""
-        # Count SVG elements with stroke="currentColor" in the chrome region
-        import re
-        svg_matches = re.findall(
-            r'<svg[^>]*stroke="currentColor"[^>]*>',
-            self.template_text,
-        )
-        self.assertGreater(
-            len(svg_matches),
-            0,
-            "Expected Lucide-style SVGs with stroke='currentColor' in tab/toolbar regions",
-        )
+        """Toolbar/tab buttons MUST use sprite-based Lucide icon references."""
+        self.assertIn('<use href="#icon-plus"', self.template_text)
+        self.assertIn('<use href="#icon-maximize-2"', self.template_text)
+        self.assertIn('<use href="#icon-sun"', self.template_text)
+        self.assertIn('<use href="#icon-more-horizontal"', self.template_text)
 
     # ── T5: Reduced-motion covers new chrome transitions ─────────────────────
 
@@ -1463,13 +1557,15 @@ class TestWorkspaceShellPr2LeftAdapters(unittest.TestCase):
         self.assertGreaterEqual(active_count, 1, "Expected at least one aria-selected='true' on left rail icons")
 
     def test_left_rail_icons_have_lucide_svgs_with_stroke_currentcolor(self):
-        """Left rail icon buttons MUST use Lucide-style SVGs with stroke='currentColor'."""
-        import re
+        """Left rail icon buttons MUST use sprite-based Lucide icon references."""
         rail_start = self.template_text.find('data-rail-side="left"')
         panel_start = self.template_text.find('class="left-panel-shell"')
         rail_region = self.template_text[rail_start:panel_start] if panel_start > rail_start else self.template_text[rail_start:rail_start + 2000]
-        svg_count = len(re.findall(r'stroke="currentColor"', rail_region))
-        self.assertGreater(svg_count, 0, "Expected Lucide SVGs with stroke='currentColor' in left rail")
+        self.assertIn('<use href="#icon-folder"', rail_region)
+        self.assertIn('<use href="#icon-search"', rail_region)
+        self.assertIn('<use href="#icon-filter"', rail_region)
+        self.assertIn('<use href="#icon-network"', rail_region)
+        self.assertIn('<use href="#icon-layout-grid"', rail_region)
 
     def test_left_rail_svgs_have_aria_hidden(self):
         """All left-rail SVGs MUST be decorative (aria-hidden='true')."""
@@ -2005,8 +2101,8 @@ class TestWorkspaceShellRemediationOldUiRemoval(unittest.TestCase):
 
     def test_d2_pill_buttons_structure(self):
         """GV-14: pill-btn + pill-btn--primary, IDs on visible buttons, no aria-pressed."""
-        self.assertIn('class="pill-btn pill-btn--primary"', self.template_text)
-        self.assertIn('class="pill-btn"', self.template_text)
+        self.assertIn('class="pill-btn btn-primary-outline pill-btn--primary"', self.template_text)
+        self.assertIn('class="pill-btn btn-outline"', self.template_text)
         # show-all and hide-all IDs must exist on non-hidden elements
         self.assertIn('id="show-all"', self.template_text)
         self.assertIn('id="hide-all"', self.template_text)
@@ -2029,7 +2125,7 @@ class TestWorkspaceShellRemediationOldUiRemoval(unittest.TestCase):
 
     def test_d2_pill_buttons_have_min_height_css(self):
         """GV-14: pill-btn must declare min-height: 44px in CSS."""
-        self.assertRegex(self.template_text, r'\.pill-btn\s*\{[^}]*min-height:\s*44px')
+        self.assertRegex(self.template_text, r'\.pill-btn[^\{]*\{[^}]*min-height:\s*44px')
 
     # ── D.2 CSS token compliance (T1.3) ───────────────────────────────────────
 
@@ -2042,7 +2138,7 @@ class TestWorkspaceShellRemediationOldUiRemoval(unittest.TestCase):
         style_text = style_match.group(1)
         # Find .segmented-control / .segment-btn / .pill-btn / .pill-group blocks
         d2_blocks = re.findall(
-            r'\.(segmented-control|segment-btn|pill-group|pill-btn)[^{]*\{[^}]*\}',
+            r'\.(?:segmented-control|segment-btn|pill-group|pill-btn|btn-outline|btn-primary-outline)[^{]*\{[^}]*\}',
             style_text,
         )
         self.assertTrue(len(d2_blocks) > 0, "No D.2 CSS rules found in <style> block")
@@ -2052,6 +2148,26 @@ class TestWorkspaceShellRemediationOldUiRemoval(unittest.TestCase):
             hex_match,
             f"Hex literal found in D.2 CSS rules: {hex_match.group() if hex_match else ''}",
         )
+
+    def test_d2_btn_outline_alias_rules_exist(self):
+        """Phase 2: add reference class aliases without renaming legacy classes."""
+        self.assertRegex(self.template_text, r"\.btn-outline\s*\{[^}]*border:\s*1px\s+solid\s+var\(--border-subtle\)")
+        self.assertRegex(self.template_text, r"\.btn-primary-outline\s*\{[^}]*color:\s*var\(--accent-color-soft\)")
+
+    def test_d2_search_input_hover_and_focus_ring_parity(self):
+        """Phase 2: search input must expose hover border and mora focus ring."""
+        self.assertRegex(self.template_text, r"\.search-input:hover\s*\{[^}]*border-color:\s*var\(--border-strong\)")
+        self.assertRegex(self.template_text, r"\.search-input:focus-visible\s*\{[^}]*outline:\s*2px\s+solid\s+var\(--accent-mora\)")
+        self.assertRegex(self.template_text, r"\.search-input:focus-visible\s*\{[^}]*outline-offset:\s*2px")
+
+    def test_d2_segment_active_state_uses_tokens(self):
+        """Phase 2: active segment style must avoid hardcoded colors and use tokens."""
+        match = re.search(r"\.segment-btn\[aria-checked='true'\]\s*\{([^}]*)\}", self.template_text)
+        self.assertIsNotNone(match, "Expected .segment-btn[aria-checked='true'] CSS block")
+        segment_active = match.group(1)
+        self.assertNotRegex(segment_active, r"#(?:[0-9a-fA-F]{3,6})\b")
+        self.assertNotRegex(segment_active, r"rgba?\(")
+        self.assertIn("background: var(--bg-active)", segment_active)
 
     def test_right_rail_is_gear_only(self):
         self.assertIn('data-catalog-id="gear"', self.template_text)
@@ -2083,6 +2199,644 @@ class TestWorkspaceShellRemediationOldUiRemoval(unittest.TestCase):
             "network",
         ):
             self.assertIn(f'id="{_id}"', self.template_text)
+
+
+class TestWorkspaceShellPr3InspectorParity(unittest.TestCase):
+    """PR #3 / Phase 3 — right-panel inspector visual parity.
+
+    Ground truth: brain_ds/ui/design/sections/moderngraphui_notailwind.html
+    (.empty-state / .empty-icon-wrapper / .color-dot / .inspector-actions /
+    fadeIn translateX). Maps reference VISUALS onto production #detail-* IDs.
+
+    AUDIT (ADR-B): the compiled bundle (src/panels/detail-panel.ts ->
+    viewer.bundle.js) owns #detail-body / #detail-title / #detail-meta content
+    at runtime via textContent assignment. So the rich empty-state lives as a
+    SIBLING of #detail-body inside #detail-panel (the bundle never touches
+    siblings) and is gated by CSS on #detail-panel.is-empty. The color-dot
+    (3.3) is decorated post-call in the template render shim because the bundle
+    wipes #detail-title child spans on every populated render.
+
+    These tests read the RAW template text (token placeholder NOT expanded);
+    the danger token DEFINITION is asserted against tokens.css separately.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        base = Path(__file__).resolve().parent.parent / "brain_ds" / "ui"
+        cls.template_text = (base / "templates" / "graph_viewer.html").read_text(encoding="utf-8")
+        cls.tokens_css = (base / "static" / "tokens.css").read_text(encoding="utf-8")
+
+    def _style_block(self):
+        m = re.search(r"<style>([\s\S]*?)</style>", self.template_text)
+        self.assertIsNotNone(m, "No <style> block found in template")
+        return m.group(1)
+
+    # ── 3.1 Empty-state markup (sibling of #detail-body) ─────────────────────
+
+    def test_inspector_empty_state_is_sibling_of_detail_body(self):
+        """The inspector empty-state MUST be a SIBLING element inside #detail-panel,
+        NOT inside #detail-body (the bundle clobbers #detail-body via textContent).
+        It carries a distinct class to avoid colliding with the canvas #viewer-empty
+        .empty-state."""
+        panel_start = self.template_text.find('id="detail-panel"')
+        self.assertGreater(panel_start, -1, "#detail-panel not found")
+        panel_end = self.template_text.find("</aside>", panel_start)
+        self.assertGreater(panel_end, -1, "Could not find end of #detail-panel <aside>")
+        panel_html = self.template_text[panel_start:panel_end]
+        self.assertIn('class="inspector-empty-state"', panel_html,
+                      "Expected .inspector-empty-state sibling inside #detail-panel")
+        # Must be a SIBLING of #detail-body, not nested inside it.
+        empty_idx = panel_html.find("inspector-empty-state")
+        body_idx = panel_html.find('id="detail-body"')
+        self.assertGreater(body_idx, -1, "#detail-body not found inside panel")
+        body_close = panel_html.find("</div>", body_idx)
+        self.assertFalse(body_idx < empty_idx < body_close,
+                         "inspector-empty-state must be a SIBLING of #detail-body, not nested in it")
+
+    def test_inspector_empty_state_has_64px_icon_circle_with_network_icon(self):
+        """Empty state MUST show a 64px .empty-icon-wrapper circle referencing the
+        same-document #icon-network sprite symbol with aria-hidden."""
+        self.assertIn('class="empty-icon-wrapper"', self.template_text)
+        # network icon via sprite use, aria-hidden on the svg
+        m = re.search(
+            r'class="empty-icon-wrapper"[\s\S]*?(<svg[^>]*>)\s*<use href="#icon-network"',
+            self.template_text,
+        )
+        self.assertIsNotNone(
+            m, "empty-icon-wrapper MUST contain an svg using #icon-network",
+        )
+        svg_tag = m.group(1)
+        self.assertIn('aria-hidden="true"', svg_tag,
+                      "empty-state icon svg MUST be aria-hidden")
+        # Guard against the invisible-icon trap (PR #1): the icon-network symbol has
+        # no per-element stroke/fill, so the consuming svg MUST set them or it renders blank.
+        self.assertIn('stroke="currentColor"', svg_tag,
+                      "empty-state icon svg MUST set stroke=currentColor (network symbol has no inline stroke)")
+        self.assertIn('fill="none"', svg_tag,
+                      "empty-state icon svg MUST set fill=none to render as a line icon")
+        style = self._style_block()
+        self.assertRegex(style, r"\.empty-icon-wrapper\s*\{[^}]*width:\s*64px",
+                         ".empty-icon-wrapper MUST be 64px wide")
+        self.assertRegex(style, r"\.empty-icon-wrapper\s*\{[^}]*height:\s*64px",
+                         ".empty-icon-wrapper MUST be 64px tall")
+        self.assertRegex(style, r"\.empty-icon-wrapper\s*\{[^}]*border-radius:\s*50%",
+                         ".empty-icon-wrapper MUST be a circle")
+
+    def test_inspector_empty_state_css_gated_on_is_empty(self):
+        """The empty-state visibility MUST be gated by #detail-panel.is-empty so the
+        bundle's is-empty toggle drives show/hide (no JS rebuild needed)."""
+        style = self._style_block()
+        self.assertRegex(
+            style,
+            r"#detail-panel\.is-empty\s+\.inspector-empty-state\s*\{[^}]*display:\s*flex",
+            "Expected #detail-panel.is-empty .inspector-empty-state { display: flex }",
+        )
+        self.assertRegex(
+            style,
+            r"#detail-panel:not\(\.is-empty\)\s+\.inspector-empty-state\s*\{[^}]*display:\s*none",
+            "Expected #detail-panel:not(.is-empty) .inspector-empty-state { display: none }",
+        )
+
+    def test_inspector_empty_state_uses_only_tokens(self):
+        """Inspector empty-state CSS MUST NOT use hardcoded hex colors (token discipline)."""
+        style = self._style_block()
+        blocks = re.findall(
+            r"(?:#detail-panel[^{]*\.inspector-empty-state|\.inspector-empty-state|\.empty-icon-wrapper)[^{]*\{[^}]*\}",
+            style,
+        )
+        self.assertTrue(blocks, "No inspector empty-state CSS blocks found")
+        combined = " ".join(blocks)
+        self.assertIsNone(re.search(r"#(?:[0-9a-fA-F]{3,6})\b", combined),
+                          f"Hex literal found in inspector empty-state CSS: {combined}")
+
+    def test_inspector_empty_state_is_not_aria_hidden(self):
+        """The empty-state container MUST NOT be aria-hidden — it carries the readable
+        prompt for screen-reader users (the bundle-owned #detail-body is display:none
+        when empty). Only the decorative inner icon svg may be aria-hidden."""
+        m = re.search(r'<div class="inspector-empty-state"([^>]*)>', self.template_text)
+        self.assertIsNotNone(m, "inspector-empty-state container not found")
+        self.assertNotIn("aria-hidden", m.group(1),
+                         "inspector-empty-state MUST NOT be aria-hidden (a11y: prompt must be readable)")
+
+    def test_inspector_empty_state_text_is_aa_legible(self):
+        """Empty-state text MUST use --text-normal and MUST NOT be opacity-dimmed
+        (opacity over --text-muted falls below WCAG AA 4.5:1)."""
+        style = self._style_block()
+        m_p = re.search(r"\.inspector-empty-text p\s*\{([^}]*)\}", style)
+        self.assertIsNotNone(m_p, "Expected .inspector-empty-text p rule")
+        self.assertIn("color: var(--text-normal)", m_p.group(1),
+                      "Empty-state body text MUST use --text-normal for AA contrast")
+        m_state = re.search(r"\.inspector-empty-state\s*\{([^}]*)\}", style)
+        self.assertIsNotNone(m_state, "Expected .inspector-empty-state rule")
+        self.assertNotRegex(m_state.group(1), r"opacity:\s*0?\.\d",
+                            "inspector-empty-state MUST NOT dim text via opacity (breaks AA contrast)")
+
+    # ── 3.2 Action button styling (btn-outline / btn-danger-outline) ─────────
+
+    def test_inspector_action_buttons_use_outline_and_danger_outline(self):
+        """#detail-collapse MUST carry btn-outline; #detail-close MUST carry
+        btn-danger-outline (additive — legacy IDs preserved)."""
+        self.assertRegex(
+            self.template_text,
+            r'id="detail-collapse"[^>]*class="[^"]*btn-outline|class="[^"]*btn-outline[^"]*"[^>]*id="detail-collapse"',
+            "#detail-collapse MUST carry btn-outline",
+        )
+        self.assertRegex(
+            self.template_text,
+            r'id="detail-close"[^>]*class="[^"]*btn-danger-outline|class="[^"]*btn-danger-outline[^"]*"[^>]*id="detail-close"',
+            "#detail-close MUST carry btn-danger-outline",
+        )
+
+    def test_btn_danger_outline_css_rule_exists_and_uses_danger_token(self):
+        """.btn-danger-outline rule MUST exist and use the --danger token (no hardcoded hex)."""
+        style = self._style_block()
+        m = re.search(r"\.btn-danger-outline(?:[^{,]*)?\s*\{([^}]*)\}", style)
+        self.assertIsNotNone(m, "Expected .btn-danger-outline CSS rule")
+        m_hover = re.search(r"\.btn-danger-outline:hover\s*\{([^}]*)\}", style)
+        self.assertIsNotNone(m_hover, "Expected .btn-danger-outline:hover CSS rule")
+        combined = (m.group(1) if m else "") + " " + (m_hover.group(1) if m_hover else "")
+        self.assertIn("var(--danger", combined,
+                      ".btn-danger-outline MUST express its danger color via the --danger token")
+        self.assertIsNone(re.search(r"#(?:[0-9a-fA-F]{3,6})\b", combined),
+                          "No hardcoded hex allowed in .btn-danger-outline rules")
+
+    def test_danger_token_defined_in_tokens_css(self):
+        """The --danger token MUST be defined in the canonical tokens.css."""
+        self.assertRegex(self.tokens_css, r"--danger:\s*#",
+                         "--danger token MUST be defined in tokens.css")
+
+    def test_inspector_action_buttons_have_44px_min_target(self):
+        """Inspector action buttons MUST meet the 44x44 minimum interactive target."""
+        style = self._style_block()
+        # btn-outline / btn-danger-outline must have an explicit min target.
+        self.assertRegex(
+            style,
+            r"\.btn-danger-outline[^{]*\{[^}]*min-height:\s*44px|"
+            r"\.btn-outline[^{]*\{[^}]*min-height:\s*44px|"
+            r"\.pill-btn[^{]*\{[^}]*min-height:\s*44px",
+            "Inspector action buttons MUST declare min-height: 44px",
+        )
+
+    # ── 3.3 color-dot indicator in #detail-title ─────────────────────────────
+
+    def test_color_dot_css_rule_exists(self):
+        """A .color-dot rule MUST exist (8px circle) for the node-type indicator."""
+        style = self._style_block()
+        m = re.search(r"\.color-dot\s*\{([^}]*)\}", style)
+        self.assertIsNotNone(m, "Expected .color-dot CSS rule")
+        body = m.group(1)
+        self.assertRegex(body, r"border-radius:\s*50%", ".color-dot MUST be a circle")
+        self.assertRegex(body, r"width:\s*8px", ".color-dot MUST be 8px wide")
+
+    def test_render_shim_decorates_detail_title_with_color_dot(self):
+        """The template render shim MUST inject a .color-dot into #detail-title AFTER
+        the bundle's renderDetailPanel runs (the bundle wipes title child spans via
+        textContent). Source-text assertion on the shim — runtime DOM not observable
+        by these tests."""
+        # The shim block delegates to window.brainDsUI.detailPanel.renderDetailPanel;
+        # immediately around it there MUST be color-dot decoration logic.
+        self.assertIn("color-dot", self.template_text,
+                      "Template must reference color-dot for the title indicator")
+        self.assertRegex(
+            self.template_text,
+            r"detailPanel\.renderDetailPanel\(nodeId\)[\s\S]{0,600}?color-dot|"
+            r"color-dot[\s\S]{0,600}?detailPanel\.renderDetailPanel\(nodeId\)",
+            "Render shim MUST decorate #detail-title with a color-dot near the bundle render call",
+        )
+
+    def test_color_dot_decoration_runs_on_both_render_paths(self):
+        """The color-dot decorator MUST run after BOTH the renderDetailPanel shim AND
+        the focusNode direct render path (both call the bundle, which wipes the title)."""
+        self.assertIn("decorateDetailTitleColorDot", self.template_text,
+                      "Expected a decorateDetailTitleColorDot helper")
+        # Called at least twice (shim path + focusNode path).
+        self.assertGreaterEqual(
+            self.template_text.count("decorateDetailTitleColorDot("), 2,
+            "color-dot decorator MUST be invoked on both render paths (shim + focusNode)",
+        )
+
+    def test_color_dot_color_reuses_d4_resolution(self):
+        """The dot color MUST reuse the d4 overlay color precedence (single source of
+        truth for node color), set via the --node-color custom property."""
+        self.assertRegex(
+            self.template_text,
+            r"decorateDetailTitleColorDot[\s\S]*?d4ColorVars[\s\S]*?setProperty\(\s*[\"']--node-color",
+            "color-dot MUST derive --node-color via d4ColorVars (renderer color precedence)",
+        )
+
+    # ── 3.4 Inspector enter animation (inspectorEnter, translateX fade-in) ───
+
+    def test_inspector_enter_keyframes_defined_with_translatex(self):
+        """An @keyframes inspectorEnter MUST exist with a translateX fade-in
+        (matches reference fadeIn: opacity 0 + translateX(10px) -> visible)."""
+        style = self._style_block()
+        m = re.search(r"@keyframes\s+inspectorEnter\s*\{([^@]*?)\}\s*\}", style)
+        # Fall back to a simpler capture if nested-brace heuristic misses.
+        if m is None:
+            m = re.search(r"@keyframes\s+inspectorEnter\s*\{([\s\S]*?)\}\s*(?:\n|@|\.)", style)
+        self.assertIsNotNone(m, "Expected @keyframes inspectorEnter")
+        body = m.group(1)
+        self.assertRegex(body, r"translateX", "inspectorEnter MUST animate translateX")
+        self.assertRegex(body, r"opacity", "inspectorEnter MUST fade opacity")
+
+    def test_inspector_enter_applied_to_populated_detail_body(self):
+        """The inspectorEnter animation MUST be applied when #detail-body is populated
+        (data-state='ready'), which the bundle sets on selection."""
+        style = self._style_block()
+        self.assertRegex(
+            style,
+            r'#detail-body\[data-state="ready"\]\s*\{[^}]*animation:[^}]*inspectorEnter',
+            'Expected #detail-body[data-state="ready"] to apply inspectorEnter animation',
+        )
+
+    def test_inspector_enter_respects_reduced_motion(self):
+        """The reduced-motion media block MUST disable inspectorEnter / detail-body animation."""
+        rm = re.search(r"@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\n      \}", self.template_text)
+        self.assertIsNotNone(rm, "Could not find prefers-reduced-motion media block")
+        block = rm.group(1)
+        self.assertRegex(
+            block,
+            r"(#detail-body|\.detail-panel|\.inspector-empty-state)[^{}]*\{[^}]*animation:\s*none|"
+            r"#detail-body[^{}]*\{[^}]*animation:\s*none",
+            "reduced-motion block MUST disable the inspector enter animation",
+        )
+
+    # ── 3.5 Mount-contract preservation ──────────────────────────────────────
+
+    def test_detail_panel_contract_ids_preserved(self):
+        """detailPanel.mount contract: all #detail-* IDs MUST remain so the bundle's
+        getElementById lookups and focus-trap logic keep working."""
+        for _id in ("detail-panel", "detail-title", "detail-meta", "detail-body",
+                    "detail-collapse", "detail-close", "edit-toggle", "export-json"):
+            self.assertIn(f'id="{_id}"', self.template_text,
+                          f"Mount contract requires #{_id} to be preserved")
+
+    def test_detail_panel_aria_contract_preserved(self):
+        """#detail-panel ARIA dialog contract MUST be preserved (role/dialog/labelledby)."""
+        self.assertRegex(
+            self.template_text,
+            r'id="detail-panel"[^>]*role="dialog"',
+            "#detail-panel MUST keep role='dialog'",
+        )
+        self.assertRegex(
+            self.template_text,
+            r'id="detail-panel"[^>]*aria-labelledby="detail-title"',
+            "#detail-panel MUST keep aria-labelledby='detail-title'",
+        )
+
+    # ── Empty-state header suppression (finding #1218 remediation) ───────────
+
+    def test_empty_state_suppresses_detail_header(self):
+        """Parity gap (#1218): the reference empty inspector shows ONLY the centered
+        glyph block — NO header title, NO Colapsar/Cerrar action buttons. The live
+        viewer rendered .detail-header (title/meta + .detail-actions) above the glyph.
+        When #detail-panel.is-empty, the .detail-header MUST be hidden so the empty
+        state matches the north star (actions reappear once a node is selected)."""
+        style = self._style_block()
+        self.assertRegex(
+            style,
+            r"#detail-panel\.is-empty\s+\.detail-header\s*\{[^}]*display:\s*none",
+            "Expected #detail-panel.is-empty .detail-header { display: none } "
+            "(empty inspector must show only the centered glyph, per reference)",
+        )
+
+    def test_empty_state_no_stale_centered_header_rules(self):
+        """The old .is-empty centered-header restyle rules are dead once the header is
+        hidden when empty; they MUST be removed to avoid confusing dead CSS."""
+        style = self._style_block()
+        self.assertNotRegex(
+            style,
+            r"#detail-panel\.is-empty\s+\.detail-header\s*\{[^}]*text-align:\s*center",
+            "Stale rule: .is-empty .detail-header { text-align: center } must be removed "
+            "(header is hidden when empty, not re-centered)",
+        )
+
+    def test_detail_header_visible_when_not_empty(self):
+        """The action buttons (Colapsar/Cerrar) MUST remain available when a node IS
+        selected — the suppression is gated strictly on .is-empty, never global."""
+        style = self._style_block()
+        # No rule may hide .detail-header unconditionally.
+        self.assertNotRegex(
+            style,
+            r"(?<!is-empty\s)\.detail-header\s*\{[^}]*display:\s*none",
+            ".detail-header must NOT be hidden unconditionally (only when .is-empty)",
+        )
+
+
+class TestWorkspaceShellPr4Chrome(unittest.TestCase):
+    """PR #4 / Phase 4 — chrome fine-tuning to final parity.
+
+    Ground truth: brain_ds/ui/design/sections/moderngraphui_notailwind.html, with
+    project-standard overrides per design ADR-F (#1208):
+      - Tab strip height = 36px (ADR-009 project override; reference uses 48px).
+      - Rails = 48px (ADR-004).
+      - Toolbar = 44px LOCKED (ADR-001) with four data-toolbar-zone slots.
+      - Active tab indicator = box-shadow: inset 0 -2px 0 var(--accent-mora) + blended bg.
+      - Backdrop-blur preserved on the tab strip atmosphere.
+
+    Binding contract (#1194): when a test asserts stale chrome, update the test to
+    match the new DOM. The legacy 48px tab-strip assertion is migrated here to 36px.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        template_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds"
+            / "ui"
+            / "templates"
+            / "graph_viewer.html"
+        )
+        cls.template_text = template_path.read_text(encoding="utf-8")
+
+    def _style_block(self):
+        m = re.search(r"<style>([\s\S]*?)</style>", self.template_text)
+        self.assertIsNotNone(m, "No <style> block found in template")
+        return m.group(1)
+
+    # ── C1: Tab strip 36px height contract (ADR-009 override) ────────────────
+
+    def test_tab_strip_height_is_36px_project_contract(self):
+        """Tab strip MUST be 36px tall (ADR-009 project override), NOT the reference's
+        48px. This is the chrome parity correction for PR #4."""
+        style = self._style_block()
+        self.assertRegex(
+            style,
+            r"\.tab-strip\s*\{[^}]*flex:\s*0\s+0\s+36px",
+            "Tab strip MUST use flex: 0 0 36px (ADR-009 project contract)",
+        )
+        self.assertNotRegex(
+            style,
+            r"\.tab-strip\s*\{[^}]*flex:\s*0\s+0\s+48px",
+            "Tab strip MUST NOT keep the stale 48px height",
+        )
+
+    def test_tab_strip_preserves_backdrop_blur(self):
+        """The tab strip's atmospheric backdrop-blur MUST survive the 36px change
+        (blur is orthogonal to height — both -webkit- and standard properties)."""
+        style = self._style_block()
+        m = re.search(r"\.tab-strip\s*\{([^}]*)\}", style)
+        self.assertIsNotNone(m, "Expected .tab-strip rule")
+        body = m.group(1)
+        self.assertIn("backdrop-filter: blur(4px)", body,
+                      "Tab strip MUST keep backdrop-filter: blur(4px)")
+        self.assertIn("-webkit-backdrop-filter: blur(4px)", body,
+                      "Tab strip MUST keep -webkit-backdrop-filter for Safari")
+
+    # ── C2: Active tab indicator (accent-mora inset underline + blended bg) ──
+
+    def test_active_tab_indicator_uses_accent_mora_inset(self):
+        """Active tab MUST be indicated by inset accent-mora underline + blended bg
+        (project ADR-009 — NOT reference flat rgba)."""
+        style = self._style_block()
+        self.assertRegex(
+            style,
+            r"\.tab-item\[data-tab-active='true'\]\s*\{[^}]*box-shadow:\s*inset\s+0\s+-2px\s+0\s+var\(--accent-mora\)",
+            "Active tab MUST use box-shadow: inset 0 -2px 0 var(--accent-mora)",
+        )
+        self.assertRegex(
+            style,
+            r"\.tab-item\[data-tab-active='true'\]\s*\{[^}]*background:\s*var\(--tab-active-bg\)",
+            "Active tab MUST blend background via --tab-active-bg token",
+        )
+
+    def test_active_tab_indicator_uses_no_hardcoded_hex(self):
+        """The active-tab styling MUST be token-only (no reference hex)."""
+        style = self._style_block()
+        m = re.search(r"\.tab-item\[data-tab-active='true'\]\s*\{([^}]*)\}", style)
+        self.assertIsNotNone(m, "Expected active tab-item rule")
+        self.assertIsNone(re.search(r"#(?:[0-9a-fA-F]{3,6})\b", m.group(1)),
+                          "Active tab styling MUST NOT use hardcoded hex")
+
+    # ── C3: tab semantics (tablist / tab roles, close hover-reveal, tab-new) ─
+
+    def test_tab_strip_tablist_and_active_tab_roles(self):
+        """Tab strip MUST be role=tablist with an active role=tab/aria-selected=true."""
+        self.assertRegex(
+            self.template_text,
+            r'class="tab-strip"[^>]*role="tablist"|role="tablist"[^>]*class="tab-strip"',
+            "Tab strip MUST carry role='tablist'",
+        )
+        self.assertRegex(
+            self.template_text,
+            r'role="tab"[^>]*aria-selected="true"|aria-selected="true"[^>]*role="tab"',
+            "An active role='tab' with aria-selected='true' MUST exist",
+        )
+
+    def test_tab_close_is_hover_reveal(self):
+        """tab-close MUST default to opacity:0 and reveal on active/hover (ADR-008)."""
+        style = self._style_block()
+        m = re.search(r"\.tab-close\s*\{([^}]*)\}", style)
+        self.assertIsNotNone(m, "Expected .tab-close rule")
+        self.assertIn("opacity: 0", m.group(1),
+                      "tab-close MUST default to opacity: 0 (hover-reveal)")
+        self.assertRegex(
+            style,
+            r"\.tab-item:hover\s+\.tab-close\s*\{[^}]*opacity:\s*1",
+            "tab-close MUST reveal (opacity:1) on tab hover",
+        )
+
+    def test_tab_new_button_is_separate(self):
+        """A separate tab-new button MUST exist (44x36, not part of a tab-item)."""
+        self.assertIn('class="tab-new"', self.template_text,
+                      "Expected a separate .tab-new button")
+        style = self._style_block()
+        m = re.search(r"\.tab-new\s*\{([^}]*)\}", style)
+        self.assertIsNotNone(m, "Expected .tab-new CSS rule")
+        self.assertRegex(m.group(1), r"width:\s*44px", ".tab-new MUST be 44px wide")
+        self.assertRegex(m.group(1), r"height:\s*36px", ".tab-new MUST be 36px tall")
+
+    # ── C4: Toolbar four zones + locked 44px + system-chrome reserved ────────
+
+    def test_toolbar_has_all_four_zones_in_order(self):
+        """The toolbar MUST expose exactly four data-toolbar-zone slots."""
+        for zone in ("nav", "view", "overflow", "system-chrome"):
+            self.assertIn(f'data-toolbar-zone="{zone}"', self.template_text,
+                          f"Expected data-toolbar-zone='{zone}'")
+
+    def test_toolbar_height_locked_44px(self):
+        """Toolbar height MUST stay 44px LOCKED (ADR-001)."""
+        style = self._style_block()
+        self.assertRegex(
+            style,
+            r"\.top-toolbar\s*\{[^}]*flex:\s*0\s+0\s+44px",
+            "Toolbar MUST keep flex: 0 0 44px (ADR-001 locked)",
+        )
+
+    def test_system_chrome_zone_reserved_zero_width(self):
+        """system-chrome zone MUST be width:0 (reserved, never painted)."""
+        style = self._style_block()
+        self.assertRegex(
+            style,
+            r"\[data-toolbar-zone=['\"]system-chrome['\"]\]\s*\{[^}]*width:\s*0",
+            "system-chrome zone MUST be width:0 (reserved)",
+        )
+        m = re.search(r'<div data-toolbar-zone="system-chrome">([\s\S]*?)</div>', self.template_text)
+        self.assertIsNotNone(m, "Expected system-chrome zone container")
+        self.assertNotIn("<button", m.group(1), "system-chrome MUST NOT be painted")
+
+    # ── C5: Breadcrumb lives in the view zone with tokenized highlight ───────
+
+    def test_breadcrumb_in_view_zone_with_tokenized_highlight(self):
+        """The breadcrumb MUST live in the toolbar view zone and use the
+        --accent-color-soft token for the highlighted org name (ADR-F), no hex."""
+        m = re.search(r'<div data-toolbar-zone="view">([\s\S]*?)</div>\s*<!--', self.template_text)
+        self.assertIsNotNone(m, "Expected view zone container")
+        self.assertIn('aria-label="Breadcrumb"', m.group(1),
+                      "Breadcrumb nav MUST live in the view zone")
+        style = self._style_block()
+        mh = re.search(r"\.breadcrumb-highlight\s*\{([^}]*)\}", style)
+        self.assertIsNotNone(mh, "Expected .breadcrumb-highlight rule")
+        self.assertIn("var(--accent-color-soft)", mh.group(1),
+                      "Breadcrumb highlight MUST use --accent-color-soft token (ADR-F)")
+        self.assertIsNone(re.search(r"#(?:[0-9a-fA-F]{3,6})\b", mh.group(1)),
+                          "Breadcrumb highlight MUST NOT use hardcoded hex")
+
+    # ── C6: Rails — 48px width contract (ADR-004) ────────────────────────────
+
+    def test_rail_width_is_48px_contract(self):
+        """Rails MUST maintain the 48px width contract (ADR-004) — NOT reference 56px."""
+        style = self._style_block()
+        self.assertRegex(
+            style,
+            r"\.rail\s*\{[^}]*min-width:\s*48px",
+            "Rails MUST keep min-width: 48px (ADR-004 project contract)",
+        )
+
+    def test_workspace_grid_keeps_48px_rail_columns(self):
+        """The 5-column workspace grid MUST keep 48px rail columns flanking the panels."""
+        self.assertRegex(
+            self.template_text,
+            r"grid-template-columns:[\s\S]*48px[\s\S]*minmax\(220px,\s*300px\)[\s\S]*minmax\(0,\s*1fr\)[\s\S]*minmax\(280px,\s*360px\)[\s\S]*48px",
+            "Workspace grid MUST keep 48px rail columns (ADR-004)",
+        )
+
+
+class TestWorkspaceControlsWiring(unittest.TestCase):
+    """Contract assertions for Slice 1 workspace controls wiring (P0).
+
+    These tests assert static HTML/JS contracts in the rendered template:
+    - Left panel-collapse MUST NOT have aria-pressed (a11y cleanup).
+    - Overflow trigger carries aria-haspopup="menu".
+    - Rail icons carry data-catalog-id and data-rail-icon.
+    - Tab-close button carries data-catalog-id="tab-close".
+    - workspaceChrome module is imported and wired in the inline script.
+    """
+
+    def setUp(self):
+        self.html = render_interactive_html(
+            {
+                "meta": {"org": "WiringOrg", "node_count": 0, "edge_count": 0, "generated_at": ""},
+                "nodes": [],
+                "edges": [],
+                "type_groups": [],
+                "adjacency": {},
+            }
+        )
+
+    def test_left_panel_collapse_has_no_aria_pressed(self):
+        """Left panel-collapse MUST NOT carry aria-pressed (a11y cleanup — design ADR)."""
+        import re
+        # Find the .panel-collapse button (not .panel-collapse-right)
+        m = re.search(
+            r'<button[^>]*class="panel-collapse"[^>]*/?>',
+            self.html,
+        )
+        self.assertIsNotNone(m, "Expected a .panel-collapse button in the template")
+        self.assertNotIn("aria-pressed", m.group(0),
+                         "Left .panel-collapse MUST NOT carry aria-pressed")
+
+    def test_left_panel_collapse_has_aria_expanded(self):
+        """Left panel-collapse MUST carry aria-expanded for expand/collapse state."""
+        import re
+        m = re.search(
+            r'<button[^>]*class="panel-collapse"[^>]*/?>',
+            self.html,
+        )
+        self.assertIsNotNone(m, "Expected a .panel-collapse button")
+        self.assertIn("aria-expanded", m.group(0),
+                      "Left .panel-collapse MUST have aria-expanded")
+
+    def test_right_panel_collapse_is_unchanged(self):
+        """Right panel-collapse-right MUST still carry aria-expanded (Slice 2 — untouched)."""
+        self.assertIn('class="panel-collapse-right"', self.html,
+                      "Expected .panel-collapse-right button for right panel")
+        import re
+        m = re.search(
+            r'<button[^>]*class="panel-collapse-right"[^>]*/?>',
+            self.html,
+        )
+        self.assertIsNotNone(m, "Expected .panel-collapse-right button")
+        self.assertIn("aria-expanded", m.group(0),
+                      ".panel-collapse-right MUST have aria-expanded")
+
+    def test_overflow_trigger_has_aria_haspopup_menu(self):
+        """Overflow trigger MUST carry aria-haspopup='menu' for a11y contract."""
+        import re
+        m = re.search(
+            r'<button[^>]*data-catalog-id="overflow"[^>]*/?>',
+            self.html,
+        )
+        self.assertIsNotNone(m, "Expected overflow trigger button with data-catalog-id='overflow'")
+        self.assertIn('aria-haspopup="menu"', m.group(0),
+                      "Overflow trigger MUST have aria-haspopup='menu'")
+
+    def test_rail_icons_carry_data_catalog_id(self):
+        """All 5 rail icons MUST carry data-catalog-id for JS wiring."""
+        for name in ("file-tree", "search", "filters", "hierarchy", "layout"):
+            self.assertIn(f'data-catalog-id="{name}"', self.html,
+                          f"Rail icon '{name}' MUST have data-catalog-id")
+
+    def test_rail_icons_carry_data_rail_icon(self):
+        """All 5 rail icons MUST carry data-rail-icon for workspace-chrome routing."""
+        for name in ("file-tree", "search", "filters", "hierarchy", "layout"):
+            self.assertIn(f'data-rail-icon="{name}"', self.html,
+                          f"Rail icon '{name}' MUST have data-rail-icon")
+
+    def test_tab_close_carries_data_catalog_id(self):
+        """Tab-close button MUST carry data-catalog-id='tab-close'."""
+        self.assertIn('data-catalog-id="tab-close"', self.html,
+                      "Tab-close button MUST have data-catalog-id='tab-close'")
+
+    def test_workspace_chrome_mount_in_inline_script(self):
+        """Inline script MUST call workspaceChrome.mount after contextMenu.mount."""
+        import re
+        scripts = re.findall(r"<script>([\s\S]*?)</script>", self.html)
+        inline = scripts[-1] if scripts else ""
+        self.assertIn("workspaceChrome.mount", inline,
+                      "Inline script MUST call workspaceChrome.mount")
+        # Must also appear in brainDsUI object (module exposed on window)
+        self.assertIn("workspaceChrome", inline,
+                      "workspaceChrome MUST be referenced in the inline script")
+
+    def test_left_panel_collapse_inline_handler_flips_aria_expanded(self):
+        """Inline script MUST include a left panel-collapse handler that toggles aria-expanded."""
+        import re
+        scripts = re.findall(r"<script>([\s\S]*?)</script>", self.html)
+        inline = scripts[-1] if scripts else ""
+        self.assertIn("panel-collapse", inline,
+                      "Inline script MUST wire a panel-collapse handler")
+        self.assertIn("aria-expanded", inline,
+                      "panel-collapse handler MUST reference aria-expanded")
+
+    def test_tab_close_inline_handler_present(self):
+        """Inline script MUST include a tab-close handler."""
+        import re
+        scripts = re.findall(r"<script>([\s\S]*?)</script>", self.html)
+        inline = scripts[-1] if scripts else ""
+        self.assertIn("tab-close", inline,
+                      "Inline script MUST wire a tab-close handler")
+
+    def test_viewer_bundle_includes_workspace_overflow_management_contract(self):
+        """Compiled viewer bundle MUST include workspace overflow manager contract."""
+        bundle_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "assets" / "viewer.bundle.js"
+        bundle = bundle_path.read_text(encoding="utf-8")
+        self.assertIn("__brainDsOverflowManaged", bundle,
+                      "Bundle MUST set/read __brainDsOverflowManaged to own overflow wiring")
+        self.assertIn("workspace-overflow-menu", bundle,
+                      "Bundle MUST include workspace overflow menu DOM wiring")
+        self.assertIn("Reset filters", bundle,
+                      "Bundle overflow menu MUST expose reset filters action")
 
 
 if __name__ == "__main__":

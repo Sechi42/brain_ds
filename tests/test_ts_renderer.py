@@ -180,14 +180,13 @@ class TestMainTsExists(unittest.TestCase):
         self.assertRegex(text, r"import\s+['\"].*\.css['\"]",
                          "main.ts must import a CSS entry so esbuild emits viewer.bundle.css")
 
-    def test_main_ts_bootstraps_network_from_render_context(self):
+    def test_main_ts_exposes_network_slot_without_bootstrapping_network(self):
         path = SRC_DIR / "main.ts"
         if not path.exists():
             self.skipTest("src/main.ts not found")
         text = path.read_text(encoding="utf-8")
-        self.assertIn("new vis.DataSet(RENDER_CONTEXT.nodes", text)
-        self.assertIn("new vis.DataSet(RENDER_CONTEXT.edges", text)
-        self.assertIn("new vis.Network(container, { nodes, edges }", text)
+        self.assertIn("network: null", text)
+        self.assertNotIn("new vis.Network(container, { nodes, edges }", text)
 
 
 class TestBundleArtifactsExist(unittest.TestCase):

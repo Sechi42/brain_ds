@@ -67,6 +67,7 @@
     this._treeFilterDescendants = null;
     this._neighborIndex = new Map();
     this._frameCount = 0;
+    this._d4OverlayActive = false;
 
     // Slice 1a: viewport matrix (REQ-1.1)
     // Slice 1b: extended with vx/vy pan velocity for inertia (REQ-1.7)
@@ -1198,12 +1199,16 @@
       0, this.viewport.scale,
       this.viewport.tx, this.viewport.ty
     );
-    this._drawEdges(state);
-    this._drawMarquee();  // Slice 3a: between edges and nodes (REQ-3.5)
-    this._drawNodes(state);
+    if (!this._d4OverlayActive) {
+      this._drawEdges(state);
+      this._drawMarquee();  // Slice 3a: between edges and nodes (REQ-3.5)
+      this._drawNodes(state);
+    }
     ctx.restore();
 
-    this._syncA11yList(state.nodes);
+    if (!this._d4OverlayActive) {
+      this._syncA11yList(state.nodes);
+    }
 
     // Slice 4: update popover screen position each frame (REQ-4.4 — tracks node's screen pos)
     this._updatePopoverPosition(state.nodes);
@@ -1345,6 +1350,18 @@
     this._emit("select-change", { nodes: [] });
     this.liveRegion.textContent = "Selection cleared";
     this._wake();
+  };
+
+  // vis compatibility: template/runtime may call selectNodes([id]) directly.
+  Network.prototype.selectNodes = function (ids) {
+    var selectedIds = Array.isArray(ids) ? ids : [];
+    if (!selectedIds.length) {
+      this.clearSelection();
+      return;
+    }
+    this.selectedNodeIds = new Set(selectedIds.map(function (id) { return String(id); }));
+    this._selectNodeById(selectedIds[0]);
+    this._emit("select-change", { nodes: Array.from(this.selectedNodeIds) });
   };
 
   // Slice 6: contextmenu handler — suppress browser default, hit-test for node,

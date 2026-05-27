@@ -8,6 +8,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+import uvicorn
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse, JSONResponse
+
+from brain_ds.api.server import create_app
 from brain_ds.ontology import Graph
 from brain_ds.store.graph_store import GraphStore
 
@@ -51,9 +56,13 @@ class ServerRuntime:
         context = build_render_context(graph, workspace=workspace)
         return render_interactive_html(context)
 
-    def _handle_signal(self, signum: int, frame: Any, httpd: ThreadingHTTPServer) -> None:
+    def _handle_signal(self, signum: int, frame: Any, server: Any = None) -> None:
         self.store.close()
-        httpd.shutdown()
+        if server is not None:
+            if hasattr(server, "shutdown"):
+                server.shutdown()
+            if hasattr(server, "should_exit"):
+                server.should_exit = True
         raise SystemExit(0)
 
     def handler_class(self) -> type[BaseHTTPRequestHandler]:
@@ -85,6 +94,21 @@ class ServerRuntime:
                 return
 
         return RuntimeHandler
+
+
+def build_ui_app(*, project_root: Path, store: GraphStore) -> FastAPI:
+    runtime = ServerRuntime(project_root=project_root, store=store)
+    app = create_app(project_root=project_root, store=store)
+
+    @app.get("/")
+    def root_page() -> HTMLResponse:
+        return HTMLResponse(runtime._render_root_html())
+
+    @app.get("/api/graphs")
+    def list_graphs() -> JSONResponse:
+        return JSONResponse(runtime._graphs_payload())
+
+    return app
 
 
 def _resolve_store_path(project_root: Path) -> Path:
@@ -141,15 +165,18 @@ def run_server(*, project_root: Path, port: int = 8765) -> None:
     store = GraphStore(str(store_path), allow_cross_thread=True)
     _scan_project_root(root, store)
     runtime = ServerRuntime(project_root=root, store=store)
+    app = build_ui_app(project_root=root, store=store)
     try:
+        config = uvicorn.Config(app=app, host="127.0.0.1", port=port, log_level="error")
+        server = uvicorn.Server(config)
         try:
-            httpd = ThreadingHTTPServer(("127.0.0.1", port), runtime.handler_class())
+            server.config.bind_socket()
         except OSError as exc:
             print(f"Error: port {port} is already in use", file=sys.stderr)
             raise SystemExit(1) from exc
 
-        signal.signal(signal.SIGINT, lambda s, f: runtime._handle_signal(s, f, httpd))
-        signal.signal(signal.SIGTERM, lambda s, f: runtime._handle_signal(s, f, httpd))
-        httpd.serve_forever()
+        signal.signal(signal.SIGINT, lambda s, f: runtime._handle_signal(s, f, server))
+        signal.signal(signal.SIGTERM, lambda s, f: runtime._handle_signal(s, f, server))
+        server.run()
     finally:
         store.close()

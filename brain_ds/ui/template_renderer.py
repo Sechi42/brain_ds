@@ -32,6 +32,8 @@ def render_interactive_html(context: dict, *, template_path: Path | None = None)
         tokens_css = static_root.joinpath("tokens.css").read_text(encoding="utf-8")
 
     meta = dict(context.get("meta") or {})
+    if "graph_id" not in meta and context.get("graph_id") is not None:
+        meta["graph_id"] = context.get("graph_id")
     status_label = str(meta.get("status_label") or "LIVE").upper()[:4]
     meta["status_label"] = status_label or "LIVE"
     context_with_defaults = dict(context)

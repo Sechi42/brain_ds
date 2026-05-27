@@ -56,9 +56,11 @@
         min-height: 0;
         background: var(--bg-main);
       }
-      /* ── Tab Strip — 48px (reference atmospheric blur) ── */
+      /* ── Tab Strip — 36px (ADR-009 project contract; reference .tabs-bar is 48px
+         but production runs the 5-column grid, so the project height wins per
+         design ADR-F). Atmospheric backdrop-blur preserved — orthogonal to height. ── */
       .tab-strip {
-        flex: 0 0 48px;
+        flex: 0 0 36px;
         display: flex;
         align-items: center;
         background: var(--tabs-bar-bg);
@@ -426,6 +428,12 @@
       .search-input-wrap { position: relative; display: flex; align-items: center; }
       .search-input-wrap[aria-keyshortcuts='\/'] { gap: 0.35rem; }
       .search-input { width: 100%; padding-left: 2rem; padding-right: 1.9rem; background: var(--bg-active); border: 1px solid var(--border-subtle); color: var(--text-normal); border-radius: var(--radius-ui); }
+      .search-input:hover { border-color: var(--border-strong); }
+      .search-input:focus-visible {
+        outline: 2px solid var(--accent-mora);
+        outline-offset: 2px;
+        border-color: var(--accent-color-soft);
+      }
       .search-pill {
         display: inline-flex;
         align-items: center;
@@ -526,11 +534,12 @@
       .segmented-control { display: flex; gap: 0; background: var(--bg-active); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 4px; }
       .segment-btn { flex: 1; background: transparent; border: none; color: var(--text-muted); font-weight: 500; border-radius: 4px; padding: 6px 0; min-height: 32px; cursor: pointer; font-size: 13px; transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
       .segment-btn:hover { background: var(--bg-panel-hover); color: var(--text-normal); }
-      .segment-btn[aria-checked='true'] { background: #27272a; color: var(--text-normal); box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+      .segment-btn[aria-checked='true'] { background: var(--bg-active); color: var(--text-normal); box-shadow: inset 0 0 0 1px var(--border-strong); }
       .segment-btn:focus-visible { outline: 2px solid var(--accent-mora); outline-offset: 2px; }
       /* === Pill filter buttons — reference parity (btn-group) === */
       .pill-group { display: flex; gap: 8px; }
-      .pill-btn {
+      .pill-btn,
+      .btn-outline {
         flex: 1;
         min-height: 44px;
         padding: 6px 12px;
@@ -547,15 +556,19 @@
         gap: 8px;
         transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
       }
-      .pill-btn:hover { background: var(--bg-panel-hover); color: var(--text-normal); }
-      .pill-btn:focus-visible { outline: 2px solid var(--accent-mora); outline-offset: 2px; }
-      .pill-btn--primary {
-        background: rgba(99, 102, 241, 0.1);
-        color: #818cf8;
-        border-color: rgba(99, 102, 241, 0.2);
+      .pill-btn:hover,
+      .btn-outline:hover { background: var(--bg-panel-hover); color: var(--text-normal); }
+      .pill-btn:focus-visible,
+      .btn-outline:focus-visible { outline: 2px solid var(--accent-mora); outline-offset: 2px; }
+      .pill-btn--primary,
+      .btn-primary-outline {
+        background: var(--accent-bg);
+        color: var(--accent-color-soft);
+        border-color: var(--border-focus);
         font-weight: 500;
       }
-      .pill-btn--primary:hover { background: rgba(99, 102, 241, 0.2); color: #818cf8; }
+      .pill-btn--primary:hover,
+      .btn-primary-outline:hover { background: var(--accent-bg); color: var(--accent-color-soft); }
 
       /* === Center stage === */
       .network-shell { position: relative; display: flex; flex-direction: column; }
@@ -587,9 +600,14 @@
       /* === Right detail panel === */
       .detail-panel { display: grid; gap: 24px; align-content: start; height: 100%; overflow: auto; padding: 24px; background: var(--bg-panel); transition: transform 200ms ease, opacity 200ms ease; animation: detail-panel-enter 200ms ease; }
       .right-panel-shell { box-shadow: -10px 0 20px rgba(0,0,0,0.3); }
-      .detail-panel.is-empty .detail-header { text-align: center; color: var(--text-muted); }
-      .detail-panel.is-empty #detail-title { font-size: 14px; font-weight: 500; color: var(--text-normal); }
-      .detail-panel.is-empty #detail-meta { font-size: 13px; }
+      /* Empty inspector parity (#1218): the north star shows ONLY the centered
+         glyph when nothing is selected — no header title, no Colapsar/Cerrar
+         actions (those live inside the selected-state content in the reference).
+         So when #detail-panel.is-empty we hide the whole .detail-header; the
+         .inspector-empty-state sibling carries the title + prompt. The actions
+         reappear the moment the bundle clears .is-empty on selection. Collapse is
+         still reachable via .panel-collapse-right in the 44px R-panel header strip. */
+      #detail-panel.is-empty .detail-header { display: none; }
       .detail-header { display: grid; gap: 0.25rem; }
       .detail-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
       .detail-actions button { min-width: 44px; }
@@ -625,6 +643,30 @@
       .badge { display: inline-flex; border: 1px solid var(--border-subtle); border-radius: 999px; padding: 0.08rem 0.45rem; font-size: 0.78rem; color: var(--text-muted); }
       .evidence-source { font-size: 0.85rem; color: var(--text-muted); }
       #detail-body[data-state="empty"] { color: var(--text-muted); }
+      /* PR3 inspector enter animation — fade + translateX, mirrors reference fadeIn.
+         Applied when the bundle marks #detail-body as populated (data-state="ready"). */
+      #detail-body[data-state="ready"] { animation: inspectorEnter var(--duration-normal) var(--ease-standard); }
+      /* PR3 inspector empty-state (sibling of #detail-body). Gated by .is-empty,
+         which the detail-panel bundle toggles. Hidden once a node is selected. */
+      .inspector-empty-state { display: none; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 0.75rem; padding: 2rem 1rem; }
+      #detail-panel.is-empty .inspector-empty-state { display: flex; }
+      #detail-panel:not(.is-empty) .inspector-empty-state { display: none; }
+      /* When empty, the bundle-owned text body is hidden as a redundant visual; the
+         rich .inspector-empty-state (NOT aria-hidden) carries the readable prompt so
+         screen-reader users still get guidance under the panel's aria-live region. */
+      #detail-panel.is-empty #detail-body { display: none; }
+      .empty-icon-wrapper { width: 64px; height: 64px; border-radius: 50%; background: var(--bg-panel-hover); border: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: center; }
+      .empty-icon-wrapper .empty-icon { width: 24px; height: 24px; color: var(--text-muted); }
+      /* Text uses --text-normal (≈17:1 on --bg-panel) for WCAG AA; no opacity dimming
+         (opacity over --text-muted dropped contrast to ~2.5:1, failing AA). */
+      .inspector-empty-text h3 { margin: 0 0 0.2rem; font-size: 0.9rem; font-weight: 600; color: var(--text-normal); }
+      .inspector-empty-text p { margin: 0; font-size: 0.82rem; color: var(--text-normal); }
+      /* PR3 node-type indicator dot, decorated into #detail-title by the render shim
+         after the bundle populates the title (the bundle wipes title child spans). */
+      .color-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: 0 0 auto; margin-right: 0.4rem; vertical-align: middle; background: var(--node-color, var(--accent-mora)); }
+      .btn-danger-outline { color: var(--text-muted); border: 1px solid var(--border-subtle); background: transparent; }
+      .btn-danger-outline:hover { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
+      .btn-danger-outline:focus-visible { outline: 2px solid var(--accent-mora); outline-offset: 2px; }
       #edit-toggle, #export-json { background: transparent; border: 1px solid var(--border-subtle); color: var(--text-muted); }
       #detail-collapse, #detail-close { background: transparent; border: 1px solid var(--border-subtle); color: var(--text-muted); }
       #detail-panel-backdrop { display: none; }
@@ -659,13 +701,14 @@
       .vis-context-menu__icon { width: 16px; height: 16px; display: inline-flex; }
       .vis-context-menu__icon svg { width: 16px; height: 16px; }
       .vis-context-menu__separator { border: 0; border-top: 1px solid var(--border-subtle); margin: 0.25rem 0; }
-      .menu-item--danger { color: #ef4444; }
-      .menu-item--danger:hover, .menu-item--danger.vis-context-menu__item--hovered { background: rgba(239,68,68,0.15); }
+      .menu-item--danger { color: var(--danger); }
+      .menu-item--danger:hover, .menu-item--danger.vis-context-menu__item--hovered { background: var(--danger-soft); }
 
       /* === Animations === */
       @keyframes detail-skeleton-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
       @keyframes viewer-spin { to { transform: rotate(360deg); } }
       @keyframes detail-panel-enter { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+      @keyframes inspectorEnter { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }
 
       /* === Responsive ===
          The max-width:1100px breakpoint is KEPT for mobile/narrow viewports.
@@ -677,6 +720,7 @@
         .tab-item, .tab, .tab-close, .tab-new, .toolbar-btn { transition: none; animation: none; }
         .rail-icon, .panel-collapse-right { transition: none; animation: none; }
         .viewer-loading, .empty-state { transition: none; }
+        #detail-body, #detail-body[data-state="ready"], .inspector-empty-state { animation: none; transition: none; }
         .viewer-loading__spinner, .detail-skeleton__line { animation: none; }
         .detail-skeleton__line { background: var(--bg-active); }
       }
@@ -793,7 +837,6 @@
         stroke: var(--border-strong);
         stroke-width: 1px;
         opacity: 0.6;
-        transition: stroke 0.3s ease, stroke-width 0.3s ease, opacity 0.3s ease, filter 0.3s ease;
       }
 
       /* EGO-DIMMING — global fade when hover/select active */
@@ -843,7 +886,6 @@
         min-height: 0;
         display: block;
         opacity: 1;
-        transition: opacity 0.3s ease;
       }
       .d4-node .node-circle,
       .graph-node .node-circle {
@@ -855,7 +897,6 @@
         border: 1px solid var(--vis-panel-border);
         background: var(--bg-active);
         box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1);
-        transition: transform 0.25s ease-out, border-color 0.25s ease-out, background 0.25s ease-out, box-shadow 0.25s ease-out;
         z-index: 2;
       }
       .d4-node .node-circle::after,
@@ -865,7 +906,6 @@
         inset: 6px;
         border-radius: inherit;
         background: var(--bg-panel-hover);
-        transition: background 0.25s ease-out, inset 0.25s ease-out, opacity 0.25s ease-out;
       }
 
       /* NODE LABEL — hangs off to the right, mathematically detached */
@@ -885,7 +925,6 @@
         color: var(--text-bright);
         backdrop-filter: blur(4px);
         -webkit-backdrop-filter: blur(4px);
-        transition: all 0.3s ease;
         pointer-events: none;
         z-index: 1;
         font-family: inherit;
@@ -956,7 +995,6 @@
         border-width: 2px;
         border-color: var(--node-color);
         background: var(--bg-active);
-        animation: node-hover-breathe 1.6s ease-in-out infinite;
       }
       .d4-node[data-state="hover-target"] .node-circle::after,
       .graph-node[data-state="hover-target"] .node-circle::after {
@@ -997,7 +1035,6 @@
         backdrop-filter: blur(8px);
         -webkit-backdrop-filter: blur(8px);
         z-index: 50;
-        animation: d4-popover-reveal 0.18s ease-out, popover-reveal 0.18s ease-out;
         pointer-events: none;
       }
       .vis-popover[aria-hidden='true'] { opacity: 0; }
@@ -1069,6 +1106,40 @@
         from { opacity: 0; transform: translateY(8px); }
         to { opacity: 1; transform: translateY(0); }
       }
+      @keyframes node-entrance {
+        from { opacity: 0; transform: scale(0.3); }
+        to { opacity: 1; transform: scale(1); }
+      }
+
+      @media (prefers-reduced-motion: no-preference) {
+        .d4-edge,
+        .edge-line,
+        #d4-edges .d4-edge {
+          transition: stroke 0.3s ease, stroke-width 0.3s ease, opacity 0.3s ease, filter 0.3s ease;
+        }
+        .d4-node,
+        .graph-node { transition: opacity 0.3s ease; }
+        .d4-node .node-circle,
+        .graph-node .node-circle {
+          transition: transform 0.25s ease-out, border-color 0.25s ease-out, background 0.25s ease-out, box-shadow 0.25s ease-out;
+        }
+        .d4-node .node-circle::after,
+        .graph-node .node-circle::after {
+          transition: background 0.25s ease-out, inset 0.25s ease-out, opacity 0.25s ease-out;
+        }
+        .d4-node .node-label,
+        .graph-node .node-label,
+        .off-side-label { transition: all 0.3s ease; }
+        .d4-node[data-state="hover-target"] .node-circle,
+        .graph-node[data-state="hover-target"] .node-circle {
+          animation: node-hover-breathe 1.6s ease-in-out infinite;
+        }
+        .vis-popover,
+        .hover-popover {
+          animation: d4-popover-reveal 0.18s ease-out, popover-reveal 0.18s ease-out;
+        }
+        .d4-node--entering .node-circle { animation: node-entrance 200ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+      }
 
       @media (prefers-reduced-motion: reduce) {
         .d4-node, .graph-node,
@@ -1082,6 +1153,7 @@
           animation: none;
           transform: none;
         }
+        .d4-node--entering .node-circle { animation: none; }
       }
     </style>
   </head>
@@ -1101,33 +1173,23 @@
         <div class="left-rail-icons">
           <button class="rail-icon" role="tab" aria-selected="true" aria-label="Open file tree panel" title="Proyectos" data-catalog-id="file-tree" data-rail-icon="file-tree" tabindex="0">
             <!-- Lucide folder — decorative -->
-            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 7h5l2 2h11v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2"/>
-            </svg>
+            <svg aria-hidden="true" width="18" height="18"><use href="#icon-folder"/></svg>
           </button>
           <button class="rail-icon" role="tab" aria-selected="false" aria-label="Open search panel" title="Búsqueda" data-catalog-id="search" data-rail-icon="search" tabindex="-1">
             <!-- Lucide search — decorative -->
-            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
-            </svg>
+            <svg aria-hidden="true" width="18" height="18"><use href="#icon-search"/></svg>
           </button>
           <button class="rail-icon" role="tab" aria-selected="false" aria-label="Open filters panel" title="Filtros" data-catalog-id="filters" data-rail-icon="filters" tabindex="-1">
             <!-- Lucide filter — decorative -->
-            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4 6h16M7 12h10M10 18h4"/>
-            </svg>
+            <svg aria-hidden="true" width="18" height="18"><use href="#icon-filter"/></svg>
           </button>
           <button class="rail-icon" role="tab" aria-selected="false" aria-label="Open hierarchy panel" title="Jerarquía" data-catalog-id="hierarchy" data-rail-icon="hierarchy" tabindex="-1">
             <!-- Lucide network — decorative -->
-            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 8v5"/>
-            </svg>
+            <svg aria-hidden="true" width="18" height="18"><use href="#icon-network"/></svg>
           </button>
           <button class="rail-icon" role="tab" aria-selected="false" aria-label="Open layout panel" title="Diseño" data-catalog-id="layout" data-rail-icon="layout" tabindex="-1">
             <!-- Lucide layout-dashboard — decorative -->
-            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>
-            </svg>
+            <svg aria-hidden="true" width="18" height="18"><use href="#icon-layout-grid"/></svg>
           </button>
         </div>
         <!-- Reserved for Phase E.2 WS connection indicator; kept in DOM (last child) for L-6 contract. -->
@@ -1138,21 +1200,19 @@
         <!-- Panel header with region semantics -->
         <header class="panel-header" role="region" aria-label="Left panel controls">
           <strong class="panel-header-title">
-            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <svg aria-hidden="true" width="16" height="16"><use href="#icon-search"/></svg>
             Controles del Grafo
           </strong>
-          <button class="panel-collapse" aria-label="Collapse left panel" aria-expanded="true" aria-pressed="false">
+          <button class="panel-collapse" aria-label="Collapse left panel" aria-expanded="true">
             <!-- Lucide chevron-left — decorative -->
-            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M15 18l-6-6 6-6"/>
-            </svg>
+            <svg aria-hidden="true" width="16" height="16"><use href="#icon-chevron-left"/></svg>
           </button>
         </header>
         <!-- Controls body — runtime JS mounts search/filter/legend/tree/layout into these IDs -->
         <!-- data-catalog-id targets: PR3+ will wire panel routing via rail-icon clicks -->
       <aside class="panel controls" aria-label="Graph controls">
         <section class="panel-card" data-accordion-section="search">
-          <h3 class="panel-card-title"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>BÚSQUEDA</h3>
+          <h3 class="panel-card-title"><svg aria-hidden="true"><use href="#icon-search"/></svg>BÚSQUEDA</h3>
           <div class="search-input-wrap" tabindex="0" aria-keyshortcuts="/">
             <input id="node-search" class="search-input" type="search" autocomplete="off" placeholder="Buscar nodos…" />
             <kbd class="search-pill">/</kbd>
@@ -1160,38 +1220,38 @@
           <ol id="search-results" aria-live="polite"></ol>
         </section>
         <section class="panel-card" data-accordion-section="filters">
-          <h3 class="panel-card-title"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>FILTROS</h3>
+          <h3 class="panel-card-title"><svg aria-hidden="true"><use href="#icon-filter"/></svg>FILTROS</h3>
           <div class="pill-group">
-            <button type="button" id="show-all" class="pill-btn pill-btn--primary">
-              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+            <button type="button" id="show-all" class="pill-btn btn-primary-outline pill-btn--primary">
+              <svg aria-hidden="true" width="14" height="14"><use href="#icon-eye"/></svg>
               Mostrar
             </button>
-            <button type="button" id="hide-all" class="pill-btn">
-              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/></svg>
+            <button type="button" id="hide-all" class="pill-btn btn-outline">
+              <svg aria-hidden="true" width="14" height="14"><use href="#icon-eye-off"/></svg>
               Ocultar
             </button>
           </div>
           <div id="type-filters"></div>
         </section>
         <section class="panel-card" data-accordion-section="legend">
-          <h3 class="panel-card-title"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="10.5" r="2.5"/><circle cx="8.5" cy="7.5" r="2.5"/><circle cx="6.5" cy="12.5" r="2.5"/><path d="M12 22c5.523 0 9-3.477 9-9-3 0-6-1-9-3-3 2-6 3-9 3 0 5.523 3.477 9 9 9z"/></svg>LEYENDA</h3>
+          <h3 class="panel-card-title"><svg aria-hidden="true"><use href="#icon-share-2"/></svg>LEYENDA</h3>
           <div id="legend"></div>
         </section>
         <section class="panel-card" data-accordion-section="hierarchy">
-          <h3 class="panel-card-title"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 8v5"/></svg>JERARQUÍA</h3>
+          <h3 class="panel-card-title"><svg aria-hidden="true"><use href="#icon-network"/></svg>JERARQUÍA</h3>
           <div id="tree-panel">
             <div class="tree-row" aria-hidden="true"><span class="tree-indent"></span><span>Adaptador de árbol</span></div>
           </div>
         </section>
         <section class="panel-card" data-accordion-section="layout">
-          <h3 class="panel-card-title"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>DISEÑO (LAYOUT)</h3>
+          <h3 class="panel-card-title"><svg aria-hidden="true"><use href="#icon-layout-grid"/></svg>DISEÑO (LAYOUT)</h3>
           <div class="segmented-control" role="radiogroup" aria-label="View mode">
             <button type="button" class="segment-btn" id="toggle-hierarchical" role="radio" aria-checked="false" tabindex="-1">Jerárquico</button>
             <button type="button" class="segment-btn" id="toggle-physics" role="radio" aria-checked="true" tabindex="0">Física</button>
           </div>
         </section>
         <section class="panel-card" data-accordion-section="score">
-          <h3 class="panel-card-title"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>UMBRAL</h3>
+          <h3 class="panel-card-title"><svg aria-hidden="true"><use href="#icon-sliders-horizontal"/></svg>UMBRAL</h3>
           <span class="vis-a11y-sr-only">Umbral de score</span>
           <div class="control-row" style="align-items:center;gap:0.5rem;">
             <input
@@ -1238,9 +1298,7 @@
               data-tab-close-for="tab-vista-grafica"
             >
               <!-- Lucide x icon — decorative -->
-              <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M18 6 6 18M6 6l12 12"/>
-              </svg>
+              <svg aria-hidden="true" width="12" height="12"><use href="#icon-x"/></svg>
             </button>
           </div>
 
@@ -1252,9 +1310,7 @@
             tabindex="0"
           >
             <!-- Lucide plus icon — decorative -->
-            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 5v14M5 12h14"/>
-            </svg>
+            <svg aria-hidden="true" width="16" height="16"><use href="#icon-plus"/></svg>
           </button>
 
         </div><!-- /.tab-strip -->
@@ -1291,10 +1347,7 @@
               aria-label="Zoom to fit"
             >
               <!-- Lucide maximize-2 (zoom fit) — decorative -->
-              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/>
-                <line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
-              </svg>
+              <svg aria-hidden="true" width="18" height="18"><use href="#icon-maximize-2"/></svg>
             </button>
             <button
               class="toolbar-btn vis-theme-toggle"
@@ -1303,10 +1356,7 @@
               aria-pressed="false"
             >
               <!-- Lucide sun icon — decorative -->
-              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="4"/>
-                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
-              </svg>
+              <svg aria-hidden="true" width="18" height="18"><use href="#icon-sun"/></svg>
             </button>
             <button
               class="toolbar-btn"
@@ -1315,9 +1365,7 @@
               aria-haspopup="menu"
             >
               <!-- Lucide more-horizontal — decorative -->
-              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>
-              </svg>
+              <svg aria-hidden="true" width="18" height="18"><use href="#icon-more-horizontal"/></svg>
             </button>
           </div>
 
@@ -1353,11 +1401,11 @@
         <!-- R-panel header (PR3) — 44px strip; collapse is a STUB (panel routing: follow-up PR) -->
         <header class="panel-header" data-panel-side="right" role="region" aria-label="Inspector panel">
           <strong class="panel-header-title">
-            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 10v6"/><path d="M12 7h.01"/></svg>
+            <svg aria-hidden="true" width="16" height="16"><use href="#icon-info"/></svg>
             Inspector
           </strong>
           <button type="button" class="panel-collapse-right" aria-label="Collapse right panel" aria-expanded="true">
-            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+            <svg aria-hidden="true" width="18" height="18"><use href="#icon-chevron-right"/></svg>
           </button>
         </header>
         <aside id="detail-panel" class="panel detail-panel is-empty" aria-label="Node details" aria-live="polite" aria-labelledby="detail-title" role="dialog" aria-modal="true">
@@ -1365,10 +1413,23 @@
             <h2 id="detail-title" class="detail-title">Detalles del nodo</h2>
             <div id="detail-meta" class="detail-meta">Selecciona un nodo en el lienzo para ver sus propiedades.</div>
             <div class="detail-actions">
-              <button type="button" id="edit-toggle" aria-pressed="false" hidden><svg class="card-icon" aria-hidden="true"><use href="#icon-edit"/></svg> Editar</button>
-              <button type="button" id="export-json" hidden><svg class="card-icon" aria-hidden="true"><use href="#icon-save"/></svg> Exportar JSON</button>
-              <button type="button" id="detail-collapse" aria-controls="detail-panel" aria-expanded="true" aria-label="Collapse detail panel">Colapsar</button>
-              <button type="button" id="detail-close" aria-label="Clear selected node">Cerrar</button>
+              <button type="button" id="edit-toggle" class="pill-btn btn-outline" aria-pressed="false" hidden><svg class="card-icon" aria-hidden="true"><use href="#icon-edit"/></svg> Editar</button>
+              <button type="button" id="export-json" class="pill-btn btn-outline" hidden><svg class="card-icon" aria-hidden="true"><use href="#icon-save"/></svg> Exportar JSON</button>
+              <button type="button" id="detail-collapse" class="pill-btn btn-outline" aria-controls="detail-panel" aria-expanded="true" aria-label="Collapse detail panel">Colapsar</button>
+              <button type="button" id="detail-close" class="pill-btn btn-danger-outline" aria-label="Clear selected node">Cerrar</button>
+            </div>
+          </div>
+          <!-- PR3 inspector empty-state: SIBLING of #detail-body (the bundle owns
+               #detail-body/#detail-title/#detail-meta content via textContent and would
+               clobber rich markup placed inside them). Visibility is gated by CSS on
+               #detail-panel.is-empty, which the bundle toggles (detail-panel.ts). -->
+          <div class="inspector-empty-state">
+            <div class="empty-icon-wrapper">
+              <svg class="empty-icon" aria-hidden="true" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-network"/></svg>
+            </div>
+            <div class="inspector-empty-text">
+              <h3>Detalles del nodo</h3>
+              <p>Selecciona un nodo en el lienzo para ver sus propiedades.</p>
             </div>
           </div>
           <div id="detail-body" class="detail-body" data-state="empty">Selecciona un nodo en el lienzo para ver sus propiedades.</div>
@@ -1379,7 +1440,7 @@
           <details class="inspector-accordion" data-accordion-section="ai-actions">
             <summary class="inspector-summary" aria-label="Toggle AI actions section">
               <span>Acciones IA</span>
-              <svg class="chevron" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+              <svg class="chevron" aria-hidden="true" width="16" height="16"><use href="#icon-chevron-right"/></svg>
             </summary>
             <div class="inspector-body">
               <div style="padding: 0.4rem 0; font-size: 0.82rem; color: var(--text-muted);" aria-disabled="true">Puente MCP — no conectado</div>
@@ -1392,7 +1453,7 @@
         <div class="right-rail-icons">
           <button class="rail-icon" role="tab" aria-selected="true" aria-label="Open settings panel" title="Ajustes" data-catalog-id="gear" tabindex="0">
             <!-- Lucide settings/gear icon -->
-            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.82-.33 1.7 1.7 0 0 0-1 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.56 1.7 1.7 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .33-1.82 1.7 1.7 0 0 0-1.56-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1 1.7 1.7 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.82.33h.01a1.7 1.7 0 0 0 1-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.56h.01a1.7 1.7 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.33 1.82v.01a1.7 1.7 0 0 0 1.56 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1Z"/></svg>
+            <svg aria-hidden="true" width="18" height="18"><use href="#icon-settings"/></svg>
           </button>
         </div>
       </nav>
@@ -1407,6 +1468,8 @@
         ? structuredClone(RENDER_CONTEXT)
         : JSON.parse(JSON.stringify(RENDER_CONTEXT));
       const typeGroups = RENDER_CONTEXT.type_groups || [];
+      const initialNodes = RENDER_CONTEXT.nodes || [];
+      const initialEdges = RENDER_CONTEXT.edges || [];
       document.getElementById("org-name").textContent = meta.org || "Organization";
       document.getElementById("org-meta").textContent = `${meta.node_count || 0} nodes · ${meta.edge_count || 0} edges`;
       document.getElementById("org-ts").textContent = meta.generated_at ? `Generated: ${meta.generated_at}` : "";
@@ -1428,17 +1491,41 @@
 
       const nodes = new vis.DataSet(RENDER_CONTEXT.nodes || []);
       const edges = new vis.DataSet(RENDER_CONTEXT.edges || []);
+      const graphId = String((meta && meta.graph_id) || "");
+      const liveSyncApi = window.brainDsUI && window.brainDsUI.liveSync;
+      const liveDataStore = liveSyncApi
+        ? new liveSyncApi.LiveDataStore(RENDER_CONTEXT, nodes, edges)
+        : null;
+      if (liveDataStore) {
+        const motionApi = window.brainDsUI && window.brainDsUI.motion;
+        liveDataStore.onNodeAdded = (node) => {
+          const id = String(node.id);
+          if (motionApi && typeof motionApi.motionEnabled === "function" && motionApi.motionEnabled()) {
+            enteringIds.add(id);
+          }
+        };
+        liveDataStore.onNodeRemoved = (nodeId) => {
+          enteringIds.delete(String(nodeId));
+        };
+      }
+      if (liveDataStore && graphId) {
+        liveSyncApi.connectWebSocket(graphId, liveDataStore);
+        liveDataStore.syncWithServer(graphId).catch(() => {});
+      }
       const container = document.getElementById("network");
       const treeFilterChipEl = document.getElementById("tree-filter-chip");
       const adjacency = RENDER_CONTEXT.adjacency || {};
       const editedDetailIndex = editedData.detail_index || {};
-      const originalNodes = new Map((RENDER_CONTEXT.nodes || []).map((n) => [n.id, { ...n }]));
-      const originalEdges = new Map((RENDER_CONTEXT.edges || []).map((e, i) => [i, { ...e, id: i }]));
+      const originalNodes = new Map(initialNodes.map((n) => [n.id, { ...n }]));
+      const originalEdges = new Map(initialEdges.map((e, i) => [i, { ...e, id: i }]));
+      const getCurrentNodes = () => (liveDataStore ? liveDataStore.getNodes() : initialNodes) || [];
+      const getCurrentEdges = () => (liveDataStore ? liveDataStore.getEdges() : initialEdges) || [];
       const hiddenTypes = new Set();
       let scoreThreshold = 0;
       let selectedNodeId = null;
 
-      const network = new vis.Network(container, { nodes, edges }, {
+      const existingNetwork = window.brainDsUI && window.brainDsUI.network;
+      const network = existingNetwork || new vis.Network(container, { nodes, edges }, {
         layout: { hierarchical: { enabled: false, direction: "UD" } },
         interaction: { hover: true, navigationButtons: true, keyboard: true },
         physics: { enabled: true },
@@ -1448,6 +1535,29 @@
         },
         nodes: { shape: "dot", size: 18 }
       });
+      if (window.brainDsUI) {
+        window.brainDsUI.network = network;
+      }
+
+      const rendererD4 = window.brainDsUI && window.brainDsUI.rendererD4;
+      const d4ModuleMounted = Boolean(rendererD4 && typeof rendererD4.mount === "function");
+      if (d4ModuleMounted) {
+        rendererD4.mount({
+          container: document.getElementById("center-split"),
+          network,
+          dataset: nodes,
+          edgesDataset: edges,
+          nodesRoot: document.getElementById("d4-nodes"),
+          edgesRoot: document.getElementById("d4-edges"),
+          onNodeActivate: (nodeId) => focusNode(nodeId),
+        });
+      }
+
+      if (!d4ModuleMounted) {
+
+      const D4_OVERLAY_MAX_NODES = 500;
+      const d4OverlayEnabled = initialNodes.length <= D4_OVERLAY_MAX_NODES;
+      network._d4OverlayActive = d4OverlayEnabled;
 
       const d4Canvas = document.getElementById("center-split");
       const d4NodesRoot = document.getElementById("d4-nodes");
@@ -1479,12 +1589,15 @@
         edgeEls: new Map(),
         popoverEl: null,
       };
+      const enteringIds = new Set();
+      const placementFrames = new Map(); // per-id frame counter for RAF give-up bound
 
       const d4NodeId = (value) => (value === null || value === undefined ? "" : String(value));
-      const d4NodeMap = () => new Map((RENDER_CONTEXT.nodes || []).map((n) => [d4NodeId(n.id), n]));
-      const d4Adjacency = (() => {
+      const d4NodeMap = () => new Map(getCurrentNodes().map((n) => [d4NodeId(n.id), n]));
+      const d4Adjacency = () => {
+        if (liveDataStore) return liveDataStore.getAdjacency();
         const map = new Map();
-        (RENDER_CONTEXT.edges || []).forEach((e) => {
+        getCurrentEdges().forEach((e) => {
           const from = d4NodeId(e.from);
           const to = d4NodeId(e.to);
           if (!map.has(from)) map.set(from, new Set());
@@ -1493,10 +1606,10 @@
           map.get(to).add(from);
         });
         return map;
-      })();
+      };
       const d4RelatedFor = (focusId) => {
         if (!focusId) return new Set();
-        return new Set(d4Adjacency.get(focusId) || []);
+        return new Set(d4Adjacency().get(focusId) || []);
       };
       const d4ColorVars = (node) => {
         // Mirror renderer.ts _resolveNodeBackground precedence:
@@ -1536,6 +1649,8 @@
         if (d4State.popoverEl) return d4State.popoverEl;
         const pop = document.createElement("div");
         pop.className = "vis-popover hover-popover";
+        pop.setAttribute("role", "tooltip");
+        pop.setAttribute("aria-label", "Node details");
         pop.setAttribute("aria-hidden", "true");
         pop.style.position = "absolute";
         pop.style.zIndex = "4";
@@ -1549,10 +1664,13 @@
         pop.setAttribute("aria-hidden", "true");
         pop.style.display = "none";
       };
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") d4HidePopover();
+      });
       const d4ShowPopover = (nodeId, x, y) => {
         const node = d4NodeMap().get(nodeId);
         if (!node) return;
-        const neighbors = (d4Adjacency.get(nodeId) || new Set()).size;
+        const neighbors = (d4Adjacency().get(nodeId) || new Set()).size;
         const pop = d4EnsurePopover();
         const color = d4ColorVars(node);
         pop.style.setProperty("--node-color", color.color);
@@ -1600,8 +1718,9 @@
         return out;
       };
       const d4RenderOverlay = () => {
+        if (!d4OverlayEnabled) return;
         if (!d4NodesRoot || !d4EdgesRoot) return;
-        const nodeRecords = (RENDER_CONTEXT.nodes || []).filter((n) => !hiddenTypes.has(n.type));
+        const nodeRecords = getCurrentNodes().filter((n) => !hiddenTypes.has(n.type));
         const worldPositions = d4ReadPositions();
         const positions = {};
         for (const nid in worldPositions) {
@@ -1635,7 +1754,11 @@
               d4RenderOverlay();
             });
             el.addEventListener("click", () => {
-              network.selectNodes([node.id]);
+              if (typeof network.selectNodes === "function") {
+                network.selectNodes([node.id]);
+              } else if (typeof network._selectNodeById === "function") {
+                network._selectNodeById(node.id);
+              }
               focusNode(node.id);
               d4State.selectedNodeIds = new Set([id]);
               d4RenderOverlay();
@@ -1646,6 +1769,14 @@
             });
             d4NodesRoot.appendChild(el);
             d4State.nodeEls.set(id, el);
+            if (enteringIds.has(id)) {
+              el.classList.add("d4-node--entering");
+              el.addEventListener("animationend", () => {
+                el.classList.remove("d4-node--entering");
+                enteringIds.delete(id);
+              }, { once: true });
+              enteringIds.delete(id); // consume intent; class now drives lifecycle
+            }
           }
           const state = d4StateForNode(id, related);
           const color = d4ColorVars(node);
@@ -1671,7 +1802,7 @@
 
         const activeEdgeIds = new Set();
         const nodesById = d4NodeMap();
-        (RENDER_CONTEXT.edges || []).forEach((edge, index) => {
+        getCurrentEdges().forEach((edge, index) => {
           const fromId = d4NodeId(edge.from);
           const toId = d4NodeId(edge.to);
           const fromNode = nodesById.get(fromId);
@@ -1712,35 +1843,64 @@
         });
       };
       const d4PaintLoop = () => {
+        // RAF placement retry: drain pendingPlacement each frame; give up after 3 frames
+        if (liveDataStore && liveDataStore.pendingPlacement && liveDataStore.pendingPlacement.size > 0) {
+          for (const nodeId of Array.from(liveDataStore.pendingPlacement)) {
+            const frames = (placementFrames.get(nodeId) || 0) + 1;
+            const placed = liveDataStore.seedPlacement(nodeId);
+            if (placed) {
+              placementFrames.delete(nodeId);
+            } else if (frames >= 3) {
+              liveDataStore.pendingPlacement.delete(nodeId);
+              placementFrames.delete(nodeId);
+            } else {
+              placementFrames.set(nodeId, frames);
+            }
+          }
+        }
         d4RenderOverlay();
         if (typeof window.requestAnimationFrame === "function") {
           window.requestAnimationFrame(d4PaintLoop);
         }
       };
-      // vis.Network host stays fully invisible (CSS already sets opacity:0).
-      // We rely on it only for layout/physics; the DOM/SVG overlay paints reality.
-      d4NetworkEl.style.opacity = "0";
+      // vis.Network host visibility follows selected render path.
+      d4NetworkEl.style.opacity = d4OverlayEnabled ? "0" : "1";
+      d4NetworkEl.style.pointerEvents = d4OverlayEnabled ? "none" : "auto";
       d4NetworkEl.style.filter = "none";
-      network.on("hoverNode", (params) => {
-        d4State.hoveredNodeId = d4NodeId(params && params.node);
-        d4RenderOverlay();
+      const createD4Overlay = () => ({
+        onHoverNode: (params) => {
+          d4State.hoveredNodeId = d4NodeId(params && params.node);
+          d4RenderOverlay();
+        },
+        onBlurNode: () => {
+          d4State.hoveredNodeId = null;
+          d4HidePopover();
+          d4RenderOverlay();
+        },
+        onSelectNode: (params) => {
+          d4State.selectedNodeIds = new Set((params.nodes || []).map((id) => d4NodeId(id)));
+          d4RenderOverlay();
+        },
+        onDeselectNode: () => {
+          d4State.selectedNodeIds = new Set();
+          d4RenderOverlay();
+        },
+        start: () => {
+          d4RenderOverlay();
+        },
       });
-      network.on("blurNode", () => {
-        d4State.hoveredNodeId = null;
-        d4HidePopover();
-        d4RenderOverlay();
-      });
-      network.on("selectNode", (params) => {
-        d4State.selectedNodeIds = new Set((params.nodes || []).map((id) => d4NodeId(id)));
-        d4RenderOverlay();
-      });
-      network.on("deselectNode", () => {
-        d4State.selectedNodeIds = new Set();
-        d4RenderOverlay();
-      });
-      d4PaintLoop();
+      const d4Overlay = createD4Overlay();
+      network.on("hoverNode", d4Overlay.onHoverNode);
+      network.on("blurNode", d4Overlay.onBlurNode);
+      network.on("selectNode", d4Overlay.onSelectNode);
+      network.on("deselectNode", d4Overlay.onDeselectNode);
+      if (d4OverlayEnabled) {
+        d4Overlay.start();
+        d4PaintLoop();
+      }
+      }
 
-      const visibleNodeIds = () => new Set((RENDER_CONTEXT.nodes || []).filter((n) => !hiddenTypes.has(n.type)).map((n) => n.id));
+      const visibleNodeIds = () => new Set(getCurrentNodes().filter((n) => !hiddenTypes.has(n.type)).map((n) => n.id));
       const updateEmptyState = (visibleCount) => {
         if (!viewerEmptyStateEl) return;
         const isEmpty = visibleCount === 0;
@@ -1751,11 +1911,13 @@
       const applyVisibility = () => {
         const visible = visibleNodeIds();
         updateEmptyState(visible.size);
-        nodes.update((RENDER_CONTEXT.nodes || []).map((n) => ({ id: n.id, hidden: !visible.has(n.id), opacity: 1, borderWidth: 1 })));
+        const currentNodes = getCurrentNodes();
+        nodes.update(currentNodes.map((n) => ({ id: n.id, hidden: !visible.has(n.id), opacity: 1, borderWidth: 1 })));
         // REQ-5.5 / REQ-5.9: edge hidden if either endpoint is hidden OR edge score < threshold (additive).
         // REQ-5.10: inclusive boundary — score >= scoreThreshold is visible.
-        edges.update((RENDER_CONTEXT.edges || []).map((e, i) => ({
-          id: i,
+        const currentEdges = getCurrentEdges();
+        edges.update(currentEdges.map((e, i) => ({
+          id: e.id != null ? e.id : i,
           hidden: !(visible.has(e.from) && visible.has(e.to)) || ((e.score !== undefined) && (e.score < scoreThreshold)),
           opacity: 1,
         })));
@@ -1765,8 +1927,10 @@
       // Use window.brainDsUI.scoreFilter.setThreshold() directly for resets.
       const resetHighlight = () => {
         selectedNodeId = null;
-        nodes.update((RENDER_CONTEXT.nodes || []).map((n) => ({ id: n.id, opacity: 1, borderWidth: 1 })));
-        edges.update((RENDER_CONTEXT.edges || []).map((_, i) => ({ id: i, opacity: 1 })));
+        const currentNodes = getCurrentNodes();
+        const currentEdges = getCurrentEdges();
+        nodes.update(currentNodes.map((n) => ({ id: n.id, opacity: 1, borderWidth: 1 })));
+        edges.update(currentEdges.map((e, i) => ({ id: e.id != null ? e.id : i, opacity: 1 })));
         renderDetailPanel(null);
       };
       const detailPanel = document.getElementById("detail-panel");
@@ -1892,6 +2056,26 @@
         motionEnabled: () => !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
       });
 
+      const getMarkdown = () => {
+        const selectedId = window.brainDsUI.detailPanel.getSelectedNodeId();
+        if (!selectedId) return "";
+        const entry = editedDetailIndex[selectedId];
+        if (!entry || !Array.isArray(entry.sections)) return "";
+        return entry.sections
+          .map((section) => {
+            const title = section && section.title ? `## ${section.title}\n\n` : "";
+            const content = section && section.content ? String(section.content) : "";
+            return `${title}${content}`.trim();
+          })
+          .filter(Boolean)
+          .join("\n\n");
+      };
+
+      const centerSplitEl = document.getElementById("center-split");
+      if (centerSplitEl && window.brainDsUI.splitPane) {
+        window.brainDsUI.splitPane.mount(centerSplitEl, { getMarkdown });
+      }
+
       // Keep local refs for renderSelectionPanel (multi-select panel, NOT extracted in PR 3).
       // PR 3 extracts single-node detail rendering only; multi-select stays in template
       // for now and is extracted in a later PR.
@@ -1957,6 +2141,27 @@
         detailBody.setAttribute("data-state", "loading");
         detailBody.innerHTML = '<div class="detail-skeleton" aria-hidden="true"><div class="detail-skeleton__line detail-skeleton__line--1"></div><div class="detail-skeleton__line detail-skeleton__line--2"></div><div class="detail-skeleton__line detail-skeleton__line--3"></div></div>';
       };
+      // PR3 — decorate #detail-title with a node-type color-dot. The bundle owns
+      // #detail-title content via textContent (which wipes child spans on every
+      // populated render), so the dot MUST be (re-)prepended AFTER the bundle render
+      // runs. Color reuses the d4 overlay precedence (component_id → node.color → wcc-c0).
+      const decorateDetailTitleColorDot = (nodeId) => {
+        if (!detailTitle) return;
+        const existing = detailTitle.querySelector(".color-dot");
+        if (existing) existing.remove();
+        if (!nodeId) return;
+        const node = (typeof d4NodeMap === "function" ? d4NodeMap().get(nodeId) : null)
+          || (originalNodes && originalNodes.get ? originalNodes.get(nodeId) : null);
+        if (!node) return;
+        const dot = document.createElement("span");
+        dot.className = "color-dot";
+        dot.setAttribute("aria-hidden", "true");
+        try {
+          const vars = (typeof d4ColorVars === "function") ? d4ColorVars(node) : null;
+          if (vars && vars.color) dot.style.setProperty("--node-color", vars.color);
+        } catch (e) {}
+        detailTitle.prepend(dot);
+      };
       // renderDetailPanel — thin delegation shim to the bundle (PR 3).
       const renderDetailPanel = (nodeId) => {
         const changingNode = Boolean(nodeId && lastDetailNodeId && lastDetailNodeId !== nodeId);
@@ -1965,6 +2170,9 @@
         window.setTimeout(() => {
           window.brainDsUI.detailPanel.setSelectedNodeId(nodeId);
           window.brainDsUI.detailPanel.renderDetailPanel(nodeId);
+          // color-dot decoration runs AFTER the bundle render so it survives the
+          // bundle's #detail-title textContent assignment.
+          decorateDetailTitleColorDot(nodeId);
           lastDetailNodeId = nodeId || null;
         }, delay);
       };
@@ -1987,6 +2195,9 @@
         const dp = window.brainDsUI.detailPanel;
         dp.setSelectedNodeId(nodeId);
         dp.renderDetailPanel(nodeId);
+        // PR3 — keep the title color-dot in sync on the focusNode path too (this
+        // path bypasses the renderDetailPanel shim above).
+        decorateDetailTitleColorDot(nodeId);
       };
       // _applyNeighborhoodOpacity: extracted for reuse by Slice 3b union highlights.
       // Opacity map: selected node = 1.0, 1-hop = 1.0, 2-hop = 0.70, rest = 0.25.
@@ -1994,7 +2205,7 @@
       function _applyNeighborhoodOpacity(twoHopSet, rootId, nodesDataSet, edgesDataSet) {
         const oneHopSet = new Set(adjacency[rootId] || []);
         nodesDataSet.update(
-          (RENDER_CONTEXT.nodes || []).map((n) => {
+          getCurrentNodes().map((n) => {
             let opacity;
             if (n.id === rootId) {
               opacity = 1;
@@ -2009,7 +2220,7 @@
           })
         );
         edgesDataSet.update(
-          (RENDER_CONTEXT.edges || []).map((e, i) => ({
+          getCurrentEdges().map((e, i) => ({
             id: i,
             opacity: twoHopSet.has(e.from) && twoHopSet.has(e.to) ? 1 : 0.25,
           }))
@@ -2020,7 +2231,7 @@
       // Returns edges whose both endpoints are in selectionSet.
       const _sharedRelationships = (selectionSet, adj) => {
         const shared = [];
-        (RENDER_CONTEXT.edges || []).forEach((e) => {
+        getCurrentEdges().forEach((e) => {
           if (selectionSet.has(String(e.from)) && selectionSet.has(String(e.to))) {
             shared.push(e);
           }
@@ -2205,12 +2416,16 @@
 
       // Search panel — delegated to window.brainDsUI.search (PR 4 extraction).
       // Search logic and input event handlers moved to panels/search.ts.
-      const searchGroupEl = document.querySelector(".search-group");
-      window.brainDsUI.search.mount(searchGroupEl, {
-        nodes: RENDER_CONTEXT.nodes || [],
-        onSelect: (nodeId) => { focusNode(nodeId); },
-        onClear: () => { resetHighlight(); applyVisibility(); },
-      });
+      const searchGroupEl =
+        document.querySelector("[data-accordion-section=\"search\"]")
+        || document.querySelector(".search-group");
+      if (searchGroupEl) {
+        window.brainDsUI.search.mount(searchGroupEl, {
+          nodes: getCurrentNodes(),
+          onSelect: (nodeId) => { focusNode(nodeId); },
+          onClear: () => { resetHighlight(); applyVisibility(); },
+        });
+      }
 
       // Filter panel — delegated to window.brainDsUI.filterPanel (PR 5 extraction).
       // Type-filter checkbox DOM construction and legend moved to panels/filter-panel.ts.
@@ -2242,7 +2457,7 @@
       const treeRoot = document.getElementById("tree-panel");
       if (window.brainDsUI.tree && typeof window.brainDsUI.tree.mount === "function") {
         window.brainDsUI.tree.mount(treeRoot, {
-          nodes: RENDER_CONTEXT.nodes || [],
+          nodes: getCurrentNodes(),
           onFilter: (nodeId) => {
             if (!nodeId) {
               network.clearTreeFilter();
@@ -2279,7 +2494,7 @@
           // Orphan removal (PR 3 boundary: renderSelectionPanel stays in template).
           if (typeof network !== "undefined" && network.selectedNodeIds && network.selectedNodeIds.size > 0) {
             const visibleEdgeEndpoints = new Set();
-            (RENDER_CONTEXT.edges || []).forEach((e) => {
+            getCurrentEdges().forEach((e) => {
               if ((e.score === undefined) || (e.score >= scoreThreshold)) {
                 visibleEdgeEndpoints.add(e.from);
                 visibleEdgeEndpoints.add(e.to);
@@ -2374,7 +2589,10 @@
       });
       network.on("click", (params) => {
         if (params.nodes && params.nodes[0]) {
-          focusNode(params.nodes[0]);
+          const clickedNodeId = params.nodes[0];
+          if (clickedNodeId !== selectedNodeId) {
+            focusNode(clickedNodeId);
+          }
         } else if (selectedNodeId) {
           resetHighlight();
           applyVisibility();
@@ -2421,6 +2639,152 @@
         resetFilters,
         toggleTheme,
       });
+
+      // workspace-chrome — rail panel routing (Slice 1 / P0).
+      // Mounts the rail tablist routing module after contextMenu (all brainDsUI modules ready).
+      const railRoot = document.querySelector('[data-rail-side="left"]');
+      const panelRoot = document.querySelector('.panel.controls');
+      if (railRoot && panelRoot && window.brainDsUI.workspaceChrome) {
+        const overflowButton = document.querySelector('[data-catalog-id="overflow"]');
+        window.brainDsUI.workspaceChrome.mount({
+          railRoot,
+          panelRoot,
+          overflowButton,
+          resetFilters,
+          exportJson: () => {
+            const btn = document.getElementById("export-json");
+            if (btn) btn.click();
+          },
+          toggleTheme,
+        });
+      }
+
+      // Left panel-collapse inline handler (Slice 1 / P0).
+      // Toggles aria-expanded on the collapse button and the collapsed class on the shell.
+      const leftCollapseBtn = document.querySelector('.panel-collapse');
+      const leftShell = document.querySelector('.left-panel-shell');
+      if (leftCollapseBtn && leftShell) {
+        leftCollapseBtn.addEventListener('click', () => {
+          const expanded = leftCollapseBtn.getAttribute('aria-expanded') === 'true';
+          leftCollapseBtn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+          leftShell.classList.toggle('collapsed', expanded);
+          leftShell.classList.toggle('is-collapsed', expanded);
+        });
+      }
+
+      // Tab-close inline handler (Slice 1 / P0).
+      // Hides the parent .tab-item; leaves .tab-new and canvas unchanged.
+      const tabCloseBtn = document.querySelector('[data-catalog-id="tab-close"]');
+      if (tabCloseBtn) {
+        tabCloseBtn.addEventListener('click', () => {
+          const tabItem = tabCloseBtn.closest('.tab-item');
+          if (tabItem) {
+            tabItem.hidden = true;
+          }
+        });
+      }
+
+      // Right panel-collapse inline handler (Slice 2 / P1).
+      // Toggles aria-expanded on the collapse button and collapsed class on the right shell.
+      const rightCollapseBtn = document.querySelector('.panel-collapse-right');
+      const rightShell = document.querySelector('.right-panel-shell');
+      if (rightCollapseBtn && rightShell) {
+        rightCollapseBtn.addEventListener('click', () => {
+          const expanded = rightCollapseBtn.getAttribute('aria-expanded') === 'true';
+          rightCollapseBtn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+          rightShell.classList.toggle('collapsed', expanded);
+          rightShell.classList.toggle('is-collapsed', expanded);
+        });
+      }
+
+      // Overflow fallback wiring: active when bundle workspaceChrome doesn't manage overflow yet.
+      const overflowBtn = document.querySelector('[data-catalog-id="overflow"]');
+      if (overflowBtn && !window.__brainDsOverflowManaged) {
+        let overflowMenu = null;
+        let overflowLastFocus = null;
+        const closeOverflow = (restoreFocus) => {
+          if (overflowMenu && overflowMenu.parentNode) {
+            overflowMenu.parentNode.removeChild(overflowMenu);
+          }
+          overflowMenu = null;
+          overflowBtn.setAttribute('aria-expanded', 'false');
+          if (restoreFocus && overflowLastFocus && typeof overflowLastFocus.focus === 'function') {
+            overflowLastFocus.focus();
+          }
+        };
+        const focusMenuByDelta = (delta) => {
+          if (!overflowMenu) return;
+          const items = Array.from(overflowMenu.querySelectorAll('[role="menuitem"]'));
+          if (!items.length) return;
+          const current = Math.max(0, items.indexOf(document.activeElement));
+          const next = (current + delta + items.length) % items.length;
+          items[next].focus();
+        };
+        const openOverflow = () => {
+          closeOverflow(false);
+          overflowLastFocus = overflowBtn;
+          const menu = document.createElement('div');
+          menu.className = 'workspace-overflow-menu';
+          menu.setAttribute('role', 'menu');
+          menu.style.position = 'fixed';
+          menu.style.zIndex = '2000';
+          const rect = typeof overflowBtn.getBoundingClientRect === 'function'
+            ? overflowBtn.getBoundingClientRect()
+            : { bottom: 44, right: 220 };
+          menu.style.top = `${Math.round(rect.bottom + 8)}px`;
+          menu.style.left = `${Math.round(rect.right - 180)}px`;
+          menu.style.minWidth = '180px';
+          const mkItem = (label, onClick) => {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.setAttribute('role', 'menuitem');
+            item.textContent = label;
+            item.addEventListener('click', () => {
+              onClick();
+              closeOverflow(true);
+            });
+            return item;
+          };
+          menu.appendChild(mkItem('Reset filters', resetFilters));
+          menu.appendChild(mkItem('Export JSON', () => {
+            const btn = document.getElementById('export-json');
+            if (btn) btn.click();
+          }));
+          menu.appendChild(mkItem('Toggle theme', toggleTheme));
+          menu.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              closeOverflow(true);
+              return;
+            }
+            if (event.key === 'ArrowDown') {
+              event.preventDefault();
+              focusMenuByDelta(1);
+              return;
+            }
+            if (event.key === 'ArrowUp') {
+              event.preventDefault();
+              focusMenuByDelta(-1);
+            }
+          });
+          document.body.appendChild(menu);
+          overflowMenu = menu;
+          overflowBtn.setAttribute('aria-expanded', 'true');
+          const first = menu.querySelector('[role="menuitem"]');
+          if (first) first.focus();
+        };
+        overflowBtn.addEventListener('click', (event) => {
+          event.preventDefault();
+          if (overflowBtn.getAttribute('aria-expanded') === 'true') closeOverflow(false);
+          else openOverflow();
+        });
+        document.addEventListener('pointerdown', (event) => {
+          if (!overflowMenu) return;
+          const target = event.target;
+          if (overflowMenu.contains(target) || overflowBtn.contains(target)) return;
+          closeOverflow(false);
+        }, true);
+      }
 
       applyVisibility();
       renderDetailPanel(null);
