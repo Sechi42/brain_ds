@@ -102,6 +102,15 @@ CREATE TABLE IF NOT EXISTS embeddings (
     FOREIGN KEY (graph_id) REFERENCES graphs(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS event_outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event TEXT NOT NULL,
+    graph_id TEXT NOT NULL,
+    payload TEXT,
+    created_at TEXT NOT NULL,
+    published INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE INDEX IF NOT EXISTS idx_graphs_project ON graphs(project);
 CREATE INDEX IF NOT EXISTS idx_nodes_graph_type ON nodes(graph_id, type);
 CREATE INDEX IF NOT EXISTS idx_nodes_graph_supertype ON nodes(graph_id, supertype);
@@ -111,6 +120,7 @@ CREATE INDEX IF NOT EXISTS idx_edges_graph_target ON edges(graph_id, target);
 CREATE INDEX IF NOT EXISTS idx_evidence_graph_source ON evidence(graph_id, source);
 CREATE INDEX IF NOT EXISTS idx_cluster_members_node ON cluster_members(graph_id, node_id);
 CREATE INDEX IF NOT EXISTS idx_embeddings_target ON embeddings(graph_id, target_type, target_id, model);
+CREATE INDEX IF NOT EXISTS idx_outbox_published ON event_outbox(published);
 """
 
 TABLES = (
@@ -122,6 +132,7 @@ TABLES = (
     "clusters",
     "cluster_members",
     "embeddings",
+    "event_outbox",
 )
 
 INDICES = (
@@ -134,4 +145,5 @@ INDICES = (
     "idx_evidence_graph_source",
     "idx_cluster_members_node",
     "idx_embeddings_target",
+    "idx_outbox_published",
 )

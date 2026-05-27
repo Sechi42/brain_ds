@@ -20,6 +20,7 @@ from .repository import (
     EvidenceRepository,
     GraphMetaRepository,
     NodeRepository,
+    OutboxRepository,
 )
 
 _CONTRACT_VERSION = "1.0.0"
@@ -48,6 +49,7 @@ class GraphStore:
         self.cluster_repo = ClusterRepository(self.conn)
         self.embedding_repo = EmbeddingRepository(self.conn)
         self.audit_repo = AuditRepository(self.conn)
+        self.outbox_repo = OutboxRepository(self.conn)
 
     def _connect(self, *, path: str, read_only: bool, allow_cross_thread: bool) -> sqlite3.Connection:
         check_same_thread = not allow_cross_thread
@@ -202,6 +204,10 @@ class GraphStore:
     ) -> None:
         self._ensure_writable()
         self.audit_repo.log_audit(tool_name, tool_input, result_status, caller_id=caller_id)
+
+    def enqueue_event(self, event: str, graph_id: str, payload: dict[str, Any]) -> None:
+        self._ensure_writable()
+        self.outbox_repo.enqueue_event(event, graph_id, payload)
 
     def nearest_embeddings(
         self,

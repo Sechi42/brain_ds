@@ -481,6 +481,58 @@ class AuditRepository:
         self.conn.commit()
 
 
+class OutboxRepository:
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def enqueue_event(self, event: str, graph_id: str, payload: dict) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO event_outbox(event, graph_id, payload, created_at, published)
+            VALUES (?, ?, ?, ?, 0)
+            """,
+            (event, graph_id, encode_json(payload), _utc_now()),
+        )
+        self.conn.commit()
+
+    def get_unpublished_events(self, limit: int = 50) -> list[dict]:
+        rows = self.conn.execute(
+            """
+            SELECT id, event, graph_id, payload, created_at, published
+              FROM event_outbox
+             WHERE published = 0
+          ORDER BY id ASC
+             LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [
+            {
+                "id": row[0],
+                "event": row[1],
+                "graph_id": row[2],
+                "payload": row[3],
+                "created_at": row[4],
+                "published": row[5],
+            }
+            for row in rows
+        ]
+
+    def mark_published(self, event_ids: list[int]) -> None:
+        if not event_ids:
+            return
+        placeholders = ", ".join("?" for _ in event_ids)
+        self.conn.execute(
+            f"UPDATE event_outbox SET published = 1 WHERE id IN ({placeholders})",
+            event_ids,
+        )
+        self.conn.commit()
+
+    def purge_published_events(self) -> None:
+        self.conn.execute("DELETE FROM event_outbox WHERE published = 1")
+        self.conn.commit()
+
+
 class EvidenceRepository:
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn

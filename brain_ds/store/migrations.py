@@ -40,7 +40,29 @@ def v2_tools_audit(conn: sqlite3.Connection) -> None:
     )
 
 
-MIGRATIONS: Sequence[Migration] = (v1_initial_schema, v2_tools_audit)
+def v3_event_outbox(conn: sqlite3.Connection) -> None:
+    """Create outbox table for cross-process event publication."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS event_outbox(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event TEXT NOT NULL,
+            graph_id TEXT NOT NULL,
+            payload TEXT,
+            created_at TEXT NOT NULL,
+            published INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_outbox_published
+        ON event_outbox(published)
+        """
+    )
+
+
+MIGRATIONS: Sequence[Migration] = (v1_initial_schema, v2_tools_audit, v3_event_outbox)
 
 
 def _current_schema_version(conn: sqlite3.Connection) -> int:

@@ -3,6 +3,7 @@ import unittest
 
 from brain_ds.store.errors import IncompatibleStoreError, MigrationFailedError
 from brain_ds.store.migrations import MIGRATIONS, apply_pending
+from brain_ds.store.schema import DDL_SCRIPT
 
 
 class TestMigrations(unittest.TestCase):
@@ -65,6 +66,42 @@ class TestMigrations(unittest.TestCase):
             "SELECT name FROM sqlite_master WHERE type='table' AND name='should_rollback'"
         ).fetchone()
         self.assertIsNone(table_exists)
+
+    def test_v3_migration_from_v2(self):
+        conn = sqlite3.connect(":memory:")
+        self.addCleanup(conn.close)
+
+        from brain_ds.store import migrations as migrations_module
+
+        original = migrations_module.MIGRATIONS
+
+        def legacy_v1_without_outbox(connection: sqlite3.Connection) -> None:
+            connection.executescript(
+                DDL_SCRIPT.split("CREATE TABLE IF NOT EXISTS event_outbox", 1)[0]
+            )
+
+        try:
+            migrations_module.MIGRATIONS = (legacy_v1_without_outbox, original[1])
+            first = apply_pending(conn)
+            self.assertEqual(first, [1, 2])
+
+            before = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='event_outbox'"
+            ).fetchone()
+            self.assertIsNone(before)
+
+            migrations_module.MIGRATIONS = original
+            second = apply_pending(conn)
+            self.assertEqual(second, [3])
+        finally:
+            migrations_module.MIGRATIONS = original
+
+        columns = conn.execute("PRAGMA table_info(event_outbox)").fetchall()
+        column_names = {row[1] for row in columns}
+        self.assertEqual(
+            column_names,
+            {"id", "event", "graph_id", "payload", "created_at", "published"},
+        )
 
 
 if __name__ == "__main__":
