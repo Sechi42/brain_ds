@@ -7,6 +7,7 @@ from pathlib import Path
 
 from brain_ds.api.events import EventBus
 from brain_ds.api.outbox import publish_outbox_batch
+from brain_ds.api.receipt_store import ActionReceipt, ReceiptStore
 from brain_ds.store.graph_store import GraphStore
 
 
@@ -36,12 +37,32 @@ class EventBusTests(unittest.IsolatedAsyncioTestCase):
         node_envelope = await bus.publish("node.updated", graph_id="g-2", payload=node_payload)
         edge_envelope = await bus.publish("edge.created", graph_id="g-2", payload=edge_payload)
 
-        self.assertEqual(set(node_envelope.keys()), {"event", "graph_id", "payload", "timestamp"})
-        self.assertEqual(set(edge_envelope.keys()), {"event", "graph_id", "payload", "timestamp"})
+        self.assertEqual(
+            set(node_envelope.keys()),
+            {"event", "graph_id", "payload", "timestamp", "sequence_id", "highlight_type"},
+        )
+        self.assertEqual(
+            set(edge_envelope.keys()),
+            {"event", "graph_id", "payload", "timestamp", "sequence_id", "highlight_type"},
+        )
         self.assertEqual(node_envelope["payload"], node_payload)
         self.assertEqual(edge_envelope["payload"], edge_payload)
         self.assertIn("T", node_envelope["timestamp"])
         self.assertTrue(node_envelope["timestamp"].endswith("Z"))
+
+    async def test_publish_stamps_monotonic_sequence_and_highlight_type(self) -> None:
+        bus = EventBus()
+
+        created = await bus.publish("node.created", graph_id="g-1", payload={"id": "n-1"})
+        updated = await bus.publish("node.updated", graph_id="g-1", payload={"id": "n-1"})
+        deleted = await bus.publish("edge.deleted", graph_id="g-1", payload={"id": "e-1"})
+
+        self.assertEqual(created["sequence_id"], 1)
+        self.assertEqual(updated["sequence_id"], 2)
+        self.assertEqual(deleted["sequence_id"], 3)
+        self.assertEqual(created["highlight_type"], "create")
+        self.assertEqual(updated["highlight_type"], "update")
+        self.assertEqual(deleted["highlight_type"], "delete")
 
     async def test_unsubscribe_cleans_up_subscriber(self) -> None:
         bus = EventBus()
@@ -111,6 +132,36 @@ class TestOutboxPoller(unittest.IsolatedAsyncioTestCase):
         bus = EventBus()
         published = await publish_outbox_batch(self.store, bus)
         self.assertEqual(published, 0)
+
+    async def test_poller_tool_invoked_populates_receipt_store(self) -> None:
+        bus = EventBus()
+        receipt_store = ReceiptStore(max_receipts=50)
+        payload = {
+            "timestamp": "2026-01-01T00:00:00Z",
+            "tool": "update_node",
+            "params_summary": "node=n-1 fields=label",
+            "status": "ok",
+            "graph_id": "g-1",
+            "target_id": "n-1",
+        }
+        self.store.enqueue_event("tool.invoked", "g-1", payload)
+
+        published = await publish_outbox_batch(self.store, bus, receipt_store=receipt_store)
+        self.assertEqual(published, 1)
+
+        receipts = receipt_store.list()
+        self.assertEqual(len(receipts), 1)
+        self.assertEqual(
+            receipts[0],
+            ActionReceipt(
+                timestamp="2026-01-01T00:00:00Z",
+                tool="update_node",
+                params_summary="node=n-1 fields=label",
+                status="ok",
+                graph_id="g-1",
+                target_id="n-1",
+            ),
+        )
 
 
 if __name__ == "__main__":
