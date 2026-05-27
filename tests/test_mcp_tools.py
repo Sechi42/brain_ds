@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 from brain_ds.mcp.tools import (
@@ -68,6 +69,12 @@ class MCPToolsTests(unittest.TestCase):
     def _audit_count(self) -> int:
         row = self.store.conn.execute("SELECT COUNT(*) FROM tools_audit").fetchone()
         return int(row[0])
+
+    def _last_outbox_event(self) -> tuple[str, str, str]:
+        row = self.store.conn.execute(
+            "SELECT event, graph_id, payload FROM event_outbox ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        return (row[0], row[1], row[2])
 
     def test_list_nodes_filters_and_missing_graph_error(self) -> None:
         result = list_nodes(self.store, {"graph_id": self.graph_id, "type": "Task"})
@@ -145,6 +152,34 @@ class MCPToolsTests(unittest.TestCase):
         finally:
             read_only.close()
 
+    def test_update_node_enqueues_node_created(self) -> None:
+        created = update_node(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "node_id": "N-3",
+                "label": "Gamma",
+                "type": "Task",
+                "supertype": "Work",
+                "details": {"summary": "new"},
+            },
+        )
+        self.assertEqual(created["id"], "N-3")
+
+        event, graph_id, payload = self._last_outbox_event()
+        self.assertEqual(event, "node.created")
+        self.assertEqual(graph_id, self.graph_id)
+        self.assertEqual(json.loads(payload)["id"], "N-3")
+
+    def test_update_node_enqueues_node_updated(self) -> None:
+        updated = update_node(self.store, {"graph_id": self.graph_id, "node_id": "N-1", "label": "Renamed"})
+        self.assertEqual(updated["label"], "Renamed")
+
+        event, graph_id, payload = self._last_outbox_event()
+        self.assertEqual(event, "node.updated")
+        self.assertEqual(graph_id, self.graph_id)
+        self.assertEqual(json.loads(payload)["id"], "N-1")
+
     def test_add_edge_success_and_missing_nodes_log_error(self) -> None:
         before = self._audit_count()
         created = add_edge(
@@ -186,6 +221,49 @@ class MCPToolsTests(unittest.TestCase):
         ).fetchall()
         self.assertEqual(error_rows[0][0], "error")
         self.assertEqual(error_rows[1][0], "error")
+
+    def test_add_edge_enqueues_edge_created(self) -> None:
+        created = add_edge(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "source": "N-1",
+                "target": "N-2",
+                "label": "rel",
+            },
+        )
+        self.assertEqual(created["source"], "N-1")
+
+        event, graph_id, payload = self._last_outbox_event()
+        self.assertEqual(event, "edge.created")
+        self.assertEqual(graph_id, self.graph_id)
+        self.assertEqual(json.loads(payload)["source"], "N-1")
+
+    def test_add_edge_enqueues_edge_updated(self) -> None:
+        add_edge(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "source": "N-1",
+                "target": "N-2",
+                "label": "rel",
+            },
+        )
+        updated = add_edge(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "source": "N-1",
+                "target": "N-2",
+                "label": "rel-2",
+            },
+        )
+        self.assertEqual(updated["label"], "rel-2")
+
+        event, graph_id, payload = self._last_outbox_event()
+        self.assertEqual(event, "edge.updated")
+        self.assertEqual(graph_id, self.graph_id)
+        self.assertEqual(json.loads(payload)["label"], "rel-2")
 
     def test_agent_stubs_return_expected_error(self) -> None:
         elicit = run_elicit(self.store, {})

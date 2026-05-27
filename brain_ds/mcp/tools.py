@@ -93,9 +93,14 @@ def update_node(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     node_id = validated["node_id"]
 
     try:
-        existing = get_node.__wrapped__(store, {"graph_id": graph_id, "node_id": node_id})
-        if "code" in existing:
-            raise ValidationError(code=existing["code"], message=existing["message"])
+        is_create = False
+        try:
+            get_node.__wrapped__(store, {"graph_id": graph_id, "node_id": node_id})
+        except ValidationError as exc:
+            if "not found in graph" in exc.message:
+                is_create = True
+            else:
+                raise
 
         payload = {"id": node_id}
         for field in ("label", "type", "details", "supertype"):
@@ -105,6 +110,11 @@ def update_node(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
         store.upsert_node(graph_id, payload)
         result = get_node.__wrapped__(store, {"graph_id": graph_id, "node_id": node_id})
         store.log_audit("update_node", validated, "ok")
+        store.enqueue_event(
+            "node.created" if is_create else "node.updated",
+            graph_id,
+            result,
+        )
         return result
     except ValidationError:
         raise
@@ -132,6 +142,12 @@ def add_edge(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
                 raise
             raise ValidationError(code=-32000, message=f"Target node '{validated['target']}' not found")
 
+        existing_edges = store.query_edges(
+            graph_id,
+            source=validated["source"],
+            target=validated["target"],
+        )
+
         edge_input = {
             "source": validated["source"],
             "target": validated["target"],
@@ -145,7 +161,13 @@ def add_edge(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
         store.upsert_edge(graph_id, edge_input)
         edge = store.query_edges(graph_id, source=validated["source"], target=validated["target"])[-1]
         store.log_audit("add_edge", validated, "ok")
-        return _edge_to_dict(edge)
+        result = _edge_to_dict(edge)
+        store.enqueue_event(
+            "edge.created" if len(existing_edges) == 0 else "edge.updated",
+            graph_id,
+            result,
+        )
+        return result
     except ValidationError as exc:
         _safe_log_error(store, "add_edge", validated)
         raise exc
