@@ -1531,6 +1531,79 @@
         window.brainDsUI.graphId = graphId;
       }
       const liveSyncApi = window.brainDsUI && window.brainDsUI.liveSync;
+      function patchLiveSyncAuthoringFeedback(api) {
+        if (!api || !api.LiveDataStore || api.LiveDataStore.prototype._authoringFeedbackPatched) return;
+        const proto = api.LiveDataStore.prototype;
+        const originalApplyEvent = proto.applyEvent;
+        const originalQueueOrApply = proto.queueOrApply;
+        proto._authoringFeedbackPatched = true;
+        proto.renderReceipt = function (payload) {
+          const list = document.getElementById("ai-actions-receipts");
+          if (!list) return;
+          const item = document.createElement("li");
+          const status = String((payload && payload.status) || "ok").toLowerCase() === "error" ? "error" : "ok";
+          const targetId = payload && payload.target_id ? String(payload.target_id) : "";
+          item.className = status === "error" ? "receipt-error" : "receipt-ok";
+          item.tabIndex = 0;
+          item.dataset.targetId = targetId;
+          item.innerHTML = `<strong>${String((payload && payload.tool) || "tool")}</strong> · ${String((payload && payload.params_summary) || "sin detalles")}`;
+          item.addEventListener("click", () => {
+            if (targetId && this._setNodeHighlight) this._setNodeHighlight(targetId, "update");
+            item.focus({ preventScroll: true });
+          });
+          list.insertBefore(item, list.firstChild);
+          while (list.children.length > 50) list.removeChild(list.lastChild);
+        };
+        proto._armHighlight = function (el, kind) {
+          if (!el) return;
+          el.setAttribute("data-highlight", String(kind || "update"));
+          window.setTimeout(() => el.removeAttribute("data-highlight"), 2000);
+        };
+        proto._setNodeHighlight = function (nodeId, kind) {
+          const el = document.querySelector(`.d4-node[data-id="${String(nodeId)}"], .graph-node[data-id="${String(nodeId)}"]`);
+          this._armHighlight(el, kind);
+        };
+        proto._setEdgeHighlight = function (edge, kind) {
+          const source = String((edge && (edge.from || edge.source)) || "");
+          const target = String((edge && (edge.to || edge.target)) || "");
+          if (!source || !target) return;
+          this._armHighlight(document.querySelector(`.d4-edge[data-source="${source}"][data-target="${target}"]`), kind);
+        };
+        proto.applyEvent = function (event) {
+          if (String((event && event.event) || "") === "tool.invoked") {
+            this.renderReceipt(event.payload || {});
+            if (typeof this.onReceipt === "function") this.onReceipt(event.payload || {});
+            return;
+          }
+          originalApplyEvent.call(this, event);
+          const payload = (event && event.payload) || {};
+          if (String((event && event.event) || "").startsWith("node.")) this._setNodeHighlight(payload.id, event.highlight_type || "update");
+          if (String((event && event.event) || "").startsWith("edge.")) this._setEdgeHighlight(payload, event.highlight_type || "update");
+        };
+        proto.queueOrApply = function (event) {
+          if (String((event && event.event) || "") === "tool.invoked") return this.applyEvent(event);
+          return originalQueueOrApply.call(this, event);
+        };
+        proto.syncWithServer = async function (id) {
+          const encoded = encodeURIComponent(id);
+          const [nodesResp, edgesResp] = await Promise.all([
+            fetch(`/api/nodes?graph_id=${encoded}`),
+            fetch(`/api/edges?graph_id=${encoded}`),
+          ]);
+          const nodesPayload = await nodesResp.json();
+          const edgesPayload = await edgesResp.json();
+          this.context.nodes = Array.isArray(nodesPayload) ? nodesPayload : (nodesPayload.nodes || []);
+          this.context.edges = Array.isArray(edgesPayload) ? edgesPayload : (edgesPayload.edges || []);
+          this.seedFromContext(this.context);
+          this.nodesDataSet && this.nodesDataSet.clear && this.nodesDataSet.clear();
+          this.edgesDataSet && this.edgesDataSet.clear && this.edgesDataSet.clear();
+          if (this.context.nodes.length) this.nodesDataSet && this.nodesDataSet.add && this.nodesDataSet.add(this.context.nodes);
+          if (this.context.edges.length) this.edgesDataSet && this.edgesDataSet.add && this.edgesDataSet.add(this.context.edges.map((edge) => ({ ...edge, id: this.edgeId(edge) })));
+          this.isFetchComplete = true;
+          this.flushBufferedEvents();
+        };
+      }
+      patchLiveSyncAuthoringFeedback(liveSyncApi);
       const liveDataStore = liveSyncApi
         ? new liveSyncApi.LiveDataStore(RENDER_CONTEXT, nodes, edges)
         : null;

@@ -1640,8 +1640,8 @@ class DataSet {
 }
 
 global.fetch = async (url) => {
-  if (url.includes("/nodes")) return { json: async () => [{ id: "n1", label: "Node 1" }] };
-  return { json: async () => [{ id: "e1", from: "n1", to: "n2", label: "L" }] };
+  if (url.includes("/nodes")) return { json: async () => ({ nodes: [{ id: "n1", label: "Node 1" }] }) };
+  return { json: async () => ({ edges: [{ id: "e1", from: "n1", to: "n2", label: "L" }] }) };
 };
 
 global.window = {
@@ -1686,17 +1686,26 @@ console.log(JSON.stringify({
 
     def test_live_data_store_fetch_reconciles_state(self):
         out = self._live_sync_harness(r'''
+const urls = [];
+global.fetch = async (url) => {
+  urls.push(String(url));
+  if (String(url).startsWith("/api/nodes?")) return { json: async () => ({ nodes: [{ id: "n1", label: "Server" }] }) };
+  if (String(url).startsWith("/api/edges?")) return { json: async () => ({ edges: [{ id: "e1", from: "n1", to: "n2", label: "L" }] }) };
+  throw new Error(`unexpected URL ${url}`);
+};
 const context = { nodes: [{ id: "old" }], edges: [] };
 const nodesDs = new DataSet(context.nodes);
 const edgesDs = new DataSet(context.edges);
 const store = new LiveDataStore(context, nodesDs, edgesDs);
 await store.syncWithServer("g-1");
 console.log(JSON.stringify({
+  urls,
   nodeIds: store.getNodes().map((n) => n.id),
   edgeIds: store.getEdges().map((e) => e.id),
   dsNodes: nodesDs.get().length,
 }));
 ''')
+        self.assertEqual(out["urls"], ["/api/nodes?graph_id=g-1", "/api/edges?graph_id=g-1"])
         self.assertEqual(out["nodeIds"], ["n1"])
         self.assertEqual(out["edgeIds"], ["e1"])
         self.assertEqual(out["dsNodes"], 1)
@@ -1705,8 +1714,8 @@ console.log(JSON.stringify({
         out = self._live_sync_harness(r'''
 let nodeResolve;
 global.fetch = (url) => new Promise((resolve) => {
-  if (url.includes("/nodes")) nodeResolve = () => resolve({ json: async () => [{ id: "n1", label: "Server" }] });
-  else resolve({ json: async () => [] });
+  if (url.includes("/nodes")) nodeResolve = () => resolve({ json: async () => ({ nodes: [{ id: "n1", label: "Server" }] }) });
+  else resolve({ json: async () => ({ edges: [] }) });
 });
 
 const context = { nodes: [], edges: [] };

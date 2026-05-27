@@ -166,6 +166,7 @@ export class LiveDataStore {
   }
 
   renderReceipt(payload) {
+    if (typeof document === 'undefined') return;
     const list = document.getElementById('ai-actions-receipts');
     if (!list) return;
     const item = document.createElement('li');
@@ -189,6 +190,7 @@ export class LiveDataStore {
   }
 
   _setNodeHighlight(nodeId, kind) {
+    if (typeof document === 'undefined') return;
     const selector = `.d4-node[data-id="${String(nodeId)}"], .graph-node[data-id="${String(nodeId)}"]`;
     const el = document.querySelector(selector);
     if (!el) return;
@@ -196,6 +198,7 @@ export class LiveDataStore {
   }
 
   _setEdgeHighlight(edge, kind) {
+    if (typeof document === 'undefined') return;
     const source = String(edge?.from || edge?.source || '');
     const target = String(edge?.to || edge?.target || '');
     if (!source || !target) return;
@@ -259,11 +262,13 @@ export class LiveDataStore {
   async syncWithServer(graphId) {
     const encoded = encodeURIComponent(graphId);
     const [nodesResp, edgesResp] = await Promise.all([
-      fetch(`/api/graphs/${encoded}/nodes`),
-      fetch(`/api/graphs/${encoded}/edges`),
+      fetch(`/api/nodes?graph_id=${encoded}`),
+      fetch(`/api/edges?graph_id=${encoded}`),
     ]);
-    const nodes = await nodesResp.json();
-    const edges = await edgesResp.json();
+    const nodesPayload = await nodesResp.json();
+    const edgesPayload = await edgesResp.json();
+    const nodes = Array.isArray(nodesPayload) ? nodesPayload : (nodesPayload?.nodes || []);
+    const edges = Array.isArray(edgesPayload) ? edgesPayload : (edgesPayload?.edges || []);
     this.context.nodes = Array.isArray(nodes) ? nodes : [];
     this.context.edges = Array.isArray(edges) ? edges : [];
     this.seedFromContext(this.context);
