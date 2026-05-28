@@ -1235,9 +1235,14 @@ const searchVisible=sections["search"].hidden===false;
 const legendHidden=sections["legend"].hidden===true;
 const filtersHidden=sections["filters"].hidden===true;
 
-// TEST 2: click file-tree = all visible
+// TEST 2: click file-tree = main/search-only view (no eternal all-sections scroll)
 railRoot.dispatch("click", { target: railBtns["file-tree"] });
-const allVisible=Object.values(sections).every((s)=>s.hidden===false);
+const fileTreeSearchVisible=sections["search"].hidden===false;
+const fileTreeFiltersHidden=sections["filters"].hidden===true;
+const fileTreeHierarchyHidden=sections["hierarchy"].hidden===true;
+const fileTreeLayoutHidden=sections["layout"].hidden===true;
+const fileTreeLegendHidden=sections["legend"].hidden===true;
+const fileTreeScoreHidden=sections["score"].hidden===true;
 
 // TEST 3: double-click active rail = no-op (idempotent)
 railRoot.dispatch("click", { target: railBtns["search"] });
@@ -1256,7 +1261,7 @@ const after=JSON.stringify({
 });
 const doubleClickNoOp=before===after;
 
-console.log(JSON.stringify({searchSelected,fileTreeDeselected,searchTab0,fileTreeTabMinus1,searchVisible,legendHidden,filtersHidden,allVisible,doubleClickNoOp}));
+console.log(JSON.stringify({searchSelected,fileTreeDeselected,searchTab0,fileTreeTabMinus1,searchVisible,legendHidden,filtersHidden,fileTreeSearchVisible,fileTreeFiltersHidden,fileTreeHierarchyHidden,fileTreeLayoutHidden,fileTreeLegendHidden,fileTreeScoreHidden,doubleClickNoOp}));
 '''
             out = _run_node(code, str(html_path))
             self.assertTrue(out["searchSelected"], "search rail MUST be aria-selected=true after setActivePanel")
@@ -1266,7 +1271,12 @@ console.log(JSON.stringify({searchSelected,fileTreeDeselected,searchTab0,fileTre
             self.assertTrue(out["searchVisible"], "search section MUST be visible")
             self.assertTrue(out["legendHidden"], "legend MUST be hidden when search is active")
             self.assertTrue(out["filtersHidden"], "filters MUST be hidden when search is active")
-            self.assertTrue(out["allVisible"], "ALL sections MUST be visible when file-tree is active")
+            self.assertTrue(out["fileTreeSearchVisible"], "file-tree should keep search as default main section")
+            self.assertTrue(out["fileTreeFiltersHidden"], "filters MUST be hidden when file-tree is active")
+            self.assertTrue(out["fileTreeHierarchyHidden"], "hierarchy MUST be hidden when file-tree is active")
+            self.assertTrue(out["fileTreeLayoutHidden"], "layout MUST be hidden when file-tree is active")
+            self.assertTrue(out["fileTreeLegendHidden"], "legend MUST be hidden when file-tree is active")
+            self.assertTrue(out["fileTreeScoreHidden"], "score MUST be hidden when file-tree is active")
             self.assertTrue(out["doubleClickNoOp"], "double setActivePanel on same panel MUST be no-op")
 
     def test_left_collapse_aria_expanded_and_tab_close(self):

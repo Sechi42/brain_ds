@@ -330,6 +330,18 @@ console.log(JSON.stringify({ motionEnabled: window.brainDsUI.motion.motionEnable
         # Contract edge-case: deselect click (empty canvas click) still resets highlight state.
         self.assertRegex(template, r"else\s+if\s*\(selectedNodeId\)\s*\{[\s\S]*?resetHighlight\(\);")
 
+    def test_d4_click_handler_does_not_refocus_camera(self):
+        template_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
+        template = template_path.read_text(encoding="utf-8")
+        self.assertRegex(
+            template,
+            r"el\.addEventListener\(\"click\",\s*\(\)\s*=>\s*\{[\s\S]*?network\._selectNodeById\(node\.id\);",
+        )
+        self.assertNotRegex(
+            template,
+            r"el\.addEventListener\(\"click\",\s*\(\)\s*=>\s*\{[\s\S]*?focusNode\(node\.id\);",
+        )
+
     def test_popover_has_tooltip_a11y_contract(self):
         template_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
         template = template_path.read_text(encoding="utf-8")
