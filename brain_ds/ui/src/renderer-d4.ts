@@ -128,6 +128,8 @@ export function mount(args: D4MountArgs) {
     const pop = document.createElement('div');
     pop.className = 'vis-popover hover-popover';
     pop.setAttribute('aria-hidden', 'true');
+    pop.setAttribute('role', 'tooltip');
+    pop.setAttribute('aria-label', 'Node details');
     pop.style.position = 'absolute';
     pop.style.zIndex = '4';
     container.appendChild(pop);
@@ -146,7 +148,16 @@ export function mount(args: D4MountArgs) {
     const color = d4ColorVars(node);
     pop.style.setProperty('--node-color', color.color);
     pop.style.setProperty('--node-color-muted', color.muted);
-    pop.innerHTML = `<div class="hover-popover-title"><span class="hover-popover-dot"></span><strong>${resolveNodeLabel(node)}</strong></div>`;
+    const neighborsCount = d4Adjacency().get(nodeId)?.size ?? 0;
+    const componentLabel = node.component_id !== null && node.component_id !== undefined ? String(node.component_id) : '—';
+    pop.innerHTML = `<div class="hover-popover-title"><span class="hover-popover-dot" aria-hidden="true"></span><strong>${resolveNodeLabel(node)}</strong></div>
+<dl class="hover-popover-grid">
+  <dt>Score</dt><dd>${Number(node.score ?? 0).toFixed(2)}</dd>
+  <dt>Vecinos</dt><dd>${neighborsCount}</dd>
+  <dt>Cluster</dt><dd>WCC-${componentLabel}</dd>
+  <dt>Tipo</dt><dd>${node.type ?? 'Node'}</dd>
+</dl>
+<small class="hover-popover-hint">Click para fijar selección</small>`;
     pop.style.left = `${x + 24}px`;
     pop.style.top = `${y - 14}px`;
     pop.style.display = 'block';
@@ -273,11 +284,13 @@ export function mount(args: D4MountArgs) {
   const onBlurNode = () => { state.hoveredNodeId = null; d4HidePopover(); d4RenderOverlay(); };
   const onSelectNode = (params: { nodes?: Array<string | number> }) => { state.selectedNodeIds = new Set((params.nodes || []).map((id) => d4NodeId(id))); d4RenderOverlay(); };
   const onDeselectNode = () => { state.selectedNodeIds = new Set(); d4RenderOverlay(); };
+  const onEscapeDismiss = (event: KeyboardEvent) => { if (event.key === 'Escape') d4HidePopover(); };
 
   network.on('hoverNode', onHoverNode);
   network.on('blurNode', onBlurNode);
   network.on('selectNode', onSelectNode);
   network.on('deselectNode', onDeselectNode);
+  document.addEventListener('keydown', onEscapeDismiss);
   d4RenderOverlay();
   d4PaintLoop();
 
@@ -286,6 +299,7 @@ export function mount(args: D4MountArgs) {
     network.off?.('blurNode', onBlurNode);
     network.off?.('selectNode', onSelectNode);
     network.off?.('deselectNode', onDeselectNode);
+    document.removeEventListener('keydown', onEscapeDismiss);
   };
 }
 

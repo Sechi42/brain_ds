@@ -577,7 +577,7 @@
       #center-split[data-layout="split"] > #markdown-reader { flex: 1 1 50%; min-width: 0; min-height: 0; }
       #center-split[data-layout="collapsed"] > #markdown-reader { display: none; }
       #network { flex: 1; background: transparent; }
-      #markdown-reader { overflow: auto; padding: 1.5rem 2rem; line-height: 1.6; color: var(--text-normal); background: var(--bg-panel); font-size: 0.9rem; }
+      #markdown-reader { position: relative; z-index: 5; overflow: auto; padding: 1.5rem 2rem; line-height: 1.6; color: var(--text-normal); background: var(--bg-panel); font-size: 0.9rem; }
       #markdown-reader ul, #markdown-reader ol { padding-left: 1.5rem; margin: 0.5rem 0; }
       #markdown-reader li { margin: 0.25rem 0; }
       .wikilink { color: var(--accent-mora); text-decoration: none; border-bottom: 1px dashed transparent; }
@@ -686,6 +686,13 @@
       /* === States / Motion === */
       .is-collapsed { transform: translateX(101%); opacity: 0; pointer-events: none; }
       .detail-panel.is-collapsed { transform: translateX(101%); opacity: 0; pointer-events: none; }
+      /* Workspace panels collapse to their 44px header strip so the collapse/expand
+         toggle stays visible and clickable (the global .is-collapsed above slides the
+         whole shell off-screen with pointer-events:none, making it unrecoverable). */
+      .left-panel-shell.collapsed > *:not(.panel-header),
+      .right-panel-shell.collapsed > *:not(.panel-header) { display: none; }
+      .left-panel-shell.collapsed,
+      .right-panel-shell.collapsed { min-width: 0; }
       .detail-panel.is-empty .detail-body { color: var(--text-muted); }
       .is-visible { display: flex !important; }
       .is-dismissing { opacity: 0; }
@@ -785,13 +792,13 @@
          GRAPH VISUAL CONTRACTS block (Hover/Selection/Edges/Breathing). */
 
       /* Canvas atmosphere — deep gradient + dotted overlay (reference parity).
-         Contract tokens preserved verbatim:
-           linear-gradient(#0a0a0c, #0f0f13)
+         Contract tokens preserved via variables:
+           var(--canvas-bg-from), var(--canvas-bg-to)
            radial-gradient(circle at 2px 2px, var(--text-bright) 1px, transparent 1px)
          See tests/test_ts_modules.py::TestGraphVisualRichnessD4deContracts. */
       .canvas-container {
         position: relative;
-        background: linear-gradient(#0a0a0c, #0f0f13);
+        background: linear-gradient(var(--canvas-bg-from), var(--canvas-bg-to));
         cursor: grab;
       }
       .canvas-container:active { cursor: grabbing; }
@@ -801,7 +808,7 @@
         inset: 0;
         pointer-events: none;
       }
-      .canvas-bg-gradient { background: linear-gradient(#0a0a0c, #0f0f13); z-index: 0; }
+      .canvas-bg-gradient { background: linear-gradient(var(--canvas-bg-from), var(--canvas-bg-to)); z-index: 0; }
       .canvas-bg-pattern {
         background-image: radial-gradient(circle at 2px 2px, var(--text-bright) 1px, transparent 1px);
         background-size: 32px 32px;
@@ -1603,7 +1610,10 @@
           const nodesPayload = await nodesResp.json();
           const edgesPayload = await edgesResp.json();
           this.context.nodes = Array.isArray(nodesPayload) ? nodesPayload : (nodesPayload.nodes || []);
-          this.context.edges = Array.isArray(edgesPayload) ? edgesPayload : (edgesPayload.edges || []);
+          // /api/edges emits {edge_id, source, target}; normalize to {from, to, id} so the
+          // vis edges DataSet (read by renderer-d4) and the store stay on the from/to contract.
+          const rawEdges = Array.isArray(edgesPayload) ? edgesPayload : (edgesPayload.edges || []);
+          this.context.edges = rawEdges.map((edge) => this.normalizeEdge(edge));
           this.seedFromContext(this.context);
           this.nodesDataSet && this.nodesDataSet.clear && this.nodesDataSet.clear();
           this.edgesDataSet && this.edgesDataSet.clear && this.edgesDataSet.clear();
@@ -2037,7 +2047,11 @@
         // REQ-5.5 / REQ-5.9: edge hidden if either endpoint is hidden OR edge score < threshold (additive).
         // REQ-5.10: inclusive boundary — score >= scoreThreshold is visible.
         const currentEdges = getCurrentEdges();
+        // Spread ...e so from/to/label survive in the DataSet — renderer-d4 reads
+        // edge.from/edge.to from here; a bare {id,hidden} update strips endpoints
+        // and the edge is dropped (rendered invisible).
         edges.update(currentEdges.map((e, i) => ({
+          ...e,
           id: e.id != null ? e.id : i,
           hidden: !(visible.has(e.from) && visible.has(e.to)) || ((e.score !== undefined) && (e.score < scoreThreshold)),
           opacity: 1,
@@ -2788,8 +2802,8 @@
         leftCollapseBtn.addEventListener('click', () => {
           const expanded = leftCollapseBtn.getAttribute('aria-expanded') === 'true';
           leftCollapseBtn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+          leftCollapseBtn.setAttribute('aria-label', expanded ? 'Expand left panel' : 'Collapse left panel');
           leftShell.classList.toggle('collapsed', expanded);
-          leftShell.classList.toggle('is-collapsed', expanded);
         });
       }
 
@@ -2813,8 +2827,8 @@
         rightCollapseBtn.addEventListener('click', () => {
           const expanded = rightCollapseBtn.getAttribute('aria-expanded') === 'true';
           rightCollapseBtn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+          rightCollapseBtn.setAttribute('aria-label', expanded ? 'Expand right panel' : 'Collapse right panel');
           rightShell.classList.toggle('collapsed', expanded);
-          rightShell.classList.toggle('is-collapsed', expanded);
         });
       }
 

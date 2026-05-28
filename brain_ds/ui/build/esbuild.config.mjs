@@ -14,6 +14,7 @@ const common = {
   format: 'iife',
   globalName: 'BrainDsViewer',
   target: ['es2020'],
+  charset: 'utf8',
   logLevel: 'info',
   legalComments: 'none',
   treeShaking: true,

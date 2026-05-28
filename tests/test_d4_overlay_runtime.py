@@ -366,6 +366,50 @@ console.log(JSON.stringify({ motionEnabled: window.brainDsUI.motion.motionEnable
         self.assertRegex(bundle, r"tooltip")
         self.assertRegex(bundle, r"Node details")
         self.assertRegex(bundle, r"Escape")
+        self.assertRegex(bundle, r"hover-popover-grid")
+        self.assertRegex(bundle, r"hover-popover-hint")
+        self.assertRegex(bundle, r"Vecinos")
+        self.assertRegex(bundle, r"Click para fijar selección")
+
+    def test_renderer_d4_popover_has_metric_grid_contract(self):
+        renderer_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src" / "renderer-d4.ts"
+        source = renderer_path.read_text(encoding="utf-8")
+
+        for token in [
+            "hover-popover-grid",
+            "<dt>Score</dt>",
+            "<dt>Vecinos</dt>",
+            "<dt>Cluster</dt>",
+            "<dt>Tipo</dt>",
+            "hover-popover-hint",
+        ]:
+            self.assertIn(token, source)
+        self.assertRegex(source, r"Click para fijar selecci(?:ó|\u00f3|�)n")
+
+    def test_renderer_d4_popover_fallback_values_contract(self):
+        renderer_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src" / "renderer-d4.ts"
+        source = renderer_path.read_text(encoding="utf-8")
+
+        self.assertIn("toFixed(2)", source)
+        self.assertIn("componentLabel", source)
+        self.assertIn("WCC-${componentLabel}", source)
+        self.assertRegex(source, r"node\.type\s*\?\?\s*'Node'|node\.type\s*\|\|\s*'Node'")
+        self.assertRegex(source, r"Vecinos[\s\S]*0")
+
+    def test_renderer_d4_popover_aria_role_and_label_contract(self):
+        renderer_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src" / "renderer-d4.ts"
+        source = renderer_path.read_text(encoding="utf-8")
+
+        self.assertRegex(source, r"setAttribute\(\s*['\"]role['\"],\s*['\"]tooltip['\"]\s*\)")
+        self.assertRegex(source, r"setAttribute\(\s*['\"]aria-label['\"],\s*['\"]Node details['\"]\s*\)")
+
+    def test_renderer_d4_escape_dismiss_in_module_path_contract(self):
+        renderer_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src" / "renderer-d4.ts"
+        source = renderer_path.read_text(encoding="utf-8")
+
+        self.assertRegex(source, r"addEventListener\(\s*['\"]keydown['\"]")
+        self.assertRegex(source, r"event\.key\s*===\s*['\"]Escape['\"]")
+        self.assertRegex(source, r"d4HidePopover\s*\(")
 
     def test_renderer_d4_resolves_label_with_generated_data_fallbacks_contract(self):
         renderer_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src" / "renderer-d4.ts"

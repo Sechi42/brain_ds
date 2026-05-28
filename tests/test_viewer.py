@@ -1266,6 +1266,66 @@ class TestWorkspaceShellPr1Template(unittest.TestCase):
             self.assertIn(f'id="{legacy_id}"', self.template_text)
 
 
+class TestViewerChromeOverhaulPr1Regressions(unittest.TestCase):
+    """PR1 regression contracts for the viewer-chrome-overhaul change.
+
+    REQ-1.2: collapsed workspace panels MUST keep their collapse/expand toggle
+             reachable (the global .is-collapsed rule slides the whole shell off
+             with pointer-events:none, making it unrecoverable).
+    REQ-1.3: the markdown split-reader MUST stack above the D4 canvas overlay
+             (#d4-nodes is z-index 3) so 'Ver Más' content is visible.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        template_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
+        )
+        cls.template_text = template_path.read_text(encoding="utf-8")
+
+    def test_collapsed_workspace_shells_keep_toggle_reachable(self):
+        # Dedicated collapsed-state CSS for the workspace shells must exist so the
+        # 44px header strip (with the collapse/expand button) stays visible.
+        self.assertRegex(
+            self.template_text,
+            r"\.left-panel-shell\.collapsed\b",
+            "Expected a scoped '.left-panel-shell.collapsed' CSS rule (REQ-1.2)",
+        )
+        self.assertRegex(
+            self.template_text,
+            r"\.right-panel-shell\.collapsed\b",
+            "Expected a scoped '.right-panel-shell.collapsed' CSS rule (REQ-1.2)",
+        )
+
+    def test_workspace_collapse_handlers_do_not_apply_global_is_collapsed(self):
+        # The global '.is-collapsed' rule (translateX(101%); pointer-events:none)
+        # is for the detail-panel slideover only. Applying it to the workspace
+        # shells hides the toggle button itself -> unrecoverable. The handlers must
+        # toggle ONLY the scoped '.collapsed' class on the shells.
+        self.assertNotRegex(
+            self.template_text,
+            r"(?:left|right)Shell\.classList\.toggle\(\s*['\"]is-collapsed['\"]",
+            "Workspace shell collapse handlers must NOT toggle the global 'is-collapsed' class (REQ-1.2)",
+        )
+
+    def test_markdown_reader_stacks_above_canvas_overlay(self):
+        # #markdown-reader must establish a stacking context above #d4-nodes (z-index 3).
+        reader_idx = self.template_text.find("#markdown-reader {")
+        self.assertGreater(reader_idx, -1, "#markdown-reader base rule not found")
+        reader_block = self.template_text[reader_idx:reader_idx + 400]
+        self.assertRegex(
+            reader_block,
+            r"z-index:\s*([4-9]|\d{2,})",
+            "Expected #markdown-reader to set z-index >= 4 (above D4 overlay) (REQ-1.3)",
+        )
+        self.assertRegex(
+            reader_block,
+            r"position:\s*relative",
+            "Expected #markdown-reader position: relative to honour z-index (REQ-1.3)",
+        )
+
+
 class TestWorkspaceShellPr15ChromePolish(unittest.TestCase):
     """PR1.5 RED/GREEN contracts for center chrome polish — section-4 fidelity.
 
@@ -1422,6 +1482,28 @@ class TestGraphVisualRichnessTemplateIsolation(unittest.TestCase):
 
     def test_d4_visual_richness_style_block_present(self):
         self.assertIn('<style id="d4-visual-richness">', self.template_text)
+
+    def test_runtime_template_uses_token_vars_not_hardcoded_hex(self):
+        self.assertIn("var(--canvas-bg-from)", self.template_text)
+        self.assertIn("var(--canvas-bg-to)", self.template_text)
+
+        for selector in (".canvas-container", ".canvas-bg-gradient"):
+            block_match = re.search(rf"{re.escape(selector)}\s*\{{([\s\S]*?)\}}", self.template_text)
+            self.assertIsNotNone(block_match, f"Missing CSS block for {selector}")
+            block = block_match.group(1)
+            self.assertNotIn("#0a0a0c", block)
+            self.assertNotIn("#0f0f13", block)
+
+        tokens_path = (
+            Path(__file__).resolve().parent.parent
+            / "brain_ds"
+            / "ui"
+            / "static"
+            / "tokens.css"
+        )
+        tokens_text = tokens_path.read_text(encoding="utf-8")
+        self.assertIn("--canvas-bg-from", tokens_text)
+        self.assertIn("--canvas-bg-to", tokens_text)
 
     def test_d4_selectors_do_not_leak_into_shell_css_block(self):
         start = self.template_text.find("/* === Workspace shell (PR1 scaffold + center chrome) === */")

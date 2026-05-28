@@ -29,6 +29,17 @@ export class LiveDataStore {
     this.seedFromContext(this.context);
   }
 
+  // The REST API (/api/edges) emits {edge_id, source, target}; the viewer contract
+  // (render_context, D4 paint loop, edgeId, rebuildAdjacency) uses {from, to}.
+  // Normalize every edge that enters the store so reseeded edges are not dropped.
+  normalizeEdge(edge) {
+    const e = { ...edge };
+    if (e.from === undefined && e.source !== undefined) e.from = e.source;
+    if (e.to === undefined && e.target !== undefined) e.to = e.target;
+    if (e.id === undefined && e.edge_id !== undefined) e.id = e.edge_id;
+    return e;
+  }
+
   seedFromContext(context) {
     const nodes = Array.isArray(context?.nodes) ? context.nodes : [];
     const edges = Array.isArray(context?.edges) ? context.edges : [];
@@ -37,7 +48,8 @@ export class LiveDataStore {
     for (const node of nodes) {
       this.nodeMap.set(String(node.id), { ...node });
     }
-    for (const edge of edges) {
+    for (const rawEdge of edges) {
+      const edge = this.normalizeEdge(rawEdge);
       const id = this.edgeId(edge);
       this.edgeMap.set(id, { ...edge, id });
     }
@@ -151,7 +163,7 @@ export class LiveDataStore {
       return;
     }
     if (name === 'edge.created' || name === 'edge.updated') {
-      const edge = { ...payload };
+      const edge = this.normalizeEdge(payload);
       const id = this.edgeId(edge);
       this.edgeMap.set(id, { ...edge, id });
       this.edgesDataSet?.update?.([{ ...edge, id }]);
@@ -275,7 +287,7 @@ export class LiveDataStore {
     const nodes = Array.isArray(nodesPayload) ? nodesPayload : (nodesPayload?.nodes || []);
     const edges = Array.isArray(edgesPayload) ? edgesPayload : (edgesPayload?.edges || []);
     this.context.nodes = Array.isArray(nodes) ? nodes : [];
-    this.context.edges = Array.isArray(edges) ? edges : [];
+    this.context.edges = (Array.isArray(edges) ? edges : []).map((edge) => this.normalizeEdge(edge));
     this.seedFromContext(this.context);
     this.nodesDataSet?.clear?.();
     this.edgesDataSet?.clear?.();

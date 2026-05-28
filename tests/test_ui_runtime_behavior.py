@@ -1710,6 +1710,34 @@ console.log(JSON.stringify({
         self.assertEqual(out["edgeIds"], ["e1"])
         self.assertEqual(out["dsNodes"], 1)
 
+    def test_sync_normalizes_api_source_target_to_from_to(self):
+        """REQ-1.1: /api/edges returns {edge_id, source, target}; the store and the
+        D4 paint loop require {from, to}. syncWithServer MUST normalize so edges are
+        not silently dropped (this was the 'connections not visible' regression).
+        """
+        out = self._live_sync_harness(r'''
+global.fetch = async (url) => {
+  if (String(url).startsWith("/api/nodes?")) return { json: async () => ({ nodes: [{ id: "n1", label: "N1" }, { id: "n2", label: "N2" }] }) };
+  if (String(url).startsWith("/api/edges?")) return { json: async () => ({ edges: [{ edge_id: "n1->n2#1", source: "n1", target: "n2", label: "owns" }] }) };
+  throw new Error("unexpected URL " + url);
+};
+const context = { nodes: [], edges: [] };
+const store = new LiveDataStore(context, new DataSet(), new DataSet());
+await store.syncWithServer("g-1");
+const e = store.getEdges()[0] || {};
+const adj = store.getAdjacency().get("n1");
+console.log(JSON.stringify({
+  edgeCount: store.getEdges().length,
+  from: e.from,
+  to: e.to,
+  adj: adj ? Array.from(adj) : [],
+}));
+''')
+        self.assertEqual(out["edgeCount"], 1)
+        self.assertEqual(out["from"], "n1", "syncWithServer must map API edge.source -> from (REQ-1.1)")
+        self.assertEqual(out["to"], "n2", "syncWithServer must map API edge.target -> to (REQ-1.1)")
+        self.assertIn("n2", out["adj"], "adjacency must be built from normalized from/to (REQ-1.1)")
+
     def test_live_data_store_buffers_events_until_fetch_completes(self):
         out = self._live_sync_harness(r'''
 let nodeResolve;
