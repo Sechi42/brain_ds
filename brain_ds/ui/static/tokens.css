@@ -34,6 +34,8 @@
   /* === Borders (refined zinc) === */
   --border-subtle: rgba(63, 63, 70, 0.4);
   --border-strong: rgba(63, 63, 70, 0.7);
+  /* Graph edge stroke — visible on the dark canvas (border-strong was too faint). */
+  --edge-stroke: #7c828c;
 
   /* === Accent === */
   /* --accent-mora on --bg-main ≈ 7.4:1 (AA pass) */

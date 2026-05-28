@@ -39,11 +39,11 @@ export interface FilterPanelDeps {
   typeGroups: TypeGroup[];
   filtersRoot: HTMLElement;
   legendRoot: HTMLElement;
-  showAllBtn: HTMLElement | null;
-  hideAllBtn: HTMLElement | null;
+  showAllBtn?: HTMLElement | null;
+  hideAllBtn?: HTMLElement | null;
   onToggle: (typeName: string, enabled: boolean) => void;
-  onShowAll: () => void;
-  onHideAll: () => void;
+  onShowAll?: () => void;
+  onHideAll?: () => void;
 }
 
 // ── Module state ────────────────────────────────────────────────────────────
@@ -99,7 +99,23 @@ export function mount(deps: FilterPanelDeps): void {
 
       label.appendChild(cb);
       label.appendChild(chip);
-      label.appendChild(document.createTextNode(`${t.type} (${t.count})`));
+      const text = document.createElement("span");
+      text.textContent = `${t.type} (${t.count})`;
+      label.appendChild(text);
+
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "pill-btn btn-outline filter-toggle";
+      toggle.setAttribute("aria-pressed", "true");
+      toggle.textContent = "Mostrar";
+      _addListener(toggle, "click", () => {
+        const nextChecked = !cb.checked;
+        cb.checked = nextChecked;
+        toggle.textContent = nextChecked ? "Mostrar" : "Ocultar";
+        toggle.setAttribute("aria-pressed", nextChecked ? "true" : "false");
+        onToggle(t.type, nextChecked);
+      });
+      label.appendChild(toggle);
       filtersRoot.appendChild(label);
 
       // Legend item: button with chip + type name
@@ -125,7 +141,7 @@ export function mount(deps: FilterPanelDeps): void {
   if (showAllBtn) {
     _addListener(showAllBtn, "click", () => {
       _typeCheckboxes.forEach((cb) => { cb.checked = true; });
-      onShowAll();
+      if (typeof onShowAll === "function") onShowAll();
     });
   }
 
@@ -135,7 +151,7 @@ export function mount(deps: FilterPanelDeps): void {
         cb.checked = false;
         onToggle(typeName, false);
       });
-      onHideAll();
+      if (typeof onHideAll === "function") onHideAll();
     });
   }
 }

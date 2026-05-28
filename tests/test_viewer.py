@@ -382,14 +382,11 @@ class TestViewerFoundation(unittest.TestCase):
         self.assertIn("d4NetworkEl.style.opacity = d4OverlayEnabled ? \"0\" : \"1\";", template_text)
         self.assertIn("d4NetworkEl.style.pointerEvents = d4OverlayEnabled ? \"none\" : \"auto\";", template_text)
 
-    def test_d4_node_click_handler_has_no_build_safe_selection_fallback(self):
+    def test_d4_node_click_handler_avoids_selectnodes_relayout_path(self):
         template_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
         template_text = template_path.read_text(encoding="utf-8")
-        self.assertRegex(
-            template_text,
-            r"if\s*\(\s*typeof\s+network\.selectNodes\s*===\s*['\"]function['\"]\s*\)\s*\{\s*network\.selectNodes\(\[node\.id\]\);\s*\}\s*"
-            r"else\s+if\s*\(\s*typeof\s+network\._selectNodeById\s*===\s*['\"]function['\"]\s*\)\s*\{\s*network\._selectNodeById\(node\.id\);\s*\}",
-        )
+        self.assertNotIn("network.selectNodes([node.id])", template_text)
+        self.assertIn("network._selectNodeById(node.id)", template_text)
 
     def test_interactive_template_toolbar_and_rail_icons_use_sprite_references(self):
         html = render_interactive_html(
@@ -1262,7 +1259,7 @@ class TestWorkspaceShellPr1Template(unittest.TestCase):
         self.assertNotRegex(shell_block, r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})")
 
     def test_legacy_center_control_ids_stay_present_as_valid_anchors(self):
-        for legacy_id in ("show-more", "hide-markdown", "show-all", "hide-all"):
+        for legacy_id in ("show-more", "hide-markdown"):
             self.assertIn(f'id="{legacy_id}"', self.template_text)
 
 
@@ -2133,9 +2130,8 @@ class TestWorkspaceShellRemediationOldUiRemoval(unittest.TestCase):
         self.assertNotIn('id="viewer-empty-state"', self.template_text)
         self.assertNotIn('id="search-label"', self.template_text)
         self.assertNotIn('placeholder="Type a name or id"', self.template_text)
-        # D.2: hidden proxy buttons removed — show-all/hide-all now live on visible pill buttons.
-        self.assertNotRegex(self.template_text, r'id="show-all"[^>]*hidden')
-        self.assertNotRegex(self.template_text, r'id="hide-all"[^>]*hidden')
+        self.assertNotIn('id="show-all"', self.template_text)
+        self.assertNotIn('id="hide-all"', self.template_text)
 
     def test_new_left_panel_section1_surfaces_present(self):
         for token in (
@@ -2145,8 +2141,8 @@ class TestWorkspaceShellRemediationOldUiRemoval(unittest.TestCase):
             'data-accordion-section="legend"',
             'data-accordion-section="hierarchy"',
             'data-accordion-section="layout"',
-            # D.2: pill-group replaces toggle-chip-row
-            'class="pill-group"',
+            # PR3: filter actions consolidated into per-type controls rendered by module
+            'id="type-filters"',
             'class="tree-row',
             # D.2: segmented-control replaces toggle-card
             'class="segmented-control"',
@@ -2182,28 +2178,17 @@ class TestWorkspaceShellRemediationOldUiRemoval(unittest.TestCase):
     # ── D.2 pill filter buttons (T1.2) ────────────────────────────────────────
 
     def test_d2_pill_buttons_structure(self):
-        """GV-14: pill-btn + pill-btn--primary, IDs on visible buttons, no aria-pressed."""
-        self.assertIn('class="pill-btn btn-primary-outline pill-btn--primary"', self.template_text)
-        self.assertIn('class="pill-btn btn-outline"', self.template_text)
-        # show-all and hide-all IDs must exist on non-hidden elements
-        self.assertIn('id="show-all"', self.template_text)
-        self.assertIn('id="hide-all"', self.template_text)
-        # toggle-chip must be gone
+        """GV-14: filter controls are consolidated into module-rendered per-type toggles."""
+        self.assertIn('id="type-filters"', self.template_text)
+        self.assertNotIn('id="show-all"', self.template_text)
+        self.assertNotIn('id="hide-all"', self.template_text)
         self.assertNotIn('class="toggle-chip"', self.template_text)
         self.assertNotIn('class="toggle-chip-row"', self.template_text)
 
     def test_d2_no_hidden_proxy_buttons(self):
         """D-4 / D-6: hidden proxy buttons must be removed."""
-        # Old pattern: <button ... id="show-all" hidden ...>
-        import re
-        self.assertIsNone(
-            re.search(r'id="show-all"[^>]*hidden', self.template_text),
-            "Hidden proxy #show-all must not exist after D.2",
-        )
-        self.assertIsNone(
-            re.search(r'id="hide-all"[^>]*hidden', self.template_text),
-            "Hidden proxy #hide-all must not exist after D.2",
-        )
+        self.assertNotIn('id="show-all"', self.template_text)
+        self.assertNotIn('id="hide-all"', self.template_text)
 
     def test_d2_pill_buttons_have_min_height_css(self):
         """GV-14: pill-btn must declare min-height: 44px in CSS."""

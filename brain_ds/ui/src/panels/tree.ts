@@ -1,17 +1,21 @@
 type TreeNode = {
   id: string;
   label?: string;
+  type?: string;
   parent_id?: string | null;
   depth?: number;
 };
 
 type MountDeps = {
   nodes: TreeNode[];
+  typeGroups?: Array<{ supertype: string; types: Array<{ type: string; count?: number }> }>;
   onFilter: (nodeId: string | null) => void;
   onActiveLabel?: (label: string) => void;
+  onNodeFocus?: (nodeId: string) => void;
 };
 
 const listeners: Array<() => void> = [];
+const expandedGroups = new Set<string>();
 
 export function unmount(): void {
   while (listeners.length) {
@@ -26,6 +30,84 @@ export function mount(root: HTMLElement | null, deps: MountDeps): void {
   root.innerHTML = "";
 
   const nodes = Array.isArray(deps.nodes) ? deps.nodes : [];
+  const groupedTypes = Array.isArray(deps.typeGroups) ? deps.typeGroups : [];
+  const hasTypeGroups = groupedTypes.length > 0;
+  if (hasTypeGroups) {
+    const byType = new Map<string, TreeNode[]>();
+    nodes.forEach((node) => {
+      const typeName = String(node.type || "Unknown");
+      if (!byType.has(typeName)) byType.set(typeName, []);
+      byType.get(typeName)!.push(node);
+    });
+
+    groupedTypes.forEach((group) => {
+      const section = document.createElement("section");
+      section.className = "tree-group";
+      section.setAttribute("data-hierarchy-group", group.supertype);
+
+      const heading = document.createElement("h4");
+      heading.className = "tree-group-heading";
+      heading.textContent = String(group.supertype || "Grupo").toUpperCase();
+      section.appendChild(heading);
+
+      group.types.forEach((typeEntry) => {
+        const typeName = String(typeEntry.type || "Unknown");
+        const typeNodes = byType.get(typeName) || [];
+        const typeKey = `${group.supertype}:${typeName}`;
+        const isExpanded = expandedGroups.has(typeKey);
+
+        const row = document.createElement("div");
+        row.className = "tree-item";
+        row.setAttribute("data-hierarchy-type", typeName);
+
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "tree-toggle";
+        toggle.textContent = isExpanded ? "▾" : "▸";
+        toggle.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+        toggle.setAttribute("aria-label", `${isExpanded ? "Collapse" : "Expand"} ${typeName}`);
+        const onToggle = () => {
+          if (expandedGroups.has(typeKey)) expandedGroups.delete(typeKey);
+          else expandedGroups.add(typeKey);
+          mount(root, deps);
+        };
+        toggle.addEventListener("click", onToggle);
+        listeners.push(() => toggle.removeEventListener("click", onToggle));
+        row.appendChild(toggle);
+
+        const typeBtn = document.createElement("button");
+        typeBtn.type = "button";
+        typeBtn.className = "tree-node";
+        typeBtn.textContent = `${typeName} (${typeNodes.length || Number(typeEntry.count || 0)})`;
+        row.appendChild(typeBtn);
+        section.appendChild(row);
+
+        if (isExpanded && typeNodes.length) {
+          const nodeList = document.createElement("div");
+          nodeList.className = "tree-group-list";
+          typeNodes.forEach((node) => {
+            const nodeBtn = document.createElement("button");
+            nodeBtn.type = "button";
+            nodeBtn.className = "tree-node";
+            nodeBtn.style.marginLeft = "44px";
+            nodeBtn.textContent = String(node.label || node.id);
+            const onClick = () => {
+              if (typeof deps.onNodeFocus === "function") deps.onNodeFocus(String(node.id));
+              if (deps.onActiveLabel) deps.onActiveLabel(String(node.label || node.id));
+            };
+            nodeBtn.addEventListener("click", onClick);
+            listeners.push(() => nodeBtn.removeEventListener("click", onClick));
+            nodeList.appendChild(nodeBtn);
+          });
+          section.appendChild(nodeList);
+        }
+      });
+
+      root.appendChild(section);
+    });
+    return;
+  }
+
   const byParent = new Map<string | null, TreeNode[]>();
   nodes.forEach((node) => {
     const pid = node.parent_id == null ? null : String(node.parent_id);

@@ -436,4 +436,5 @@ console.log(JSON.stringify({ motionEnabled: window.brainDsUI.motion.motionEnable
 
         self.assertRegex(source, r"onNodeActivate")
         self.assertRegex(source, r"addEventListener\('click'|addEventListener\(\"click\"")
-        self.assertRegex(source, r"network\.selectNodes")
+        self.assertRegex(source, r"network\._selectNodeById")
+        self.assertNotRegex(source, r"network\.selectNodes")

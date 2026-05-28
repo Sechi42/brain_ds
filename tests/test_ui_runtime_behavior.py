@@ -593,10 +593,17 @@ eval(appScript);
 const emptyStateEl = byId.get("viewer-empty");
 const emptyResetBtn = byId.get("empty-reset-filters");
 
-// Step 1: Apply a filter that yields zero visible nodes.
-// The real filterPanel module (from bundle) has wired hide-all to call onToggle for each type.
-// Dispatching the hide-all click drives hiddenTypes (template-scope) → applyVisibility().
-byId.get("hide-all").dispatch("click", {});
+// Step 1: Apply filters that yield zero visible nodes.
+// PR3 consolidated controls: each type row renders a `.filter-toggle` button.
+const filtersRoot = byId.get("type-filters");
+const allRows = (filtersRoot && filtersRoot.children) ? filtersRoot.children : [];
+for (const row of allRows) {
+  if (!row || !row.children || row.children.length < 4) continue;
+  const maybeToggle = row.children[row.children.length - 1];
+  if (maybeToggle && typeof maybeToggle.dispatch === "function") {
+    maybeToggle.dispatch("click", {});
+  }
+}
 
 // Step 2: Assert that empty-state element has is-visible after all nodes are filtered out.
 const emptyStateShownAfterFilter = emptyStateEl.classList.contains("is-visible");

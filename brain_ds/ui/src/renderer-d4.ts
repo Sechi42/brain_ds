@@ -203,8 +203,6 @@ export function mount(args: D4MountArgs) {
           state.selectedNodeIds = new Set([id]);
           if (typeof onNodeActivate === 'function') {
             onNodeActivate(id);
-          } else if (typeof network.selectNodes === 'function') {
-            network.selectNodes([node.id]);
           } else if (typeof network._selectNodeById === 'function') {
             network._selectNodeById(node.id);
           }
@@ -227,6 +225,7 @@ export function mount(args: D4MountArgs) {
     });
 
     const nodesById = d4NodeMap();
+    const activeEdgeIds = new Set<string>();
     const hasInteraction = Boolean(state.hoveredNodeId) || state.selectedNodeIds.size > 0;
     (edgesDataset.get() || []).forEach((edge, index) => {
       const fromId = d4NodeId(edge.from);
@@ -237,6 +236,7 @@ export function mount(args: D4MountArgs) {
       const fromPos = d4WorldToScreen(world[String(fromNode.id)] || { x: 0, y: 0 });
       const toPos = d4WorldToScreen(world[String(toNode.id)] || { x: 0, y: 0 });
       const edgeId = String(index);
+      activeEdgeIds.add(edgeId);
       let line = state.edgeEls.get(edgeId);
       if (!line) {
         const protocolSep = (typeof document !== 'undefined' && typeof document.baseURI === 'string' && document.baseURI.indexOf('://') > -1)
@@ -270,6 +270,13 @@ export function mount(args: D4MountArgs) {
       } else {
         line.removeAttribute('data-emphasis');
       }
+    });
+
+    Array.from(state.edgeEls.keys()).forEach((edgeId) => {
+      if (activeEdgeIds.has(edgeId)) return;
+      const line = state.edgeEls.get(edgeId);
+      if (line && line.parentNode) line.parentNode.removeChild(line);
+      state.edgeEls.delete(edgeId);
     });
   };
 

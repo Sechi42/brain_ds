@@ -118,6 +118,13 @@
       .tab-item:hover:not([data-tab-active='true']) .tab {
         color: var(--text-normal);
       }
+      /* Token focus ring instead of the UA default blue square. */
+      .tab:focus-visible {
+        outline: 2px solid var(--accent-mora);
+        outline-offset: -2px;
+        border-radius: var(--radius-md);
+      }
+      .tab:focus:not(:focus-visible) { outline: none; }
       .tab-close {
         display: grid;
         place-items: center;
@@ -400,6 +407,27 @@
         height: 44px;
       }
 
+      /* Chrome icons are Lucide line glyphs; the sprite symbols carry no paint, so
+         without this they fall back to solid black fill. Paint them with the current
+         text color (stroke) so they inherit the rail/toolbar/button color tokens. */
+      .rail-icon svg,
+      .top-toolbar svg,
+      .panel-collapse svg,
+      .panel-collapse-right svg,
+      .panel-header-title svg,
+      .panel-card-title svg,
+      .tab-item svg,
+      .tab-new svg,
+      .detail-actions .pill-btn svg,
+      .inspector-summary svg,
+      .pill-group button svg,
+      .filter-item svg,
+      .legend-item svg {
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+      }
+
       /* === Left sidebar === */
       .controls { display: flex; flex-direction: column; gap: 32px; align-content: start; height: 100vh; overflow: auto; padding: 20px; background: var(--bg-panel); }
       .controls h2, .controls h3, #tree-panel h2, #tree-panel h3 { margin: 0 0 0.25rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; }
@@ -610,7 +638,11 @@
       #detail-panel.is-empty .detail-header { display: none; }
       .detail-header { display: grid; gap: 0.25rem; }
       .detail-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-      .detail-actions button { min-width: 44px; }
+      /* Size each action to its label and never wrap text inside a button
+         ("Exportar JSON" was breaking to two lines); buttons wrap as whole units. */
+      .detail-actions .pill-btn,
+      .detail-actions .btn-outline,
+      .detail-actions .btn-danger-outline { flex: 0 1 auto; min-width: 44px; white-space: nowrap; }
       #detail-title { margin: 0; font-size: 1.05rem; font-weight: 600; color: var(--text-bright); }
       #detail-meta { color: var(--text-muted); font-size: 0.875rem; }
       .detail-body { display: grid; gap: 0.5rem; }
@@ -841,9 +873,9 @@
       .d4-edge,
       .edge-line,
       #d4-edges .d4-edge {
-        stroke: var(--border-strong);
-        stroke-width: 1px;
-        opacity: 0.6;
+        stroke: var(--edge-stroke);
+        stroke-width: 1.5px;
+        opacity: 0.85;
       }
 
       /* EGO-DIMMING — global fade when hover/select active */
@@ -1261,16 +1293,6 @@
         </section>
         <section class="panel-card" data-accordion-section="filters">
           <h3 class="panel-card-title"><svg aria-hidden="true"><use href="#icon-filter"/></svg>FILTROS</h3>
-          <div class="pill-group">
-            <button type="button" id="show-all" class="pill-btn btn-primary-outline pill-btn--primary">
-              <svg aria-hidden="true" width="14" height="14"><use href="#icon-eye"/></svg>
-              Mostrar
-            </button>
-            <button type="button" id="hide-all" class="pill-btn btn-outline">
-              <svg aria-hidden="true" width="14" height="14"><use href="#icon-eye-off"/></svg>
-              Ocultar
-            </button>
-          </div>
           <div id="type-filters"></div>
         </section>
         <section class="panel-card" data-accordion-section="legend">
@@ -1885,9 +1907,7 @@
               d4RenderOverlay();
             });
             el.addEventListener("click", () => {
-              if (typeof network.selectNodes === "function") {
-                network.selectNodes([node.id]);
-              } else if (typeof network._selectNodeById === "function") {
+              if (typeof network._selectNodeById === "function") {
                 network._selectNodeById(node.id);
               }
               focusNode(node.id);
@@ -2570,18 +2590,8 @@
         typeGroups,
         filtersRoot,
         legendRoot,
-        showAllBtn: document.getElementById("show-all"),
-        hideAllBtn: document.getElementById("hide-all"),
         onToggle: (typeName, enabled) => {
           if (enabled) hiddenTypes.delete(typeName); else hiddenTypes.add(typeName);
-          applyVisibility();
-        },
-        onShowAll: () => {
-          hiddenTypes.clear();
-          window.brainDsUI.scoreFilter.setThreshold(0);
-        },
-        onHideAll: () => {
-          // hide-all types already handled via onToggle calls in filter-panel.ts
           applyVisibility();
         },
       });
@@ -2593,6 +2603,7 @@
       if (window.brainDsUI.tree && typeof window.brainDsUI.tree.mount === "function") {
         window.brainDsUI.tree.mount(treeRoot, {
           nodes: getCurrentNodes(),
+          typeGroups,
           onFilter: (nodeId) => {
             if (!nodeId) {
               network.clearTreeFilter();
@@ -2603,6 +2614,9 @@
               return;
             }
             network.setTreeFilter(nodeId);
+          },
+          onNodeFocus: (nodeId) => {
+            focusNode(nodeId);
           },
           onActiveLabel: (label) => {
             if (!treeFilterChipEl) return;
