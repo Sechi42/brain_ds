@@ -251,6 +251,23 @@ console.log(JSON.stringify({ activeDesc, escapedClosed, focusRestored }));
         self.assertTrue(out["escapedClosed"])
         self.assertTrue(out["focusRestored"])
 
+    def test_runtime_template_shortcuts_dispatch_contract(self):
+        template_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
+        source = template_path.read_text(encoding="utf-8")
+        self.assertRegex(source, r"document\.addEventListener\(\s*\"keydown\"")
+        self.assertRegex(source, r"event\.key\s*===\s*\"/\"")
+        self.assertRegex(source, r"event\.key\s*===\s*\"f\"")
+        self.assertRegex(source, r"event\.key\s*===\s*\"g\"")
+        self.assertRegex(source, r"network\.fit\(\{\s*animation:\s*true\s*\}\)")
+        self.assertRegex(source, r"searchInput\s*&&\s*typeof\s+searchInput\.focus")
+
+    def test_template_contains_center_selection_contract(self):
+        template_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
+        source = template_path.read_text(encoding="utf-8")
+        self.assertIn('id="center-selection"', source)
+        self.assertRegex(source, r"center-selection[\s\S]*?disabled")
+        self.assertRegex(source, r"moveTo\(\{[\s\S]*?position")
+
     def test_runtime_template_loading_focustrap_skeleton_motion(self):
         html = render_interactive_html(
             {
@@ -594,14 +611,15 @@ const emptyStateEl = byId.get("viewer-empty");
 const emptyResetBtn = byId.get("empty-reset-filters");
 
 // Step 1: Apply filters that yield zero visible nodes.
-// PR3 consolidated controls: each type row renders a `.filter-toggle` button.
+// PR B: each type row is tokenized checkbox+label (no per-row toggle button).
 const filtersRoot = byId.get("type-filters");
 const allRows = (filtersRoot && filtersRoot.children) ? filtersRoot.children : [];
 for (const row of allRows) {
-  if (!row || !row.children || row.children.length < 4) continue;
-  const maybeToggle = row.children[row.children.length - 1];
-  if (maybeToggle && typeof maybeToggle.dispatch === "function") {
-    maybeToggle.dispatch("click", {});
+  if (!row || !row.children || row.children.length < 1) continue;
+  const maybeCheckbox = row.children[0];
+  if (maybeCheckbox && typeof maybeCheckbox.dispatch === "function") {
+    maybeCheckbox.checked = false;
+    maybeCheckbox.dispatch("change", {});
   }
 }
 
@@ -1234,17 +1252,27 @@ const fileTreeTabMinus1=railBtns["file-tree"].attrs["tabindex"]==="-1";
 const searchVisible=sections["search"].hidden===false;
 const legendHidden=sections["legend"].hidden===true;
 const filtersHidden=sections["filters"].hidden===true;
+const scoreVisibleInSearch=sections["score"].hidden===false;
+const layoutAriaHidden=sections["layout"].attrs["aria-hidden"]==="true";
 
-// TEST 2: click file-tree = main/search-only view (no eternal all-sections scroll)
+// TEST 2: click filters = only filters+legend visible
+railRoot.dispatch("click", { target: railBtns["filters"] });
+const filtersSelected=railBtns["filters"].attrs["aria-selected"]==="true";
+const filtersVisible=sections["filters"].hidden===false;
+const legendVisible=sections["legend"].hidden===false;
+const searchHiddenOnFilters=sections["search"].hidden===true;
+const hierarchyHiddenOnFilters=sections["hierarchy"].hidden===true;
+
+// TEST 3: click file-tree = main/search(+score) view (no eternal all-sections scroll)
 railRoot.dispatch("click", { target: railBtns["file-tree"] });
 const fileTreeSearchVisible=sections["search"].hidden===false;
 const fileTreeFiltersHidden=sections["filters"].hidden===true;
 const fileTreeHierarchyHidden=sections["hierarchy"].hidden===true;
 const fileTreeLayoutHidden=sections["layout"].hidden===true;
 const fileTreeLegendHidden=sections["legend"].hidden===true;
-const fileTreeScoreHidden=sections["score"].hidden===true;
+const fileTreeScoreVisible=sections["score"].hidden===false;
 
-// TEST 3: double-click active rail = no-op (idempotent)
+// TEST 4: double-click active rail = no-op (idempotent)
 railRoot.dispatch("click", { target: railBtns["search"] });
 const before=JSON.stringify({
   selected: railBtns["search"].attrs["aria-selected"],
@@ -1261,7 +1289,7 @@ const after=JSON.stringify({
 });
 const doubleClickNoOp=before===after;
 
-console.log(JSON.stringify({searchSelected,fileTreeDeselected,searchTab0,fileTreeTabMinus1,searchVisible,legendHidden,filtersHidden,fileTreeSearchVisible,fileTreeFiltersHidden,fileTreeHierarchyHidden,fileTreeLayoutHidden,fileTreeLegendHidden,fileTreeScoreHidden,doubleClickNoOp}));
+console.log(JSON.stringify({searchSelected,fileTreeDeselected,searchTab0,fileTreeTabMinus1,searchVisible,legendHidden,filtersHidden,scoreVisibleInSearch,layoutAriaHidden,filtersSelected,filtersVisible,legendVisible,searchHiddenOnFilters,hierarchyHiddenOnFilters,fileTreeSearchVisible,fileTreeFiltersHidden,fileTreeHierarchyHidden,fileTreeLayoutHidden,fileTreeLegendHidden,fileTreeScoreVisible,doubleClickNoOp}));
 '''
             out = _run_node(code, str(html_path))
             self.assertTrue(out["searchSelected"], "search rail MUST be aria-selected=true after setActivePanel")
@@ -1271,12 +1299,19 @@ console.log(JSON.stringify({searchSelected,fileTreeDeselected,searchTab0,fileTre
             self.assertTrue(out["searchVisible"], "search section MUST be visible")
             self.assertTrue(out["legendHidden"], "legend MUST be hidden when search is active")
             self.assertTrue(out["filtersHidden"], "filters MUST be hidden when search is active")
+            self.assertTrue(out["scoreVisibleInSearch"], "score helper MUST be visible when search is active")
+            self.assertTrue(out["layoutAriaHidden"], "hidden sections MUST expose aria-hidden=true")
+            self.assertTrue(out["filtersSelected"], "filters rail MUST be aria-selected=true after click")
+            self.assertTrue(out["filtersVisible"], "filters section MUST be visible when filters tab is active")
+            self.assertTrue(out["legendVisible"], "legend MUST be visible when filters tab is active")
+            self.assertTrue(out["searchHiddenOnFilters"], "search MUST be hidden when filters tab is active")
+            self.assertTrue(out["hierarchyHiddenOnFilters"], "hierarchy MUST be hidden when filters tab is active")
             self.assertTrue(out["fileTreeSearchVisible"], "file-tree should keep search as default main section")
             self.assertTrue(out["fileTreeFiltersHidden"], "filters MUST be hidden when file-tree is active")
             self.assertTrue(out["fileTreeHierarchyHidden"], "hierarchy MUST be hidden when file-tree is active")
             self.assertTrue(out["fileTreeLayoutHidden"], "layout MUST be hidden when file-tree is active")
             self.assertTrue(out["fileTreeLegendHidden"], "legend MUST be hidden when file-tree is active")
-            self.assertTrue(out["fileTreeScoreHidden"], "score MUST be hidden when file-tree is active")
+            self.assertTrue(out["fileTreeScoreVisible"], "score MUST be visible when file-tree is active")
             self.assertTrue(out["doubleClickNoOp"], "double setActivePanel on same panel MUST be no-op")
 
     def test_left_collapse_aria_expanded_and_tab_close(self):
@@ -2079,4 +2114,221 @@ class TestLiveSyncPhase4Audit(unittest.TestCase):
             "if (searchGroupEl) {",
             self.template_text,
             "Template must guard mount when search root is absent",
+        )
+
+
+class TestPR2OverflowMenuClampRuntime(unittest.TestCase):
+    """PR2 — Runtime assertion: inline overflow menu fallback clamps to .center-column bounds.
+
+    TDD cycle: RED → GREEN → TRIANGULATE.
+    Spec: REQ-2.2 S2.2.c — no menu overlap with left panel at narrow center column.
+    Design: ADR-3 — change clamp reference from .workspace-shell to .center-column in BOTH paths.
+
+    The inline fallback (graph_viewer.html, gated by !window.__brainDsOverflowManaged) is used
+    because the bundled path (viewer.bundle.js) cannot be rebuilt without a build step (T2.6).
+    """
+
+    def _run_node(self, code: str) -> dict:
+        import subprocess, json, tempfile, os
+        # Write code to a temp file to avoid Windows command-line length limits
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(code)
+            tmp_path = f.name
+        try:
+            result = subprocess.run(
+                ["node", tmp_path],
+                capture_output=True, text=True, check=False,
+                cwd=str(Path(__file__).resolve().parents[1]),
+            )
+        finally:
+            os.unlink(tmp_path)
+        if result.returncode != 0:
+            raise AssertionError(
+                f"Node harness failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+            )
+        lines = [l for l in result.stdout.splitlines() if l.strip()]
+        payload = lines[-1] if lines else "{}"
+        try:
+            return json.loads(payload)
+        except json.JSONDecodeError as exc:
+            raise AssertionError(
+                f"Invalid JSON: {payload}\nFull STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+            ) from exc
+
+    def test_inline_overflow_fallback_clamps_to_center_column_bounds(self):
+        """Inline overflow fallback must clamp menu.style.left within .center-column rect.
+
+        Scenario S2.2.c: center column starts at x=264 (left panel width), width=320px narrow.
+        Menu must NOT have left > center_column_right - minWidth (would overflow right).
+        Menu must NOT have left < center_column_left (would overflow left into rail).
+        """
+        import re, tempfile, os, json, subprocess
+
+        template_path = Path(__file__).resolve().parents[1] / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
+        template_text = template_path.read_text(encoding="utf-8")
+
+        # Extract only the last inline script (the main app script)
+        scripts = re.findall(r"<script>([\s\S]*?)</script>", template_text)
+        app_script = scripts[-1] if scripts else ""
+
+        # Extract just the overflow fallback wiring section so we don't need to eval
+        # the entire template script (which uses RENDER_CONTEXT and other globals).
+        overflow_start = app_script.find("// Overflow fallback wiring")
+        overflow_end = app_script.find("// Keep the loading contract", overflow_start)
+        if overflow_end < 0:
+            overflow_end = overflow_start + 5000  # fallback: take a chunk
+        overflow_section = app_script[overflow_start:overflow_end].strip()
+
+        # Write extracted fallback section to a dedicated temp file
+        with tempfile.NamedTemporaryFile(mode="w", suffix="-overflow.js", delete=False, encoding="utf-8") as f:
+            f.write(overflow_section)
+            app_script_path = f.name.replace("\\", "/")
+
+        harness = f"""
+const fs = require("fs");
+// Load only the overflow fallback wiring section extracted from the template
+const appScript = fs.readFileSync({json.dumps(app_script_path)}, "utf8");
+
+class ClassList {{
+  constructor(){{ this.s = new Set(); }}
+  add(c){{ this.s.add(c); }}
+  remove(c){{ this.s.delete(c); }}
+  toggle(c,f){{ if (f===undefined){{ this.s.has(c)?this.s.delete(c):this.s.add(c); }} else {{ f?this.s.add(c):this.s.delete(c); }} }}
+  contains(c){{ return this.s.has(c); }}
+}}
+class El {{
+  constructor(id=""){{ this.id=id; this.classList=new ClassList(); this.attrs={{}}; this.listeners={{}}; this.children=[]; this.innerHTML=""; this.textContent=""; this.hidden=false; this.style={{}}; this.className=""; this.tagName="DIV"; }}
+  addEventListener(t,fn){{ (this.listeners[t] ||= []).push(fn); }}
+  dispatch(t,e={{}}){{ (this.listeners[t]||[]).forEach((fn)=>fn(e)); }}
+  setAttribute(k,v){{ this.attrs[k]=String(v); }}
+  getAttribute(k){{ return this.attrs[k]||null; }}
+  focus(){{ document.activeElement=this; }}
+  appendChild(c){{ this.children.push(c); c.parentNode=this; return c; }}
+  insertBefore(c,r){{ c.parentNode=this; const i=this.children.indexOf(r); if(i>=0)this.children.splice(i,0,c); else this.children.push(c); return c; }}
+  removeChild(c){{ this.children=this.children.filter(x=>x!==c); }}
+  querySelectorAll(){{ return []; }}
+  querySelector(sel){{
+    if(sel&&sel.startsWith("#")) return byId.get(sel.slice(1))||null;
+    return null;
+  }}
+  closest(){{ return document.body; }}
+  getBoundingClientRect(){{ return {{ left:0, top:0, right:1280, bottom:800, width:1280, height:800 }}; }}
+}}
+
+const byId = new Map();
+const centerCol = new El("center-col-mock");
+centerCol.className = "center-column";
+// Narrow center column: starts at x=264, width=320 → right=584
+centerCol.getBoundingClientRect = () => ({{ left:264, top:0, right:584, bottom:800, width:320, height:800 }});
+
+const overflowBtn = new El("overflow-btn-mock");
+overflowBtn.attrs["data-catalog-id"] = "overflow";
+// Overflow button: right edge at 584 (center column right)
+overflowBtn.getBoundingClientRect = () => ({{ left:440, top:0, right:584, bottom:44, width:144, height:44 }});
+
+const body = new El("body");
+
+const document = {{
+  body,
+  activeElement: null,
+  createElement: (t) => {{ const e = new El(); e.tagName = t.toUpperCase(); return e; }},
+  getElementById: (id) => byId.get(id)||null,
+  querySelector: (sel) => {{
+    if(sel===".center-column") return centerCol;
+    if(sel===".workspace-shell") return null;
+    if(sel==='[data-catalog-id="overflow"]') return overflowBtn;
+    if(sel&&sel.startsWith("#")) return byId.get(sel.slice(1))||null;
+    return null;
+  }},
+  querySelectorAll: () => [],
+  addEventListener: () => {{}},
+  removeEventListener: () => {{}},
+  documentElement: new El("html"),
+}};
+
+const windowObj = {{
+  document,
+  __brainDsOverflowManaged: false,
+  innerWidth: 1280,
+  innerHeight: 800,
+  vis: {{ DataSet: function(){{this.update=()=>{{}};this.get=()=>[];this.getIds=()=>[];}}, Network: function(){{ this._h={{}}; this.on=(ev,fn)=>{{this._h[ev]=fn;}}; this.fit=()=>{{}}; this.setOptions=()=>{{}}; this.redraw=()=>{{}}; this.canvas={{focus:()=>{{}}}}; }} }},
+  brainDsUI: {{
+    detailPanel: {{ mount:()=>{{}}, setEditMode:()=>{{}}, setSelectedNodeId:()=>{{}}, renderDetailPanel:()=>{{}} }},
+    search: {{ mount:()=>{{}} }}, filterPanel: {{ mount:()=>{{}}, setAllChecked:()=>{{}} }},
+    scoreFilter: {{ mount:()=>{{}}, setThreshold:()=>{{}} }}, popover: {{ mount:()=>{{}} }}, contextMenu: {{ mount:()=>{{}} }},
+    tree: {{ mount:()=>{{}} }},
+  }},
+  matchMedia: () => ({{ matches:false, addEventListener(){{return;}}, removeEventListener(){{return;}} }}),
+  requestAnimationFrame: (fn) => (fn && fn(), 1),
+  cancelAnimationFrame: () => {{}},
+  setTimeout: (fn) => {{ try {{ fn(); }} catch(e){{}} return 1; }},
+  clearTimeout: () => {{}},
+  addEventListener: () => {{}},
+  removeEventListener: () => {{}},
+}};
+global.window = windowObj;
+global.document = document;
+globalThis.window = windowObj;
+globalThis.document = document;
+
+// Stub functions referenced in the overflow fallback section to prevent ReferenceError
+function applyVisibility() {{}}
+function renderDetailPanel() {{}}
+function setLoadingVisible() {{}}
+function resetFilters() {{}}
+function toggleTheme() {{}}
+function exportJson() {{}}
+function toggleHierarchical() {{}}
+function togglePhysics() {{}}
+function zoomFit() {{}}
+function setEditMode() {{}}
+let firstFrameDone = false;
+let loadingTimer = null;
+
+// Eval the overflow fallback wiring section
+eval(appScript);
+
+// Now trigger the overflow button click to open the menu
+// Track the last div created (the overflow menu div)
+let createdMenu = null;
+const origCreate = document.createElement.bind(document);
+document.createElement = (t) => {{
+  const el = origCreate(t);
+  if(t==="div") createdMenu = el;
+  return el;
+}};
+
+if(overflowBtn.listeners["click"] && overflowBtn.listeners["click"].length > 0) {{
+  overflowBtn.dispatch("click", {{ stopPropagation(){{return;}}, preventDefault(){{return;}} }});
+}}
+
+const menuLeft = createdMenu ? parseFloat(createdMenu.style.left) : null;
+// center-column: left=264, right=584, minWidth=180
+// leftMin = Math.max(8, 264+8) = 272
+// leftMax = Math.max(272, 584-180-8) = 396
+// rawLeft = 584-180 = 404 → clamped down to 396
+// So menu.style.left must be in [272, 396] range
+const columnLeft = 264;
+const columnRight = 584;
+const minWidth = 180;
+const menuInsideColumn = menuLeft !== null && menuLeft >= columnLeft && menuLeft <= (columnRight - minWidth);
+
+console.log(JSON.stringify({{ menuLeft, menuInsideColumn }}));
+"""
+        try:
+            out = self._run_node(harness)
+        finally:
+            try:
+                os.unlink(app_script_path)
+            except OSError:
+                pass
+
+        self.assertIsNotNone(
+            out.get("menuLeft"),
+            "Overflow menu was not created — inline fallback wiring failed or overflow button click not dispatched",
+        )
+        self.assertTrue(
+            out.get("menuInsideColumn"),
+            f"Overflow menu left={out.get('menuLeft')} must be within center-column bounds "
+            f"[{264}, {584 - 180}] (column: left=264, right=584, minWidth=180). Full output: {out}",
         )

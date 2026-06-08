@@ -276,3 +276,57 @@ class TestSearchSlice6PolishContracts(unittest.TestCase):
         """REQ-GVP-6.1: clear button should use icon-x instead of text glyph."""
         src = SEARCH_MODULE.read_text(encoding="utf-8")
         self.assertIn("#icon-x", src)
+
+
+class TestPR1SearchContainmentAndSelectionContracts(unittest.TestCase):
+    """PR1 contracts for containment + selectAndReveal wiring."""
+
+    def test_search_results_remain_absolute(self):
+        src = TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("#search-results", src)
+        self.assertIn("position: absolute", src)
+
+    def test_search_panel_card_is_positioned_ancestor(self):
+        src = TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn(
+            '.panel-card[data-accordion-section="search"] { position: relative; }',
+            src,
+            "Search card must be positioned ancestor for #search-results",
+        )
+
+    def test_search_results_z_index_is_at_least_1200(self):
+        src = TEMPLATE.read_text(encoding="utf-8")
+        match = __import__("re").search(r"#search-results\s*\{[^}]*z-index:\s*(\d+)", src, __import__("re").S)
+        self.assertIsNotNone(match, "#search-results z-index declaration missing")
+        self.assertGreaterEqual(int(match.group(1)), 1200)
+
+    def test_template_declares_select_and_reveal_helper(self):
+        src = TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("const selectAndReveal = (nodeId) =>", src)
+
+    def test_search_mount_onselect_calls_select_and_reveal(self):
+        src = TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("onSelect: (nodeId) => { selectAndReveal(nodeId); }", src)
+
+    def test_select_and_reveal_call_order_contract(self):
+        src = TEMPLATE.read_text(encoding="utf-8")
+        helper_start = src.find("const selectAndReveal = (nodeId) =>")
+        self.assertGreaterEqual(helper_start, 0, "selectAndReveal helper missing")
+        helper_end = src.find("};", helper_start)
+        block = src[helper_start:helper_end]
+        reset_i = block.find("resetHighlight()")
+        emit_i = block.find("network._emit(\"selectNode\", { nodes: [nodeId] })")
+        select_i = block.find("network.selectNodes([nodeId])")
+        focus_i = block.find("focusNode(nodeId)")
+        self.assertTrue(reset_i != -1 and focus_i != -1)
+        self.assertTrue(reset_i < focus_i)
+        self.assertTrue(emit_i == -1 or reset_i < emit_i)
+        self.assertTrue(select_i == -1 or reset_i < select_i)
+
+    def test_select_and_reveal_fails_loudly_without_selection_mechanisms(self):
+        src = TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn(
+            "throw new Error(\"selectAndReveal: network selection APIs unavailable\")",
+            src,
+            "Helper must throw loudly when neither selection mechanism is available",
+        )

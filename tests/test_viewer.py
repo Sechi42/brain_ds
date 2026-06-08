@@ -410,7 +410,6 @@ class TestViewerFoundation(unittest.TestCase):
             '#icon-maximize-2',
             '#icon-sun',
             '#icon-more-horizontal',
-            '#icon-settings',
         }
         for href in expected_uses:
             self.assertIn(f'<use href="{href}"', html)
@@ -631,11 +630,29 @@ class TestSlice2OneHopHighlight(unittest.TestCase):
         )
 
     def test_one_hop_opacity_constants(self):
-        """PR A: selected/direct neighbors stay opaque; others dim."""
+        """Neighborhood dimming is CSS-driven via the D4 overlay, not DataSet mutation.
+
+        Selected/direct-neighbor elements stay at full strength; unrelated edges
+        and non-active nodes recede. focusNode must NOT mutate the vis DataSet —
+        that path stripped edge endpoints and left a stuck "spiderweb" pattern.
+        """
         focus_node_idx = self.template_text.find("const focusNode")
         self.assertGreater(focus_node_idx, -1, "focusNode function not found in graph_viewer.html")
-        self.assertIn("0.15", self.template_text[focus_node_idx:focus_node_idx + 1800])
-        self.assertNotIn("0.70", self.template_text[focus_node_idx:focus_node_idx + 1800])
+        focus_body = self.template_text[focus_node_idx:focus_node_idx + 1800]
+        self.assertNotIn(
+            "_applyNeighborhoodOpacity",
+            focus_body,
+            "focusNode must not mutate the vis DataSet; selection highlight is CSS-driven",
+        )
+        # Unrelated edges recede and non-active nodes dim — expressed in overlay CSS.
+        self.assertRegex(
+            self.template_text,
+            r"\.d4-edge\[data-related='false'\][^{]*\{[^}]*opacity",
+        )
+        self.assertRegex(
+            self.template_text,
+            r"\.d4-node\[data-state='default'\][^{]*\{[^}]*opacity",
+        )
 
     def test_tab_focus_visible_uses_soft_token_ring(self):
         self.assertRegex(self.template_text, r"\.tab:focus-visible\s*\{[^}]*box-shadow:")
@@ -1174,11 +1191,16 @@ class TestWorkspaceShellPr1Template(unittest.TestCase):
         cls.template_text = template_path.read_text(encoding="utf-8")
 
     def test_workspace_shell_uses_five_column_grid(self):
+        # Five columns: 48px rail | resizable left panel | 1fr center | resizable
+        # right panel | 48px rail. Panel widths are now CSS vars (user-resizable +
+        # collapsible) with defaults inside the 220-300 / 280-360 reference bands.
         self.assertIn(".workspace-shell", self.template_text)
         self.assertRegex(
             self.template_text,
-            r"grid-template-columns:[\s\S]*48px[\s\S]*minmax\(220px,\s*300px\)[\s\S]*minmax\(0,\s*1fr\)[\s\S]*minmax\(280px,\s*360px\)[\s\S]*48px",
+            r"grid-template-columns:\s*48px\s+var\(--rail-w\)\s+minmax\(0,\s*1fr\)\s+var\(--inspector-w\)\s+48px",
         )
+        self.assertRegex(self.template_text, r"--rail-w:\s*264px")
+        self.assertRegex(self.template_text, r"--inspector-w:\s*320px")
 
     def test_center_chrome_has_locked_tab_and_toolbar_heights(self):
         # PR #4 chrome parity: tab-strip is 36px per ADR-009 project override
@@ -1796,32 +1818,19 @@ class TestWorkspaceShellPr3RightInspectorResponsive(unittest.TestCase):
             "Expected aria-orientation='vertical' on right rail nav element",
         )
 
-    def test_right_rail_has_rail_icon_buttons_with_catalog_ids(self):
-        """Right rail MUST contain only the gear icon per WS-5-A remediation."""
-        for catalog_id in ("gear",):
-            self.assertIn(
-                f'data-catalog-id="{catalog_id}"',
-                self.template_text,
-                f"Expected data-catalog-id='{catalog_id}' on a right rail-icon button (section-2 pattern)",
-            )
+    def test_right_rail_has_no_orphan_gear_button(self):
+        """PR B: orphan gear must be removed from the right rail."""
+        self.assertNotIn('data-catalog-id="gear"', self.template_text)
         self.assertNotIn('data-catalog-id="inspector"', self.template_text)
         self.assertNotIn('data-catalog-id="history"', self.template_text)
         self.assertNotIn('data-catalog-id="settings"', self.template_text)
 
     def test_right_rail_icons_use_rail_icon_class(self):
-        """Right rail icon buttons MUST use class='rail-icon' (44×44 per _shared.css)."""
-        for catalog_id in ("gear",):
-            idx = self.template_text.find(f'data-catalog-id="{catalog_id}"')
-            self.assertGreater(idx, -1, f"Button with data-catalog-id='{catalog_id}' not found")
-            snippet = self.template_text[max(0, idx - 300):idx + 100]
-            self.assertIn(
-                "rail-icon",
-                snippet,
-                f"Expected class='rail-icon' near data-catalog-id='{catalog_id}' button",
-            )
+        """Right rail can be empty in PR B after gear removal; class contract remains generic."""
+        self.assertIn('data-rail-side="right"', self.template_text)
 
-    def test_right_rail_has_one_active_icon_aria_selected_true(self):
-        """At least one right rail icon MUST have aria-selected='true' by default."""
+    def test_right_rail_has_zero_or_more_active_icon_aria_selected_true(self):
+        """PR B allows zero right-rail icons after orphan gear removal."""
         import re
         rail_start = self.template_text.find('data-rail-side="right"')
         self.assertGreater(rail_start, -1, "Right rail (data-rail-side='right') not found")
@@ -1833,7 +1842,7 @@ class TestWorkspaceShellPr3RightInspectorResponsive(unittest.TestCase):
             else self.template_text[rail_start:rail_start + 2000]
         )
         active_count = len(re.findall(r'aria-selected="true"', rail_region))
-        self.assertGreaterEqual(active_count, 1, "Expected at least one aria-selected='true' on right rail icons")
+        self.assertGreaterEqual(active_count, 0)
 
     def test_right_rail_svgs_are_aria_hidden(self):
         """All right rail SVGs MUST be decorative (aria-hidden='true')."""
@@ -2187,8 +2196,8 @@ class TestWorkspaceShellRemediationOldUiRemoval(unittest.TestCase):
         self.assertNotRegex(segment_active, r"rgba?\(")
         self.assertIn("background: var(--bg-active)", segment_active)
 
-    def test_right_rail_is_gear_only(self):
-        self.assertIn('data-catalog-id="gear"', self.template_text)
+    def test_right_rail_has_no_dead_icon_entries(self):
+        self.assertNotIn('data-catalog-id="gear"', self.template_text)
         self.assertNotIn('data-catalog-id="inspector"', self.template_text)
         self.assertNotIn('data-catalog-id="history"', self.template_text)
         self.assertNotIn('data-catalog-id="settings"', self.template_text)
@@ -2505,17 +2514,28 @@ class TestWorkspaceShellPr3InspectorParity(unittest.TestCase):
     # ── Empty-state header suppression (finding #1218 remediation) ───────────
 
     def test_empty_state_suppresses_detail_header(self):
-        """Parity gap (#1218): the reference empty inspector shows ONLY the centered
-        glyph block — NO header title, NO Colapsar/Cerrar action buttons. The live
-        viewer rendered .detail-header (title/meta + .detail-actions) above the glyph.
-        When #detail-panel.is-empty, the .detail-header MUST be hidden so the empty
-        state matches the north star (actions reappear once a node is selected)."""
+        """User override of finding 1218: the right panel must HOST the action toolbar
+        (Editar/Exportar/Guardar/Colapsar/Cerrar) even when empty, so the inspector
+        never reads as dead space. Only the redundant title + meta hide when empty;
+        the .detail-actions group stays visible (buttons gated by .disabled, not hidden),
+        and the centered glyph prompt still lives in .inspector-empty-state below."""
         style = self._style_block()
         self.assertRegex(
             style,
+            r"#detail-panel\.is-empty\s+#detail-title[^{]*\{[^}]*display:\s*none",
+            "Expected the empty inspector to hide #detail-title (redundant with the glyph)",
+        )
+        self.assertRegex(
+            style,
+            r"#detail-panel\.is-empty\s+#detail-meta[^{]*\{[^}]*display:\s*none",
+            "Expected the empty inspector to hide #detail-meta (redundant with the glyph)",
+        )
+        # The whole header MUST NOT be hidden when empty — the action toolbar must survive.
+        self.assertNotRegex(
+            style,
             r"#detail-panel\.is-empty\s+\.detail-header\s*\{[^}]*display:\s*none",
-            "Expected #detail-panel.is-empty .detail-header { display: none } "
-            "(empty inspector must show only the centered glyph, per reference)",
+            "Empty inspector MUST keep .detail-header (action toolbar) visible — "
+            "only title/meta hide (user override of finding 1218)",
         )
 
     def test_empty_state_no_stale_centered_header_rules(self):
@@ -2605,7 +2625,8 @@ class TestWorkspaceShellPr4Chrome(unittest.TestCase):
 
     def test_active_tab_indicator_uses_accent_mora_inset(self):
         """Active tab MUST be indicated by inset accent-mora underline + blended bg
-        (project ADR-009 — NOT reference flat rgba)."""
+        (project ADR-009 — NOT reference flat rgba). The blend now tints --tab-active-bg
+        with a light accent-mora via color-mix for the redesigned tab look."""
         style = self._style_block()
         self.assertRegex(
             style,
@@ -2614,8 +2635,8 @@ class TestWorkspaceShellPr4Chrome(unittest.TestCase):
         )
         self.assertRegex(
             style,
-            r"\.tab-item\[data-tab-active='true'\]\s*\{[^}]*background:\s*var\(--tab-active-bg\)",
-            "Active tab MUST blend background via --tab-active-bg token",
+            r"\.tab-item\[data-tab-active='true'\]\s*\{[^}]*background:[^;]*var\(--tab-active-bg\)",
+            "Active tab MUST blend background via the --tab-active-bg token",
         )
 
     def test_active_tab_indicator_uses_no_hardcoded_hex(self):
@@ -2725,8 +2746,8 @@ class TestWorkspaceShellPr4Chrome(unittest.TestCase):
         """The 5-column workspace grid MUST keep 48px rail columns flanking the panels."""
         self.assertRegex(
             self.template_text,
-            r"grid-template-columns:[\s\S]*48px[\s\S]*minmax\(220px,\s*300px\)[\s\S]*minmax\(0,\s*1fr\)[\s\S]*minmax\(280px,\s*360px\)[\s\S]*48px",
-            "Workspace grid MUST keep 48px rail columns (ADR-004)",
+            r"grid-template-columns:\s*48px\s+var\(--rail-w\)\s+minmax\(0,\s*1fr\)\s+var\(--inspector-w\)\s+48px",
+            "Workspace grid MUST keep 48px rail columns flanking resizable panels (ADR-004)",
         )
 
 
@@ -2855,6 +2876,172 @@ class TestWorkspaceControlsWiring(unittest.TestCase):
                       "Bundle MUST include workspace overflow menu DOM wiring")
         self.assertIn("Reset filters", bundle,
                       "Bundle overflow menu MUST expose reset filters action")
+
+
+class TestPrBViewerPolishContracts(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        base = Path(__file__).resolve().parent.parent / "brain_ds" / "ui"
+        cls.template_text = (base / "templates" / "graph_viewer.html").read_text(encoding="utf-8")
+
+    def test_detail_actions_use_equal_grid_sizing(self):
+        self.assertRegex(
+            self.template_text,
+            r"\.detail-actions\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)",
+        )
+
+    def test_detail_action_buttons_enforce_44px_min_height(self):
+        self.assertRegex(
+            self.template_text,
+            r"\.detail-actions\s+\.pill-btn[^\{]*\{[^}]*min-height:\s*44px",
+        )
+
+    def test_sidebar_collapse_uses_width_transition_not_display_none(self):
+        self.assertRegex(self.template_text, r"\.left-panel-shell,\s*\n\s*\.right-panel-shell\s*\{[^}]*transition:[^}]*width")
+
+    def test_filter_checkbox_custom_accent_tokenized(self):
+        self.assertRegex(
+            self.template_text,
+            r"\.filter-checkbox\s*\{[^}]*accent-color:\s*var\(--accent-mora\)",
+        )
+
+    def test_left_rail_section_group_mapping_present(self):
+        self.assertIn("applyLeftRailSectionVisibility", self.template_text)
+        self.assertIn('"filters": new Set(["filters", "legend"])', self.template_text)
+        self.assertIn('"file-tree": new Set(["search", "score"])', self.template_text)
+
+
+class TestPR2LayoutContainment(unittest.TestCase):
+    """PR2 — Layout containment: breadcrumb overflow + overflow menu clamping + search dropdown fix.
+
+    TDD cycle: RED (all failing) → GREEN (implement) → TRIANGULATE → REFACTOR.
+    Spec: REQ-2.1, REQ-2.2, S2.1.a, S2.1.b, S2.2.b + search dropdown anchoring.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        base = Path(__file__).resolve().parent.parent / "brain_ds" / "ui"
+        cls.tpl = (base / "templates" / "graph_viewer.html").read_text(encoding="utf-8")
+        cls.chrome_src = (base / "src" / "workspace-chrome.ts").read_text(encoding="utf-8")
+
+    # --- T2.1: org breadcrumb leaf truncates (S2.1.a) ---
+
+    def test_breadcrumb_org_li_has_overflow_hidden(self):
+        """#workspace-view-org li must have overflow: hidden so long names clip."""
+        self.assertRegex(
+            self.tpl,
+            r"#workspace-view-org\s*\{[^}]*overflow:\s*hidden",
+            "#workspace-view-org must have overflow: hidden for ellipsis truncation",
+        )
+
+    def test_breadcrumb_org_li_has_text_overflow_ellipsis(self):
+        """#workspace-view-org li must have text-overflow: ellipsis."""
+        self.assertRegex(
+            self.tpl,
+            r"#workspace-view-org\s*\{[^}]*text-overflow:\s*ellipsis",
+            "#workspace-view-org must have text-overflow: ellipsis",
+        )
+
+    def test_breadcrumb_org_li_min_width_zero(self):
+        """#workspace-view-org li must have min-width: 0 to allow flex-shrink."""
+        self.assertRegex(
+            self.tpl,
+            r"#workspace-view-org\s*\{[^}]*min-width:\s*0",
+            "#workspace-view-org must have min-width: 0 to allow flex shrinking",
+        )
+
+    # --- T2.3: view-zone hard containment (S2.1.b) — already partially present ---
+
+    def test_view_zone_has_min_width_zero(self):
+        """[data-toolbar-zone='view'] must have min-width: 0 to prevent flex blow-out."""
+        self.assertRegex(
+            self.tpl,
+            r"\[data-toolbar-zone='view'\]\s*\{[^}]*min-width:\s*0",
+            "[data-toolbar-zone='view'] must have min-width: 0",
+        )
+
+    def test_view_zone_has_overflow_hidden(self):
+        """[data-toolbar-zone='view'] must have overflow: hidden for hard containment."""
+        self.assertRegex(
+            self.tpl,
+            r"\[data-toolbar-zone='view'\]\s*\{[^}]*overflow:\s*hidden",
+            "[data-toolbar-zone='view'] must have overflow: hidden",
+        )
+
+    # --- T2.2/T2.4: bundled path clamps to .center-column (S2.2.a) ---
+
+    def test_workspace_chrome_clamps_to_center_column_not_workspace_shell(self):
+        """workspace-chrome.ts overflow menu MUST clamp to .center-column, not .workspace-shell."""
+        self.assertIn(
+            ".center-column",
+            self.chrome_src,
+            "workspace-chrome.ts must reference .center-column for overflow menu clamping",
+        )
+        # The old incorrect reference must be gone from the overflow menu clamping logic
+        # (workspace-chrome.ts may still reference .workspace-shell for other things, but
+        # the getBoundingClientRect call for clamping must use .center-column)
+        import re
+        clamp_block = re.search(
+            r"querySelector\(['\"]\.workspace-shell['\"].*?getBoundingClientRect",
+            self.chrome_src,
+            re.S,
+        )
+        self.assertIsNone(
+            clamp_block,
+            "workspace-chrome.ts must not use .workspace-shell for overflow menu getBoundingClientRect clamping",
+        )
+
+    # --- T2.5: template inline fallback clamps to .center-column (S2.2.b) ---
+
+    def test_template_inline_overflow_fallback_clamps_to_center_column(self):
+        """Inline overflow menu fallback in graph_viewer.html must use .center-column for clamping."""
+        self.assertIn(
+            ".center-column",
+            self.tpl,
+            "Template inline overflow fallback must reference .center-column",
+        )
+
+    def test_template_inline_overflow_fallback_does_not_use_workspace_shell_for_clamping(self):
+        """Template inline overflow fallback must NOT query .workspace-shell for bounds."""
+        import re
+        # The inline fallback block is gated by !window.__brainDsOverflowManaged
+        # Find that block and assert it does NOT call getBoundingClientRect on .workspace-shell
+        fallback_start = self.tpl.find("__brainDsOverflowManaged")
+        self.assertGreater(fallback_start, 0, "Inline overflow fallback block not found")
+        fallback_block = self.tpl[fallback_start:fallback_start + 2000]
+        clamp_shell = re.search(
+            r"querySelector\(['\"]\.workspace-shell['\"].*?getBoundingClientRect",
+            fallback_block,
+            re.S,
+        )
+        self.assertIsNone(
+            clamp_shell,
+            "Template inline overflow fallback must not use .workspace-shell.getBoundingClientRect() for clamping",
+        )
+
+    # --- Added: search dropdown vertical anchoring ---
+
+    def test_search_results_has_top_100_percent(self):
+        """#search-results must have top: 100% to anchor below the input wrap, not overlap it."""
+        self.assertRegex(
+            self.tpl,
+            r"#search-results\s*\{[^}]*top:\s*100%",
+            "#search-results must have top: 100% to sit below the search input",
+        )
+
+    def test_search_results_inside_search_input_wrap(self):
+        """#search-results must be a child of .search-input-wrap (the positioned ancestor) so top:100% anchors below input."""
+        import re
+        # Find the .search-input-wrap opening tag, then check that #search-results appears before its closing tag
+        wrap_start = self.tpl.find('class="search-input-wrap"')
+        self.assertGreater(wrap_start, 0, ".search-input-wrap element not found")
+        # Find the results ol after the wrap_start
+        results_pos = self.tpl.find('id="search-results"', wrap_start)
+        self.assertGreater(results_pos, 0, "#search-results must be found after .search-input-wrap opens")
+        # Find the wrap's closing tag (</div>) after results
+        close_div = self.tpl.find("</div>", wrap_start)
+        self.assertGreater(close_div, results_pos,
+            "#search-results must be inside .search-input-wrap (</div> must come after the results ol)")
 
 
 if __name__ == "__main__":

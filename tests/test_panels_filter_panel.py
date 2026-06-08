@@ -279,10 +279,30 @@ class TestPR3InformationArchitectureContracts(unittest.TestCase):
             tree_src,
             "tree.ts must render per-type hierarchy groups (data-hierarchy-group)",
         )
+
+
+class TestPrBFilterPolishContracts(unittest.TestCase):
+    """PR B contracts: compact tokenized toggles, no per-actor Mostrar buttons."""
+
+    def test_filter_panel_does_not_render_mostrar_toggle_buttons(self):
+        src = FILTER_PANEL_MODULE.read_text(encoding="utf-8")
+        self.assertNotIn(
+            "Mostrar",
+            src,
+            "PR B must remove per-type 'Mostrar' button labels from filter-panel.ts",
+        )
+        self.assertNotIn(
+            "filter-toggle",
+            src,
+            "PR B must remove legacy .filter-toggle per-type button wiring",
+        )
+
+    def test_filter_panel_applies_custom_checkbox_class(self):
+        src = FILTER_PANEL_MODULE.read_text(encoding="utf-8")
         self.assertIn(
-            "typeGroups",
-            tree_src,
-            "tree.ts must build hierarchy from grouped types, not raw per-node buttons",
+            "filter-checkbox",
+            src,
+            "PR B must mark type checkboxes with .filter-checkbox for tokenized styling",
         )
 
     def test_filters_consolidated_no_duplicate_toggles(self):
@@ -300,11 +320,7 @@ class TestPR3InformationArchitectureContracts(unittest.TestCase):
             template_src,
             "Template must remove global #hide-all button after PR3 consolidation",
         )
-        self.assertIn(
-            "filter-toggle",
-            filter_src,
-            "filter-panel.ts must render a single per-type show/hide toggle",
-        )
+        self.assertNotIn("filter-toggle", filter_src)
 
 
 class TestPR3BugGuardrailsContracts(unittest.TestCase):

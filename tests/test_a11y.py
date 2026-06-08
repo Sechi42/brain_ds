@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parent.parent
 RENDERER_TS = ROOT / "brain_ds" / "ui" / "src" / "renderer.ts"
 SEARCH_TS = ROOT / "brain_ds" / "ui" / "src" / "panels" / "search.ts"
 CONTEXT_MENU_TS = ROOT / "brain_ds" / "ui" / "src" / "interactions" / "context-menu.ts"
+VIEWER_TEMPLATE = ROOT / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
 
 
 def _sample_context():
@@ -65,6 +66,13 @@ class TestA11ySlice9Contracts(unittest.TestCase):
             r"_contextMenuState\.target.*focus\(",
             "Closing context menu must restore focus to the trigger element",
         )
+
+    def test_global_shortcuts_ignore_text_inputs_contract(self):
+        src = VIEWER_TEMPLATE.read_text(encoding="utf-8")
+        self.assertRegex(src, r"addEventListener\(\s*\"keydown\"")
+        self.assertRegex(src, r"isContentEditable")
+        self.assertRegex(src, r"tagName\s*===\s*\"INPUT\"")
+        self.assertRegex(src, r"tagName\s*===\s*\"TEXTAREA\"")
 
 
 if __name__ == "__main__":
