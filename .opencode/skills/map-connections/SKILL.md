@@ -1,7 +1,7 @@
 ---
 name: map-connections
 description: |
-  Build a deterministic relationship map across domain entities captured in Engram.
+  Build a deterministic relationship map across domain entities stored in SQLite.
   Trigger: /map-connections, /map-connections --graph, or /map-connections --save
 license: MIT
 disable-model-invocation: true
@@ -36,40 +36,41 @@ Default mode is read-only.
 Resolve org first (priority: `--org` > `session/active-org` > `default`) and echo:
 `Resolved organization: <name> (<source>)`.
 
-Run these **12 queries in parallel**:
+Run typed SQLite retrievals against the resolved org graph.
 
-| # | Query | Target |
-|---|---|---|
-| 1 | `[Department]` | Department entities |
-| 2 | `[Role]` | Role entities |
-| 3 | `[Data Source]` | Data Source entities |
-| 4 | `[Heuristic]` | Heuristic entities |
-| 5 | `[Tacit Knowledge]` | Tacit Knowledge entities |
-| 6 | `[Problem / Improvement Area]` | Problem or improvement area entities |
-| 7 | `[Project]` | Project entities |
-| 8 | `[Risk]` | Risk entities |
-| 9 | `[Decision]` | Decision entities |
-| 10 | `domain/` | Catch-all for entities not bracket-tagged |
-| 11 | `[KPI]` | KPI entities |
-| 12 | `[Solution]` | Solution entities |
+### Required MCP reads
 
-Then:
-1. Dedupe by observation ID across all query results.
-2. For **every** unique ID, call `mem_get_observation(id)`.
-3. Never analyze only `mem_search` previews; previews are truncated.
-4. Filter scoped records:
-   - Include `org/<resolved-slug>/domain/...`
-   - Include legacy `domain/...` only when resolved slug = `default`
-   - Exclude all other org prefixes
-5. Never merge multiple org prefixes into one report.
-6. If no explicit org, no `session/active-org`, and resolved `default` returns zero scoped + legacy records, emit guard warning in the main output: `No organization set. Graph may show mixed or incomplete data. Use /elicit-context --org <name|slug> to target one organization.`
+```json
+[
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "Department"},
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "Role"},
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "Data Source"},
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "Heuristic"},
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "Tacit Knowledge"},
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "Problem / Improvement Area"},
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "Project"},
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "Risk"},
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "Decision"},
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "KPI"},
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "Solution"},
+  {"tool": "search_graph", "graph_id": "<resolved-org-slug>", "query": "<targeted substring only when needed>"}
+]
+```
+
+Rules:
+1. `list_nodes` is the PRIMARY retrieval path. Use one typed call per entity family to build the complete dataset.
+2. Use `search_graph` only for targeted substring expansion inside the same resolved org graph.
+3. Never use `mem_search` / `mem_get_observation` for org domain retrieval in this workflow.
+4. Never mix multiple graph IDs in one report.
+5. If the resolved graph returns zero nodes, emit: `No domain knowledge captured yet in SQLite. Run /elicit-context first to populate the organization graph.`
+6. typed SQL filters are not equivalent to Engram substring search. validate the difference on a seeded vault before assuming parity.
 
 ## Parsing and Normalization
 
-For each full observation:
-1. Parse entity type from title tag using canonical names from `brain_ds.ontology.EntityType` (including `Organization` when present in graph outputs).
-2. Extract `name` from title remainder.
-3. Normalize body fields:
+For each SQLite node:
+1. Read entity type from `type` using canonical names from `brain_ds.ontology.EntityType` (including `Organization` when present in graph outputs).
+2. Extract `name` from `label`.
+3. Normalize body fields from `details`:
    - `What`
    - `Why`
    - `Where`
@@ -244,8 +245,8 @@ Edge scoring fields are optional and backward-compatible:
 - `evidence_ids`: supporting observation IDs used by scoring
 
 Rules:
-- Always run the same 12-query retrieval workflow, dedupe IDs, and fetch full records with `mem_get_observation`.
-- Build top-level `evidence[]` records from deduped observations (`id`, `type`, `source`, `content`, `provenance`, `timestamp`).
+- Always run the SQLite retrieval workflow above.
+- Build top-level `evidence[]` records from node/edge evidence already stored in SQLite when available; otherwise emit an empty list.
 - Every node SHOULD include `card_sections` when `details` content exists; if all detail fields are empty, set `card_sections` to `null`.
 - Every node SHOULD include `evidence_ids` linking to `evidence[].id` when source observations are known; use `null` when unavailable.
 - Edges MUST keep `evidence_ids` linked to the same `evidence[].id` namespace used by nodes.
@@ -258,17 +259,15 @@ Rules:
 Use only when command includes both `--graph-json` and `--save`:
 
 ```json
-{
-  "title": "[Graph JSON] Domain graph {YYYY-MM-DD}",
-  "type": "discovery",
-  "scope": "project",
-  "topic_key": "org/{resolved-org-slug}/domain/graph-json/{YYYY-MM-DD}",
-  "content": "<graph json plus short generation summary>",
-  "project": "brain_ds"
-}
+[
+  {"tool": "create_graph", "graph_id": "<resolved-org-slug>", "name": "<resolved-org-name>", "project": "brain_ds"},
+  {"tool": "update_node", "graph_id": "<resolved-org-slug>", "node_id": "<node-id>", "label": "<label>", "type": "<EntityType value>", "supertype": "<EntityType supertype>", "details": {"what": "...", "why": "...", "where": "...", "learned": "..."}},
+  {"tool": "add_edge", "graph_id": "<resolved-org-slug>", "source": "<source-node-id>", "target": "<target-node-id>", "label": "<RelationshipType value>"}
+]
 ```
 
-If `--save` is absent, do NOT call `mem_save`.
+If `create_graph` reports that the graph already exists, continue with `update_node` / `add_edge`.
+If `--save` is absent, do NOT persist the generated graph back to SQLite.
 
 ## Graph UI Automation Mode (`--graph-ui`)
 
@@ -376,18 +375,9 @@ Canonical contract note (spec-facing):
 
 Use only when command is `/map-connections --save`:
 
-```json
-{
-  "title": "[Map] Domain connection map {YYYY-MM-DD}",
-  "type": "discovery",
-  "scope": "project",
-  "topic_key": "org/{resolved-org-slug}/domain/map/{YYYY-MM-DD}",
-  "content": "<full markdown report>",
-  "project": "brain_ds"
-}
-```
-
-If command is `/map-connections` or `/map-connections --graph` (without `--save`), do NOT call `mem_save`.
+1. Keep the inline Markdown report for the user.
+2. Persist any newly synthesized nodes/edges with the same `create_graph` → `update_node` → `add_edge` SQLite MCP sequence.
+3. Do NOT use Engram as the source of truth for org/domain graph persistence.
 
 ## Org Scoping Examples
 
