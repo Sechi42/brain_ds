@@ -27,4 +27,14 @@ openspec/
 .opencode/*preview*.png
 .opencode/*preview*.json
 .opencode/*preview*.md
+.opencode/*.png
+.opencode/prb-review.html
 phase5_offline_viewer.html
+
+# Throwaway test screenshots
+after-*.png
+live-*.png
+review-*.png
+
+# Temporary test artifacts
+tmp/
