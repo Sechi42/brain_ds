@@ -14,7 +14,7 @@ metadata:
 
 ## When to Use
 - Run ONLY when the user explicitly triggers `/elicit-context`.
-- Goal: capture high-value domain knowledge as structured Engram discoveries.
+- Goal: capture high-value domain knowledge as structured SQLite graph entities.
 - Session limit: max 5 questions per run. Continue later with another `/elicit-context` session.
 
 ## Entity Schema Representation
@@ -40,15 +40,16 @@ Canonical source of truth: `brain_ds.ontology.EntityType`.
 2. Wait for the user response before anything else.
 3. Resolve organization first (priority: `--org <name|slug>` > `session/active-org` > `default`).
 4. Echo `Resolved organization: <name> (<source>)` before persisting.
-5. Interpret response into one of the entity types.
-6. If user says `skip`, `pass`, or `next`, mark current item as unanswered and continue.
-7. Stop after 5 asked questions OR when user says `done`, `save`, or `stop`.
-8. Show a summary draft of captured observations.
-9. Run the **Remaining Gaps / Follow-up Needed** check (below) before confirmation.
-10. Show a `Remaining Gaps / Follow-up Needed` section listing all missing or underspecified items.
-11. Ask for explicit confirmation before persistence: `Confirm save? (yes/no/edit)`.
-12. If `edit`, apply requested edits and re-show summary + remaining gaps before asking confirmation again.
-13. Persist only after explicit `yes`/`save`.
+5. Ask Data Source questions before Department/Role questions whenever coverage is still missing.
+6. Interpret response into one of the entity types.
+7. If user says `skip`, `pass`, or `next`, mark current item as unanswered and continue.
+8. Stop after 5 asked questions OR when user says `done`, `save`, or `stop`.
+9. Show a summary draft of captured observations.
+10. Run the **Remaining Gaps / Follow-up Needed** check (below) before confirmation.
+11. Show a `Remaining Gaps / Follow-up Needed` section listing all missing or underspecified items.
+12. Ask for explicit confirmation before persistence: `Confirm save? (yes/no/edit)`.
+13. If `edit`, apply requested edits and re-show summary + remaining gaps before asking confirmation again.
+14. Persist only after explicit `yes`/`save`.
 
 ### Organization Resolution Contract (Slice 1)
 
@@ -62,15 +63,15 @@ Canonical source of truth: `brain_ds.ontology.EntityType`.
   - spaces, `_`, `/` -> `-`
   - strip chars outside `[a-z0-9-]`
   - collapse repeated `-`
-- Collision handling: if slug already maps to a different organization name, STOP and request explicit slug/name correction before saving.
+- Collision handling: if `create_graph(graph_id=<slug>)` indicates the slug belongs to a different organization name, STOP and request explicit slug/name correction before saving.
 
 ### Remaining Gaps / Follow-up Needed (MANDATORY before save)
 
 The interview is **not complete** unless you explicitly evaluate coverage for all ten entities:
 - Organization
+- Data Source
 - Department
 - Role
-- Data Source
 - Heuristic
 - Tacit Knowledge
 - Problem / Improvement Area
@@ -115,9 +116,9 @@ Use these as defaults. Ask one at a time.
 | Entity | Questions |
 |---|---|
 | Organization | 1) What is the organization name? 2) What industry and region should we register for this org? |
+| Data Source | 1) What systems/files/APIs feed this process? 2) Which data source is least trusted and why? |
 | Department | 1) Which departments participate in this workflow? 2) Which department owns final accountability for the outcome? |
 | Role | 1) Who makes the key decisions day-to-day? 2) Which role is blocked most often and why? |
-| Data Source | 1) What systems/files/APIs feed this process? 2) Which data source is least trusted and why? |
 | Heuristic | 1) What manual rules do people apply when data is incomplete? 2) Which shortcut is used to decide faster under pressure? |
 | Tacit Knowledge | 1) What critical knowledge exists only in people's heads? 2) What do experienced teammates know that new hires usually miss? |
 | Problem / Improvement Area | 1) What problem or improvement area is slowing the workflow or creating risk? 2) What workaround appears most frequently? |
@@ -134,79 +135,95 @@ Validation prompts (mandatory when data is inconsistent or incomplete):
 - Solution linkage: if no related KPI or Problem / Improvement Area is provided, ask: `What KPI does this improve, or what problem/improvement area does it resolve?`
 - Decision depth: if rationale or alternatives are missing, ask: `What made you choose this option over the alternatives?`
 
-## Engram mem_save Templates
+## SQLite MCP Write Contracts
 
-For each confirmed observation, use:
+For each confirmed save, persist domain entities to SQLite in this order:
 
-```text
-title: "[EntityType] <short-name>"
-type: "discovery"
-scope: "project"
-topic_key: "org/<org-slug>/domain/<entity-type-slug>/<short-name-slug>"
-content:
-  **What**: <fact captured>
-  **Why**: <business motivation / impact>
-  **Where**: <org/process/system location>
-  **Learned**: <non-obvious nuance, heuristic, problem, or improvement area>
-```
-
-Topic key rules (mandatory):
-- Organization entity: `org/<org-slug>/organization/<org-slug>`
-- Domain entities: `org/<org-slug>/domain/<entity-type-slug>/<short-name-slug>`
-- Never write new domain records to bare `domain/...` in Slice 1.
-
-Entity tags are mandatory in title (e.g., `[Department]`, `[Role]`, `[Data Source]`, `[Heuristic]`, `[Tacit Knowledge]`, `[Problem / Improvement Area]`).
-
-KPI/Solution/Decision capture templates (additive contract):
+1. Ensure the org graph exists:
 
 ```json
 {
-  "title": "[KPI] <short-name>",
-  "type": "discovery",
-  "scope": "project",
-  "topic_key": "org/<org-slug>/domain/kpi/<short-name-slug>",
-  "content": "**What**: <KPI description>\n**Why**: <business impact of improving this KPI>\n**Where**: <team/process/system context>\n**Learned**: Target: <value>; Current: <value>; Unit: <unit>; Frequency: <cadence>; Owner: <dept/role>; Data Source: <source>; Related Problems / Improvement Areas: <names>; Related Solutions: <names>",
-  "project": "brain_ds"
+  "tool": "create_graph",
+  "args": {
+    "graph_id": "<org-slug>",
+    "name": "<org-name>",
+    "project": "brain_ds"
+  }
 }
 ```
 
-```json
-{
-  "title": "[Solution] <short-name>",
-  "type": "discovery",
-  "scope": "project",
-  "topic_key": "org/<org-slug>/domain/solution/<short-name-slug>",
-  "content": "**What**: <operational improvement proposed/implemented>\n**Why**: <problem being solved and expected impact>\n**Where**: <workflow/process location>\n**Learned**: Status: <proposed|in-progress|completed|deprecated> (default: proposed when omitted); Effort: <low|med|high>; Owner: <dept/role>; Related KPIs: <names>; Related Problems / Improvement Areas: <names>; Related Decisions: <names>",
-  "project": "brain_ds"
-}
-```
+- Call `create_graph` once per save batch.
+- If it reports the graph already exists, continue — do NOT abort.
+
+2. Save each confirmed entity with `update_node`:
 
 ```json
 {
-  "title": "[Decision] <short-name>",
-  "type": "discovery",
-  "scope": "project",
-  "topic_key": "org/<org-slug>/domain/decision/<short-name-slug>",
-  "content": "**What**: <decision summary>\n**Why**: <rationale for choosing this option>\n**Where**: <domain/product/architecture area impacted>\n**Learned**: Alternatives: <list>; Supersedes: <decision or none>; Version: <n>; Date: <ISO date>; Impacts KPIs: <names>; Authorizes Solutions: <names>",
-  "project": "brain_ds"
+  "tool": "update_node",
+  "args": {
+    "graph_id": "<org-slug>",
+    "node_id": "<org-slug>-<entity-type-slug>-<short-name-slug>",
+    "label": "<short-name>",
+    "type": "<EntityType value>",
+    "supertype": "<EntityType supertype>",
+    "details": {
+      "what": "<fact captured>",
+      "why": "<business motivation / impact>",
+      "where": "<org/process/system location>",
+      "learned": "<non-obvious nuance, heuristic, problem, or improvement area>"
+    }
+  }
 }
 ```
+
+Node id rules (mandatory):
+- Organization entity: `<org-slug>-organization-<org-slug>`
+- Domain entities: `<org-slug>-<entity-type-slug>-<short-name-slug>`
+
+3. Save confirmed relationships with `add_edge`:
+
+```json
+{
+  "tool": "add_edge",
+  "args": {
+    "graph_id": "<org-slug>",
+    "source": "<source-node-id>",
+    "target": "<target-node-id>",
+    "label": "<RelationshipType value>"
+  }
+}
+```
+
+KPI/Solution/Decision details must stay additive inside `details.learned`:
+- KPI: include target/current/unit/frequency/owner/data source/related problems/related solutions.
+- Solution: include status/effort/owner/related KPIs/related problems/related decisions.
+- Decision: include alternatives/supersedes/version/date/impacted KPIs/authorized solutions.
+
+Keep `session/active-org` in Engram via `mem_save`; it remains session state, NOT domain truth.
 
 Semantic boundary (strict):
 - **Solution** = WHAT operational improvement is proposed/implemented.
 - **Decision** = WHY a strategic/architectural/product choice was made.
 - If user mixes both in one answer, split into two draft observations before confirmation.
 
-### Copy-paste mem_save example
+### Copy-paste `update_node` example
 
 ```json
 {
-  "title": "[Heuristic] Delay triage over 20 minutes",
-  "type": "discovery",
-  "scope": "project",
-  "topic_key": "org/logitrans/domain/heuristic/delay-triage-over-20-minutes",
-  "content": "**What**: Dispatchers reroute manually when predicted delay exceeds 20 minutes.\n**Why**: SLA penalties rise quickly after 20 minutes and auto-routing is too slow in peak hours.\n**Where**: Operations control room, afternoon dispatch workflow.\n**Learned**: Team ignores model confidence when weather alerts are active.",
-  "project": "brain_ds"
+  "tool": "update_node",
+  "args": {
+    "graph_id": "logitrans",
+    "node_id": "logitrans-heuristic-delay-triage-over-20-minutes",
+    "label": "Delay triage over 20 minutes",
+    "type": "Heuristic",
+    "supertype": "process",
+    "details": {
+      "what": "Dispatchers reroute manually when predicted delay exceeds 20 minutes.",
+      "why": "SLA penalties rise quickly after 20 minutes and auto-routing is too slow in peak hours.",
+      "where": "Operations control room, afternoon dispatch workflow.",
+      "learned": "Team ignores model confidence when weather alerts are active."
+    }
+  }
 }
 ```
 
@@ -216,7 +233,7 @@ Semantic boundary (strict):
 - User: "A daily Excel extract and the fleet_postgres.deliveries table."
 - Agent: "Draft summary: [Data Source] Daily Excel + deliveries table. Confirm save? (yes/no/edit)"
 - User: "yes"
-- Agent: Calls `mem_save` with entity tag and What/Why/Where/Learned.
+- Agent: Calls `create_graph` (continue on already-exists), then `update_node` for the Data Source.
 
 ## Remaining Gaps Example (before final confirmation)
 
@@ -238,8 +255,8 @@ Remaining Gaps / Follow-up Needed
 
 ## Output Contract for Future Skills
 
-- Keep `type: discovery` and org-scoped topic keys stable.
-- Prefix all domain entities with `org/<org-slug>/domain/...`.
+- Keep node ids stable as `<org-slug>-<entity-type-slug>-<short-name-slug>`.
+- Persist domain entities through MCP SQLite tools, not `mem_save`.
 - Save active org context in `session/active-org` whenever org is explicitly selected or created.
 - This enables `/map-connections` to map links between departments, roles, and data sources.
 - This enables `/generate-brd` to synthesize requirements from verified heuristics, tacit knowledge, and problems/improvement areas.
@@ -249,9 +266,9 @@ Remaining Gaps / Follow-up Needed
 | Case | Input | Expected |
 |---|---|---|
 | Slugging | `--org LogiTrans Logistics` | resolved slug `logitrans-logistics`; `Resolved organization: LogiTrans Logistics (explicit)` |
-| Collision stop | incoming slug exists but different org display name | stop and ask for explicit disambiguation before any `mem_save` |
-| First capture | no active org, user sets `--org` | save org entity at `org/<slug>/organization/<slug>` and write `session/active-org` |
-| Implicit default | no `--org`, no active state | warning + save to `org/default/domain/...` |
+| Collision stop | incoming slug exists but different org display name | stop and ask for explicit disambiguation before any `update_node` |
+| First capture | no active org, user sets `--org` | ensure graph with `create_graph(graph_id=<slug>)`, save org node id `<slug>-organization-<slug>`, and write `session/active-org` |
+| Implicit default | no `--org`, no active state | warning + save to graph `default` with node ids prefixed `default-...` |
 
 ## KPI / Solution / Decision Worked Examples
 

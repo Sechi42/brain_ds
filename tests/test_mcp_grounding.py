@@ -10,8 +10,8 @@ from brain_ds.scoring.engine import ScoringEngine
 from brain_ds.mcp.grounding import (
     QUESTION_BANK,
     ORG_SLUG_RULES,
-    TOPIC_KEY_FORMAT,
-    MEM_SAVE_TEMPLATES,
+    NODE_ID_FORMAT,
+    NODE_WRITE_TEMPLATES,
     CONNECTION_RULES,
     BRD_SECTION_ORDER,
     SECTION_RULES,
@@ -84,13 +84,21 @@ class TestCat2Accessors(unittest.TestCase):
     def test_org_slug_rules_nonempty(self) -> None:
         self.assertTrue(ORG_SLUG_RULES)
 
-    def test_topic_key_format_nonempty(self) -> None:
-        self.assertIsInstance(TOPIC_KEY_FORMAT, str)
-        self.assertTrue(TOPIC_KEY_FORMAT)
+    def test_node_id_format_nonempty(self) -> None:
+        self.assertIsInstance(NODE_ID_FORMAT, str)
+        self.assertTrue(NODE_ID_FORMAT)
 
-    def test_mem_save_templates_nonempty_dict(self) -> None:
-        self.assertIsInstance(MEM_SAVE_TEMPLATES, dict)
-        self.assertGreater(len(MEM_SAVE_TEMPLATES), 0)
+    def test_node_write_templates_nonempty_dict(self) -> None:
+        self.assertIsInstance(NODE_WRITE_TEMPLATES, dict)
+        self.assertGreater(len(NODE_WRITE_TEMPLATES), 0)
+
+    def test_question_bank_prioritizes_data_source_before_department_and_role(self) -> None:
+        ordered_keys = list(QUESTION_BANK.keys())
+        data_source_index = ordered_keys.index("Data Source")
+        department_index = ordered_keys.index("Department")
+        role_index = ordered_keys.index("Role")
+        self.assertLess(data_source_index, department_index)
+        self.assertLess(data_source_index, role_index)
 
     def test_connection_rules_nonempty(self) -> None:
         self.assertTrue(CONNECTION_RULES)
@@ -119,10 +127,15 @@ class TestComposerReturnShapes(unittest.TestCase):
             "base_weights",
             "question_bank",
             "org_slug_rules",
-            "topic_key_format",
-            "mem_save_templates",
+            "node_id_format",
+            "node_write_templates",
         }
         self.assertEqual(set(result.keys()), expected_keys)
+
+    def test_elicit_context_omits_legacy_engram_keys(self) -> None:
+        result = elicit_context()
+        self.assertNotIn("topic_key_format", result)
+        self.assertNotIn("mem_save_templates", result)
 
     def test_map_connections_context_has_4_keys(self) -> None:
         result = map_connections_context()
@@ -131,18 +144,34 @@ class TestComposerReturnShapes(unittest.TestCase):
             "connection_rules",
             "relationship_labels",
             "scoring_factors",
+            "retrieval_contract",
         }
         self.assertEqual(set(result.keys()), expected_keys)
 
-    def test_generate_brd_context_has_4_keys(self) -> None:
+    def test_map_connections_context_retrieval_contract_mentions_sqlite_queries(self) -> None:
+        result = map_connections_context()
+        retrieval_contract = result["retrieval_contract"]
+        self.assertIn("list_nodes(graph_id=<slug>, type=<EntityType>)", retrieval_contract)
+        self.assertIn("search_graph(graph_id=<slug>, query=<text>)", retrieval_contract)
+        self.assertIn("typed SQL filters are not equivalent to Engram substring search", retrieval_contract)
+
+    def test_generate_brd_context_has_5_keys(self) -> None:
         result = generate_brd_context()
         expected_keys = {
             "entity_types",
             "brd_section_order",
             "section_rules",
             "completeness_matrix_template",
+            "retrieval_contract",
         }
         self.assertEqual(set(result.keys()), expected_keys)
+
+    def test_generate_brd_context_retrieval_contract_mentions_seeded_vault_validation(self) -> None:
+        result = generate_brd_context()
+        retrieval_contract = result["retrieval_contract"]
+        self.assertIn("list_nodes(graph_id=<slug>, type=<EntityType>)", retrieval_contract)
+        self.assertIn("search_graph(graph_id=<slug>, query=<text>)", retrieval_contract)
+        self.assertIn("validate retrieval changes on a seeded vault", retrieval_contract)
 
 
 if __name__ == "__main__":

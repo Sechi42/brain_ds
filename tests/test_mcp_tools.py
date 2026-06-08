@@ -353,8 +353,8 @@ class MCPToolsTests(unittest.TestCase):
         # Category-2 keys are truthy.
         self.assertTrue(result["question_bank"])
         self.assertTrue(result["org_slug_rules"])
-        self.assertTrue(result["topic_key_format"])
-        self.assertTrue(result["mem_save_templates"])
+        self.assertTrue(result["node_id_format"])
+        self.assertTrue(result["node_write_templates"])
 
     def test_map_connections_returns_context(self) -> None:
         from brain_ds.scoring.engine import ScoringEngine

@@ -71,6 +71,10 @@ QUESTION_BANK: dict[str, list[str]] = {
         "What is the organization name?",
         "What industry and region should we register for this org?",
     ],
+    "Data Source": [
+        "What systems/files/APIs feed this process?",
+        "Which data source is least trusted and why?",
+    ],
     "Department": [
         "Which departments participate in this workflow?",
         "Which department owns final accountability for the outcome?",
@@ -78,10 +82,6 @@ QUESTION_BANK: dict[str, list[str]] = {
     "Role": [
         "Who makes the key decisions day-to-day?",
         "Which role is blocked most often and why?",
-    ],
-    "Data Source": [
-        "What systems/files/APIs feed this process?",
-        "Which data source is least trusted and why?",
     ],
     "Heuristic": [
         "What manual rules do people apply when data is incomplete?",
@@ -121,75 +121,85 @@ ORG_SLUG_RULES: dict[str, object] = {
         "collapse repeated -",
     ],
     "collision_handling": (
-        "If slug already maps to a different organization name, STOP and request "
-        "explicit slug/name correction before saving."
+        "If create_graph reports that the slug already belongs to a different "
+        "organization name, STOP and request explicit slug/name correction before saving."
     ),
 }
 
-# Source: skills/elicit-context/SKILL.md "Engram mem_save Templates" topic key rules — keep in sync (skills frozen this change).
-TOPIC_KEY_FORMAT: str = (
-    "Organization entity: org/<org-slug>/organization/<org-slug>\n"
-    "Domain entities: org/<org-slug>/domain/<entity-type-slug>/<short-name-slug>"
+# Source: skills/elicit-context/SKILL.md "SQLite node id rules" — keep in sync.
+NODE_ID_FORMAT: str = (
+    "Domain node id: <org-slug>-<entity-type-slug>-<short-name-slug>\n"
+    "Org node id: <org-slug>-organization-<org-slug>"
 )
 
-# Source: skills/elicit-context/SKILL.md "Engram mem_save Templates" — keep in sync (skills frozen this change).
-MEM_SAVE_TEMPLATES: dict[str, object] = {
+# Source: skills/elicit-context/SKILL.md "SQLite MCP write contracts" — keep in sync.
+NODE_WRITE_TEMPLATES: dict[str, object] = {
     "generic": {
-        "title": "[EntityType] <short-name>",
-        "type": "discovery",
-        "scope": "project",
-        "topic_key": "org/<org-slug>/domain/<entity-type-slug>/<short-name-slug>",
-        "content": (
-            "**What**: <fact captured>\n"
-            "**Why**: <business motivation / impact>\n"
-            "**Where**: <org/process/system location>\n"
-            "**Learned**: <non-obvious nuance, heuristic, problem, or improvement area>"
+        "create_graph": {
+            "graph_id": "<org-slug>",
+            "name": "<org-name>",
+            "project": "brain_ds",
+            "note": "If the graph already exists, continue with node writes instead of aborting.",
+        },
+        "update_node": {
+            "graph_id": "<org-slug>",
+            "node_id": "<org-slug>-<entity-type-slug>-<short-name-slug>",
+            "label": "<short-name>",
+            "type": "<EntityType value>",
+            "supertype": "<EntityType supertype>",
+            "details": {
+                "what": "<fact captured>",
+                "why": "<business motivation / impact>",
+                "where": "<org/process/system location>",
+                "learned": "<non-obvious nuance, heuristic, problem, or improvement area>",
+            },
+        },
+        "add_edge": {
+            "graph_id": "<org-slug>",
+            "source": "<source-node-id>",
+            "target": "<target-node-id>",
+            "label": "<RelationshipType value>",
+        },
+        "session_state": (
+            "Persist session/active-org in Engram only; org domain entities now live in SQLite."
         ),
     },
     "KPI": {
-        "title": "[KPI] <short-name>",
-        "type": "discovery",
-        "scope": "project",
-        "topic_key": "org/<org-slug>/domain/kpi/<short-name-slug>",
-        "content": (
-            "**What**: <KPI description>\n"
-            "**Why**: <business impact of improving this KPI>\n"
-            "**Where**: <team/process/system context>\n"
-            "**Learned**: Target: <value>; Current: <value>; Unit: <unit>; Frequency: <cadence>; "
-            "Owner: <dept/role>; Data Source: <source>; Related Problems / Improvement Areas: <names>; "
-            "Related Solutions: <names>"
-        ),
+        "details": {
+            "what": "<KPI description>",
+            "why": "<business impact of improving this KPI>",
+            "where": "<team/process/system context>",
+            "learned": "Target: <value>; Current: <value>; Unit: <unit>; Frequency: <cadence>; Owner: <dept/role>; Data Source: <source>; Related Problems / Improvement Areas: <names>; Related Solutions: <names>",
+        },
     },
     "Solution": {
-        "title": "[Solution] <short-name>",
-        "type": "discovery",
-        "scope": "project",
-        "topic_key": "org/<org-slug>/domain/solution/<short-name-slug>",
-        "content": (
-            "**What**: <operational improvement proposed/implemented>\n"
-            "**Why**: <problem being solved and expected impact>\n"
-            "**Where**: <workflow/process location>\n"
-            "**Learned**: Status: <proposed|in-progress|completed|deprecated> (default: proposed when omitted); "
-            "Effort: <low|med|high>; Owner: <dept/role>; Related KPIs: <names>; "
-            "Related Problems / Improvement Areas: <names>; Related Decisions: <names>"
-        ),
+        "details": {
+            "what": "<operational improvement proposed/implemented>",
+            "why": "<problem being solved and expected impact>",
+            "where": "<workflow/process location>",
+            "learned": "Status: <proposed|in-progress|completed|deprecated> (default: proposed when omitted); Effort: <low|med|high>; Owner: <dept/role>; Related KPIs: <names>; Related Problems / Improvement Areas: <names>; Related Decisions: <names>",
+        },
     },
     "Decision": {
-        "title": "[Decision] <short-name>",
-        "type": "discovery",
-        "scope": "project",
-        "topic_key": "org/<org-slug>/domain/decision/<short-name-slug>",
-        "content": (
-            "**What**: <decision summary>\n"
-            "**Why**: <rationale for choosing this option>\n"
-            "**Where**: <domain/product/architecture area impacted>\n"
-            "**Learned**: Alternatives: <list>; Supersedes: <decision or none>; Version: <n>; "
-            "Date: <ISO date>; Impacts KPIs: <names>; Authorizes Solutions: <names>"
-        ),
+        "details": {
+            "what": "<decision summary>",
+            "why": "<rationale for choosing this option>",
+            "where": "<domain/product/architecture area impacted>",
+            "learned": "Alternatives: <list>; Supersedes: <decision or none>; Version: <n>; Date: <ISO date>; Impacts KPIs: <names>; Authorizes Solutions: <names>",
+        },
     },
 }
 
-# Source: skills/map-connections/SKILL.md "Deterministic Connection Rules" — keep in sync (skills frozen this change).
+# Source: skills/map-connections/SKILL.md "Retrieval Workflow (Mandatory)" — keep in sync.
+MAP_RETRIEVAL_CONTRACT: str = (
+    "Use list_nodes(graph_id=<slug>, type=<EntityType>) for complete typed retrieval and "
+    "search_graph(graph_id=<slug>, query=<text>) for substring lookups inside the resolved org graph. "
+    "typed SQL filters are not equivalent to Engram substring search, so validate retrieval changes on a seeded vault "
+    "before assuming parity."
+)
+
+
+# Source: skills/map-connections/SKILL.md "Deterministic Connection Rules" — keep in sync.
 CONNECTION_RULES: dict[str, object] = {
     "rules": [
         {"connection": "Department ↔ Role", "rule": "Shared substring/token in Where"},
@@ -217,7 +227,16 @@ CONNECTION_RULES: dict[str, object] = {
     },
 }
 
-# Source: skills/generate-brd/SKILL.md "BRD Output Contract" — keep in sync (skills frozen this change).
+# Source: skills/generate-brd/SKILL.md "Retrieval Workflow (Mandatory)" — keep in sync.
+BRD_RETRIEVAL_CONTRACT: str = (
+    "Use list_nodes(graph_id=<slug>, type=<EntityType>) to assemble deterministic typed datasets and "
+    "search_graph(graph_id=<slug>, query=<text>) only for targeted substring expansion inside the same org graph. "
+    "typed SQL filters are not equivalent to Engram substring search; validate retrieval changes on a seeded vault "
+    "before assuming parity."
+)
+
+
+# Source: skills/generate-brd/SKILL.md "BRD Output Contract" — keep in sync.
 BRD_SECTION_ORDER: list[str] = [
     "Header",
     "Executive Summary",
@@ -310,8 +329,8 @@ def elicit_context() -> dict[str, object]:
     """Return the 9-key grounding context payload for run_elicit.
 
     Keys: entity_types, supertypes, expected_sections, relationship_types,
-          base_weights, question_bank, org_slug_rules, topic_key_format,
-          mem_save_templates.
+          base_weights, question_bank, org_slug_rules, node_id_format,
+          node_write_templates.
     """
     return {
         "entity_types": build_entity_types(),
@@ -321,15 +340,16 @@ def elicit_context() -> dict[str, object]:
         "base_weights": build_base_weights(),
         "question_bank": QUESTION_BANK,
         "org_slug_rules": ORG_SLUG_RULES,
-        "topic_key_format": TOPIC_KEY_FORMAT,
-        "mem_save_templates": MEM_SAVE_TEMPLATES,
+        "node_id_format": NODE_ID_FORMAT,
+        "node_write_templates": NODE_WRITE_TEMPLATES,
     }
 
 
 def map_connections_context() -> dict[str, object]:
-    """Return the 4-key grounding context payload for map_connections.
+    """Return the 5-key grounding context payload for map_connections.
 
-    Keys: entity_types, connection_rules, relationship_labels, scoring_factors.
+    Keys: entity_types, connection_rules, relationship_labels, scoring_factors,
+          retrieval_contract.
     scoring_factors comes from ScoringEngine (distinct from connection_rules
     strength heuristics — the skill's own weak/strong labels live in connection_rules).
     """
@@ -338,18 +358,20 @@ def map_connections_context() -> dict[str, object]:
         "connection_rules": CONNECTION_RULES,
         "relationship_labels": build_relationship_labels(),
         "scoring_factors": build_scoring_factors(),
+        "retrieval_contract": MAP_RETRIEVAL_CONTRACT,
     }
 
 
 def generate_brd_context() -> dict[str, object]:
-    """Return the 4-key grounding context payload for generate_brd.
+    """Return the 5-key grounding context payload for generate_brd.
 
     Keys: entity_types, brd_section_order, section_rules,
-          completeness_matrix_template.
+          completeness_matrix_template, retrieval_contract.
     """
     return {
         "entity_types": build_entity_types(),
         "brd_section_order": BRD_SECTION_ORDER,
         "section_rules": SECTION_RULES,
         "completeness_matrix_template": COMPLETENESS_MATRIX_TEMPLATE,
+        "retrieval_contract": BRD_RETRIEVAL_CONTRACT,
     }
