@@ -9,7 +9,10 @@
 | Tool | Type | Description |
 |---|---|---|
 | `list_graphs` | data | List available graph metadata |
+| `create_graph` | data | Create an empty graph/vault (non-destructive) |
+| `import_graph` | data | Import graph JSON from a project-local file |
 | `list_nodes` | data | List graph nodes with optional filters |
+| `list_data_sources` | data | List only Data Source nodes for a graph |
 | `get_node` | data | Get one node by id |
 | `search_graph` | data | Search nodes by substring over label/type/details |
 | `update_node` | data | Create/update node fields |
@@ -54,7 +57,7 @@ where.exe brain_ds
 
 - [ ] Keep absolute project-root values in config (`args[2]` and `env.BRAIN_DS_PROJECT_ROOT`) — this is expected and correct.
 
-- [ ] In Claude Code, run `/mcp` and confirm `brain_ds` is connected with **9 tools**.
+- [ ] In Claude Code, run `/mcp` and confirm `brain_ds` is connected with **12 tools**.
 
 Example output shape:
 
@@ -77,7 +80,7 @@ Example output shape:
 
 1. Open Claude Code at the project root.
 2. Run `/mcp` and confirm `brain_ds` is connected.
-3. Verify 9 tools appear.
+3. Verify 12 tools appear.
 4. Call `list_nodes` as a smoke check.
 
 ## Trade-offs

@@ -9,6 +9,10 @@ class GraphNotFoundError(StoreError):
     """Raised when a graph id does not exist."""
 
 
+class GraphAlreadyExistsError(StoreError):
+    """Raised when create_graph collides with an existing id."""
+
+
 class IncompatibleStoreError(StoreError):
     """Raised when store schema is incompatible with this code."""
 
