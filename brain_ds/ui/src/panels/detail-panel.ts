@@ -138,10 +138,16 @@ function getEditedNode(nodeId: string): NodeItem | null {
 function toggleEditControls(): void {
   if (!_editToggleBtn || !_exportJsonBtn) return;
   const hasSelection = _selectedNodeId !== null;
-  _editToggleBtn.hidden = !hasSelection;
-  _exportJsonBtn.hidden = !_hasEdits;
+  // Keep the action toolbar permanently visible (the right panel hosts these
+  // controls even when empty); gate availability with .disabled instead of .hidden.
+  _editToggleBtn.disabled = !hasSelection;
+  // Export reflects the currently selected node, so it is available whenever a
+  // node is selected — NOT gated on unsaved edits (a selected node is always
+  // exportable). Previously gating on _hasEdits left it greyed with a live
+  // selection, which read as a broken control.
+  _exportJsonBtn.disabled = !hasSelection;
   if (_detailSaveBtn) {
-    _detailSaveBtn.hidden = !(_editMode && _hasEdits && hasSelection);
+    _detailSaveBtn.disabled = !(_editMode && _hasEdits && hasSelection);
   }
 }
 
@@ -213,6 +219,33 @@ function appendScoreChip(container: Element, node: NodeItem): void {
   chip.className = "detail-score-chip";
   chip.textContent = `Score ${numeric.toFixed(2)}`;
   container.appendChild(chip);
+}
+
+function wrapInAccordion(title: string, content: Element, open = false): HTMLDetailsElement {
+  const details = document.createElement("details");
+  details.className = "inspector-accordion";
+  if (open) details.open = true;
+  const summary = document.createElement("summary");
+  summary.className = "inspector-summary";
+  summary.setAttribute("aria-label", `Toggle ${title} section`);
+  const label = document.createElement("span");
+  label.textContent = title;
+  const chevron = document.createElement("svg");
+  chevron.className = "chevron";
+  chevron.setAttribute("aria-hidden", "true");
+  chevron.setAttribute("width", "16");
+  chevron.setAttribute("height", "16");
+  const use = document.createElement("use");
+  use.setAttribute("href", "#icon-chevron-right");
+  chevron.appendChild(use);
+  summary.appendChild(label);
+  summary.appendChild(chevron);
+  const body = document.createElement("div");
+  body.className = "inspector-body";
+  body.appendChild(content);
+  details.appendChild(summary);
+  details.appendChild(body);
+  return details;
 }
 
 // ── Core rendering ─────────────────────────────────────────────────────────
@@ -325,7 +358,11 @@ export function collapseDetailPanel(collapsed: boolean): void {
   if (!_detailPanel || !_detailCollapseBtn) return;
   _detailPanel.classList.toggle("is-collapsed", collapsed);
   _detailCollapseBtn.setAttribute("aria-expanded", String(!collapsed));
-  _detailCollapseBtn.textContent = collapsed ? "Expand" : "Collapse";
+  // Update only the dedicated label span so the leading SVG icon survives
+  // (setting textContent on the button would wipe the icon child). Spanish label
+  // for UI consistency. getElementById keeps this safe in DOM-less test harnesses.
+  const labelEl = document.getElementById("detail-collapse-label");
+  if (labelEl) labelEl.textContent = collapsed ? "Expandir" : "Colapsar";
 }
 
 export function renderDetailPanel(nodeId: string | null): void {
@@ -384,13 +421,19 @@ export function renderDetailPanel(nodeId: string | null): void {
   if (sections.length) rendered = true;
 
   const relationships = renderRelationships(detail.relationships ?? {});
+  if (sections.length) {
+    const sectionsContainer = document.createElement("div");
+    sectionsContainer.className = "detail-section";
+    Array.from(_detailBody.querySelectorAll(".detail-card")).forEach((node) => sectionsContainer.appendChild(node));
+    _detailBody.appendChild(wrapInAccordion("Resumen", sectionsContainer, true));
+  }
   if (relationships) {
-    _detailBody.appendChild(relationships);
+    _detailBody.appendChild(wrapInAccordion("Relaciones", relationships));
     rendered = true;
   }
   const evidence = detail.evidence ?? [];
   if (evidence.length) {
-    _detailBody.appendChild(renderEvidence(evidence));
+    _detailBody.appendChild(wrapInAccordion("Evidencia", renderEvidence(evidence)));
     rendered = true;
   }
   if (!rendered) {

@@ -14,6 +14,8 @@ REPO = Path(__file__).parent.parent
 FILTER_PANEL_MODULE = REPO / "brain_ds" / "ui" / "src" / "panels" / "filter-panel.ts"
 MAIN_TS = REPO / "brain_ds" / "ui" / "src" / "main.ts"
 TEMPLATE = REPO / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
+TREE_MODULE = REPO / "brain_ds" / "ui" / "src" / "panels" / "tree.ts"
+RENDERER_D4 = REPO / "brain_ds" / "ui" / "src" / "renderer-d4.ts"
 
 
 class TestFilterPanelModuleExists(unittest.TestCase):
@@ -257,3 +259,97 @@ class TestW2TreeHooksInTemplate(unittest.TestCase):
     def test_template_has_tree_filter_breadcrumb(self):
         src = TEMPLATE.read_text(encoding="utf-8")
         self.assertIn('id="tree-filter-chip"', src, "Template must include clearable tree-filter breadcrumb chip")
+
+
+class TestPR3InformationArchitectureContracts(unittest.TestCase):
+    """PR3 RED contracts: hierarchy grouped by type + consolidated filters."""
+
+    def test_hierarchy_shows_type_groups_not_per_node_buttons(self):
+        """REQ-3.1: hierarchy module must render collapsible type groups."""
+        template_src = TEMPLATE.read_text(encoding="utf-8")
+        tree_src = TREE_MODULE.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'id="tree-panel"',
+            template_src,
+            "Hierarchy mount anchor must stay in template",
+        )
+        self.assertIn(
+            "data-hierarchy-group",
+            tree_src,
+            "tree.ts must render per-type hierarchy groups (data-hierarchy-group)",
+        )
+
+
+class TestPrBFilterPolishContracts(unittest.TestCase):
+    """PR B contracts: compact tokenized toggles, no per-actor Mostrar buttons."""
+
+    def test_filter_panel_does_not_render_mostrar_toggle_buttons(self):
+        src = FILTER_PANEL_MODULE.read_text(encoding="utf-8")
+        self.assertNotIn(
+            "Mostrar",
+            src,
+            "PR B must remove per-type 'Mostrar' button labels from filter-panel.ts",
+        )
+        self.assertNotIn(
+            "filter-toggle",
+            src,
+            "PR B must remove legacy .filter-toggle per-type button wiring",
+        )
+
+    def test_filter_panel_applies_custom_checkbox_class(self):
+        src = FILTER_PANEL_MODULE.read_text(encoding="utf-8")
+        self.assertIn(
+            "filter-checkbox",
+            src,
+            "PR B must mark type checkboxes with .filter-checkbox for tokenized styling",
+        )
+
+    def test_filters_consolidated_no_duplicate_toggles(self):
+        """REQ-3.2: no duplicated global Mostrar/Ocultar controls in filter panel."""
+        template_src = TEMPLATE.read_text(encoding="utf-8")
+        filter_src = FILTER_PANEL_MODULE.read_text(encoding="utf-8")
+
+        self.assertNotIn(
+            'id="show-all"',
+            template_src,
+            "Template must remove global #show-all button after PR3 consolidation",
+        )
+        self.assertNotIn(
+            'id="hide-all"',
+            template_src,
+            "Template must remove global #hide-all button after PR3 consolidation",
+        )
+        self.assertNotIn("filter-toggle", filter_src)
+
+
+class TestPR3BugGuardrailsContracts(unittest.TestCase):
+    """Guardrails for user-reported interaction bugs before/within PR3."""
+
+    def test_renderer_click_does_not_call_selectnodes_directly(self):
+        """Node click in D4 overlay must avoid selectNodes() re-stabilization jumps."""
+        src = RENDERER_D4.read_text(encoding="utf-8")
+        self.assertNotIn(
+            "network.selectNodes([node.id])",
+            src,
+            "renderer-d4 click handler must not call network.selectNodes([node.id]) directly",
+        )
+
+    def test_renderer_cleans_stale_edge_elements(self):
+        """D4 renderer must prune stale edge SVGs so highlight ghosts cannot persist."""
+        src = RENDERER_D4.read_text(encoding="utf-8")
+        self.assertIn("activeEdgeIds", src, "renderer-d4.ts must track activeEdgeIds each render")
+        self.assertRegex(
+            src,
+            r"removeChild\(line\)",
+            "renderer-d4.ts must remove stale edge lines from SVG root",
+        )
+
+    def test_filter_eye_icons_use_currentcolor_paint_rule(self):
+        """Filter/controls eye icons must be painted as Lucide stroke icons (not black fill)."""
+        src = TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn(
+            ".pill-group button svg",
+            src,
+            "Template icon paint selector must include filter/control pill-group SVGs",
+        )

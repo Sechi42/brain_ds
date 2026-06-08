@@ -34,6 +34,8 @@
   /* === Borders (refined zinc) === */
   --border-subtle: rgba(63, 63, 70, 0.4);
   --border-strong: rgba(63, 63, 70, 0.7);
+  /* Graph edge stroke — visible on the dark canvas (border-strong was too faint). */
+  --edge-stroke: #7c828c;
 
   /* === Accent === */
   /* --accent-mora on --bg-main ≈ 7.4:1 (AA pass) */
@@ -124,6 +126,59 @@
   --wcc-c10: #8b5cf6;
   --wcc-c11: #ec4899;
   --color-ego-edge: #a78bfa;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-main: #f8fafc;
+  --bg-canvas-deep: #eef2ff;
+  --bg-panel: #ffffff;
+  --bg-panel-elevated: #ffffff;
+  --bg-panel-hover: #f1f5f9;
+  --bg-active: #e2e8f0;
+
+  --border-subtle: #e2e8f0;
+  --border-strong: #94a3b8;
+  --edge-stroke: #475569;
+
+  --accent-mora: #0369a1;
+  --accent-mora-muted: rgba(3, 105, 161, 0.12);
+
+  --danger: #dc2626;
+  --danger-soft: rgba(220, 38, 38, 0.1);
+  --danger-border: rgba(220, 38, 38, 0.25);
+
+  --accent-color: var(--accent-mora);
+  --accent-color-soft: #0ea5e9;
+  --accent-bg: var(--accent-mora-muted);
+  --bg-input: #f8fafc;
+  --bg-hover: rgba(15, 23, 42, 0.06);
+  --border-focus: rgba(3, 105, 161, 0.42);
+  --text-secondary: var(--text-muted);
+  --text-primary: var(--text-normal);
+  --tab-active-bg: #e0f2fe;
+  --tabs-bar-bg: rgba(255, 255, 255, 0.9);
+  --canvas-bg-from: #f8fafc;
+  --canvas-bg-to: #e2e8f0;
+  --breadcrumb-dot: #94a3b8;
+  --scroll-thumb: #cbd5e1;
+  --shadow-panel: -10px 0 20px rgba(15, 23, 42, 0.12);
+
+  --text-normal: #0f172a;
+  --text-bright: #020617;
+  --text-muted: #475569;
+
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-sm: 0 6px 18px rgba(15, 23, 42, 0.10);
+  --shadow-md: 0 12px 28px rgba(15, 23, 42, 0.14);
+  --shadow-lg: 0 20px 40px rgba(15, 23, 42, 0.18);
+  --shadow-overlay: 0 24px 64px rgba(15, 23, 42, 0.22);
+
+  --vis-focus-ring: #0369a1;
+  --vis-popover-muted: #475569;
+  --vis-marquee-stroke: #0369a1;
+  --vis-marquee-fill: rgba(3, 105, 161, 0.12);
 }
 
 @media (prefers-reduced-motion: reduce) {

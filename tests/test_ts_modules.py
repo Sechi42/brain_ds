@@ -600,7 +600,8 @@ class TestGraphVisualRichnessD4deContracts(unittest.TestCase):
     def test_template_contains_atmosphere_pattern_and_labels_contract(self):
         for token in [
             ".canvas-bg-gradient",
-            "linear-gradient(#0a0a0c, #0f0f13)",
+            "var(--canvas-bg-from)",
+            "var(--canvas-bg-to)",
             ".canvas-bg-pattern",
             "radial-gradient(circle at 2px 2px, var(--text-bright) 1px, transparent 1px)",
             "opacity: 0.03",

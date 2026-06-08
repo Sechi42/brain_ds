@@ -4,6 +4,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any
 
+import brain_ds.mcp.grounding as grounding
 from brain_ds.mcp.security import TOOL_SCHEMAS, ValidationError, error_boundary, validate_tool_input
 from brain_ds.store.errors import GraphNotFoundError, StoreError
 from brain_ds.store.graph_store import GraphStore
@@ -231,26 +232,20 @@ def add_edge(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
 
 @error_boundary
 def run_elicit(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
-    raise ValidationError(
-        code=-32001,
-        message="run_elicit requires an AI agent. See commands/elicit-context.md",
-    )
+    validate_tool_input("run_elicit", params, TOOL_SCHEMAS["run_elicit"])
+    return grounding.elicit_context()
 
 
 @error_boundary
 def map_connections(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
-    raise ValidationError(
-        code=-32001,
-        message="map_connections requires an AI agent. See commands/map-connections.md",
-    )
+    validate_tool_input("map_connections", params, TOOL_SCHEMAS["map_connections"])
+    return grounding.map_connections_context()
 
 
 @error_boundary
 def generate_brd(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
-    raise ValidationError(
-        code=-32001,
-        message="generate_brd requires an AI agent. See commands/generate-brd.md",
-    )
+    validate_tool_input("generate_brd", params, TOOL_SCHEMAS["generate_brd"])
+    return grounding.generate_brd_context()
 
 
 def _safe_log_error(store: GraphStore, tool_name: str, payload: dict[str, Any]) -> None:
@@ -305,23 +300,23 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     },
     "run_elicit": {
         "handler": run_elicit,
-        "schema": {"type": "object", "required": [], "properties": {}, "additionalProperties": False},
-        "description": "Agent workflow stub for elicit context",
+        "schema": TOOL_SCHEMAS["run_elicit"],
+        "description": "Return elicit grounding context",
         "rw": "read",
-        "requires_ai_agent": True,
+        "requires_ai_agent": False,
     },
     "map_connections": {
         "handler": map_connections,
-        "schema": {"type": "object", "required": [], "properties": {}, "additionalProperties": False},
-        "description": "Agent workflow stub for map connections",
+        "schema": TOOL_SCHEMAS["map_connections"],
+        "description": "Return map grounding context",
         "rw": "read",
-        "requires_ai_agent": True,
+        "requires_ai_agent": False,
     },
     "generate_brd": {
         "handler": generate_brd,
-        "schema": {"type": "object", "required": [], "properties": {}, "additionalProperties": False},
-        "description": "Agent workflow stub for BRD generation",
+        "schema": TOOL_SCHEMAS["generate_brd"],
+        "description": "Return brd grounding context",
         "rw": "read",
-        "requires_ai_agent": True,
+        "requires_ai_agent": False,
     },
 }

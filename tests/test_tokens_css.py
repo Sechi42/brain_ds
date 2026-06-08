@@ -133,16 +133,14 @@ class TestTokensCssCatalog(unittest.TestCase):
         self.assertIn("--duration-normal: 0ms", css)
         self.assertIn("--duration-slow: 0ms", css)
 
-    def test_light_theme_values_unchanged(self):
-        # THEME_TOKENS dict is the source of truth for contrast tooling.
-        # tokens.css carries DARK runtime tokens only; light theme stays in the dict.
-        from brain_ds.ui.theme import THEME_TOKENS
-
-        light = THEME_TOKENS["light"]
-        # Sentinel keys that downstream consumers (test_theme.py contrast asserts) read.
-        self.assertEqual(light["background"], "#f8fafc")
-        self.assertEqual(light["text"], "#0f172a")
-        self.assertEqual(light["focus_ring"], "#0369a1")
+    def test_light_theme_overrides_exist_for_runtime_toggle(self):
+        css = TOKENS_CSS.read_text(encoding="utf-8")
+        self.assertIn('[data-theme="light"]', css)
+        self.assertIn("--bg-main: #f8fafc", css)
+        self.assertIn("--bg-panel: #ffffff", css)
+        self.assertIn("--text-normal: #0f172a", css)
+        self.assertIn("--text-muted: #475569", css)
+        self.assertIn("--vis-focus-ring: #0369a1", css)
 
 
 # ---------------------------------------------------------------------------

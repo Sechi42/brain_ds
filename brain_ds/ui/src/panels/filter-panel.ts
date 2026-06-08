@@ -39,11 +39,11 @@ export interface FilterPanelDeps {
   typeGroups: TypeGroup[];
   filtersRoot: HTMLElement;
   legendRoot: HTMLElement;
-  showAllBtn: HTMLElement | null;
-  hideAllBtn: HTMLElement | null;
+  showAllBtn?: HTMLElement | null;
+  hideAllBtn?: HTMLElement | null;
   onToggle: (typeName: string, enabled: boolean) => void;
-  onShowAll: () => void;
-  onHideAll: () => void;
+  onShowAll?: () => void;
+  onHideAll?: () => void;
 }
 
 // ── Module state ────────────────────────────────────────────────────────────
@@ -87,6 +87,7 @@ export function mount(deps: FilterPanelDeps): void {
       label.className = "filter-item";
       const cb = document.createElement("input");
       cb.type = "checkbox";
+      cb.className = "filter-checkbox";
       cb.checked = true;
       _addListener(cb, "change", () => {
         onToggle(t.type, cb.checked);
@@ -99,7 +100,10 @@ export function mount(deps: FilterPanelDeps): void {
 
       label.appendChild(cb);
       label.appendChild(chip);
-      label.appendChild(document.createTextNode(`${t.type} (${t.count})`));
+      const textWrap = document.createElement("span");
+      textWrap.className = "filter-item-text";
+      textWrap.textContent = `${t.type} (${t.count})`;
+      label.appendChild(textWrap);
       filtersRoot.appendChild(label);
 
       // Legend item: button with chip + type name
@@ -125,7 +129,7 @@ export function mount(deps: FilterPanelDeps): void {
   if (showAllBtn) {
     _addListener(showAllBtn, "click", () => {
       _typeCheckboxes.forEach((cb) => { cb.checked = true; });
-      onShowAll();
+      if (typeof onShowAll === "function") onShowAll();
     });
   }
 
@@ -135,7 +139,7 @@ export function mount(deps: FilterPanelDeps): void {
         cb.checked = false;
         onToggle(typeName, false);
       });
-      onHideAll();
+      if (typeof onHideAll === "function") onHideAll();
     });
   }
 }

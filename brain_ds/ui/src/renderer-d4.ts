@@ -107,16 +107,23 @@ export function mount(args: D4MountArgs) {
   };
 
   const d4StateForNode = (nodeId: string, related: Set<string>) => {
+    // Hover takes visual priority over selection: while hovering, the selected
+    // node "turns off" and only the hovered node + its neighborhood light up.
+    // Selection is preserved in state and restored visually on blur.
+    if (state.hoveredNodeId) {
+      if (state.hoveredNodeId === nodeId) return 'hover-target';
+      if (related.has(nodeId)) return 'hover-related';
+      return 'default';
+    }
     if (state.selectedNodeIds.has(nodeId)) return 'selected-target';
-    if (state.hoveredNodeId && state.hoveredNodeId === nodeId) return 'hover-target';
     if (state.selectedNodeIds.size > 0 && related.has(nodeId)) return 'selected-related';
-    if (state.hoveredNodeId && related.has(nodeId)) return 'hover-related';
     return 'default';
   };
 
   const d4SyncContainerState = () => {
     const hasHover = Boolean(state.hoveredNodeId);
-    const hasSelection = state.selectedNodeIds.size > 0;
+    // Suppress selection styling while hovering so hover fully dominates.
+    const hasSelection = state.selectedNodeIds.size > 0 && !state.hoveredNodeId;
     container.setAttribute('data-has-hover', hasHover ? 'true' : 'false');
     container.setAttribute('data-has-selection', hasSelection ? 'true' : 'false');
     container.classList.toggle('has-hover', hasHover);
@@ -128,6 +135,8 @@ export function mount(args: D4MountArgs) {
     const pop = document.createElement('div');
     pop.className = 'vis-popover hover-popover';
     pop.setAttribute('aria-hidden', 'true');
+    pop.setAttribute('role', 'tooltip');
+    pop.setAttribute('aria-label', 'Node details');
     pop.style.position = 'absolute';
     pop.style.zIndex = '4';
     container.appendChild(pop);
@@ -146,7 +155,16 @@ export function mount(args: D4MountArgs) {
     const color = d4ColorVars(node);
     pop.style.setProperty('--node-color', color.color);
     pop.style.setProperty('--node-color-muted', color.muted);
-    pop.innerHTML = `<div class="hover-popover-title"><span class="hover-popover-dot"></span><strong>${resolveNodeLabel(node)}</strong></div>`;
+    const neighborsCount = d4Adjacency().get(nodeId)?.size ?? 0;
+    const componentLabel = node.component_id !== null && node.component_id !== undefined ? String(node.component_id) : '—';
+    pop.innerHTML = `<div class="hover-popover-title"><span class="hover-popover-dot" aria-hidden="true"></span><strong>${resolveNodeLabel(node)}</strong></div>
+<dl class="hover-popover-grid">
+  <dt>Score</dt><dd>${Number(node.score ?? 0).toFixed(2)}</dd>
+  <dt>Vecinos</dt><dd>${neighborsCount}</dd>
+  <dt>Cluster</dt><dd>WCC-${componentLabel}</dd>
+  <dt>Tipo</dt><dd>${node.type ?? 'Node'}</dd>
+</dl>
+<small class="hover-popover-hint">Click para fijar selección</small>`;
     pop.style.left = `${x + 24}px`;
     pop.style.top = `${y - 14}px`;
     pop.style.display = 'block';
@@ -192,12 +210,68 @@ export function mount(args: D4MountArgs) {
           state.selectedNodeIds = new Set([id]);
           if (typeof onNodeActivate === 'function') {
             onNodeActivate(id);
-          } else if (typeof network.selectNodes === 'function') {
-            network.selectNodes([node.id]);
           } else if (typeof network._selectNodeById === 'function') {
             network._selectNodeById(node.id);
           }
           d4RenderOverlay();
+        });
+        // Node drag. The canvas host is pointer-events:none in overlay mode, so the
+        // canvas drag never fires — drive it from the overlay button. Dragging mutates
+        // the live node position, pins it via network.dragNodeId (so neighbors re-settle
+        // around it via the reheated simulation), and on drop marks it fixed so it stays.
+        const elBtn = el as HTMLElement;
+        let d4DragMoved = false;
+        el.addEventListener('pointerdown', (downEv: PointerEvent) => {
+          if (downEv.button !== undefined && downEv.button !== 0) return;
+          const canvas = network && network.canvas;
+          if (!canvas || typeof network._screenToWorld !== 'function') return;
+          d4DragMoved = false;
+          const startX = downEv.clientX;
+          const startY = downEv.clientY;
+          network.isDragging = true;
+          network.dragNodeId = node.id;
+          if (typeof elBtn.setPointerCapture === 'function') {
+            try { elBtn.setPointerCapture(downEv.pointerId); } catch (err) { /* noop */ }
+          }
+          const findLiveNode = (): { x: number; y: number; vx?: number; vy?: number; fixed?: boolean } | null => {
+            const all = (network.data && network.data.nodes && typeof network.data.nodes.get === 'function')
+              ? network.data.nodes.get() : [];
+            return all.find((nn: { id: string | number }) => String(nn.id) === String(node.id)) || null;
+          };
+          const onPointerMove = (moveEv: PointerEvent) => {
+            if (Math.abs(moveEv.clientX - startX) + Math.abs(moveEv.clientY - startY) > 3) d4DragMoved = true;
+            const rect = canvas.getBoundingClientRect();
+            const world = network._screenToWorld(moveEv.clientX - rect.left, moveEv.clientY - rect.top);
+            const live = findLiveNode();
+            if (live) { live.x = world.x; live.y = world.y; live.vx = 0; live.vy = 0; }
+            network.temperature = Math.max(Number(network.temperature) || 0, 0.6);
+            if (typeof network._wake === 'function') network._wake();
+            d4RenderOverlay();
+          };
+          const onPointerUp = () => {
+            network.isDragging = false;
+            network.dragNodeId = null;
+            if (d4DragMoved) {
+              const live = findLiveNode();
+              if (live) live.fixed = true;
+              const swallowClick = (clickEv: Event) => {
+                clickEv.stopPropagation();
+                clickEv.preventDefault();
+                elBtn.removeEventListener('click', swallowClick, true);
+              };
+              elBtn.addEventListener('click', swallowClick, true);
+              setTimeout(() => elBtn.removeEventListener('click', swallowClick, true), 60);
+            }
+            if (typeof elBtn.releasePointerCapture === 'function') {
+              try { elBtn.releasePointerCapture(downEv.pointerId); } catch (err) { /* noop */ }
+            }
+            document.removeEventListener('pointermove', onPointerMove);
+            document.removeEventListener('pointerup', onPointerUp);
+            network.temperature = Math.max(Number(network.temperature) || 0, 0.25);
+            if (typeof network._wake === 'function') network._wake();
+          };
+          document.addEventListener('pointermove', onPointerMove);
+          document.addEventListener('pointerup', onPointerUp);
         });
         nodesRoot.appendChild(el);
         state.nodeEls.set(id, el);
@@ -216,6 +290,7 @@ export function mount(args: D4MountArgs) {
     });
 
     const nodesById = d4NodeMap();
+    const activeEdgeIds = new Set<string>();
     const hasInteraction = Boolean(state.hoveredNodeId) || state.selectedNodeIds.size > 0;
     (edgesDataset.get() || []).forEach((edge, index) => {
       const fromId = d4NodeId(edge.from);
@@ -226,6 +301,7 @@ export function mount(args: D4MountArgs) {
       const fromPos = d4WorldToScreen(world[String(fromNode.id)] || { x: 0, y: 0 });
       const toPos = d4WorldToScreen(world[String(toNode.id)] || { x: 0, y: 0 });
       const edgeId = String(index);
+      activeEdgeIds.add(edgeId);
       let line = state.edgeEls.get(edgeId);
       if (!line) {
         const protocolSep = (typeof document !== 'undefined' && typeof document.baseURI === 'string' && document.baseURI.indexOf('://') > -1)
@@ -237,28 +313,43 @@ export function mount(args: D4MountArgs) {
         edgesRoot.appendChild(line);
         state.edgeEls.set(edgeId, line);
       }
+      const sourceColor = d4ColorVars(fromNode);
+      line.style.setProperty('--node-color', sourceColor.color);
+      line.style.setProperty('--node-color-muted', sourceColor.muted);
       line.setAttribute('x1', String(fromPos.x));
       line.setAttribute('y1', String(fromPos.y));
       line.setAttribute('x2', String(toPos.x));
       line.setAttribute('y2', String(toPos.y));
       line.setAttribute('data-source', fromId);
       line.setAttribute('data-target', toId);
-      const isRelated = !hasInteraction
-        ? true
-        : (
-          fromId === state.hoveredNodeId
-          || toId === state.hoveredNodeId
-          || state.selectedNodeIds.has(fromId)
-          || state.selectedNodeIds.has(toId)
-        );
+      // Hover dominates selection (mirrors d4StateForNode): while hovering, only
+      // the hovered node's edges are related/emphasized; selection edges recede.
+      const touchesHover = Boolean(state.hoveredNodeId) && (fromId === state.hoveredNodeId || toId === state.hoveredNodeId);
+      const touchesSelection = state.selectedNodeIds.has(fromId) || state.selectedNodeIds.has(toId);
+      let isRelated: boolean;
+      if (!hasInteraction) {
+        isRelated = true;
+      } else if (state.hoveredNodeId) {
+        isRelated = touchesHover;
+      } else {
+        isRelated = touchesSelection;
+      }
       line.setAttribute('data-related', isRelated ? 'true' : 'false');
-      if (state.selectedNodeIds.has(fromId) || state.selectedNodeIds.has(toId)) {
+      if (state.hoveredNodeId) {
+        if (touchesHover) line.setAttribute('data-emphasis', 'hover');
+        else line.removeAttribute('data-emphasis');
+      } else if (touchesSelection) {
         line.setAttribute('data-emphasis', 'selected');
-      } else if (state.hoveredNodeId && (fromId === state.hoveredNodeId || toId === state.hoveredNodeId)) {
-        line.setAttribute('data-emphasis', 'hover');
       } else {
         line.removeAttribute('data-emphasis');
       }
+    });
+
+    Array.from(state.edgeEls.keys()).forEach((edgeId) => {
+      if (activeEdgeIds.has(edgeId)) return;
+      const line = state.edgeEls.get(edgeId);
+      if (line && line.parentNode) line.parentNode.removeChild(line);
+      state.edgeEls.delete(edgeId);
     });
   };
 
@@ -273,11 +364,13 @@ export function mount(args: D4MountArgs) {
   const onBlurNode = () => { state.hoveredNodeId = null; d4HidePopover(); d4RenderOverlay(); };
   const onSelectNode = (params: { nodes?: Array<string | number> }) => { state.selectedNodeIds = new Set((params.nodes || []).map((id) => d4NodeId(id))); d4RenderOverlay(); };
   const onDeselectNode = () => { state.selectedNodeIds = new Set(); d4RenderOverlay(); };
+  const onEscapeDismiss = (event: KeyboardEvent) => { if (event.key === 'Escape') d4HidePopover(); };
 
   network.on('hoverNode', onHoverNode);
   network.on('blurNode', onBlurNode);
   network.on('selectNode', onSelectNode);
   network.on('deselectNode', onDeselectNode);
+  document.addEventListener('keydown', onEscapeDismiss);
   d4RenderOverlay();
   d4PaintLoop();
 
@@ -286,6 +379,7 @@ export function mount(args: D4MountArgs) {
     network.off?.('blurNode', onBlurNode);
     network.off?.('selectNode', onSelectNode);
     network.off?.('deselectNode', onDeselectNode);
+    document.removeEventListener('keydown', onEscapeDismiss);
   };
 }
 

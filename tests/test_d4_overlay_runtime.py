@@ -88,24 +88,34 @@ const document={
 const rafQueue=[];
 const networkHandlers={};
 let networkCount=0;
-const windowObj={
+    const windowObj={
   document,
-  vis:{
-    DataSet:function(items){ this._items=[...(items||[])]; this.get=()=>this._items; this.update=()=>{}; this.on=()=>{}; },
-    Network:function(container,data){
-      networkCount += 1;
-      this.canvas={focus:()=>{}};
-      this.viewport={scale:1,tx:0,ty:0};
-      this.data={nodes:{get:()=>{
+    vis:{
+      DataSet:function(items){ this._items=[...(items||[])]; this.get=()=>this._items; this.update=()=>{}; this.on=()=>{}; },
+      Network:function(container,data){
+        networkCount += 1;
+        windowObj.__brainDsLastNetwork = this;
+        this.canvas={focus:()=>{}};
+        this.viewport={scale:1,tx:0,ty:0};
+        this.selectedNodeIds = new Set();
+        this.data={nodes:{get:()=>{
         const ns=(data && data.nodes && data.nodes._items) ? data.nodes._items : [];
         return ns.map((n,idx)=>({ ...n, x: (idx+1)*50, y: (idx+1)*40 }));
       }}};
-      this.on=(ev,fn)=>{ networkHandlers[ev]=fn; };
-      this.once=(ev,fn)=>{ networkHandlers[ev]=fn; };
-      this.off=()=>{}; this.fit=()=>{}; this.setOptions=()=>{}; this.redraw=()=>{}; this.selectNodes=()=>{};
-      this._worldToScreen=(x,y)=>({x,y});
-    }
-  },
+        this.on=(ev,fn)=>{ networkHandlers[ev]=fn; };
+        this.once=(ev,fn)=>{ networkHandlers[ev]=fn; };
+        this._emit=(name, payload)=>{ if (networkHandlers[name]) networkHandlers[name](payload || {}); };
+        this.off=()=>{}; this.fit=()=>{}; this.setOptions=()=>{}; this.redraw=()=>{};
+        this.selectNodes=(ids)=>{
+          this.selectedNodeIds = new Set(ids || []);
+          if (ids && ids.length > 0) {
+            this._emit("click", { nodes: [ids[0]] });
+          }
+          this._emit("select-change", { nodes: Array.from(this.selectedNodeIds) });
+        };
+        this._worldToScreen=(x,y)=>({x,y});
+      }
+    },
   brainDsUI:{ detailPanel:{ mount:()=>{}, setEditMode:()=>{}, setSelectedNodeId:()=>{}, renderDetailPanel:()=>{} }, search:{ mount:()=>{} }, filterPanel:{ mount:()=>{}, setAllChecked:()=>{} }, scoreFilter:{ mount:()=>{}, setThreshold:()=>{} }, popover:{ mount:()=>{} }, contextMenu:{ mount:()=>{} }, liveSync:null, motion:{ motionEnabled:()=>true } },
   innerWidth:1200,
   matchMedia:()=>({matches:false, addEventListener:()=>{}, removeEventListener:()=>{}}),
@@ -171,11 +181,15 @@ console.log(JSON.stringify({
         self.assertEqual(out["hasHover"], "true")
         self.assertEqual(out["hasSelection"], "false")
 
-    def test_hover_selected_and_edge_emphasis_contract(self):
+    def test_hover_dominates_selection_contract(self):
+        # Hover takes visual priority over selection: while a node is hovered,
+        # hover styling wins (even on the selected node) and selection styling is
+        # suppressed (has-selection=false). Selection is preserved in state and
+        # restored on blur (see test_blur_restores_selection_contract).
         out = self._run_overlay_case(
             """
-emit("hoverNode", { node: "b" });
 emit("selectNode", { nodes: ["b"] });
+emit("hoverNode", { node: "b" });
 const canvas = byId.get("center-split");
 console.log(JSON.stringify({
   hoverTarget: stateFor("b"),
@@ -187,12 +201,32 @@ console.log(JSON.stringify({
 }));
 """
         )
-        self.assertEqual(out["hoverTarget"], "selected-target")
-        self.assertEqual(out["relatedA"], "selected-related")
-        self.assertEqual(out["relatedC"], "selected-related")
-        self.assertEqual(out["hasSelection"], "true")
-        self.assertEqual(out["edgeEmphasis"], "selected")
+        self.assertEqual(out["hoverTarget"], "hover-target")
+        self.assertEqual(out["relatedA"], "hover-related")
+        self.assertEqual(out["relatedC"], "hover-related")
+        self.assertEqual(out["hasSelection"], "false")
+        self.assertEqual(out["edgeEmphasis"], "hover")
         self.assertEqual(out["edgeRelated"], "true")
+
+    def test_blur_restores_selection_contract(self):
+        # After blur, the previously-suppressed selection becomes visible again —
+        # the user did not deselect, so the selected node returns to selected-target.
+        out = self._run_overlay_case(
+            """
+emit("selectNode", { nodes: ["b"] });
+emit("hoverNode", { node: "a" });
+emit("blurNode", {});
+const canvas = byId.get("center-split");
+console.log(JSON.stringify({
+  selectedTarget: stateFor("b"),
+  hasSelection: canvas.getAttribute("data-has-selection"),
+  hasHover: canvas.getAttribute("data-has-hover")
+}));
+"""
+        )
+        self.assertEqual(out["selectedTarget"], "selected-target")
+        self.assertEqual(out["hasSelection"], "true")
+        self.assertEqual(out["hasHover"], "false")
 
     def test_blur_and_deselect_return_idle(self):
         out = self._run_overlay_case(
@@ -262,6 +296,47 @@ console.log(JSON.stringify({
         self.assertEqual(out["secondRelated"], "false")
         self.assertIsNone(out["secondEmphasis"])
 
+    def test_select_and_reveal_updates_overlay_selection_and_network_selection(self):
+        out = self._run_overlay_case(
+            """
+emit("selectNode", { nodes: ["a"] });
+if (!window.selectAndReveal || typeof window.selectAndReveal !== "function") {
+  throw new Error("selectAndReveal is not available");
+}
+window.selectAndReveal("c");
+const canvas = byId.get("center-split");
+const selectedIds = (window.__brainDsLastNetwork && window.__brainDsLastNetwork.selectedNodeIds)
+  ? Array.from(window.__brainDsLastNetwork.selectedNodeIds)
+  : [];
+console.log(JSON.stringify({
+  selectedTarget: stateFor("c"),
+  staleStateA: stateFor("a"),
+  hasSelection: canvas.getAttribute("data-has-selection"),
+  networkSelectedIds: selectedIds
+}));
+"""
+        )
+        self.assertEqual(out["selectedTarget"], "selected-target")
+        self.assertEqual(out["staleStateA"], "default")
+        self.assertEqual(out["hasSelection"], "true")
+        self.assertEqual(out["networkSelectedIds"], ["c"])
+
+    def test_d4_css_dimming_values_for_pr1(self):
+        template_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
+        src = template_path.read_text(encoding="utf-8")
+        self.assertRegex(src, r"d4-edge\[data-related='false'\][\s\S]*opacity:\s*0\.22")
+        self.assertRegex(src, r"d4-node\[data-state='default'\][\s\S]*opacity:\s*0\.45")
+        self.assertRegex(src, r"d4-node\[data-state='default'\][\s\S]*node-label[\s\S]*opacity:\s*0\.5")
+
+    def test_dimmed_node_opacity_floor_is_above_historical_minimum(self):
+        template_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
+        src = template_path.read_text(encoding="utf-8")
+        match = re.search(r"d4-node\[data-state='default'\][\s\S]*?opacity:\s*(0?\.\d+)", src)
+        self.assertIsNotNone(match)
+        value = float(match.group(1))
+        self.assertGreater(value, 0.15)
+        self.assertLess(value, 1.0)
+
     def test_reduced_motion_helper_runtime(self):
         code = r'''
 const fs = require("fs");
@@ -327,8 +402,21 @@ console.log(JSON.stringify({ motionEnabled: window.brainDsUI.motion.motionEnable
         )
         self.assertRegex(template, click_guard_pattern)
 
-        # Contract edge-case: deselect click (empty canvas click) still resets highlight state.
-        self.assertRegex(template, r"else\s+if\s*\(selectedNodeId\)\s*\{[\s\S]*?resetHighlight\(\);")
+        # Contract edge-case: deselect click (empty canvas click) still clears selection state.
+        self.assertRegex(template, r"const\s+clearSelectionState\s*=\s*\(\)\s*=>")
+        self.assertRegex(template, r"else\s+if\s*\(selectedNodeId\)\s*\{[\s\S]*?clearSelectionState\(\);")
+
+    def test_d4_click_handler_does_not_refocus_camera(self):
+        template_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
+        template = template_path.read_text(encoding="utf-8")
+        self.assertRegex(
+            template,
+            r"el\.addEventListener\(\"click\",\s*\(\)\s*=>\s*\{[\s\S]*?network\._selectNodeById\(node\.id\);",
+        )
+        self.assertNotRegex(
+            template,
+            r"el\.addEventListener\(\"click\",\s*\(\)\s*=>\s*\{[\s\S]*?focusNode\(node\.id\);",
+        )
 
     def test_popover_has_tooltip_a11y_contract(self):
         template_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
@@ -346,6 +434,15 @@ console.log(JSON.stringify({ motionEnabled: window.brainDsUI.motion.motionEnable
             r"document\.addEventListener\(\s*\"keydown\",\s*\(event\)\s*=>\s*\{[\s\S]*?"
             r"event\.key\s*===\s*\"Escape\"[\s\S]*?d4HidePopover\(\)",
         )
+
+    def test_d4_palette_reads_css_tokens_contract(self):
+        template_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
+        template = template_path.read_text(encoding="utf-8")
+
+        self.assertNotIn("const d4WccPalette = [", template)
+        self.assertRegex(template, r"const\s+d4WccColor\s*=\s*\(n\)\s*=>")
+        self.assertRegex(template, r"getComputedStyle\(document\.documentElement\)")
+        self.assertRegex(template, r"--wcc-c")
 
     def test_d4_motion_is_gated_by_no_preference_contract(self):
         template_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
@@ -366,6 +463,50 @@ console.log(JSON.stringify({ motionEnabled: window.brainDsUI.motion.motionEnable
         self.assertRegex(bundle, r"tooltip")
         self.assertRegex(bundle, r"Node details")
         self.assertRegex(bundle, r"Escape")
+        self.assertRegex(bundle, r"hover-popover-grid")
+        self.assertRegex(bundle, r"hover-popover-hint")
+        self.assertRegex(bundle, r"Vecinos")
+        self.assertRegex(bundle, r"Click para fijar selección")
+
+    def test_renderer_d4_popover_has_metric_grid_contract(self):
+        renderer_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src" / "renderer-d4.ts"
+        source = renderer_path.read_text(encoding="utf-8")
+
+        for token in [
+            "hover-popover-grid",
+            "<dt>Score</dt>",
+            "<dt>Vecinos</dt>",
+            "<dt>Cluster</dt>",
+            "<dt>Tipo</dt>",
+            "hover-popover-hint",
+        ]:
+            self.assertIn(token, source)
+        self.assertRegex(source, r"Click para fijar selecci(?:ó|\u00f3|�)n")
+
+    def test_renderer_d4_popover_fallback_values_contract(self):
+        renderer_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src" / "renderer-d4.ts"
+        source = renderer_path.read_text(encoding="utf-8")
+
+        self.assertIn("toFixed(2)", source)
+        self.assertIn("componentLabel", source)
+        self.assertIn("WCC-${componentLabel}", source)
+        self.assertRegex(source, r"node\.type\s*\?\?\s*'Node'|node\.type\s*\|\|\s*'Node'")
+        self.assertRegex(source, r"Vecinos[\s\S]*0")
+
+    def test_renderer_d4_popover_aria_role_and_label_contract(self):
+        renderer_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src" / "renderer-d4.ts"
+        source = renderer_path.read_text(encoding="utf-8")
+
+        self.assertRegex(source, r"setAttribute\(\s*['\"]role['\"],\s*['\"]tooltip['\"]\s*\)")
+        self.assertRegex(source, r"setAttribute\(\s*['\"]aria-label['\"],\s*['\"]Node details['\"]\s*\)")
+
+    def test_renderer_d4_escape_dismiss_in_module_path_contract(self):
+        renderer_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src" / "renderer-d4.ts"
+        source = renderer_path.read_text(encoding="utf-8")
+
+        self.assertRegex(source, r"addEventListener\(\s*['\"]keydown['\"]")
+        self.assertRegex(source, r"event\.key\s*===\s*['\"]Escape['\"]")
+        self.assertRegex(source, r"d4HidePopover\s*\(")
 
     def test_renderer_d4_resolves_label_with_generated_data_fallbacks_contract(self):
         renderer_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src" / "renderer-d4.ts"
@@ -392,4 +533,5 @@ console.log(JSON.stringify({ motionEnabled: window.brainDsUI.motion.motionEnable
 
         self.assertRegex(source, r"onNodeActivate")
         self.assertRegex(source, r"addEventListener\('click'|addEventListener\(\"click\"")
-        self.assertRegex(source, r"network\.selectNodes")
+        self.assertRegex(source, r"network\._selectNodeById")
+        self.assertNotRegex(source, r"network\.selectNodes")

@@ -68,6 +68,8 @@
     this._neighborIndex = new Map();
     this._frameCount = 0;
     this._d4OverlayActive = false;
+    this._edgeWidthScale = 1;
+    this._labelFontWeight = 400;
 
     // Slice 1a: viewport matrix (REQ-1.1)
     // Slice 1b: extended with vx/vy pan velocity for inertia (REQ-1.7)
@@ -328,6 +330,20 @@
     this._wake();
   };
 
+  Network.prototype.setEdgeWidthScale = function (value) {
+    var next = Number(value);
+    if (!Number.isFinite(next) || next <= 0) next = 1;
+    this._edgeWidthScale = next;
+    this._wake();
+  };
+
+  Network.prototype.setLabelFontWeight = function (value) {
+    var next = Number(value);
+    if (!Number.isFinite(next) || next < 100) next = 400;
+    this._labelFontWeight = next;
+    this._wake();
+  };
+
   Network.prototype.on = function (eventName, handler) {
     if (!this.handlers[eventName]) this.handlers[eventName] = [];
     this.handlers[eventName].push(handler);
@@ -584,15 +600,20 @@
     var edges = state.edges;
     var centerX = this.canvas.width / 2;
     var centerY = this.canvas.height / 2;
-    var repulsion = 2400;
+    var repulsion = 3600;
     var spring = 0.01;
-    var restLength = 120;
-    var gravity = 0.003;
+    var restLength = 180;
+    var gravity = 0.0024;
     var maxSteps = Math.min(500, nodes.length * nodes.length);
     var steps = 0;
 
     for (var i = 0; i < nodes.length; i++) {
       var a = nodes[i];
+      // Pin the node being dragged (and any node the user has dropped/fixed): it
+      // keeps its position — driven by the drag handler — while still exerting
+      // forces on its neighbors, so dragging one node visibly rearranges the rest
+      // and the dropped node stays put instead of snapping back to the cluster.
+      if (a.fixed || (this.dragNodeId !== null && String(a.id) === String(this.dragNodeId))) continue;
       var fx = 0;
       var fy = 0;
 
@@ -656,7 +677,7 @@
       ctx.strokeStyle = isIncident
         ? (self._themeTokens.egoEdge || "#7c3aed")
         : ((edge.color && edge.color.color) || self._themeTokens.panelBorder || "#64748b");
-      ctx.lineWidth = Math.max(1, Number(edge.width || edge.value || 1));
+      ctx.lineWidth = Math.max(0.25, Number(edge.width || edge.value || 1) * self._edgeWidthScale);
       var edgeDash = Math.max(1, Number(self._themeTokens.edgeDash || 6));
       ctx.setLineDash([edgeDash + 2, edgeDash]);
       if (self._prefersReducedMotion) {
@@ -770,7 +791,7 @@
         ctx.restore();
       }
       ctx.fillStyle = self._themeTokens.panelText || "#f5f6f7";
-      ctx.font = "12px sans-serif";
+      ctx.font = String(self._labelFontWeight) + " 12px sans-serif";
       ctx.fillText(String(node.label || node.id), node.x + radius + 4, node.y + 4);
       ctx.globalAlpha = 1;
     });

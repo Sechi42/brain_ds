@@ -26,13 +26,18 @@
       /* === Workspace shell (PR1 scaffold + center chrome) === */
       .workspace-shell {
         display: grid;
-        /* Reference column rhythm: 56px rail, 288px L-panel, flex center,
-           320px R-panel, 56px right rail. Kept within existing minmax bands
-           so .test_workspace_shell_uses_five_column_grid (48px × 220-300 × 1fr × 280-360 × 48px) keeps passing. */
-        grid-template-columns: 48px minmax(220px,300px) minmax(0,1fr) minmax(280px,360px) 48px;
+        /* Side panels are user-resizable via drag handles and collapsible to a 48px
+           peek. Widths live in --rail-w / --inspector-w (default 264 / 320, within the
+           220-300 / 280-360 reference bands). The grid-template-columns transition gives
+           the collapse/expand its smooth track-shrink effect. */
+        --rail-w: 264px;
+        --inspector-w: 320px;
+        grid-template-columns: 48px var(--rail-w) minmax(0,1fr) var(--inspector-w) 48px;
         grid-template-rows: 1fr;
         height: 100vh;
+        transition: grid-template-columns var(--duration-normal) var(--ease-standard);
       }
+      .workspace-shell.is-resizing { transition: none; }
       .meta { font-size: 0.92rem; color: var(--text-muted); }
       .compat-topbar { display: none; }
       .rail {
@@ -45,7 +50,43 @@
         background: var(--bg-panel);
         border-inline-end: 1px solid var(--border-subtle);
         overflow: hidden;
+        position: relative;
+        transition: width var(--duration-normal) var(--ease-standard), min-width var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard);
+        will-change: width, min-width;
       }
+      /* Drag handle to resize a side panel. Sits on the panel edge that meets the
+         canvas; widening the hit area to 8px while painting a 2px line on hover. */
+      .panel-resize-handle {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 8px;
+        z-index: 6;
+        cursor: col-resize;
+        background: transparent;
+        border: 0;
+        padding: 0;
+      }
+      .left-panel-shell .panel-resize-handle { right: 0; }
+      .right-panel-shell .panel-resize-handle { left: 0; }
+      .panel-resize-handle::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 50%;
+        width: 2px;
+        transform: translateX(-50%);
+        background: transparent;
+        transition: background var(--duration-fast, 120ms) var(--ease-standard);
+      }
+      .panel-resize-handle:hover::after,
+      .panel-resize-handle:focus-visible::after,
+      .workspace-shell.is-resizing .panel-resize-handle::after { background: var(--accent-mora); }
+      .panel-resize-handle:focus-visible { outline: none; }
+      /* Hide the handle when its panel is collapsed (nothing to resize). */
+      .left-panel-shell.collapsed .panel-resize-handle,
+      .right-panel-shell.collapsed .panel-resize-handle { display: none; }
       .right-panel-shell {
         border-inline-start: 1px solid var(--border-subtle);
         border-inline-end: none;
@@ -105,19 +146,28 @@
         font-family: inherit;
         transition: color 200ms ease, background 200ms ease;
       }
+      /* Tab redesign: leading graph icon + softer morado-tinted active state.
+         Rounded top corners + a 2px accent underline read as a real tab, and the
+         icon picks up the accent color when active. */
+      .tab-icon { flex-shrink: 0; opacity: 0.7; transition: opacity 200ms ease, color 200ms ease; }
       .tab-item[data-tab-active='true'] {
-        background: var(--tab-active-bg);
+        background: color-mix(in srgb, var(--accent-mora) 14%, var(--tab-active-bg));
+        border-radius: var(--radius-md) var(--radius-md) 0 0;
         box-shadow: inset 0 -2px 0 var(--accent-mora);
       }
-      .tab-item[data-tab-active='true'] .tab {
-        color: var(--text-bright);
-      }
+      .tab-item[data-tab-active='true'] .tab { color: var(--text-bright); }
+      .tab-item[data-tab-active='true'] .tab-icon { opacity: 1; color: var(--accent-mora); }
       .tab-item:hover:not([data-tab-active='true']) {
-        background: var(--bg-panel-hover);
+        background: color-mix(in srgb, var(--accent-mora) 8%, var(--bg-panel-hover));
       }
-      .tab-item:hover:not([data-tab-active='true']) .tab {
-        color: var(--text-normal);
+      .tab-item:hover:not([data-tab-active='true']) .tab { color: var(--text-normal); }
+      .tab-item:hover:not([data-tab-active='true']) .tab-icon { opacity: 1; }
+      /* Token focus ring instead of the UA default blue square. */
+      .tab:focus-visible {
+        box-shadow: inset 0 0 0 2px var(--accent-mora-muted), 0 0 0 2px var(--accent-mora);
+        outline: none;
       }
+      .tab:focus:not(:focus-visible) { outline: none; }
       .tab-close {
         display: grid;
         place-items: center;
@@ -334,7 +384,8 @@
         height: auto;
         min-height: 0;
         flex: 1 1 auto;
-        overflow: auto;
+        overflow-y: auto;
+        overflow-x: hidden;
       }
       /* === END PR2 Left Rail + L-Panel === */
 
@@ -400,16 +451,65 @@
         height: 44px;
       }
 
+      /* Chrome icons are Lucide line glyphs; the sprite symbols carry no paint, so
+         without this they fall back to solid black fill. Paint them with the current
+         text color (stroke) so they inherit the rail/toolbar/button color tokens. */
+      .rail-icon svg,
+      .top-toolbar svg,
+      .panel-collapse svg,
+      .panel-collapse-right svg,
+      .panel-header-title svg,
+      .panel-card-title svg,
+      .tab-item svg,
+      .tab-new svg,
+      .detail-actions .pill-btn svg,
+      .inspector-summary svg,
+      .pill-group button svg,
+      .filter-item svg,
+      .legend-item svg {
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+      }
+
       /* === Left sidebar === */
       .controls { display: flex; flex-direction: column; gap: 32px; align-content: start; height: 100vh; overflow: auto; padding: 20px; background: var(--bg-panel); }
       .controls h2, .controls h3, #tree-panel h2, #tree-panel h3 { margin: 0 0 0.25rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; }
       .control-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
       .button, button { min-height: 44px; padding: 0.45rem 0.75rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-ui); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.85rem; }
       .button:hover, button:hover { background: var(--bg-panel-hover); color: var(--text-normal); }
-      #zoom-fit, #theme-toggle { background: transparent; border: 1px solid var(--border-subtle); color: var(--text-muted); font-size: 0.85rem; }
-      #zoom-fit:hover, #theme-toggle:hover { background: var(--bg-panel-hover); color: var(--text-normal); }
+      #zoom-fit, #zoom-in, #zoom-out, #scroll-zoom-toggle, #theme-toggle { background: transparent; border: 1px solid var(--border-subtle); color: var(--text-muted); font-size: 0.85rem; }
+      #zoom-fit:hover, #zoom-in:hover, #zoom-out:hover, #scroll-zoom-toggle:hover, #theme-toggle:hover { background: var(--bg-panel-hover); color: var(--text-normal); }
+      #scroll-zoom-toggle[aria-pressed="true"] { background: color-mix(in srgb, var(--accent-mora) 22%, transparent); border-color: var(--accent-mora); color: var(--text-bright); }
       button[aria-pressed='true'] { border-color: var(--accent-mora); color: var(--accent-mora); }
-      .filter-item { display: flex; align-items: center; gap: 0.5rem; margin: 0.35rem 0; min-height: 44px; }
+      /* Light "marco morado" frame on each filter row — subtle accent-mora border +
+         tint via color-mix (token-disciplined, no hardcoded hex). Lifts on hover and
+         glows when its checkbox is checked, so Actor/Data rows read as cool chips. */
+      .filter-item {
+        display: grid;
+        grid-template-columns: 18px 14px minmax(0,1fr);
+        align-items: center;
+        gap: 0.5rem;
+        margin: 0.35rem 0;
+        min-height: 44px;
+        padding: 0 0.6rem;
+        border: 1px solid color-mix(in srgb, var(--accent-mora) 22%, transparent);
+        border-radius: var(--radius-md);
+        background: color-mix(in srgb, var(--accent-mora) 6%, transparent);
+        cursor: pointer;
+        transition: background 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+      }
+      .filter-item:hover {
+        border-color: color-mix(in srgb, var(--accent-mora) 45%, transparent);
+        background: color-mix(in srgb, var(--accent-mora) 12%, transparent);
+      }
+      .filter-item:has(.filter-checkbox:checked) {
+        border-color: color-mix(in srgb, var(--accent-mora) 55%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-mora) 30%, transparent);
+      }
+      .filter-item:focus-within { outline: 2px solid var(--accent-mora); outline-offset: 2px; }
+      .filter-item-text { color: var(--text-normal); font-size: 0.82rem; line-height: 1.2; }
+      .filter-checkbox { width: 16px; height: 16px; margin: 0; accent-color: var(--accent-mora); }
       .chip { display: inline-flex; width: 14px; height: 14px; border-radius: 3px; }
       .legend-item { display: flex; align-items: center; gap: 0.5rem; min-height: 44px; }
       .legend-item button { width: 100%; text-align: left; }
@@ -425,6 +525,132 @@
       #score-threshold-slider::-moz-range-thumb { width: 14px; height: 14px; border: none; border-radius: 50%; background: var(--text-bright); }
       #score-threshold-slider:focus-visible { outline: 2px solid var(--accent-mora); outline-offset: 2px; }
       .search-group { position: relative; display: grid; gap: 0.5rem; }
+      .panel-card[data-accordion-section="search"] { position: relative; }
+      .panel-card[data-accordion-section="navigator"] .navigator-group {
+        display: grid;
+        gap: 0.15rem;
+        margin-bottom: 0.6rem;
+      }
+      /* Group header: a disclosure row (ADR-009 36px tablist/disclosure class),
+         visually distinct from the node rows below it — uppercase, muted, with a
+         tabular count pill and a rotating chevron. */
+      .panel-card[data-accordion-section="navigator"] .navigator-group-toggle {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        width: 100%;
+        min-height: 36px;
+        padding: 0.35rem 0.5rem;
+        border: none;
+        border-radius: var(--radius-ui);
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .panel-card[data-accordion-section="navigator"] .navigator-group-name {
+        flex: 1;
+        min-width: 0;
+        text-align: left;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .panel-card[data-accordion-section="navigator"] .navigator-group-count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 1.4rem;
+        height: 1.2rem;
+        padding: 0 0.4rem;
+        border-radius: 999px;
+        background: var(--bg-active);
+        color: var(--text-normal);
+        font-size: 0.7rem;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .panel-card[data-accordion-section="navigator"] .navigator-chevron {
+        flex-shrink: 0;
+        color: var(--text-muted);
+        transition: transform 200ms ease;
+      }
+      .panel-card[data-accordion-section="navigator"] .navigator-group-toggle[aria-expanded="false"] .navigator-chevron {
+        transform: rotate(-90deg);
+      }
+      .panel-card[data-accordion-section="navigator"] .navigator-group-toggle:hover {
+        background: var(--bg-panel-hover);
+        color: var(--text-bright);
+      }
+      .panel-card[data-accordion-section="navigator"] .navigator-group-list {
+        display: grid;
+        gap: 0.1rem;
+        padding-left: 0.35rem;
+      }
+      /* Node row: primary navigation control — 44px hit target (WCAG 2.5.5),
+         type-colored dot, ellipsised label. Lighter chrome than the old boxed
+         look so the list reads as a list, not a stack of buttons. */
+      .panel-card[data-accordion-section="navigator"] .navigator-node-btn {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        width: 100%;
+        min-height: 44px;
+        padding: 0.4rem 0.6rem;
+        border: 1px solid transparent;
+        border-radius: var(--radius-ui);
+        background: transparent;
+        color: var(--text-normal);
+        cursor: pointer;
+        text-align: left;
+        font-size: 0.875rem;
+      }
+      .panel-card[data-accordion-section="navigator"] .navigator-node-dot {
+        flex-shrink: 0;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--navigator-dot-color, var(--accent-color-soft));
+      }
+      .panel-card[data-accordion-section="navigator"] .navigator-node-btn-label {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .panel-card[data-accordion-section="navigator"] .navigator-node-btn:hover {
+        background: var(--bg-panel-hover);
+        border-color: var(--border-subtle);
+        color: var(--text-bright);
+      }
+      .panel-card[data-accordion-section="navigator"] .navigator-node-btn[aria-current="true"] {
+        background: var(--bg-active);
+        border-color: var(--accent-color-soft);
+        color: var(--text-bright);
+      }
+      .panel-card[data-accordion-section="navigator"] .navigator-group-toggle:focus-visible,
+      .panel-card[data-accordion-section="navigator"] .navigator-node-btn:focus-visible {
+        outline: 2px solid var(--accent-mora);
+        outline-offset: 2px;
+      }
+      .panel-card[data-accordion-section="navigator"] .navigator-group-toggle[disabled],
+      .panel-card[data-accordion-section="navigator"] .navigator-node-btn[disabled] {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .panel-card[data-accordion-section="navigator"] .navigator-chevron { transition: none; }
+      }
+      #navigator-panel {
+        max-height: min(42vh, 28rem);
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding-right: 0.15rem;
+      }
       .search-input-wrap { position: relative; display: flex; align-items: center; }
       .search-input-wrap[aria-keyshortcuts='\/'] { gap: 0.35rem; }
       .search-input { width: 100%; padding-left: 2rem; padding-right: 1.9rem; background: var(--bg-active); border: 1px solid var(--border-subtle); color: var(--text-normal); border-radius: var(--radius-ui); }
@@ -450,7 +676,9 @@
       .search-icon { position: absolute; left: 0.5rem; color: var(--text-muted); pointer-events: none; display: inline-flex; }
       .search-icon-svg, .search-clear-icon { width: 14px; height: 14px; }
       .search-clear-btn { position: absolute; right: 0.3rem; min-height: unset; padding: 0.25rem; border: 0; background: transparent; color: var(--text-muted); }
-      #search-results { margin: 0; padding: 0.25rem; list-style: none; display: none; position: absolute; z-index: 1201; width: 100%; background: var(--bg-panel); border: 1px solid var(--border-strong); border-radius: var(--radius-ui); max-height: 260px; overflow: auto; }
+      /* T2 dropdown fix: anchor below the search input wrap (positioned ancestor is .search-input-wrap
+         via its own position:relative). top:100% puts the list flush below the input bar, not overlapping it. */
+      #search-results { margin: 0; padding: 0.25rem; list-style: none; display: none; position: absolute; top: 100%; left: 0; z-index: 1201; width: 100%; background: var(--bg-panel); border: 1px solid var(--border-strong); border-radius: var(--radius-ui); max-height: 260px; overflow: auto; }
       #search-results.is-open { display: block; }
       .search-option-btn { width: 100%; text-align: left; }
       .search-option.is-active .search-option-btn { background: var(--accent-mora-muted); color: var(--accent-mora); }
@@ -474,6 +702,14 @@
         display: inline-flex;
         align-items: center;
         min-width: 0;
+      }
+      /* T2.1/T2.3: org breadcrumb leaf must truncate with ellipsis on long org names.
+         overflow:hidden + text-overflow:ellipsis on the leaf li, not just the zone container. */
+      #workspace-view-org {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+        flex-shrink: 1;
       }
       #workspace-view-label li + li::before {
         content: '•';
@@ -517,6 +753,13 @@
       /* Reference: section blocks are airy (no card border), with uppercase muted titles
          that lead with a small lucide icon (12px). */
       .panel-card { border: 0; background: transparent; padding: 0; display: grid; gap: 0.6rem; }
+      /* Rail routing fix: the [hidden] attribute set by applyLeftRailSectionVisibility
+         was defeated by the display:grid above (UA [hidden]{display:none} loses on
+         specificity). Scope it to .panel-card so each rail icon swaps exactly one
+         section group instead of stacking every section into one endless scroll.
+         NOT a global [data-accordion-section][hidden] rule — the right inspector also
+         carries data-accordion-section and must keep its own <details> behavior. */
+      .panel-card[hidden] { display: none; }
       .panel-card + .panel-card { margin-top: 0.5rem; }
       .panel-card-title {
         margin: 0 0 4px;
@@ -536,6 +779,7 @@
       .segment-btn:hover { background: var(--bg-panel-hover); color: var(--text-normal); }
       .segment-btn[aria-checked='true'] { background: var(--bg-active); color: var(--text-normal); box-shadow: inset 0 0 0 1px var(--border-strong); }
       .segment-btn:focus-visible { outline: 2px solid var(--accent-mora); outline-offset: 2px; }
+      .segment-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
       /* === Pill filter buttons — reference parity (btn-group) === */
       .pill-group { display: flex; gap: 8px; }
       .pill-btn,
@@ -573,16 +817,19 @@
       /* === Center stage === */
       .network-shell { position: relative; display: flex; flex-direction: column; }
       #center-split { background: transparent; height: 100%; display: flex; flex-direction: column; }
-      #center-split[data-layout="split"] > #network,
-      #center-split[data-layout="split"] > #markdown-reader { flex: 1 1 50%; min-width: 0; min-height: 0; }
-      #center-split[data-layout="collapsed"] > #markdown-reader { display: none; }
+      #center-split[data-layout="split"] > :is(#network, #markdown-reader) { flex: 1 1 50%; min-width: 0; min-height: 0; }
+      #center-split[data-layout="collapsed"] > :is(#markdown-reader) { display: none; }
+      #center-split[data-layout="reader"] > #network,
+      #center-split[data-layout="reader"] > #d4-edges,
+      #center-split[data-layout="reader"] > #d4-nodes { display: none; }
+      #center-split[data-layout="reader"] > #markdown-reader { display: block; flex: 1 1 100%; min-height: 0; }
       #network { flex: 1; background: transparent; }
-      #markdown-reader { overflow: auto; padding: 1.5rem 2rem; line-height: 1.6; color: var(--text-normal); background: var(--bg-panel); font-size: 0.9rem; }
+      #markdown-reader { position: relative; z-index: 5; overflow: auto; padding: 1.5rem 2rem; line-height: 1.6; color: var(--text-normal); background: var(--bg-panel); font-size: 0.9rem; }
       #markdown-reader ul, #markdown-reader ol { padding-left: 1.5rem; margin: 0.5rem 0; }
       #markdown-reader li { margin: 0.25rem 0; }
       .wikilink { color: var(--accent-mora); text-decoration: none; border-bottom: 1px dashed transparent; }
       .wikilink:hover { border-bottom-color: currentColor; }
-      #show-more, #hide-markdown { background: transparent; border: 1px solid var(--border-subtle); color: var(--text-muted); font-size: 0.8rem; min-height: 32px; padding: 0.2rem 0.5rem; }
+      #show-more, #hide-markdown { min-width: 44px; min-height: 44px; }
       .control-row[aria-label="Center pane actions"] { padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border-subtle); background: var(--bg-panel); }
       .viewer-loading, .empty-state { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; }
       .viewer-loading.is-visible, .empty-state.is-visible { display: flex; }
@@ -600,17 +847,33 @@
       /* === Right detail panel === */
       .detail-panel { display: grid; gap: 24px; align-content: start; height: 100%; overflow: auto; padding: 24px; background: var(--bg-panel); transition: transform 200ms ease, opacity 200ms ease; animation: detail-panel-enter 200ms ease; }
       .right-panel-shell { box-shadow: -10px 0 20px rgba(0,0,0,0.3); }
-      /* Empty inspector parity (#1218): the north star shows ONLY the centered
-         glyph when nothing is selected — no header title, no Colapsar/Cerrar
-         actions (those live inside the selected-state content in the reference).
-         So when #detail-panel.is-empty we hide the whole .detail-header; the
-         .inspector-empty-state sibling carries the title + prompt. The actions
-         reappear the moment the bundle clears .is-empty on selection. Collapse is
-         still reachable via .panel-collapse-right in the 44px R-panel header strip. */
-      #detail-panel.is-empty .detail-header { display: none; }
+      /* User override of finding 1218: the inspector action toolbar now stays visible even
+         when empty so the right panel hosts the Editar/Exportar/Guardar/Colapsar/Cerrar
+         controls the user asked for. Only the (redundant) title + meta hide when empty;
+         the centered glyph prompt still lives in .inspector-empty-state below. */
+      #detail-panel.is-empty #detail-title,
+      #detail-panel.is-empty #detail-meta { display: none; }
       .detail-header { display: grid; gap: 0.25rem; }
-      .detail-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-      .detail-actions button { min-width: 44px; }
+      /* Framed action group — light morado border ties it to the filter chips. */
+      .detail-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.5rem;
+        padding: 0.6rem;
+        border: 1px solid color-mix(in srgb, var(--accent-mora) 22%, transparent);
+        border-radius: var(--radius-md);
+        background: color-mix(in srgb, var(--accent-mora) 6%, transparent);
+      }
+      /* Cerrar (danger) spans the full width as the final row. */
+      .detail-actions .btn-danger-outline { grid-column: 1 / -1; }
+      /* Equal target size and alignment for inspector action rows. */
+      .detail-actions .pill-btn,
+      .detail-actions .btn-outline,
+      .detail-actions .btn-danger-outline { width: 100%; min-width: 44px; min-height: 44px; white-space: nowrap; justify-content: flex-start; }
+      /* Disabled state (skill state model) — applied via [disabled] by detail-panel.ts. */
+      .detail-actions .pill-btn[disabled],
+      .detail-actions .pill-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+      .detail-actions .pill-btn[disabled]:hover { background: var(--bg-active); color: var(--text-muted); }
       #detail-title { margin: 0; font-size: 1.05rem; font-weight: 600; color: var(--text-bright); }
       #detail-meta { color: var(--text-muted); font-size: 0.875rem; }
       .detail-body { display: grid; gap: 0.5rem; }
@@ -686,6 +949,32 @@
       /* === States / Motion === */
       .is-collapsed { transform: translateX(101%); opacity: 0; pointer-events: none; }
       .detail-panel.is-collapsed { transform: translateX(101%); opacity: 0; pointer-events: none; }
+      /* Workspace panels collapse to their 44px header strip so the collapse/expand
+         toggle stays visible and clickable (the global .is-collapsed above slides the
+         whole shell off-screen with pointer-events:none, making it unrecoverable). */
+      .left-panel-shell > *:not(.panel-header),
+      .right-panel-shell > *:not(.panel-header) {
+        opacity: 1;
+        transform: scaleX(1);
+        transform-origin: left center;
+        transition: opacity var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard);
+      }
+      .left-panel-shell.collapsed > *:not(.panel-header),
+      .right-panel-shell.collapsed > *:not(.panel-header) {
+        opacity: 0;
+        transform: scaleX(0.98);
+        pointer-events: none;
+      }
+      .left-panel-shell.collapsed,
+      .right-panel-shell.collapsed { min-width: 44px; }
+      /* Collapsed peek: the grid track shrinks to ~48px, so the header must show
+         ONLY the collapse chevron (centered) and rotate it to read as "expand". */
+      .left-panel-shell.collapsed .panel-header-title,
+      .right-panel-shell.collapsed .panel-header-title { display: none; }
+      .left-panel-shell.collapsed .panel-header,
+      .right-panel-shell.collapsed .panel-header { justify-content: center; padding-inline: 0; }
+      .left-panel-shell.collapsed .panel-collapse svg,
+      .right-panel-shell.collapsed .panel-collapse-right svg { transform: rotate(180deg); transition: transform var(--duration-normal) var(--ease-standard); }
       .detail-panel.is-empty .detail-body { color: var(--text-muted); }
       .is-visible { display: flex !important; }
       .is-dismissing { opacity: 0; }
@@ -703,6 +992,46 @@
       .vis-context-menu__separator { border: 0; border-top: 1px solid var(--border-subtle); margin: 0.25rem 0; }
       .menu-item--danger { color: var(--danger); }
       .menu-item--danger:hover, .menu-item--danger.vis-context-menu__item--hovered { background: var(--danger-soft); }
+
+      /* Toolbar overflow (kebab) menu — created by workspaceChrome with class
+         .workspace-overflow-menu and an inline min-width:180px. Without an explicit
+         column layout the menuitems flowed inline and the menu grew past the clamp's
+         180px assumption, spilling over the right rail. Forcing a vertical column
+         keeps the rendered width at the clamped 180px so it stays inside .center-column. */
+      .workspace-overflow-menu {
+        display: flex;
+        flex-direction: column;
+        gap: 0.125rem;
+        padding: 0.25rem;
+        background: var(--bg-panel);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-ui);
+        box-shadow: var(--shadow-sm);
+      }
+      .workspace-overflow-menu [role="menuitem"] {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        width: 100%;
+        min-height: 36px;
+        padding: 0.5rem 0.6rem;
+        border: 0;
+        border-radius: var(--radius-ui);
+        background: transparent;
+        color: var(--text-normal);
+        cursor: pointer;
+        text-align: left;
+        white-space: nowrap;
+        font-size: 0.875rem;
+      }
+      .workspace-overflow-menu [role="menuitem"]:hover {
+        background: var(--bg-panel-hover);
+        color: var(--text-bright);
+      }
+      .workspace-overflow-menu [role="menuitem"]:focus-visible {
+        outline: 2px solid var(--accent-mora);
+        outline-offset: -2px;
+      }
 
       /* === Animations === */
       @keyframes detail-skeleton-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
@@ -723,6 +1052,7 @@
         #detail-body, #detail-body[data-state="ready"], .inspector-empty-state { animation: none; transition: none; }
         .viewer-loading__spinner, .detail-skeleton__line { animation: none; }
         .detail-skeleton__line { background: var(--bg-active); }
+        .workspace-shell, .panel-resize-handle::after { transition: none; }
       }
       @media (max-width: 1100px) {
         .workspace-shell { grid-template-columns: 48px minmax(0,1fr) 48px; }
@@ -785,23 +1115,24 @@
          GRAPH VISUAL CONTRACTS block (Hover/Selection/Edges/Breathing). */
 
       /* Canvas atmosphere — deep gradient + dotted overlay (reference parity).
-         Contract tokens preserved verbatim:
-           linear-gradient(#0a0a0c, #0f0f13)
+         Contract tokens preserved via variables:
+           var(--canvas-bg-from), var(--canvas-bg-to)
            radial-gradient(circle at 2px 2px, var(--text-bright) 1px, transparent 1px)
          See tests/test_ts_modules.py::TestGraphVisualRichnessD4deContracts. */
       .canvas-container {
         position: relative;
-        background: linear-gradient(#0a0a0c, #0f0f13);
+        background: linear-gradient(var(--canvas-bg-from), var(--canvas-bg-to));
         cursor: grab;
       }
-      .canvas-container:active { cursor: grabbing; }
+      .canvas-container:active,
+      .canvas-container.is-panning { cursor: grabbing; }
       .canvas-bg-gradient,
       .canvas-bg-pattern {
         position: absolute;
         inset: 0;
         pointer-events: none;
       }
-      .canvas-bg-gradient { background: linear-gradient(#0a0a0c, #0f0f13); z-index: 0; }
+      .canvas-bg-gradient { background: linear-gradient(var(--canvas-bg-from), var(--canvas-bg-to)); z-index: 0; }
       .canvas-bg-pattern {
         background-image: radial-gradient(circle at 2px 2px, var(--text-bright) 1px, transparent 1px);
         background-size: 32px 32px;
@@ -830,43 +1161,55 @@
       /* container passes through, but each node button must receive events */
       .d4-node, .graph-node { pointer-events: auto; }
 
-      /* === EDGES === */
+      /* === EDGES ===
+         Level 1 (rest): calm, all edges equally subtle. NOTE: the base selector
+         must NOT include an ID (#d4-edges) — an ID raises specificity above the
+         hover/selection state rules below and freezes every edge at rest style. */
       .d4-edge,
-      .edge-line,
-      #d4-edges .d4-edge {
-        stroke: var(--border-strong);
-        stroke-width: 1px;
-        opacity: 0.6;
+      .edge-line {
+        stroke: var(--edge-stroke);
+        stroke-width: var(--d4-edge-width, 1.5px);
+        opacity: 0.7;
       }
 
-      /* EGO-DIMMING — global fade when hover/select active */
-      .canvas-container.has-hover .d4-edge,
-      .canvas-container[data-has-hover='true'] .d4-edge,
-      .canvas-container.has-selection .d4-edge,
-      .canvas-container[data-has-selection='true'] .d4-edge {
-        opacity: 0.15;
+      /* EGO-DIMMING — recede only the NON-related elements so the active node
+         and its connections stay at full strength. Targeting [data-related='false']
+         / [data-state='default'] avoids a specificity fight with the emphasis rules. */
+      .canvas-container.has-hover .d4-edge[data-related='false'],
+      .canvas-container[data-has-hover='true'] .d4-edge[data-related='false'],
+      .canvas-container.has-selection .d4-edge[data-related='false'],
+      .canvas-container[data-has-selection='true'] .d4-edge[data-related='false'] {
+        opacity: 0.22;
       }
-      .canvas-container.has-hover .d4-node,
-      .canvas-container[data-has-hover='true'] .d4-node,
-      .canvas-container.has-selection .d4-node,
-      .canvas-container[data-has-selection='true'] .d4-node {
-        opacity: 0.25;
+      .canvas-container.has-hover .d4-node[data-state='default'],
+      .canvas-container[data-has-hover='true'] .d4-node[data-state='default'],
+      .canvas-container.has-selection .d4-node[data-state='default'],
+      .canvas-container[data-has-selection='true'] .d4-node[data-state='default'] {
+        opacity: 0.45;
+      }
+      .canvas-container.has-hover .d4-node[data-state='default'] .node-label,
+      .canvas-container[data-has-hover='true'] .d4-node[data-state='default'] .node-label,
+      .canvas-container.has-selection .d4-node[data-state='default'] .node-label,
+      .canvas-container[data-has-selection='true'] .d4-node[data-state='default'] .node-label {
+        opacity: 0.5;
       }
 
-      /* EDGE OVERRIDES — related edges glow */
-      .d4-edge[data-emphasis="selected"],
-      .canvas-container.has-selection .d4-edge[data-related="true"] {
-        stroke: var(--node-color);
-        stroke-width: 2px;
-        opacity: 0.9;
-        filter: drop-shadow(0 0 4px var(--node-color-muted));
-      }
+      /* EDGE EMPHASIS — level 2 (hover) and level 3 (selected/click).
+         var(--node-color, …) falls back to the accent so the glow still reads
+         even if a per-edge color was not set by the overlay. */
       .d4-edge[data-emphasis="hover"],
       .canvas-container.has-hover .d4-edge[data-related="true"] {
-        stroke: var(--node-color);
+        stroke: var(--node-color, var(--accent-mora));
         stroke-width: 2px;
+        opacity: 0.95;
+        filter: drop-shadow(0 0 6px var(--node-color-muted, color-mix(in srgb, var(--accent-mora) 45%, transparent)));
+      }
+      .d4-edge[data-emphasis="selected"],
+      .canvas-container.has-selection .d4-edge[data-related="true"] {
+        stroke: var(--node-color, var(--accent-mora));
+        stroke-width: 2.5px;
         opacity: 1;
-        filter: drop-shadow(0 0 6px var(--node-color-muted));
+        filter: drop-shadow(0 0 9px var(--node-color-muted, color-mix(in srgb, var(--accent-mora) 55%, transparent)));
       }
 
       /* === NODE BASE — 26×26 Obsidian rest state === */
@@ -917,7 +1260,7 @@
         top: 50%;
         transform: translateY(-50%);
         font-size: 12px;
-        font-weight: 500;
+        font-weight: var(--d4-label-weight, 500);
         white-space: nowrap;
         padding: 4px 8px;
         border-radius: var(--radius-md);
@@ -934,7 +1277,7 @@
         height: auto;
       }
       .d4-node .node-label,
-      .graph-node .node-label { color: var(--text-muted); }
+      .graph-node .node-label { color: var(--text-normal); font-weight: var(--d4-label-weight, 550); }
 
       /* === SELECTED STATES (Cyber Glass) === */
       .d4-node[data-state="selected-related"],
@@ -954,10 +1297,11 @@
       }
       .d4-node[data-state="selected-target"] .node-circle,
       .graph-node[data-state="selected-target"] .node-circle {
+        transform: scale(1.12);
         border-width: 2px;
         border-color: var(--node-color);
         background: var(--bg-active);
-        box-shadow: 0 0 0 4px var(--node-color-muted), inset 0 0 0 1px var(--node-color);
+        box-shadow: 0 0 0 5px var(--node-color-muted), 0 0 18px var(--node-color-muted), inset 0 0 0 1px var(--node-color);
       }
       .d4-node[data-state="selected-target"] .node-circle::after,
       .graph-node[data-state="selected-target"] .node-circle::after {
@@ -968,7 +1312,8 @@
       .d4-node[data-state="selected-target"] .node-label,
       .graph-node[data-state="selected-target"] .node-label {
         color: var(--text-bright);
-        background-color: var(--node-color-muted);
+        font-weight: 600;
+        background-color: color-mix(in srgb, var(--node-color) 24%, var(--bg-main));
         border: 1px solid rgba(255,255,255,0.1);
         box-shadow: 0 4px 12px rgba(0,0,0,0.2);
       }
@@ -991,7 +1336,7 @@
       }
       .d4-node[data-state="hover-target"] .node-circle,
       .graph-node[data-state="hover-target"] .node-circle {
-        transform: scale(1.22);
+        transform: scale(1.06);
         border-width: 2px;
         border-color: var(--node-color);
         background: var(--bg-active);
@@ -1201,7 +1546,7 @@
     </header>
     <main class="workspace-shell layout">
       <!-- Left rail — section-1-left-shell.html pattern (PR2) -->
-      <!-- Rail-icon click behavior is a STUB; panel routing wired in follow-up PRs -->
+      <!-- Rail-icon click behavior and panel routing are wired via workspaceChrome runtime modules -->
       <nav class="rail" role="tablist" aria-orientation="vertical" aria-label="Left workspace rail" data-rail-side="left">
         <div class="left-rail-icons">
           <button class="rail-icon" role="tab" aria-selected="true" aria-label="Open file tree panel" title="Proyectos" data-catalog-id="file-tree" data-rail-icon="file-tree" tabindex="0">
@@ -1224,12 +1569,17 @@
             <!-- Lucide layout-dashboard — decorative -->
             <svg aria-hidden="true" width="18" height="18"><use href="#icon-layout-grid"/></svg>
           </button>
+          <button class="rail-icon" role="tab" aria-selected="false" aria-label="Open navigator panel" title="Navegador" data-catalog-id="navigator" data-rail-icon="navigator" tabindex="-1">
+            <!-- Lucide globe — decorative; world metaphor for the node navigator -->
+            <svg aria-hidden="true" width="18" height="18"><use href="#icon-globe"/></svg>
+          </button>
         </div>
         <!-- Reserved for Phase E.2 WS connection indicator; kept in DOM (last child) for L-6 contract. -->
         <span data-status-chip aria-label="Workspace status: live" hidden>LIVE</span>
       </nav>
       <!-- Left panel shell (PR2): header + scrollable controls body -->
       <aside class="left-panel-shell" aria-label="Left workspace panel">
+        <div class="panel-resize-handle" data-resize="left" role="separator" aria-orientation="vertical" aria-label="Resize left panel" tabindex="0"></div>
         <!-- Panel header with region semantics -->
         <header class="panel-header" role="region" aria-label="Left panel controls">
           <strong class="panel-header-title">
@@ -1242,28 +1592,19 @@
           </button>
         </header>
         <!-- Controls body — runtime JS mounts search/filter/legend/tree/layout into these IDs -->
-        <!-- data-catalog-id targets: PR3+ will wire panel routing via rail-icon clicks -->
+        <!-- data-catalog-id targets are wired through workspaceChrome rail routing -->
       <aside class="panel controls" aria-label="Graph controls">
         <section class="panel-card" data-accordion-section="search">
           <h3 class="panel-card-title"><svg aria-hidden="true"><use href="#icon-search"/></svg>BÚSQUEDA</h3>
           <div class="search-input-wrap" tabindex="0" aria-keyshortcuts="/">
             <input id="node-search" class="search-input" type="search" autocomplete="off" placeholder="Buscar nodos…" />
             <kbd class="search-pill">/</kbd>
+            <!-- #search-results inside .search-input-wrap so top:100% anchors below the input bar (T2 dropdown fix) -->
+            <ol id="search-results" aria-live="polite"></ol>
           </div>
-          <ol id="search-results" aria-live="polite"></ol>
         </section>
         <section class="panel-card" data-accordion-section="filters">
           <h3 class="panel-card-title"><svg aria-hidden="true"><use href="#icon-filter"/></svg>FILTROS</h3>
-          <div class="pill-group">
-            <button type="button" id="show-all" class="pill-btn btn-primary-outline pill-btn--primary">
-              <svg aria-hidden="true" width="14" height="14"><use href="#icon-eye"/></svg>
-              Mostrar
-            </button>
-            <button type="button" id="hide-all" class="pill-btn btn-outline">
-              <svg aria-hidden="true" width="14" height="14"><use href="#icon-eye-off"/></svg>
-              Ocultar
-            </button>
-          </div>
           <div id="type-filters"></div>
         </section>
         <section class="panel-card" data-accordion-section="legend">
@@ -1282,6 +1623,34 @@
             <button type="button" class="segment-btn" id="toggle-hierarchical" role="radio" aria-checked="false" tabindex="-1">Jerárquico</button>
             <button type="button" class="segment-btn" id="toggle-physics" role="radio" aria-checked="true" tabindex="0">Física</button>
           </div>
+          <span class="vis-a11y-sr-only">Grosor de aristas</span>
+          <div class="control-row" style="align-items:center;gap:0.5rem;">
+            <input
+              id="edge-thickness-slider"
+              type="range"
+              min="0.25"
+              max="3"
+              step="0.25"
+              value="1"
+              aria-label="Grosor de aristas"
+              aria-valuemin="0.25"
+              aria-valuemax="3"
+              aria-valuenow="1"
+              aria-valuetext="1.00"
+              style="flex:1;"
+            />
+            <span id="edge-thickness-badge" aria-live="polite" style="font-size:0.875rem;min-width:2.5rem;text-align:right;">1.00</span>
+          </div>
+          <div id="label-weight-control" class="segmented-control" role="radiogroup" aria-label="Peso de etiquetas">
+            <button type="button" class="segment-btn" role="radio" aria-checked="false" tabindex="-1" data-label-weight="300">Fina</button>
+            <button type="button" class="segment-btn" role="radio" aria-checked="true" tabindex="0" data-label-weight="400">Normal</button>
+            <button type="button" class="segment-btn" role="radio" aria-checked="false" tabindex="-1" data-label-weight="500">Media</button>
+            <button type="button" class="segment-btn" role="radio" aria-checked="false" tabindex="-1" data-label-weight="700">Negrita</button>
+          </div>
+        </section>
+        <section class="panel-card" data-accordion-section="navigator">
+          <h3 class="panel-card-title"><svg aria-hidden="true"><use href="#icon-globe"/></svg>NAVEGADOR</h3>
+          <div id="navigator-panel" aria-label="Navegador de nodos"></div>
         </section>
         <section class="panel-card" data-accordion-section="score">
           <h3 class="panel-card-title"><svg aria-hidden="true"><use href="#icon-sliders-horizontal"/></svg>UMBRAL</h3>
@@ -1320,6 +1689,7 @@
               aria-controls="canvas-area"
               tabindex="0"
             >
+              <svg class="tab-icon" aria-hidden="true" width="14" height="14"><use href="#icon-network"/></svg>
               <span class="tab-label">Vista gráfica</span>
             </button>
             <!-- Close button — visible on active tab (ADR-008) -->
@@ -1349,10 +1719,10 @@
         </div><!-- /.tab-strip -->
 
         <!-- ── Top Toolbar (44px LOCKED — ADR-001) ── -->
-        <!-- PR2/PR3 will wire back/forward and overflow actions; stubs here for chrome fidelity -->
+        <!-- Nav history (back/forward) intentionally reserved for a dedicated history PR -->
         <div class="top-toolbar" role="toolbar" aria-label="Canvas toolbar">
 
-          <!-- Zone: nav — back + forward navigation (stubs — PR2 wires history) -->
+          <!-- Zone: nav — back + forward navigation reserved for history wiring -->
           <div data-toolbar-zone="nav"></div>
 
           <!-- Zone: view — org metadata label (Org · N nodes · M edges · date) -->
@@ -1370,10 +1740,26 @@
           <!-- NOTE: #zoom-fit, #theme-toggle, #show-more, #hide-markdown IDs preserved for runtime script compatibility -->
           <div data-toolbar-zone="overflow" class="toolbar-actions">
             <div class="action-group">
-              <button type="button" id="show-more" class="action-btn">Ver Más</button>
+              <button type="button" id="show-more" class="pill-btn btn-outline" aria-label="Abrir lector completo de markdown">Ver Más</button>
               <span class="divider-v" aria-hidden="true"></span>
-              <button type="button" id="hide-markdown" class="action-btn">Ocultar markdown</button>
+              <button type="button" id="hide-markdown" class="pill-btn btn-outline" aria-label="Volver al lienzo">Volver al lienzo</button>
             </div>
+            <button
+              class="toolbar-btn"
+              id="zoom-out"
+              aria-label="Zoom out"
+            >
+              <!-- Lucide minus — decorative -->
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+            <button
+              class="toolbar-btn"
+              id="zoom-in"
+              aria-label="Zoom in"
+            >
+              <!-- Lucide plus — decorative -->
+              <svg aria-hidden="true" width="18" height="18"><use href="#icon-plus"/></svg>
+            </button>
             <button
               class="toolbar-btn"
               id="zoom-fit"
@@ -1381,6 +1767,23 @@
             >
               <!-- Lucide maximize-2 (zoom fit) — decorative -->
               <svg aria-hidden="true" width="18" height="18"><use href="#icon-maximize-2"/></svg>
+            </button>
+            <button
+              class="toolbar-btn"
+              id="center-selection"
+              aria-label="Center selection"
+              disabled
+            >
+              <svg aria-hidden="true" width="18" height="18"><use href="#icon-crosshair"/></svg>
+            </button>
+            <button
+              class="toolbar-btn"
+              id="scroll-zoom-toggle"
+              aria-label="Activar zoom con scroll"
+              aria-pressed="false"
+            >
+              <!-- Lucide search (scroll-to-zoom) — decorative -->
+              <svg aria-hidden="true" width="18" height="18"><use href="#icon-search"/></svg>
             </button>
             <button
               class="toolbar-btn vis-theme-toggle"
@@ -1407,7 +1810,7 @@
 
         </div><!-- /.top-toolbar -->
         <div class="canvas-area">
-      <div id="center-split" class="panel network-shell canvas-container" data-layout="collapsed">
+      <div id="center-split" class="panel network-shell canvas-container" data-layout="collapsed" tabindex="0">
         <div class="canvas-bg-gradient" aria-hidden="true"></div>
         <div class="canvas-bg-pattern" aria-hidden="true"></div>
         <!-- show-more / hide-markdown moved to toolbar action-group above (D.4 visual port) -->
@@ -1431,7 +1834,8 @@
       </div>
       </section>
       <aside class="right-panel-shell" aria-label="Right panel shell">
-        <!-- R-panel header (PR3) — 44px strip; collapse is a STUB (panel routing: follow-up PR) -->
+        <div class="panel-resize-handle" data-resize="right" role="separator" aria-orientation="vertical" aria-label="Resize right panel" tabindex="0"></div>
+        <!-- R-panel header (PR3) — 44px strip; collapse is wired via right-panel runtime handlers -->
         <header class="panel-header" data-panel-side="right" role="region" aria-label="Inspector panel">
           <strong class="panel-header-title">
             <svg aria-hidden="true" width="16" height="16"><use href="#icon-info"/></svg>
@@ -1445,12 +1849,15 @@
           <div class="detail-header">
             <h2 id="detail-title" class="detail-title">Detalles del nodo</h2>
             <div id="detail-meta" class="detail-meta">Selecciona un nodo en el lienzo para ver sus propiedades.</div>
-            <div class="detail-actions">
-              <button type="button" id="edit-toggle" class="pill-btn btn-outline" aria-pressed="false" hidden><svg class="card-icon" aria-hidden="true"><use href="#icon-edit"/></svg> Editar</button>
-              <button type="button" id="export-json" class="pill-btn btn-outline" hidden><svg class="card-icon" aria-hidden="true"><use href="#icon-save"/></svg> Exportar JSON</button>
-              <button type="button" id="detail-save" class="pill-btn btn-outline" hidden><svg class="card-icon" aria-hidden="true"><use href="#icon-save"/></svg> Guardar</button>
-              <button type="button" id="detail-collapse" class="pill-btn btn-outline" aria-controls="detail-panel" aria-expanded="true" aria-label="Collapse detail panel">Colapsar</button>
-              <button type="button" id="detail-close" class="pill-btn btn-danger-outline" aria-label="Clear selected node">Cerrar</button>
+            <!-- Inspector action toolbar — always visible so the right panel never
+                 reads as dead space. Edit/Export/Save start disabled (no selection);
+                 detail-panel.ts toggles .disabled (not .hidden) as state changes. -->
+            <div class="detail-actions" role="group" aria-label="Acciones del nodo">
+              <button type="button" id="edit-toggle" class="pill-btn btn-outline" aria-pressed="false" disabled><svg class="card-icon" aria-hidden="true"><use href="#icon-edit"/></svg> Editar</button>
+              <button type="button" id="export-json" class="pill-btn btn-outline" disabled><svg class="card-icon" aria-hidden="true"><use href="#icon-share-2"/></svg> Exportar JSON</button>
+              <button type="button" id="detail-save" class="pill-btn btn-outline" disabled><svg class="card-icon" aria-hidden="true"><use href="#icon-save"/></svg> Guardar</button>
+              <button type="button" id="detail-collapse" class="pill-btn btn-outline" aria-controls="detail-panel" aria-expanded="true" aria-label="Collapse detail panel"><svg class="card-icon" aria-hidden="true"><use href="#icon-minimize-2"/></svg> <span id="detail-collapse-label">Colapsar</span></button>
+              <button type="button" id="detail-close" class="pill-btn btn-danger-outline" aria-label="Clear selected node"><svg class="card-icon" aria-hidden="true"><use href="#icon-x"/></svg> Cerrar</button>
             </div>
           </div>
           <!-- PR3 inspector empty-state: SIBLING of #detail-body (the bundle owns
@@ -1469,9 +1876,9 @@
           <div id="detail-conflict-banner" class="detail-conflict-banner" hidden>Hay cambios remotos más nuevos. Tus ediciones locales no guardadas se conservaron.</div>
           <div id="detail-body" class="detail-body" data-state="empty">Selecciona un nodo en el lienzo para ver sus propiedades.</div>
         </aside>
-        <!-- Static inspector stub sections — rendered by runtime; accordion classes satisfy _shared.css contract -->
+        <!-- Inspector sections are runtime-rendered; accordion classes satisfy _shared.css contract -->
         <div class="inspector-stub-scroll" aria-hidden="true">
-          <!-- AI Actions accordion stub (section-2 pattern — MCP bridge not wired, PR3) -->
+          <!-- AI Actions accordion (section-2 pattern) renders runtime receipts; MCP bridge is a separate phase -->
           <details class="inspector-accordion" data-accordion-section="ai-actions">
             <summary class="inspector-summary" aria-label="Toggle AI actions section">
               <span>Acciones IA</span>
@@ -1484,14 +1891,7 @@
         </div>
       </aside>
       <!-- Right rail (PR3) — section-2-right-shell.html pattern; click handlers are STUBS (panel routing: follow-up PR) -->
-      <nav class="rail" role="tablist" aria-orientation="vertical" aria-label="Right workspace rail" data-rail-side="right">
-        <div class="right-rail-icons">
-          <button class="rail-icon" role="tab" aria-selected="true" aria-label="Open settings panel" title="Ajustes" data-catalog-id="gear" tabindex="0">
-            <!-- Lucide settings/gear icon -->
-            <svg aria-hidden="true" width="18" height="18"><use href="#icon-settings"/></svg>
-          </button>
-        </div>
-      </nav>
+      <nav class="rail" role="tablist" aria-orientation="vertical" aria-label="Right workspace rail" data-rail-side="right"></nav>
       <div id="detail-panel-backdrop" class="detail-panel-backdrop" hidden></div>
       <div id="viewer-live-region" class="vis-a11y-sr-only" aria-live="polite" aria-atomic="true"></div>
     </main>
@@ -1603,7 +2003,10 @@
           const nodesPayload = await nodesResp.json();
           const edgesPayload = await edgesResp.json();
           this.context.nodes = Array.isArray(nodesPayload) ? nodesPayload : (nodesPayload.nodes || []);
-          this.context.edges = Array.isArray(edgesPayload) ? edgesPayload : (edgesPayload.edges || []);
+          // /api/edges emits {edge_id, source, target}; normalize to {from, to, id} so the
+          // vis edges DataSet (read by renderer-d4) and the store stay on the from/to contract.
+          const rawEdges = Array.isArray(edgesPayload) ? edgesPayload : (edgesPayload.edges || []);
+          this.context.edges = rawEdges.map((edge) => this.normalizeEdge(edge));
           this.seedFromContext(this.context);
           this.nodesDataSet && this.nodesDataSet.clear && this.nodesDataSet.clear();
           this.edgesDataSet && this.edgesDataSet.clear && this.edgesDataSet.clear();
@@ -1684,11 +2087,15 @@
       const d4NodesRoot = document.getElementById("d4-nodes");
       const d4EdgesRoot = document.getElementById("d4-edges");
       const d4NetworkEl = document.getElementById("network");
-      const d4WccPalette = [
-        "#3b82f6", "#14b8a6", "#f59e0b", "#a855f7",
-        "#ef4444", "#22c55e", "#06b6d4", "#eab308",
-        "#f97316", "#10b981", "#8b5cf6", "#ec4899"
-      ];
+      const d4WccCache = new Map();
+      const d4WccColor = (n) => {
+        const index = Math.abs(Number(n) || 0) % 12;
+        if (d4WccCache.has(index)) return d4WccCache.get(index);
+        const token = `--wcc-c${index}`;
+        const value = (getComputedStyle(document.documentElement).getPropertyValue(token) || "").trim() || "#3b82f6";
+        d4WccCache.set(index, value);
+        return value;
+      };
       // hexToRgb — reference parity helper (moderngraphui_notailwind.html lines 731-735)
       const d4HexToRgb = (hex) => {
         if (typeof hex !== "string") return "59,130,246";
@@ -1740,27 +2147,32 @@
         let hex = null;
         const cid = node && node.component_id;
         if (cid !== null && cid !== undefined && cid !== "") {
-          const idx = Math.abs(Number(cid)) % d4WccPalette.length;
-          if (!Number.isNaN(idx)) hex = d4WccPalette[idx];
+          const idx = Math.abs(Number(cid)) % 12;
+          if (!Number.isNaN(idx)) hex = d4WccColor(idx);
         }
         if (!hex && node && node.color) {
           if (typeof node.color === "string") hex = node.color;
           else hex = node.color.dark || node.color.background || node.color.light;
         }
-        if (!hex) hex = d4WccPalette[0];
+        if (!hex) hex = d4WccColor(0);
         const rgb = d4HexToRgb(hex);
         return { color: hex, muted: `rgba(${rgb},0.25)` };
       };
       const d4StateForNode = (nodeId, related) => {
+        // Hover dominates selection: hovered node + neighborhood light up, the
+        // selected node recedes while hovering and is restored on blur.
+        if (d4State.hoveredNodeId) {
+          if (d4State.hoveredNodeId === nodeId) return "hover-target";
+          if (related.has(nodeId)) return "hover-related";
+          return "default";
+        }
         if (d4State.selectedNodeIds.has(nodeId)) return "selected-target";
-        if (d4State.hoveredNodeId && d4State.hoveredNodeId === nodeId) return "hover-target";
         if (d4State.selectedNodeIds.size > 0 && related.has(nodeId)) return "selected-related";
-        if (d4State.hoveredNodeId && related.has(nodeId)) return "hover-related";
         return "default";
       };
       const d4SyncContainerState = () => {
         const hasHover = Boolean(d4State.hoveredNodeId);
-        const hasSelection = d4State.selectedNodeIds.size > 0;
+        const hasSelection = d4State.selectedNodeIds.size > 0 && !d4State.hoveredNodeId;
         d4Canvas.setAttribute("data-has-hover", hasHover ? "true" : "false");
         d4Canvas.setAttribute("data-has-selection", hasSelection ? "true" : "false");
         d4Canvas.classList.toggle("has-hover", hasHover);
@@ -1875,18 +2287,81 @@
               d4RenderOverlay();
             });
             el.addEventListener("click", () => {
-              if (typeof network.selectNodes === "function") {
-                network.selectNodes([node.id]);
-              } else if (typeof network._selectNodeById === "function") {
+              if (typeof network._selectNodeById === "function") {
                 network._selectNodeById(node.id);
               }
-              focusNode(node.id);
+              selectedNodeId = node.id;
+              renderDetailPanel(node.id);
               d4State.selectedNodeIds = new Set([id]);
               d4RenderOverlay();
             });
             el.addEventListener("focus", () => {
               d4State.hoveredNodeId = id;
               d4RenderOverlay();
+            });
+            // Node drag (overlay layer). The canvas host is pointer-events:none in
+            // overlay mode, so the canvas drag never fires — we drive it here.
+            // Dragging mutates the live node position, pins it via network.dragNodeId,
+            // and reheats the simulation so neighbors re-settle around it; on drop the
+            // node is marked fixed so it stays where the user placed it.
+            let d4DragMoved = false;
+            el.addEventListener("pointerdown", (downEv) => {
+              if (downEv.button !== undefined && downEv.button !== 0) return;
+              const canvas = network && network.canvas;
+              if (!canvas || typeof network._screenToWorld !== "function") return;
+              d4DragMoved = false;
+              const startX = downEv.clientX;
+              const startY = downEv.clientY;
+              network.isDragging = true;
+              network.dragNodeId = node.id;
+              if (typeof el.setPointerCapture === "function") {
+                try { el.setPointerCapture(downEv.pointerId); } catch (err) { /* noop */ }
+              }
+              const findLiveNode = () => {
+                const all = (network.data && network.data.nodes && typeof network.data.nodes.get === "function")
+                  ? network.data.nodes.get() : [];
+                return all.find((n) => String(n.id) === String(node.id)) || null;
+              };
+              const onPointerMove = (moveEv) => {
+                if (Math.abs(moveEv.clientX - startX) + Math.abs(moveEv.clientY - startY) > 3) d4DragMoved = true;
+                const rect = canvas.getBoundingClientRect();
+                const world = network._screenToWorld(moveEv.clientX - rect.left, moveEv.clientY - rect.top);
+                const live = findLiveNode();
+                if (live) {
+                  live.x = world.x;
+                  live.y = world.y;
+                  live.vx = 0;
+                  live.vy = 0;
+                }
+                network.temperature = Math.max(Number(network.temperature) || 0, 0.6);
+                if (typeof network._wake === "function") network._wake();
+                d4RenderOverlay();
+              };
+              const onPointerUp = () => {
+                network.isDragging = false;
+                network.dragNodeId = null;
+                if (d4DragMoved) {
+                  const live = findLiveNode();
+                  if (live) live.fixed = true;
+                  // Swallow the click the browser fires after a drag so we don't toggle selection.
+                  const swallowClick = (clickEv) => {
+                    clickEv.stopPropagation();
+                    clickEv.preventDefault();
+                    el.removeEventListener("click", swallowClick, true);
+                  };
+                  el.addEventListener("click", swallowClick, true);
+                  setTimeout(() => el.removeEventListener("click", swallowClick, true), 60);
+                }
+                if (typeof el.releasePointerCapture === "function") {
+                  try { el.releasePointerCapture(downEv.pointerId); } catch (err) { /* noop */ }
+                }
+                document.removeEventListener("pointermove", onPointerMove);
+                document.removeEventListener("pointerup", onPointerUp);
+                network.temperature = Math.max(Number(network.temperature) || 0, 0.25);
+                if (typeof network._wake === "function") network._wake();
+              };
+              document.addEventListener("pointermove", onPointerMove);
+              document.addEventListener("pointerup", onPointerUp);
             });
             d4NodesRoot.appendChild(el);
             d4State.nodeEls.set(id, el);
@@ -1941,9 +2416,11 @@
             d4State.edgeEls.set(edgeId, line);
           }
           const sourceColor = d4ColorVars(fromNode);
-          const isRelated = !d4State.hoveredNodeId && d4State.selectedNodeIds.size === 0
+          const touchesHover = Boolean(d4State.hoveredNodeId) && (fromId === d4State.hoveredNodeId || toId === d4State.hoveredNodeId);
+          const touchesSelection = d4State.selectedNodeIds.has(fromId) || d4State.selectedNodeIds.has(toId);
+          const isRelated = (!d4State.hoveredNodeId && d4State.selectedNodeIds.size === 0)
             ? true
-            : (fromId === d4State.hoveredNodeId || toId === d4State.hoveredNodeId || d4State.selectedNodeIds.has(fromId) || d4State.selectedNodeIds.has(toId));
+            : (d4State.hoveredNodeId ? touchesHover : touchesSelection);
           line.setAttribute("x1", String(fromPos.x));
           line.setAttribute("y1", String(fromPos.y));
           line.setAttribute("x2", String(toPos.x));
@@ -1951,9 +2428,14 @@
           line.setAttribute("data-related", isRelated ? "true" : "false");
           line.style.setProperty("--node-color", sourceColor.color);
           line.style.setProperty("--node-color-muted", sourceColor.muted);
-          if (d4State.selectedNodeIds.has(fromId) || d4State.selectedNodeIds.has(toId)) line.setAttribute("data-emphasis", "selected");
-          else if (d4State.hoveredNodeId && (fromId === d4State.hoveredNodeId || toId === d4State.hoveredNodeId)) line.setAttribute("data-emphasis", "hover");
-          else line.removeAttribute("data-emphasis");
+          if (d4State.hoveredNodeId) {
+            if (touchesHover) line.setAttribute("data-emphasis", "hover");
+            else line.removeAttribute("data-emphasis");
+          } else if (touchesSelection) {
+            line.setAttribute("data-emphasis", "selected");
+          } else {
+            line.removeAttribute("data-emphasis");
+          }
         });
         Array.from(d4State.edgeEls.keys()).forEach((id) => {
           if (!activeEdgeIds.has(id)) {
@@ -2037,7 +2519,11 @@
         // REQ-5.5 / REQ-5.9: edge hidden if either endpoint is hidden OR edge score < threshold (additive).
         // REQ-5.10: inclusive boundary — score >= scoreThreshold is visible.
         const currentEdges = getCurrentEdges();
+        // Spread ...e so from/to/label survive in the DataSet — renderer-d4 reads
+        // edge.from/edge.to from here; a bare {id,hidden} update strips endpoints
+        // and the edge is dropped (rendered invisible).
         edges.update(currentEdges.map((e, i) => ({
+          ...e,
           id: e.id != null ? e.id : i,
           hidden: !(visible.has(e.from) && visible.has(e.to)) || ((e.score !== undefined) && (e.score < scoreThreshold)),
           opacity: 1,
@@ -2053,6 +2539,7 @@
         nodes.update(currentNodes.map((n) => ({ id: n.id, opacity: 1, borderWidth: 1 })));
         edges.update(currentEdges.map((e, i) => ({ id: e.id != null ? e.id : i, opacity: 1 })));
         renderDetailPanel(null);
+        syncCenterSelectionDisabled();
       };
       const detailPanel = document.getElementById("detail-panel");
       const detailCollapseBtn = document.getElementById("detail-collapse");
@@ -2297,19 +2784,14 @@
           lastDetailNodeId = nodeId || null;
         }, delay);
       };
-      const twoHopNeighborhood = (rootId, adj) => {
-        const oneHop = new Set(adj[rootId] || []);
-        const twoHop = new Set([rootId, ...oneHop]);
-        oneHop.forEach((n) => (adj[n] || []).forEach((m) => twoHop.add(m)));
-        return twoHop;
-      };
       const focusNode = (nodeId) => {
         const node = originalNodes.get(nodeId);
         if (!node) return;
         selectedNodeId = nodeId;
-        network.focus(nodeId, { scale: 1.15, animation: true });
-        const twoHop = twoHopNeighborhood(nodeId, adjacency);
-        _applyNeighborhoodOpacity(twoHop, nodeId, nodes, edges);
+        // Selection highlight is driven entirely by the D4 overlay
+        // (state.selectedNodeIds + data-emphasis CSS). Do NOT mutate the vis
+        // DataSet here: a bare {id,opacity} edge update strips from/to and
+        // corrupts the overlay edges, leaving a stale "stuck" line pattern.
         // Delegate render to the mounted detail-panel module (PR 3).
         // The module tracks edit mode internally; setSelectedNodeId + renderDetailPanel
         // lets the module re-render in the correct mode (read/editable).
@@ -2319,35 +2801,31 @@
         // PR3 — keep the title color-dot in sync on the focusNode path too (this
         // path bypasses the renderDetailPanel shim above).
         decorateDetailTitleColorDot(nodeId);
+        syncCenterSelectionDisabled();
       };
-      // _applyNeighborhoodOpacity: extracted for reuse by Slice 3b union highlights.
-      // Opacity map: selected node = 1.0, 1-hop = 1.0, 2-hop = 0.70, rest = 0.25.
-      // Edges: 1.0 if both endpoints in twoHopSet, else 0.25.
-      function _applyNeighborhoodOpacity(twoHopSet, rootId, nodesDataSet, edgesDataSet) {
-        const oneHopSet = new Set(adjacency[rootId] || []);
-        nodesDataSet.update(
-          getCurrentNodes().map((n) => {
-            let opacity;
-            if (n.id === rootId) {
-              opacity = 1;
-            } else if (oneHopSet.has(n.id)) {
-              opacity = 1;
-            } else if (twoHopSet.has(n.id)) {
-              opacity = 0.70;
-            } else {
-              opacity = 0.25;
-            }
-            return { id: n.id, opacity, borderWidth: n.id === rootId ? 4 : 1 };
-          })
-        );
-        edgesDataSet.update(
-          getCurrentEdges().map((e, i) => ({
-            id: i,
-            opacity: twoHopSet.has(e.from) && twoHopSet.has(e.to) ? 1 : 0.25,
-          }))
-        );
-      }
-
+      const clearSelectionState = () => {
+        resetHighlight();
+        if (network && typeof network.clearSelection === "function") {
+          network.clearSelection();
+        }
+        if (network && typeof network._emit === "function") {
+          network._emit("deselectNode", {});
+        }
+        applyVisibility();
+      };
+      const selectAndReveal = (nodeId) => {
+        resetHighlight();
+        const canEmitSelectNode = Boolean(network && typeof network._emit === "function");
+        const canSelectNodes = Boolean(network && typeof network.selectNodes === "function");
+        if (!canEmitSelectNode && !canSelectNodes) {
+          throw new Error("selectAndReveal: network selection APIs unavailable");
+        }
+        if (canEmitSelectNode) network._emit("selectNode", { nodes: [nodeId] });
+        if (canSelectNodes) network.selectNodes([nodeId]);
+        focusNode(nodeId);
+        if (typeof renderNavigatorPanel === "function") renderNavigatorPanel();
+      };
+      window.selectAndReveal = selectAndReveal;
       // Slice 3b: shared-relationship computation (perf guard: called ONLY for ≤10 tier).
       // Returns edges whose both endpoints are in selectionSet.
       const _sharedRelationships = (selectionSet, adj) => {
@@ -2385,15 +2863,25 @@
           return;
         }
 
-        // Multi-select: update 2-hop union highlight (REQ-3.11).
-        // Compute union of 2-hop neighborhoods across all selected nodes.
-        const unionSet = new Set();
+        // Multi-select: dim outside direct neighborhoods of selected nodes.
+        const selectedSet = new Set(selectedIds.map(String));
+        const directSet = new Set(selectedIds.map(String));
         selectedIds.forEach((id) => {
-          twoHopNeighborhood(id, adjacency).forEach((n) => unionSet.add(n));
+          (adjacency[id] || []).forEach((n) => directSet.add(String(n)));
         });
-        // Use null as rootId (no single "selected" node) — _applyNeighborhoodOpacity
-        // treats rootId only for borderWidth; pass first id for consistency.
-        _applyNeighborhoodOpacity(unionSet, selectedIds[0], nodes, edges);
+        nodes.update(
+          getCurrentNodes().map((n) => ({
+            id: n.id,
+            opacity: directSet.has(String(n.id)) ? 1 : 0.15,
+            borderWidth: selectedSet.has(String(n.id)) ? 4 : 1,
+          }))
+        );
+        edges.update(
+          getCurrentEdges().map((e, i) => ({
+            id: i,
+            opacity: (selectedSet.has(String(e.from)) || selectedSet.has(String(e.to))) ? 1 : 0.15,
+          }))
+        );
 
         // Build selection panel content
         detailPanel.classList.remove("is-empty");
@@ -2543,10 +3031,126 @@
       if (searchGroupEl) {
         window.brainDsUI.search.mount(searchGroupEl, {
           nodes: getCurrentNodes(),
-          onSelect: (nodeId) => { focusNode(nodeId); },
+          onSelect: (nodeId) => { selectAndReveal(nodeId); },
           onClear: () => { resetHighlight(); applyVisibility(); },
         });
       }
+
+      const navigatorPanelEl = document.getElementById("navigator-panel");
+      const navigatorCollapsedGroups = new Set();
+      const resolveNavigatorGroups = () => {
+        const nodesByType = new Map();
+        getCurrentNodes().forEach((node) => {
+          const typeName = String((node && node.type) || "Unknown");
+          if (!nodesByType.has(typeName)) nodesByType.set(typeName, []);
+          nodesByType.get(typeName).push(node);
+        });
+
+        if (Array.isArray(typeGroups)) {
+          const groups = typeGroups
+            .map((group) => {
+              const nodeTypeNames = Array.isArray(group && group.types)
+                ? group.types.map((entry) => String((entry && entry.type) || "")).filter(Boolean)
+                : [];
+              return {
+                groupLabel: String((group && group.supertype) || "Tipos"),
+                nodeTypeNames,
+              };
+            })
+            .filter((group) => group.nodeTypeNames.length > 0);
+          if (groups.length > 0) return groups;
+        }
+
+        if (typeGroups && typeof typeGroups === "object") {
+          return Object.keys(typeGroups)
+            .sort((a, b) => String(a).localeCompare(String(b)))
+            .map((typeName) => ({ groupLabel: typeName, nodeTypeNames: [typeName] }));
+        }
+
+        return Array.from(nodesByType.keys())
+          .sort((a, b) => String(a).localeCompare(String(b)))
+          .map((typeName) => ({ groupLabel: typeName, nodeTypeNames: [typeName] }));
+      };
+      const isNodeVisibleInNavigator = (node) => {
+        if (!node || hiddenTypes.has(node.type || "Unknown")) return false;
+        if (!Number.isFinite(scoreThreshold) || scoreThreshold <= 0) return true;
+        const id = String(node.id);
+        return getCurrentEdges().some((edge) => {
+          const meetsScore = edge.score === undefined || edge.score >= scoreThreshold;
+          return meetsScore && (String(edge.from) === id || String(edge.to) === id);
+        });
+      };
+      const renderNavigatorPanel = () => {
+        if (!navigatorPanelEl) return;
+        navigatorPanelEl.innerHTML = "";
+        const nodesByType = new Map();
+        getCurrentNodes().forEach((node) => {
+          const typeName = String((node && node.type) || "Unknown");
+          if (!nodesByType.has(typeName)) nodesByType.set(typeName, []);
+          nodesByType.get(typeName).push(node);
+        });
+
+        resolveNavigatorGroups().forEach((group) => {
+          const typeName = group.groupLabel;
+          const allGroupNodes = group.nodeTypeNames
+            .flatMap((nodeTypeName) => nodesByType.get(nodeTypeName) || [])
+            .filter((node) => isNodeVisibleInNavigator(node));
+          if (!allGroupNodes.length) return;
+          const groupEl = document.createElement("section");
+          groupEl.className = "navigator-group";
+
+          const toggle = document.createElement("button");
+          toggle.type = "button";
+          toggle.className = "navigator-group-toggle";
+          toggle.setAttribute("aria-expanded", navigatorCollapsedGroups.has(typeName) ? "false" : "true");
+          toggle.innerHTML = `<svg class="navigator-chevron" aria-hidden="true" width="14" height="14"><use href="#icon-chevron-down"/></svg><span class="navigator-group-name">${typeName}</span><span class="navigator-group-count" aria-hidden="true">${allGroupNodes.length}</span>`;
+
+          const list = document.createElement("div");
+          list.className = "navigator-group-list";
+          list.hidden = navigatorCollapsedGroups.has(typeName);
+
+          const toggleGroup = () => {
+            if (navigatorCollapsedGroups.has(typeName)) navigatorCollapsedGroups.delete(typeName);
+            else navigatorCollapsedGroups.add(typeName);
+            const isExpanded = !navigatorCollapsedGroups.has(typeName);
+            toggle.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+            list.hidden = !isExpanded;
+          };
+          toggle.addEventListener("click", toggleGroup);
+          toggle.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              toggleGroup();
+            }
+          });
+
+          allGroupNodes.forEach((node) => {
+            const nodeId = String(node.id);
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "navigator-node-btn";
+            btn.setAttribute("data-node-id", nodeId);
+            btn.setAttribute("aria-current", selectedNodeId === nodeId ? "true" : "false");
+            const navDotColor = (typeof d4ColorVars === "function") ? ((d4ColorVars(node) || {}).color || null) : null;
+            if (navDotColor) btn.style.setProperty("--navigator-dot-color", navDotColor);
+            btn.innerHTML = `<span class="navigator-node-dot" aria-hidden="true"></span><span class="navigator-node-btn-label">${node.label || node.id}</span>`;
+            const activate = () => selectAndReveal(nodeId);
+            btn.addEventListener("click", activate);
+            btn.addEventListener("keydown", (event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                activate();
+              }
+            });
+            list.appendChild(btn);
+          });
+
+          groupEl.appendChild(toggle);
+          groupEl.appendChild(list);
+          navigatorPanelEl.appendChild(groupEl);
+        });
+      };
+      renderNavigatorPanel();
 
       // Filter panel — delegated to window.brainDsUI.filterPanel (PR 5 extraction).
       // Type-filter checkbox DOM construction and legend moved to panels/filter-panel.ts.
@@ -2556,19 +3160,10 @@
         typeGroups,
         filtersRoot,
         legendRoot,
-        showAllBtn: document.getElementById("show-all"),
-        hideAllBtn: document.getElementById("hide-all"),
         onToggle: (typeName, enabled) => {
           if (enabled) hiddenTypes.delete(typeName); else hiddenTypes.add(typeName);
           applyVisibility();
-        },
-        onShowAll: () => {
-          hiddenTypes.clear();
-          window.brainDsUI.scoreFilter.setThreshold(0);
-        },
-        onHideAll: () => {
-          // hide-all types already handled via onToggle calls in filter-panel.ts
-          applyVisibility();
+          renderNavigatorPanel();
         },
       });
       if (window.brainDsUI) {
@@ -2579,6 +3174,7 @@
       if (window.brainDsUI.tree && typeof window.brainDsUI.tree.mount === "function") {
         window.brainDsUI.tree.mount(treeRoot, {
           nodes: getCurrentNodes(),
+          typeGroups,
           onFilter: (nodeId) => {
             if (!nodeId) {
               network.clearTreeFilter();
@@ -2589,6 +3185,9 @@
               return;
             }
             network.setTreeFilter(nodeId);
+          },
+          onNodeFocus: (nodeId) => {
+            focusNode(nodeId);
           },
           onActiveLabel: (label) => {
             if (!treeFilterChipEl) return;
@@ -2612,6 +3211,7 @@
         onThresholdChange: (threshold) => {
           scoreThreshold = threshold;
           applyVisibility();
+          renderNavigatorPanel();
           // Orphan removal (PR 3 boundary: renderSelectionPanel stays in template).
           if (typeof network !== "undefined" && network.selectedNodeIds && network.selectedNodeIds.size > 0) {
             const visibleEdgeEndpoints = new Set();
@@ -2642,6 +3242,10 @@
       // D.2: Segmented control — mutual exclusion via aria-checked + roving tabindex.
       const _segHier = document.getElementById("toggle-hierarchical");
       const _segPhys = document.getElementById("toggle-physics");
+      const edgeThicknessSlider = document.getElementById("edge-thickness-slider");
+      const edgeThicknessBadge = document.getElementById("edge-thickness-badge");
+      const labelWeightControl = document.getElementById("label-weight-control");
+      const centerCanvasContainer = document.getElementById("center-split");
       function _activateSegment(active, inactive) {
         active.setAttribute("aria-checked", "true");
         active.setAttribute("tabindex", "0");
@@ -2683,7 +3287,194 @@
       }
       _segHier.addEventListener("keydown", _segKeydown);
       _segPhys.addEventListener("keydown", _segKeydown);
-      document.getElementById("zoom-fit").addEventListener("click", () => network.fit({ animation: true }));
+
+      const syncEdgeWidthScale = (value) => {
+        const numeric = Number(value);
+        const normalized = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+        if (edgeThicknessSlider) {
+          edgeThicknessSlider.setAttribute("aria-valuenow", String(normalized));
+          edgeThicknessSlider.setAttribute("aria-valuetext", normalized.toFixed(2));
+        }
+        if (edgeThicknessBadge) edgeThicknessBadge.textContent = normalized.toFixed(2);
+        if (centerCanvasContainer && centerCanvasContainer.style && typeof centerCanvasContainer.style.setProperty === "function") {
+          centerCanvasContainer.style.setProperty("--d4-edge-width", `${normalized * 1.5}px`);
+        }
+        if (network && typeof network.setEdgeWidthScale === "function") {
+          network.setEdgeWidthScale(normalized);
+        }
+      };
+
+      if (edgeThicknessSlider) {
+        syncEdgeWidthScale(edgeThicknessSlider.value || 1);
+        edgeThicknessSlider.addEventListener("input", (event) => {
+          const target = event.target;
+          syncEdgeWidthScale(target && target.value ? target.value : 1);
+        });
+      }
+
+      const activateLabelWeight = (activeBtn) => {
+        if (!labelWeightControl || !activeBtn) return;
+        const buttons = Array.from(labelWeightControl.querySelectorAll("[data-label-weight]"));
+        buttons.forEach((button) => {
+          const isActive = button === activeBtn;
+          button.setAttribute("aria-checked", isActive ? "true" : "false");
+          button.setAttribute("tabindex", isActive ? "0" : "-1");
+        });
+        const weight = Number(activeBtn.getAttribute("data-label-weight") || "400");
+        if (centerCanvasContainer && centerCanvasContainer.style && typeof centerCanvasContainer.style.setProperty === "function") {
+          centerCanvasContainer.style.setProperty("--d4-label-weight", String(weight));
+        }
+        if (network && typeof network.setLabelFontWeight === "function") {
+          network.setLabelFontWeight(weight);
+        }
+      };
+
+      if (labelWeightControl) {
+        const buttons = Array.from(labelWeightControl.querySelectorAll("[data-label-weight]"));
+        buttons.forEach((button, index) => {
+          button.addEventListener("click", () => activateLabelWeight(button));
+          button.addEventListener("keydown", (event) => {
+            if (event.key !== "ArrowRight" && event.key !== "ArrowLeft" && event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+            event.preventDefault();
+            const step = (event.key === "ArrowLeft" || event.key === "ArrowUp") ? -1 : 1;
+            const nextIndex = (index + step + buttons.length) % buttons.length;
+            const next = buttons[nextIndex];
+            activateLabelWeight(next);
+            if (typeof next.focus === "function") next.focus();
+          });
+        });
+        const initialWeightBtn = buttons.find((b) => b.getAttribute("aria-checked") === "true") || buttons[0];
+        if (initialWeightBtn) activateLabelWeight(initialWeightBtn);
+      }
+
+      const zoomFitBtn = document.getElementById("zoom-fit");
+      const searchInput = document.getElementById("node-search");
+      const canvasFocusTarget = document.getElementById("center-split");
+      const centerSelectionBtn = document.getElementById("center-selection");
+
+      const selectedNodeForCenter = () => {
+        if (selectedNodeId) return String(selectedNodeId);
+        if (network && network.selectedNodeIds && typeof network.selectedNodeIds.values === "function") {
+          const first = network.selectedNodeIds.values().next();
+          if (!first.done && first.value !== undefined && first.value !== null) return String(first.value);
+        }
+        return null;
+      };
+
+      const centerOnSelection = () => {
+        const nodeId = selectedNodeForCenter();
+        if (!nodeId || !network || !network.data || !network.data.nodes || typeof network.moveTo !== "function") return;
+        const allNodes = network.data.nodes.get();
+        const target = allNodes.find((n) => String(n.id) === nodeId);
+        if (!target || typeof target.x !== "number" || typeof target.y !== "number") return;
+        network.moveTo({
+          position: { x: target.x, y: target.y },
+          scale: (network.viewport && network.viewport.scale) || 1,
+          animation: true,
+        });
+      };
+
+      function syncCenterSelectionDisabled() {
+        if (!centerSelectionBtn) return;
+        centerSelectionBtn.disabled = !selectedNodeForCenter();
+      }
+
+      if (zoomFitBtn) zoomFitBtn.addEventListener("click", () => network.fit({ animation: true }));
+      if (centerSelectionBtn) centerSelectionBtn.addEventListener("click", centerOnSelection);
+      syncCenterSelectionDisabled();
+
+      const isTypingTarget = (target) => {
+        if (!target) return false;
+        if (target.isContentEditable) return true;
+        const tagName = (target.tagName || "").toUpperCase();
+        return tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT";
+      };
+
+      document.addEventListener("keydown", (event) => {
+        if (isTypingTarget(event.target || document.activeElement)) return;
+        if (event.key === "/") {
+          event.preventDefault();
+          if (searchInput && typeof searchInput.focus === "function") searchInput.focus();
+          return;
+        }
+        if (event.key === "f") {
+          event.preventDefault();
+          network.fit({ animation: true });
+          return;
+        }
+        if (event.key === "g") {
+          event.preventDefault();
+          if (canvasFocusTarget && typeof canvasFocusTarget.focus === "function") canvasFocusTarget.focus();
+          centerOnSelection();
+        }
+      });
+
+      // --- Canvas navigation: pan (empty-space drag) + zoom (buttons / opt-in scroll) ---
+      // Option B: drive the engine viewport directly. The D4 overlay paint loop re-reads
+      // network.viewport every frame, so we never call _wake() (which would restart physics).
+      (function setupCanvasNavigation() {
+        const centerSplit = document.getElementById("center-split");
+        if (!centerSplit || !network || !network.viewport) return;
+        const canvasEl = () => network.canvas || centerSplit;
+
+        const zoomAt = (factor) => {
+          if (typeof network._applyZoom !== "function") return;
+          const c = canvasEl();
+          const w = c.width || c.clientWidth || centerSplit.clientWidth;
+          const h = c.height || c.clientHeight || centerSplit.clientHeight;
+          network._applyZoom(w / 2, h / 2, factor);
+        };
+        const zoomInBtn = document.getElementById("zoom-in");
+        const zoomOutBtn = document.getElementById("zoom-out");
+        if (zoomInBtn) zoomInBtn.addEventListener("click", () => zoomAt(1.2));
+        if (zoomOutBtn) zoomOutBtn.addEventListener("click", () => zoomAt(1 / 1.2));
+
+        // Scroll-to-zoom is OPT-IN so it never steals normal page scroll.
+        const wheelHandler = (event) => {
+          if (typeof network._applyZoom !== "function") return;
+          event.preventDefault();
+          const rect = canvasEl().getBoundingClientRect();
+          const factor = Math.pow(1.1, -Math.sign(event.deltaY));
+          network._applyZoom(event.clientX - rect.left, event.clientY - rect.top, factor);
+        };
+        let scrollZoomOn = false;
+        const toggleBtn = document.getElementById("scroll-zoom-toggle");
+        if (toggleBtn) {
+          toggleBtn.addEventListener("click", () => {
+            scrollZoomOn = !scrollZoomOn;
+            toggleBtn.setAttribute("aria-pressed", String(scrollZoomOn));
+            if (scrollZoomOn) centerSplit.addEventListener("wheel", wheelHandler, { passive: false });
+            else centerSplit.removeEventListener("wheel", wheelHandler, { passive: false });
+          });
+        }
+
+        // Empty-space drag pans the view; clicks on a node still select it.
+        let panning = false;
+        let panStartX = 0, panStartY = 0, tx0 = 0, ty0 = 0;
+        const onPanMove = (event) => {
+          if (!panning) return;
+          network.viewport.tx = tx0 + (event.clientX - panStartX);
+          network.viewport.ty = ty0 + (event.clientY - panStartY);
+        };
+        const onPanUp = () => {
+          panning = false;
+          centerSplit.classList.remove("is-panning");
+          window.removeEventListener("mousemove", onPanMove);
+          window.removeEventListener("mouseup", onPanUp);
+        };
+        centerSplit.addEventListener("mousedown", (event) => {
+          if (event.button !== 0) return;
+          if (event.target.closest && event.target.closest(".d4-node")) return;
+          panning = true;
+          panStartX = event.clientX;
+          panStartY = event.clientY;
+          tx0 = network.viewport.tx;
+          ty0 = network.viewport.ty;
+          centerSplit.classList.add("is-panning");
+          window.addEventListener("mousemove", onPanMove);
+          window.addEventListener("mouseup", onPanUp);
+        });
+      })();
       // editToggleBtn and detailCollapseBtn wiring is now handled inside the mounted
       // detail-panel module (PR 3). The exportJsonBtn wiring remains here because
       // it accesses the full editedData (template-scope dependency).
@@ -2711,18 +3502,40 @@
       network.on("click", (params) => {
         if (params.nodes && params.nodes[0]) {
           const clickedNodeId = params.nodes[0];
-          if (clickedNodeId !== selectedNodeId) {
-            focusNode(clickedNodeId);
-          }
-        } else if (selectedNodeId) {
-          resetHighlight();
-          applyVisibility();
+        if (clickedNodeId !== selectedNodeId) {
+          focusNode(clickedNodeId);
+        } else {
+          clearSelectionState();
         }
+      } else if (selectedNodeId) {
+          clearSelectionState();
+        }
+      });
+
+      // Deselection in overlay mode: the canvas host is pointer-events:none so the
+      // canvas _onClick / keyboard paths never fire. Wire deselect at a layer that
+      // does receive events — a click on the empty canvas backdrop (not a node or any
+      // control) and Escape (outside text fields) both clear the current selection.
+      if (centerCanvasContainer && typeof centerCanvasContainer.addEventListener === "function") {
+        centerCanvasContainer.addEventListener("click", (event) => {
+          const target = event.target;
+          const onInteractive = target && typeof target.closest === "function"
+            && target.closest('button, a, input, select, textarea, [role="menuitem"], [role="tab"], [contenteditable="true"]');
+          if (onInteractive) return;
+          if (selectedNodeId) clearSelectionState();
+        });
+      }
+      document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        const active = typeof document !== "undefined" ? document.activeElement : null;
+        if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable)) return;
+        if (selectedNodeId) clearSelectionState();
       });
 
       // Slice 3b: subscribe to select-change for multi-select tiered panel (REQ-3.10).
       network.on("select-change", ({ nodes: selectedNodeIdList }) => {
         renderSelectionPanel(selectedNodeIdList || []);
+        syncCenterSelectionDisabled();
       });
 
       // Ad-hoc neighbor filter state (REQ-6.2 "Show only this node + neighbors").
@@ -2765,6 +3578,24 @@
       // Mounts the rail tablist routing module after contextMenu (all brainDsUI modules ready).
       const railRoot = document.querySelector('[data-rail-side="left"]');
       const panelRoot = document.querySelector('.panel.controls');
+      const applyLeftRailSectionVisibility = (activeName) => {
+        if (!panelRoot) return;
+        const sectionGroups = {
+          "file-tree": new Set(["search", "score"]),
+          "search": new Set(["search", "score"]),
+          "filters": new Set(["filters", "legend"]),
+          "hierarchy": new Set(["hierarchy"]),
+          "layout": new Set(["layout"]),
+          "navigator": new Set(["navigator"]),
+        };
+        const visible = sectionGroups[activeName] || sectionGroups["file-tree"];
+        panelRoot.querySelectorAll('[data-accordion-section]').forEach((sec) => {
+          const sectionName = String(sec.getAttribute('data-accordion-section') || '');
+          const show = visible.has(sectionName);
+          sec.hidden = !show;
+          sec.setAttribute('aria-hidden', show ? 'false' : 'true');
+        });
+      };
       if (railRoot && panelRoot && window.brainDsUI.workspaceChrome) {
         const overflowButton = document.querySelector('[data-catalog-id="overflow"]');
         window.brainDsUI.workspaceChrome.mount({
@@ -2779,17 +3610,33 @@
           toggleTheme,
         });
       }
+      if (railRoot && panelRoot) {
+        const selected = railRoot.querySelector('[data-rail-icon][aria-selected="true"]');
+        applyLeftRailSectionVisibility(selected ? selected.getAttribute('data-rail-icon') : 'file-tree');
+        railRoot.addEventListener('click', (event) => {
+          const btn = event.target && event.target.closest ? event.target.closest('[data-rail-icon]') : null;
+          if (!btn) return;
+          const name = btn.getAttribute('data-rail-icon') || 'file-tree';
+          window.setTimeout(() => applyLeftRailSectionVisibility(name), 0);
+        });
+      }
 
       // Left panel-collapse inline handler (Slice 1 / P0).
       // Toggles aria-expanded on the collapse button and the collapsed class on the shell.
+      const workspaceShellEl = document.querySelector('.workspace-shell');
       const leftCollapseBtn = document.querySelector('.panel-collapse');
       const leftShell = document.querySelector('.left-panel-shell');
       if (leftCollapseBtn && leftShell) {
         leftCollapseBtn.addEventListener('click', () => {
           const expanded = leftCollapseBtn.getAttribute('aria-expanded') === 'true';
           leftCollapseBtn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+          leftCollapseBtn.setAttribute('aria-label', expanded ? 'Expand left panel' : 'Collapse left panel');
           leftShell.classList.toggle('collapsed', expanded);
-          leftShell.classList.toggle('is-collapsed', expanded);
+          // Shrink/restore the grid track itself so the canvas reclaims the space
+          // (the transition on grid-template-columns animates the collapse).
+          if (workspaceShellEl) {
+            workspaceShellEl.style.setProperty('--rail-w', expanded ? '48px' : (workspaceShellEl.dataset.railW || '264px'));
+          }
         });
       }
 
@@ -2813,10 +3660,69 @@
         rightCollapseBtn.addEventListener('click', () => {
           const expanded = rightCollapseBtn.getAttribute('aria-expanded') === 'true';
           rightCollapseBtn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+          rightCollapseBtn.setAttribute('aria-label', expanded ? 'Expand right panel' : 'Collapse right panel');
           rightShell.classList.toggle('collapsed', expanded);
-          rightShell.classList.toggle('is-collapsed', expanded);
+          if (workspaceShellEl) {
+            workspaceShellEl.style.setProperty('--inspector-w', expanded ? '48px' : (workspaceShellEl.dataset.inspectorW || '320px'));
+          }
         });
       }
+
+      // --- Side-panel resize: drag (or arrow-key) the handle to mutate the grid
+      // track width. Widths persist in shell.dataset so collapse→expand restores them. ---
+      (function setupPanelResize() {
+        const shell = document.querySelector('.workspace-shell');
+        if (!shell) return;
+        const cssNum = (v) => parseFloat(v) || 0;
+        const maxW = () => Math.round((shell.clientWidth || 1280) * 0.4);
+        const clampLeft = (w) => Math.max(200, Math.min(maxW(), w));
+        const clampRight = (w) => Math.max(260, Math.min(maxW(), w));
+        const varFor = (side) => (side === 'left' ? '--rail-w' : '--inspector-w');
+        const dataKey = (side) => (side === 'left' ? 'railW' : 'inspectorW');
+        const applyWidth = (side, w) => {
+          const clamped = side === 'left' ? clampLeft(w) : clampRight(w);
+          shell.style.setProperty(varFor(side), clamped + 'px');
+          shell.dataset[dataKey(side)] = clamped + 'px';
+        };
+        let active = null;
+        let startX = 0;
+        let startW = 0;
+        const onMove = (event) => {
+          if (!active) return;
+          const dx = event.clientX - startX;
+          // Left handle: drag right = wider. Right handle: drag left = wider.
+          applyWidth(active, active === 'left' ? startW + dx : startW - dx);
+        };
+        const onUp = () => {
+          active = null;
+          shell.classList.remove('is-resizing');
+          document.body.style.userSelect = '';
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+        };
+        shell.querySelectorAll('.panel-resize-handle').forEach((handle) => {
+          handle.addEventListener('mousedown', (event) => {
+            event.preventDefault();
+            active = handle.getAttribute('data-resize');
+            startX = event.clientX;
+            startW = cssNum(getComputedStyle(shell).getPropertyValue(varFor(active)));
+            shell.classList.add('is-resizing');
+            document.body.style.userSelect = 'none';
+            window.addEventListener('mousemove', onMove);
+            window.addEventListener('mouseup', onUp);
+          });
+          handle.addEventListener('keydown', (event) => {
+            const side = handle.getAttribute('data-resize');
+            const cur = cssNum(getComputedStyle(shell).getPropertyValue(varFor(side)));
+            let next = cur;
+            if (event.key === 'ArrowLeft') next = side === 'left' ? cur - 16 : cur + 16;
+            else if (event.key === 'ArrowRight') next = side === 'left' ? cur + 16 : cur - 16;
+            else return;
+            event.preventDefault();
+            applyWidth(side, next);
+          });
+        });
+      })();
 
       // Overflow fallback wiring: active when bundle workspaceChrome doesn't manage overflow yet.
       const overflowBtn = document.querySelector('[data-catalog-id="overflow"]');
@@ -2852,9 +3758,20 @@
           const rect = typeof overflowBtn.getBoundingClientRect === 'function'
             ? overflowBtn.getBoundingClientRect()
             : { bottom: 44, right: 220 };
-          menu.style.top = `${Math.round(rect.bottom + 8)}px`;
-          menu.style.left = `${Math.round(rect.right - 180)}px`;
-          menu.style.minWidth = '180px';
+          const minWidth = 180;
+          const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
+          const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+          const workspaceRect = (typeof document !== 'undefined' && document.querySelector('.center-column') && typeof document.querySelector('.center-column').getBoundingClientRect === 'function')
+            ? document.querySelector('.center-column').getBoundingClientRect()
+            : { left: 8, top: 8, right: vw - 8, bottom: vh - 8 };
+          const leftMin = Math.max(8, Math.round(workspaceRect.left) + 8);
+          const leftMax = Math.max(leftMin, Math.round(workspaceRect.right) - minWidth - 8);
+          const rawLeft = Math.round(rect.right - minWidth);
+          const rawTop = Math.round(rect.bottom + 8);
+          const maxTop = Math.max(8, Math.round(workspaceRect.bottom) - 140);
+          menu.style.top = `${Math.min(maxTop, Math.max(Math.round(workspaceRect.top) + 8, rawTop))}px`;
+          menu.style.left = `${Math.min(leftMax, Math.max(leftMin, rawLeft))}px`;
+          menu.style.minWidth = `${minWidth}px`;
           const mkItem = (label, onClick) => {
             const item = document.createElement('button');
             item.type = 'button';

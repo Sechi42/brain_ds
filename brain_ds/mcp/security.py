@@ -84,6 +84,25 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         },
         "additionalProperties": False,
     },
+    # B1 context-return tools — zero-param empty-object schemas (matching list_graphs pattern).
+    "run_elicit": {
+        "type": "object",
+        "required": [],
+        "properties": {},
+        "additionalProperties": False,
+    },
+    "map_connections": {
+        "type": "object",
+        "required": [],
+        "properties": {},
+        "additionalProperties": False,
+    },
+    "generate_brd": {
+        "type": "object",
+        "required": [],
+        "properties": {},
+        "additionalProperties": False,
+    },
 }
 
 

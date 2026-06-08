@@ -16,7 +16,7 @@ export interface WorkspaceChromeDeps {
 }
 
 // Rail icon names — defines the ordered tablist.
-const RAIL_NAMES = ["file-tree", "search", "filters", "hierarchy", "layout"] as const;
+const RAIL_NAMES = ["file-tree", "search", "filters", "hierarchy", "layout", "navigator"] as const;
 type RailName = (typeof RAIL_NAMES)[number];
 
 // Module-level state — single instance per page.
@@ -69,9 +69,22 @@ function _openOverflowMenu(trigger: HTMLElement): void {
   menu.style.zIndex = "2000";
 
   const rect = trigger.getBoundingClientRect();
-  menu.style.top = `${Math.round(rect.bottom + 8)}px`;
-  menu.style.left = `${Math.round(rect.right - 180)}px`;
-  menu.style.minWidth = "180px";
+  const minWidth = 180;
+  const viewportWidth = typeof window !== "undefined" ? window.innerWidth : 1280;
+  const viewportHeight = typeof window !== "undefined" ? window.innerHeight : 800;
+  const workspaceRect = (typeof document !== "undefined"
+    ? document.querySelector(".center-column")?.getBoundingClientRect()
+    : null) || { left: 8, top: 8, right: viewportWidth - 8, bottom: viewportHeight - 8 };
+  const leftMin = Math.max(8, Math.round(workspaceRect.left) + 8);
+  const leftMax = Math.max(leftMin, Math.round(workspaceRect.right) - minWidth - 8);
+  const rawLeft = Math.round(rect.right - minWidth);
+  const rawTop = Math.round(rect.bottom + 8);
+  const clampedLeft = Math.min(leftMax, Math.max(leftMin, rawLeft));
+  const maxTop = Math.max(8, Math.round(workspaceRect.bottom) - 140);
+  const clampedTop = Math.min(maxTop, Math.max(Math.round(workspaceRect.top) + 8, rawTop));
+  menu.style.top = `${clampedTop}px`;
+  menu.style.left = `${clampedLeft}px`;
+  menu.style.minWidth = `${minWidth}px`;
 
   const actions: Array<{ label: string; onClick: () => void }> = [
     { label: "Reset filters", onClick: () => _deps?.resetFilters?.() },
@@ -142,9 +155,11 @@ function _getSections(): HTMLElement[] {
  * Side effects (in order per design ADR):
  *   (a) aria-selected: true on active, false on others
  *   (b) roving tabindex: 0 on active, -1 on others
- *   (c) section visibility:
- *       - "file-tree" → ALL sections visible (legend + score included)
- *       - other → show only [data-accordion-section="{name}"], hide all others
+ *   (c) section visibility groups:
+ *       - "file-tree" / "search" → search (+ score helper)
+ *       - "filters" → filters + legend
+ *       - "hierarchy" → hierarchy
+ *       - "layout" → layout
  *
  * Idempotent: re-applying the active panel is a no-op.
  */
@@ -164,17 +179,20 @@ export function setActivePanel(name: string): void {
   }
 
   // (c): section visibility
-  if (name === "file-tree") {
-    // All sections visible when file-tree is active (it has no matching section itself)
-    for (const sec of sections) {
-      sec.hidden = false;
-    }
-  } else {
-    // Show only the matching section; hide all others including legend + score
-    for (const sec of sections) {
-      const sectionName = sec.getAttribute("data-accordion-section");
-      sec.hidden = sectionName !== name;
-    }
+  const sectionGroups: Record<string, Set<string>> = {
+    "file-tree": new Set(["search", "score"]),
+    "search": new Set(["search", "score"]),
+    "filters": new Set(["filters", "legend"]),
+    "hierarchy": new Set(["hierarchy"]),
+    "layout": new Set(["layout"]),
+    "navigator": new Set(["navigator"]),
+  };
+  const visible = sectionGroups[name] || sectionGroups["file-tree"];
+  for (const sec of sections) {
+    const sectionName = String(sec.getAttribute("data-accordion-section") || "");
+    const show = visible.has(sectionName);
+    sec.hidden = !show;
+    sec.setAttribute("aria-hidden", show ? "false" : "true");
   }
 }
 

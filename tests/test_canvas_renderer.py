@@ -118,7 +118,7 @@ class TestCanvasRendererContracts(unittest.TestCase):
         self.assertIn("new vis.DataSet(RENDER_CONTEXT.nodes", self.template_text)
         self.assertIn("new vis.DataSet(RENDER_CONTEXT.edges", self.template_text)
         self.assertIn("new vis.Network(container, { nodes, edges }", self.template_text)
-        self.assertIn("network.focus(nodeId", self.template_text)
+        self.assertNotIn("network.focus(nodeId", self.template_text)
         self.assertIn("network.setOptions({", self.template_text)
         self.assertIn("network.fit({ animation: true })", self.template_text)
         self.assertIn("network.on(\"click\"", self.template_text)

@@ -5,6 +5,9 @@ import unittest
 import json
 from pathlib import Path
 
+from brain_ds.mcp.security import ValidationError, validate_tool_input
+from brain_ds.ontology.entity_types import EntityType
+from brain_ds.ontology.relationship_types import RelationshipType
 from brain_ds.mcp.tools import (
     TOOL_REGISTRY,
     add_edge,
@@ -316,18 +319,97 @@ class MCPToolsTests(unittest.TestCase):
         self.assertEqual(graph_id, self.graph_id)
         self.assertEqual(json.loads(payload)["label"], "rel-2")
 
-    def test_agent_stubs_return_expected_error(self) -> None:
-        elicit = run_elicit(self.store, {})
-        self.assertEqual(elicit["code"], -32001)
-        self.assertIn("commands/elicit-context.md", elicit["message"])
+    # Task 1.9 — per-tool error tests (split from test_agent_stubs_return_expected_error).
+    # Handlers still raise -32001 in PR1; tests stay GREEN until PR2-4 flip them.
 
-        mapped = map_connections(self.store, {})
-        self.assertEqual(mapped["code"], -32001)
-        self.assertIn("commands/map-connections.md", mapped["message"])
+    def test_run_elicit_returns_context(self) -> None:
+        result = run_elicit(self.store, {})
+        # Must not return an error code — R1 spec: no -32001.
+        self.assertNotIn("code", result)
+        # entity_types length matches live enum — R5.
+        self.assertEqual(len(result["entity_types"]), len(list(EntityType)))
+        # supertypes is a sorted list with entries.
+        supertypes = result["supertypes"]
+        self.assertIsInstance(supertypes, list)
+        self.assertGreater(len(supertypes), 0)
+        self.assertEqual(supertypes, sorted(supertypes))
+        # expected_sections keys match entity type values.
+        expected_keys = {e.value for e in EntityType}
+        self.assertEqual(set(result["expected_sections"].keys()), expected_keys)
+        # relationship_types length matches live enum — R5.
+        self.assertEqual(len(result["relationship_types"]), len(list(RelationshipType)))
+        # base_weights length matches live enum — R5.
+        self.assertEqual(len(result["base_weights"]), len(list(RelationshipType)))
+        # Category-2 keys are truthy.
+        self.assertTrue(result["question_bank"])
+        self.assertTrue(result["org_slug_rules"])
+        self.assertTrue(result["topic_key_format"])
+        self.assertTrue(result["mem_save_templates"])
 
-        brd = generate_brd(self.store, {})
-        self.assertEqual(brd["code"], -32001)
-        self.assertIn("commands/generate-brd.md", brd["message"])
+    def test_map_connections_returns_context(self) -> None:
+        from brain_ds.scoring.engine import ScoringEngine
+
+        result = map_connections(self.store, {})
+        # Must not return an error code — R2 spec: no -32001.
+        self.assertNotIn("code", result)
+        # entity_types length matches live enum — R5.
+        self.assertEqual(len(result["entity_types"]), len(list(EntityType)))
+        # connection_rules is truthy (non-empty).
+        self.assertTrue(result["connection_rules"])
+        # relationship_labels length matches live enum — R5.
+        self.assertEqual(len(result["relationship_labels"]), len(list(RelationshipType)))
+        # scoring_factors length matches ScoringEngine factor_weights — R2.
+        self.assertEqual(len(result["scoring_factors"]), len(ScoringEngine().factor_weights))
+        # B1 boundary: result MUST NOT contain computed connections or edges keys.
+        self.assertNotIn("connections", result)
+        self.assertNotIn("edges", result)
+
+    def test_generate_brd_returns_context(self) -> None:
+        result = generate_brd(self.store, {})
+        # Must not return an error code — R3 spec: no -32001.
+        self.assertNotIn("code", result)
+        # entity_types length matches live enum — R5.
+        self.assertEqual(len(result["entity_types"]), len(list(EntityType)))
+        # brd_section_order has 14 entries — design contract.
+        self.assertEqual(len(result["brd_section_order"]), 14)
+        # section_rules is truthy (non-empty).
+        self.assertTrue(result["section_rules"])
+        # completeness_matrix_template is truthy.
+        self.assertTrue(result["completeness_matrix_template"])
+        # B1 boundary: result MUST NOT contain a computed brd or document key.
+        self.assertNotIn("brd", result)
+        self.assertNotIn("document", result)
+
+    # Task 1.8 — schema validation tests (RED until Task 1.7 adds schemas to TOOL_SCHEMAS).
+
+    def test_run_elicit_valid_input_passes_schema(self) -> None:
+        result = validate_tool_input("run_elicit", {})
+        self.assertIsInstance(result, dict)
+
+    def test_map_connections_valid_input_passes_schema(self) -> None:
+        result = validate_tool_input("map_connections", {})
+        self.assertIsInstance(result, dict)
+
+    def test_generate_brd_valid_input_passes_schema(self) -> None:
+        result = validate_tool_input("generate_brd", {})
+        self.assertIsInstance(result, dict)
+
+    # Task S1 — negative-path schema tests: additionalProperties: False must reject unknown keys.
+
+    def test_run_elicit_invalid_input_raises(self) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            validate_tool_input("run_elicit", {"bogus": 1})
+        self.assertEqual(ctx.exception.code, -32602)
+
+    def test_map_connections_invalid_input_raises(self) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            validate_tool_input("map_connections", {"bogus": 1})
+        self.assertEqual(ctx.exception.code, -32602)
+
+    def test_generate_brd_invalid_input_raises(self) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            validate_tool_input("generate_brd", {"bogus": 1})
+        self.assertEqual(ctx.exception.code, -32602)
 
     def test_list_graphs_empty_and_populated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -378,9 +460,10 @@ class MCPToolsTests(unittest.TestCase):
             ],
         )
 
-        self.assertTrue(TOOL_REGISTRY["run_elicit"]["requires_ai_agent"])
-        self.assertTrue(TOOL_REGISTRY["map_connections"]["requires_ai_agent"])
-        self.assertTrue(TOOL_REGISTRY["generate_brd"]["requires_ai_agent"])
+        # Task 1.11 — flipped to assertFalse after registry update in Task 1.10.
+        self.assertFalse(TOOL_REGISTRY["run_elicit"]["requires_ai_agent"])
+        self.assertFalse(TOOL_REGISTRY["map_connections"]["requires_ai_agent"])
+        self.assertFalse(TOOL_REGISTRY["generate_brd"]["requires_ai_agent"])
 
         before = self._audit_count()
         list_nodes(self.store, {"graph_id": self.graph_id})
