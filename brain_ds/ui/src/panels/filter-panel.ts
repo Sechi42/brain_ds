@@ -87,6 +87,7 @@ export function mount(deps: FilterPanelDeps): void {
       label.className = "filter-item";
       const cb = document.createElement("input");
       cb.type = "checkbox";
+      cb.className = "filter-checkbox";
       cb.checked = true;
       _addListener(cb, "change", () => {
         onToggle(t.type, cb.checked);
@@ -99,23 +100,10 @@ export function mount(deps: FilterPanelDeps): void {
 
       label.appendChild(cb);
       label.appendChild(chip);
-      const text = document.createElement("span");
-      text.textContent = `${t.type} (${t.count})`;
-      label.appendChild(text);
-
-      const toggle = document.createElement("button");
-      toggle.type = "button";
-      toggle.className = "pill-btn btn-outline filter-toggle";
-      toggle.setAttribute("aria-pressed", "true");
-      toggle.textContent = "Mostrar";
-      _addListener(toggle, "click", () => {
-        const nextChecked = !cb.checked;
-        cb.checked = nextChecked;
-        toggle.textContent = nextChecked ? "Mostrar" : "Ocultar";
-        toggle.setAttribute("aria-pressed", nextChecked ? "true" : "false");
-        onToggle(t.type, nextChecked);
-      });
-      label.appendChild(toggle);
+      const textWrap = document.createElement("span");
+      textWrap.className = "filter-item-text";
+      textWrap.textContent = `${t.type} (${t.count})`;
+      label.appendChild(textWrap);
       filtersRoot.appendChild(label);
 
       // Legend item: button with chip + type name
