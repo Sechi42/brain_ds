@@ -238,10 +238,8 @@ def run_elicit(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
 
 @error_boundary
 def map_connections(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
-    raise ValidationError(
-        code=-32001,
-        message="map_connections requires an AI agent. See commands/map-connections.md",
-    )
+    validate_tool_input("map_connections", params, TOOL_SCHEMAS["map_connections"])
+    return grounding.map_connections_context()
 
 
 @error_boundary
