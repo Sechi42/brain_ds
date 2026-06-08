@@ -244,10 +244,8 @@ def map_connections(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]
 
 @error_boundary
 def generate_brd(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
-    raise ValidationError(
-        code=-32001,
-        message="generate_brd requires an AI agent. See commands/generate-brd.md",
-    )
+    validate_tool_input("generate_brd", params, TOOL_SCHEMAS["generate_brd"])
+    return grounding.generate_brd_context()
 
 
 def _safe_log_error(store: GraphStore, tool_name: str, payload: dict[str, Any]) -> None:
