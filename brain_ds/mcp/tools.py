@@ -4,6 +4,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any
 
+import brain_ds.mcp.grounding as grounding
 from brain_ds.mcp.security import TOOL_SCHEMAS, ValidationError, error_boundary, validate_tool_input
 from brain_ds.store.errors import GraphNotFoundError, StoreError
 from brain_ds.store.graph_store import GraphStore
@@ -231,10 +232,8 @@ def add_edge(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
 
 @error_boundary
 def run_elicit(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
-    raise ValidationError(
-        code=-32001,
-        message="run_elicit requires an AI agent. See commands/elicit-context.md",
-    )
+    validate_tool_input("run_elicit", params, TOOL_SCHEMAS["run_elicit"])
+    return grounding.elicit_context()
 
 
 @error_boundary
