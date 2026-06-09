@@ -1,5 +1,5 @@
 use crate::desktop::{DesktopState, LaunchResult};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
 #[tauri::command]
@@ -17,11 +17,11 @@ pub fn pick_project_and_launch(app: AppHandle, state: State<'_, DesktopState>) -
 
     let selected = selected.ok_or_else(|| "Project folder selection was cancelled.".to_string())?;
     state
-        .launch_with_project_root(selected.to_string_lossy().as_ref())
+        .launch_with_project_root(&app, selected.to_string_lossy().as_ref())
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn retry_launch(state: State<'_, DesktopState>) -> Result<LaunchResult, String> {
-    state.retry_last_project().map_err(|error| error.to_string())
+pub fn retry_launch(app: AppHandle, state: State<'_, DesktopState>) -> Result<LaunchResult, String> {
+    state.retry_last_project(&app).map_err(|error| error.to_string())
 }

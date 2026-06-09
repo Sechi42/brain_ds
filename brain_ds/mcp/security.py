@@ -84,6 +84,33 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         },
         "additionalProperties": False,
     },
+    "create_graph": {
+        "type": "object",
+        "required": ["graph_id"],
+        "properties": {
+            "graph_id": {"type": "string"},
+            "name": {"type": "string"},
+            "project": {"type": "string"},
+        },
+        "additionalProperties": False,
+    },
+    "import_graph": {
+        "type": "object",
+        "required": ["file_path"],
+        "properties": {
+            "file_path": {"type": "string"},
+            "graph_id": {"type": "string"},
+        },
+        "additionalProperties": False,
+    },
+    "list_data_sources": {
+        "type": "object",
+        "required": ["graph_id"],
+        "properties": {
+            "graph_id": {"type": "string"},
+        },
+        "additionalProperties": False,
+    },
     # B1 context-return tools — zero-param empty-object schemas (matching list_graphs pattern).
     "run_elicit": {
         "type": "object",
@@ -132,6 +159,29 @@ def resolve_store_path(project_root: str) -> Path:
         raise SecurityError("Store path escapes canonical root") from exc
 
     return resolved_store
+
+
+def validate_path_within_root(file_path: str, project_root: str | Path) -> Path:
+    path_input = Path(file_path)
+    if ".." in path_input.parts:
+        raise SecurityError("Path traversal is not allowed")
+
+    root_input = Path(project_root)
+    canonical_root = root_input.resolve(strict=True)
+    canonical_path = path_input.resolve(strict=True)
+
+    root_real = os.path.realpath(str(canonical_root))
+    path_real = os.path.realpath(str(canonical_path))
+    root_prefix = os.path.join(root_real, "")
+    if not path_real.startswith(root_prefix):
+        raise SecurityError("Path traversal escapes project root")
+
+    try:
+        canonical_path.relative_to(canonical_root)
+    except ValueError as exc:
+        raise SecurityError("Path traversal escapes project root") from exc
+
+    return canonical_path
 
 
 def validate_tool_input(tool_name: str, params: dict[str, Any], schema: dict[str, Any] | None = None) -> dict[str, Any]:

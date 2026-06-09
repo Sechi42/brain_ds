@@ -38,3 +38,11 @@ review-*.png
 
 # Temporary test artifacts
 tmp/
+
+# E2E real-time verification sandbox
+e2e-sandbox/
+brain_ds/ui/playwright-report/
+brain_ds/ui/test-results/
+.coverage
+.coverage.*
+htmlcov/

@@ -6,7 +6,6 @@ import os
 import io
 import shutil
 import subprocess
-import sys
 import tempfile
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -185,7 +184,7 @@ class MCPClaudeConfigTests(unittest.TestCase):
 
                 self.assertEqual(initialize_response["result"]["protocolVersion"], "2024-11-05")
                 tools = tools_response["result"]["tools"]
-                self.assertEqual(len(tools), 9)
+                self.assertEqual(len(tools), 12)
 
     def test_claude_md_contains_required_sections(self) -> None:
         claude_path = Path(__file__).resolve().parents[1] / "CLAUDE.md"
@@ -205,6 +204,9 @@ class MCPClaudeConfigTests(unittest.TestCase):
             "map_connections",
             "generate_brd",
             "list_graphs",
+            "create_graph",
+            "import_graph",
+            "list_data_sources",
         ]
         for marker in required_markers:
             self.assertIn(marker, content)

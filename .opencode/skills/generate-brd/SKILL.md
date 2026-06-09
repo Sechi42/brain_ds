@@ -1,7 +1,7 @@
 ---
 name: generate-brd
 description: |
-  Generate a deterministic 14-section Business Requirements Document from domain memories in Engram.
+  Generate a deterministic 14-section Business Requirements Document from domain entities stored in SQLite.
   Trigger: /generate-brd or /generate-brd --save
 license: MIT
 disable-model-invocation: true
@@ -29,19 +29,35 @@ metadata:
 Resolve organization in order: `--org` > `session/active-org` > `default`, and echo:
 `Resolved organization: <name> (<source>)`
 
-Run these **11 queries in parallel**:
-`[Department]`, `[Role]`, `[Data Source]`, `[Heuristic]`, `[Tacit Knowledge]`, `[Problem / Improvement Area]`, `[Project]`, `[Risk]`, `[Decision]`, `[KPI]`, `[Solution]`.
+Run typed SQLite retrievals against the resolved org graph.
 
-Then:
-1. Dedupe IDs.
-2. Call `mem_get_observation(id)` for every ID.
-3. Never synthesize from `mem_search` preview snippets.
-4. Filter to `org/<resolved-slug>/domain/...`; include bare `domain/...` only when slug=`default`.
-5. Never mix org prefixes.
+```json
+[
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "Department"},
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "Role"},
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "Data Source"},
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "Heuristic"},
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "Tacit Knowledge"},
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "Problem / Improvement Area"},
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "Project"},
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "Risk"},
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "Decision"},
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "KPI"},
+  {"tool": "list_nodes", "graph_id": "<resolved-org-slug>", "type": "Solution"},
+  {"tool": "search_graph", "graph_id": "<resolved-org-slug>", "query": "<targeted substring only when needed>"}
+]
+```
+
+Rules:
+1. `list_nodes` is the PRIMARY retrieval path for the BRD dataset fingerprint and section assembly.
+2. Use `search_graph` only when a section needs targeted substring expansion inside the same graph.
+3. Never use `mem_search` / `mem_get_observation` for org domain retrieval in this workflow.
+4. typed SQL filters are not equivalent to Engram substring search; validate the difference on a seeded vault before assuming parity.
+5. If the resolved graph is empty, generate the starter BRD from the SQLite-empty state, not from Engram fallbacks.
 
 ## Normalization Rules
 
-Extract fields: `entity_type`, `name`, `what`, `why`, `where`, `learned`, `tokens`, `source_id`.
+Extract fields from SQLite rows: `entity_type` (`type`), `name` (`label`), `what`, `why`, `where`, `learned` (`details.*`), `tokens`, `source_id`.
 Supported tags follow canonical ontology names from `brain_ds.ontology.EntityType`.
 
 ## BRD Output Contract (Section Order Mandatory)
@@ -134,6 +150,8 @@ Save BRD only for `/generate-brd --save`:
   "project": "brain_ds"
 }
 ```
+
+When persisting synthesized org/domain entities or links discovered during BRD generation, use the SQLite MCP write path (`create_graph` if needed, then `update_node` / `add_edge`) rather than Engram domain memories.
 
 ## Worked Examples
 

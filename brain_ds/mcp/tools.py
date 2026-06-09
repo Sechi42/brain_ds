@@ -2,11 +2,20 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import datetime, timezone
+import json
+from pathlib import Path
 from typing import Any
 
 import brain_ds.mcp.grounding as grounding
-from brain_ds.mcp.security import TOOL_SCHEMAS, ValidationError, error_boundary, validate_tool_input
-from brain_ds.store.errors import GraphNotFoundError, StoreError
+from brain_ds.mcp.security import (
+    TOOL_SCHEMAS,
+    SecurityError,
+    ValidationError,
+    error_boundary,
+    validate_path_within_root,
+    validate_tool_input,
+)
+from brain_ds.store.errors import GraphAlreadyExistsError, GraphNotFoundError, StoreError
 from brain_ds.store.graph_store import GraphStore
 
 
@@ -30,6 +39,13 @@ def _normalize_optional_filter(value: Any) -> Any:
 
 def _receipt_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _project_root_from_store_path(store_path: str) -> Path:
+    path = Path(store_path)
+    if path.parent.name == ".brain_ds":
+        return path.parent.parent
+    return path.parent
 
 
 def _enqueue_tool_receipt(
@@ -60,6 +76,51 @@ def list_graphs(store: GraphStore, params: dict[str, Any]) -> list[dict[str, Any
     validate_tool_input("list_graphs", params, TOOL_SCHEMAS["list_graphs"])
     rows = store.list_graphs()
     return [asdict(row) for row in rows]
+
+
+@error_boundary
+def create_graph(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    validated = validate_tool_input("create_graph", params, TOOL_SCHEMAS["create_graph"])
+    try:
+        graph_id = store.create_graph(
+            validated["graph_id"],
+            name=validated.get("name"),
+            project=validated.get("project", ""),
+            workspace_root="",
+            workspace_path="",
+        )
+        result = asdict(next(meta for meta in store.list_graphs() if meta.id == graph_id))
+        store.log_audit("create_graph", validated, "ok")
+        store.enqueue_event("graph.created", graph_id, result)
+        return result
+    except GraphAlreadyExistsError as exc:
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+    except StoreError as exc:
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+
+
+@error_boundary
+def import_graph(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    validated = validate_tool_input("import_graph", params, TOOL_SCHEMAS["import_graph"])
+    try:
+        source_path = validate_path_within_root(
+            validated["file_path"],
+            _project_root_from_store_path(store.path),
+        )
+        payload = json.loads(source_path.read_text(encoding="utf-8"))
+        graph_id = store.import_json(payload, graph_id=validated.get("graph_id"))
+        result = {
+            "graph_id": graph_id,
+            "node_count": len(payload.get("nodes", [])),
+            "edge_count": len(payload.get("edges", [])),
+        }
+        store.log_audit("import_graph", validated, "ok")
+        store.enqueue_event("graph.imported", graph_id, result)
+        return result
+    except (SecurityError, FileNotFoundError, json.JSONDecodeError) as exc:
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+    except StoreError as exc:
+        raise ValidationError(code=-32000, message=str(exc)) from exc
 
 
 @error_boundary
@@ -113,6 +174,16 @@ def search_graph(store: GraphStore, params: dict[str, Any]) -> list[dict[str, An
         )
 
     return [_node_to_dict(row) for row in rows if _match(row)]
+
+
+@error_boundary
+def list_data_sources(store: GraphStore, params: dict[str, Any]) -> list[dict[str, Any]] | dict[str, Any]:
+    validated = validate_tool_input("list_data_sources", params, TOOL_SCHEMAS["list_data_sources"])
+    try:
+        rows = store.query_nodes(validated["graph_id"], type="Data Source")
+    except GraphNotFoundError as exc:
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+    return [_node_to_dict(row) for row in rows]
 
 
 @error_boundary
@@ -263,10 +334,31 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "rw": "read",
         "requires_ai_agent": False,
     },
+    "create_graph": {
+        "handler": create_graph,
+        "schema": TOOL_SCHEMAS["create_graph"],
+        "description": "Create an empty graph/vault (non-destructive)",
+        "rw": "write",
+        "requires_ai_agent": False,
+    },
+    "import_graph": {
+        "handler": import_graph,
+        "schema": TOOL_SCHEMAS["import_graph"],
+        "description": "Import graph JSON from a project-local file",
+        "rw": "write",
+        "requires_ai_agent": False,
+    },
     "list_nodes": {
         "handler": list_nodes,
         "schema": TOOL_SCHEMAS["list_nodes"],
         "description": "List graph nodes with optional filters",
+        "rw": "read",
+        "requires_ai_agent": False,
+    },
+    "list_data_sources": {
+        "handler": list_data_sources,
+        "schema": TOOL_SCHEMAS["list_data_sources"],
+        "description": "List only Data Source nodes for a graph",
         "rw": "read",
         "requires_ai_agent": False,
     },

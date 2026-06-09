@@ -21,7 +21,8 @@ async function launch() {
     const result = await invoke("pick_project_and_launch");
 
     if (result?.status === "Ready" && result?.url) {
-      window.location.assign(result.url);
+      // R10: navigate to /vault-picker so user can select or create a workspace.
+      window.location.assign(`${result.url}/vault-picker`);
       return;
     }
 

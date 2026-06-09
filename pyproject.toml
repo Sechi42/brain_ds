@@ -35,3 +35,57 @@ include = ["brain_ds*"]
   "assets/icons/*.svg",
   "static/*.css",
 ]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.1.0",
+    "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.15.16",
+]
+
+# --- Tooling -------------------------------------------------------------
+# Test runner: pytest (runs the existing unittest.TestCase suite natively).
+# `pythonpath = "."` is required so cross-test imports like
+# `from tests.test_ui_runtime_behavior import _run_node` resolve under pytest.
+# Coverage is intentionally NOT in addopts: the 87% gate is enforced on the
+# FULL suite via the documented command, not on every (subset) invocation —
+# a single-file TDD run would never reach 87% global coverage and would
+# falsely fail. Full gate:
+#   uv run pytest --cov=brain_ds --cov-report=term-missing --cov-fail-under=87
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = ["-ra"]
+
+[tool.coverage.run]
+source = ["brain_ds"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+exclude = [
+    ".atl",
+    ".build-venv",
+    ".venv",
+    "build",
+    "dist",
+    "src-tauri/target",
+]
+
+[tool.ruff.format]
+line-ending = "lf"
+
+# Lint uses ruff's sensible defaults (E4/E7/E9 + F: real bugs — unused
+# imports, undefined names — without pedantic line-length churn across the
+# unittest suite). Enforced via `ruff check`, kept OUT of the TDD test gate.
+
+[tool.mypy]
+# ADVISORY ONLY — not part of the test/TDD gate. The codebase is largely
+# untyped; mypy is a separate `mypy brain_ds` command, not a blocker.
+python_version = "3.11"
+exclude = "(?x)(^build/|^dist/|^src-tauri/target/|^brain_ds/ui/node_modules/)"
+ignore_missing_imports = true
+namespace_packages = true
+explicit_package_bases = true
+warn_unused_ignores = true

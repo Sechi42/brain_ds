@@ -11,8 +11,11 @@ from brain_ds.ontology.relationship_types import RelationshipType
 from brain_ds.mcp.tools import (
     TOOL_REGISTRY,
     add_edge,
+    create_graph,
     generate_brd,
     get_node,
+    import_graph,
+    list_data_sources,
     list_graphs,
     list_nodes,
     map_connections,
@@ -78,6 +81,13 @@ class MCPToolsTests(unittest.TestCase):
             "SELECT event, graph_id, payload FROM event_outbox WHERE event != 'tool.invoked' ORDER BY id DESC LIMIT 1"
         ).fetchone()
         return (row[0], row[1], row[2])
+
+    def _create_import_store(self) -> tuple[tempfile.TemporaryDirectory[str], GraphStore, Path]:
+        project_dir = tempfile.TemporaryDirectory()
+        store_dir = Path(project_dir.name) / ".brain_ds"
+        store_dir.mkdir(parents=True)
+        store = GraphStore(str(store_dir / "store.db"))
+        return project_dir, store, Path(project_dir.name)
 
     def test_list_nodes_filters_and_missing_graph_error(self) -> None:
         result = list_nodes(self.store, {"graph_id": self.graph_id, "type": "Task"})
@@ -343,8 +353,8 @@ class MCPToolsTests(unittest.TestCase):
         # Category-2 keys are truthy.
         self.assertTrue(result["question_bank"])
         self.assertTrue(result["org_slug_rules"])
-        self.assertTrue(result["topic_key_format"])
-        self.assertTrue(result["mem_save_templates"])
+        self.assertTrue(result["node_id_format"])
+        self.assertTrue(result["node_write_templates"])
 
     def test_map_connections_returns_context(self) -> None:
         from brain_ds.scoring.engine import ScoringEngine
@@ -442,15 +452,105 @@ class MCPToolsTests(unittest.TestCase):
         self.assertTrue(all("node_count" in graph for graph in populated))
         self.assertTrue(all("edge_count" in graph for graph in populated))
 
-    def test_registry_has_nine_tools_and_reads_do_not_audit(self) -> None:
+    def test_create_graph_tool(self) -> None:
+        result = create_graph(
+            self.store,
+            {"graph_id": "logitrans", "name": "Logitrans", "project": "brain-ds"},
+        )
+
+        self.assertEqual(result["id"], "logitrans")
+        self.assertEqual(result["org"], "Logitrans")
+        self.assertEqual(result["node_count"], 0)
+        self.assertEqual(result["edge_count"], 0)
+
+    def test_create_graph_duplicate(self) -> None:
+        create_graph(self.store, {"graph_id": "logitrans"})
+
+        duplicate = create_graph(self.store, {"graph_id": "logitrans"})
+        self.assertEqual(duplicate["code"], -32000)
+        self.assertEqual(duplicate["message"], "Graph 'logitrans' already exists")
+
+    def test_import_graph_tool(self) -> None:
+        project_dir, store, project_root = self._create_import_store()
+        try:
+            payload = {
+                "schema_version": "2.0.0",
+                "org": "Logitrans",
+                "generated_at": "",
+                "nodes": [
+                    {
+                        "id": "ds-1",
+                        "label": "ERP",
+                        "type": "Data Source",
+                        "details": {"owner": "ops"},
+                        "supertype": "data",
+                        "parent_id": None,
+                        "depth": 0,
+                    }
+                ],
+                "edges": [],
+                "evidence": [],
+            }
+            source_path = project_root / "seed.json"
+            source_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            result = import_graph(store, {"file_path": str(source_path), "graph_id": "logitrans"})
+
+            self.assertEqual(result["graph_id"], "logitrans")
+            self.assertEqual(result["node_count"], 1)
+            self.assertEqual(len(store.query_nodes("logitrans")), 1)
+        finally:
+            store.close()
+            project_dir.cleanup()
+
+    def test_import_graph_path_traversal_rejected(self) -> None:
+        project_dir, store, project_root = self._create_import_store()
+        try:
+            outside_dir = Path(project_root).parent
+            outside_path = outside_dir / "outside-seed.json"
+            outside_path.write_text("{}", encoding="utf-8")
+
+            escaped = import_graph(store, {"file_path": str(project_root / ".." / outside_path.name)})
+
+            self.assertEqual(escaped["code"], -32000)
+            self.assertIn("Path traversal", escaped["message"])
+        finally:
+            if outside_path.exists():
+                outside_path.unlink()
+            store.close()
+            project_dir.cleanup()
+
+    def test_list_data_sources(self) -> None:
+        update_node(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "node_id": "DS-1",
+                "label": "ERP",
+                "type": "Data Source",
+                "supertype": "data",
+                "details": {"owner": "ops"},
+            },
+        )
+
+        result = list_data_sources(self.store, {"graph_id": self.graph_id})
+
+        self.assertEqual([item["id"] for item in result], ["DS-1"])
+        typed = list_nodes(self.store, {"graph_id": self.graph_id, "type": "Data Source"})
+        self.assertEqual(result, typed)
+
+    def test_registry_has_twelve_tools_and_reads_do_not_audit(self) -> None:
         names = sorted(TOOL_REGISTRY.keys())
-        self.assertEqual(len(names), 9)
+        self.assertEqual(len(names), 12)
         self.assertEqual(
             names,
             [
                 "add_edge",
+                "create_graph",
                 "generate_brd",
                 "get_node",
+                "import_graph",
+                "list_data_sources",
                 "list_graphs",
                 "list_nodes",
                 "map_connections",

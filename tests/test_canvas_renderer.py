@@ -25,7 +25,7 @@ class TestCanvasRendererContracts(unittest.TestCase):
     def test_vis_offline_js_exists_and_is_replaced(self):
         # PR 1: check renderer.ts exists (identity port of legacy renderer JS)
         self.assertTrue(self.js_path.exists(),
-                        f"src/renderer.ts not found — identity rename not complete")
+                        "src/renderer.ts not found — identity rename not complete")
         self.assertGreater(len(self.js_text.splitlines()), 158)
         self.assertNotIn("vis-fallback-list", self.js_text)
         self.assertRegex(self.js_text, r"class\s+Network|createElement\(['\"]canvas['\"]\)")

@@ -6,11 +6,14 @@
   "scripts": {
     "build": "node build/esbuild.config.mjs",
     "watch": "node build/esbuild.config.mjs --watch",
+    "e2e": "playwright test",
+    "e2e:smoke": "playwright test e2e/smoke.spec.ts",
     "typecheck": "tsc --noEmit -p .",
     "bundle-size": "node build/check-bundle-size.mjs",
     "ci": "npm run typecheck && npm run build && npm run bundle-size"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "esbuild": "^0.21.0",
     "typescript": "^5.4.0"
   }

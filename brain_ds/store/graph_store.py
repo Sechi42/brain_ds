@@ -9,7 +9,7 @@ from typing import Any
 
 from brain_ds.ontology.graph_model import CardSection, Edge, EvidenceRecord, Graph, Node
 
-from .errors import GraphNotFoundError, IncompatibleStoreError, StoreError
+from .errors import GraphAlreadyExistsError, GraphNotFoundError, IncompatibleStoreError, StoreError
 from .migrations import MIGRATIONS, apply_pending, configure_connection
 from .models import ClusterRow, EdgeRow, EvidenceRow, GraphMeta, NearestHit, NodeRow
 from .repository import (
@@ -71,10 +71,50 @@ class GraphStore:
         self.conn.close()
         self._closed = True
 
-    def import_json(self, source: dict[str, Any], *, workspace_root: str | None = None) -> str:
+    def import_json(
+        self,
+        source: dict[str, Any],
+        *,
+        graph_id: str | None = None,
+        workspace_root: str | None = None,
+    ) -> str:
         graph = Graph.from_v1(source)
         imported_from = str(source.get("imported_from")) if source.get("imported_from") else None
-        return self.save_graph(graph, workspace_root=workspace_root or "", imported_from=imported_from)
+        return self.save_graph(
+            graph,
+            graph_id=graph_id,
+            workspace_root=workspace_root or "",
+            imported_from=imported_from,
+        )
+
+    def create_graph(
+        self,
+        graph_id: str,
+        *,
+        name: str | None = None,
+        project: str = "",
+        workspace_root: str = "",
+        workspace_path: str = "",
+    ) -> str:
+        self._ensure_writable()
+        exists = self.conn.execute("SELECT 1 FROM graphs WHERE id = ?", (graph_id,)).fetchone()
+        if exists is not None:
+            raise GraphAlreadyExistsError(f"Graph '{graph_id}' already exists")
+
+        self.meta_repo.save_graph_meta(
+            graph_id=graph_id,
+            workspace_root=workspace_root,
+            workspace_path=workspace_path,
+            project=project,
+            org=name or graph_id,
+            schema_version="2.0.0",
+            contract_version=_CONTRACT_VERSION,
+            node_count=0,
+            edge_count=0,
+            imported_from=None,
+            generated_at=None,
+        )
+        return graph_id
 
     def export_json(self, graph_id: str) -> dict[str, Any]:
         return self.load_graph(graph_id).to_dict()
@@ -188,11 +228,13 @@ class GraphStore:
         self._ensure_writable()
         self._assert_graph_exists(graph_id)
         self.node_repo.upsert_node(graph_id, node_input)
+        self._refresh_graph_counts(graph_id)
 
     def upsert_edge(self, graph_id: str, edge_input: dict[str, Any]) -> None:
         self._ensure_writable()
         self._assert_graph_exists(graph_id)
         self.edge_repo.upsert_edge(graph_id, edge_input)
+        self._refresh_graph_counts(graph_id)
 
     def log_audit(
         self,
@@ -343,3 +385,16 @@ class GraphStore:
             return callback()
         except sqlite3.Error as exc:
             raise StoreError(str(exc)) from exc
+
+    def _refresh_graph_counts(self, graph_id: str) -> None:
+        self.conn.execute(
+            """
+            UPDATE graphs
+               SET node_count = (SELECT COUNT(*) FROM nodes WHERE graph_id = ?),
+                   edge_count = (SELECT COUNT(*) FROM edges WHERE graph_id = ?),
+                   updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?
+            """,
+            (graph_id, graph_id, graph_id),
+        )
+        self.conn.commit()
