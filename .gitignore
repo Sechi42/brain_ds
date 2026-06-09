@@ -43,3 +43,6 @@ tmp/
 e2e-sandbox/
 brain_ds/ui/playwright-report/
 brain_ds/ui/test-results/
+.coverage
+.coverage.*
+htmlcov/

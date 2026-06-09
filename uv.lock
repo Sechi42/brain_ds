@@ -99,6 +99,12 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+]
 simple = [
     { name = "pyvis" },
 ]
@@ -115,12 +121,16 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.116.0" },
     { name = "httpx", specifier = ">=0.28.0" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13" },
     { name = "networkx", specifier = ">=3.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5" },
     { name = "pyvis", marker = "extra == 'simple'", specifier = ">=0.3" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.9" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.35.0" },
     { name = "websockets", specifier = ">=15.0.0" },
 ]
-provides-extras = ["simple"]
+provides-extras = ["simple", "dev"]
 
 [package.metadata.requires-dev]
 dev = [

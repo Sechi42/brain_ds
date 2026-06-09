@@ -2129,7 +2129,10 @@ class TestPR2OverflowMenuClampRuntime(unittest.TestCase):
     """
 
     def _run_node(self, code: str) -> dict:
-        import subprocess, json, tempfile, os
+        import subprocess
+        import json
+        import tempfile
+        import os
         # Write code to a temp file to avoid Windows command-line length limits
         with tempfile.NamedTemporaryFile(mode="w", suffix=".js", delete=False, encoding="utf-8") as f:
             f.write(code)
@@ -2146,7 +2149,7 @@ class TestPR2OverflowMenuClampRuntime(unittest.TestCase):
             raise AssertionError(
                 f"Node harness failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
             )
-        lines = [l for l in result.stdout.splitlines() if l.strip()]
+        lines = [line for line in result.stdout.splitlines() if line.strip()]
         payload = lines[-1] if lines else "{}"
         try:
             return json.loads(payload)
@@ -2162,7 +2165,10 @@ class TestPR2OverflowMenuClampRuntime(unittest.TestCase):
         Menu must NOT have left > center_column_right - minWidth (would overflow right).
         Menu must NOT have left < center_column_left (would overflow left into rail).
         """
-        import re, tempfile, os, json, subprocess
+        import re
+        import tempfile
+        import os
+        import json
 
         template_path = Path(__file__).resolve().parents[1] / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
         template_text = template_path.read_text(encoding="utf-8")

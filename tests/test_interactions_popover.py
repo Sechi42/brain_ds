@@ -11,7 +11,6 @@ Covers:
 
 import unittest
 import os
-import re
 
 TS_MODULE_PATH = os.path.join(
     os.path.dirname(__file__),

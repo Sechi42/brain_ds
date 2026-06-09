@@ -889,7 +889,6 @@ class TestSlice5ScoreThresholdFilter(unittest.TestCase):
             / "brain_ds" / "ui" / "src" / "interactions" / "score-filter.ts"
         )
         if score_filter_path.exists():
-            import re
             module_src = score_filter_path.read_text(encoding="utf-8")
             self.assertRegex(
                 module_src,
@@ -961,7 +960,6 @@ class TestSlice6ContextMenuTemplate(unittest.TestCase):
             / "brain_ds" / "ui" / "src" / "interactions" / "context-menu.ts"
         )
         if ctx_menu_path.exists():
-            import re
             module_src = ctx_menu_path.read_text(encoding="utf-8")
             search_src = module_src
         else:
@@ -1427,7 +1425,6 @@ class TestWorkspaceShellPr15ChromePolish(unittest.TestCase):
         that the reduced-motion block (a) exists and (b) appears with enough scope to
         cover .tab-item, .tab-close, .tab-new, or .toolbar-btn.
         """
-        import re
         # Verify the reduced-motion block exists (PR1 already established this)
         self.assertIn(
             "@media (prefers-reduced-motion: reduce)",
@@ -1562,7 +1559,6 @@ class TestWorkspaceShellPr2LeftAdapters(unittest.TestCase):
 
     def test_left_rail_has_role_tablist_and_orientation(self):
         """Left rail nav MUST carry role='tablist' aria-orientation='vertical'."""
-        import re
         # The left rail element must have role="tablist" and aria-orientation="vertical"
         self.assertRegex(
             self.template_text,
@@ -1581,7 +1577,6 @@ class TestWorkspaceShellPr2LeftAdapters(unittest.TestCase):
 
     def test_left_rail_icons_use_rail_icon_class(self):
         """Each rail-icon button MUST use the .rail-icon class (44×44 per _shared.css)."""
-        import re
         # Count .rail-icon buttons in the left rail region
         # Verify the class appears for each expected catalog id
         for catalog_id in ("file-tree", "search", "filters", "hierarchy", "layout"):
@@ -1643,7 +1638,6 @@ class TestWorkspaceShellPr2LeftAdapters(unittest.TestCase):
             "Expected class='panel-header' inside .left-panel-shell",
         )
         # The region must be labeled
-        import re
         panel_shell_start = self.template_text.find('class="left-panel-shell"')
         # Find end of left-panel-shell region (up to center-column)
         center_col_idx = self.template_text.find('class="center-column"')
@@ -1661,7 +1655,6 @@ class TestWorkspaceShellPr2LeftAdapters(unittest.TestCase):
 
     def test_left_panel_header_has_collapse_control(self):
         """Panel header MUST contain a collapse button with aria-label."""
-        import re
         panel_shell_start = self.template_text.find('class="left-panel-shell"')
         center_col_idx = self.template_text.find('class="center-column"')
         panel_region = self.template_text[panel_shell_start:center_col_idx] if center_col_idx > panel_shell_start else self.template_text[panel_shell_start:panel_shell_start + 3000]
@@ -1723,7 +1716,6 @@ class TestWorkspaceShellPr2LeftAdapters(unittest.TestCase):
 
     def test_controls_aside_is_not_hidden(self):
         """After PR2, .controls aside MUST NOT have the hidden attribute (panel is visible)."""
-        import re
         # Find the controls aside and check it does NOT have `hidden` as a standalone attribute
         controls_idx = self.template_text.find('class="panel controls"')
         self.assertGreater(controls_idx, -1, "Expected class='panel controls' aside in template")
@@ -1805,7 +1797,6 @@ class TestWorkspaceShellPr3RightInspectorResponsive(unittest.TestCase):
     def test_right_rail_uses_nav_with_tablist_and_data_rail_side(self):
         """Right rail MUST be a <nav> with role='tablist', aria-orientation='vertical',
         and data-rail-side='right' (enables _shared.css mirror rule)."""
-        import re
         # The right rail element must carry data-rail-side="right" and role="tablist"
         self.assertRegex(
             self.template_text,
@@ -1866,7 +1857,6 @@ class TestWorkspaceShellPr3RightInspectorResponsive(unittest.TestCase):
 
     def test_right_panel_shell_has_r_panel_header_with_region_role(self):
         """Right panel shell MUST contain a panel-header with role='region' and aria-label."""
-        import re
         right_shell_start = self.template_text.find('class="right-panel-shell"')
         self.assertGreater(right_shell_start, -1, "class='right-panel-shell' not found")
         # Region ends at the right rail nav
@@ -1894,7 +1884,6 @@ class TestWorkspaceShellPr3RightInspectorResponsive(unittest.TestCase):
 
     def test_right_panel_header_has_collapse_control(self):
         """R-panel header MUST contain a collapse control with aria-label."""
-        import re
         right_shell_start = self.template_text.find('class="right-panel-shell"')
         rail_start = self.template_text.find('data-rail-side="right"')
         right_shell_region = (
@@ -1979,7 +1968,6 @@ class TestWorkspaceShellPr3RightInspectorResponsive(unittest.TestCase):
         """@media (max-width: 1100px) MUST still hide .right-panel-shell and define
         .detail-panel slide-over rules."""
         self.assertIn("@media (max-width: 1100px)", self.template_text)
-        import re
         media_idx = self.template_text.find("@media (max-width: 1100px)")
         media_block = self.template_text[media_idx:media_idx + 2000]
         self.assertIn(
@@ -3031,7 +3019,6 @@ class TestPR2LayoutContainment(unittest.TestCase):
 
     def test_search_results_inside_search_input_wrap(self):
         """#search-results must be a child of .search-input-wrap (the positioned ancestor) so top:100% anchors below input."""
-        import re
         # Find the .search-input-wrap opening tag, then check that #search-results appears before its closing tag
         wrap_start = self.tpl.find('class="search-input-wrap"')
         self.assertGreater(wrap_start, 0, ".search-input-wrap element not found")

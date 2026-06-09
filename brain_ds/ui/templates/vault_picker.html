@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>brain_ds — pick workspace</title>
+  <style>
+    /* Canonical tokens injected by render_vault_picker_html */
+    __BRAIN_DS_TOKENS_CSS__
+  </style>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg-main, #09090b);
+      color: var(--text-normal, #f4f4f5);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .picker-shell {
+      width: 100%;
+      max-width: 540px;
+      padding: 2rem 1.5rem;
+    }
+
+    .picker-header {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-bottom: 2rem;
+    }
+
+    .picker-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent-mora, #a78bfa);
+    }
+
+    .picker-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text-normal, #f4f4f5);
+      letter-spacing: -0.01em;
+    }
+
+    /* --- Org list --- */
+    .org-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      margin-bottom: 2rem;
+    }
+
+    .org-list:empty::after {
+      content: "No workspaces found. Create one below.";
+      display: block;
+      color: var(--text-muted, #71717a);
+      font-size: 0.875rem;
+      padding: 0.5rem 0;
+    }
+
+    .org-row {
+      display: block;
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border-subtle, rgba(63,63,70,0.4));
+      border-radius: 6px;
+      background: var(--bg-panel, #121214);
+      color: var(--text-normal, #f4f4f5);
+      text-decoration: none;
+      font-size: 0.9375rem;
+      transition: border-color 0.15s, background 0.15s;
+      cursor: pointer;
+    }
+
+    .org-row:hover {
+      border-color: var(--accent-mora, #a78bfa);
+      background: color-mix(in srgb, var(--accent-mora, #a78bfa) 8%, var(--bg-panel, #121214));
+    }
+
+    .org-row:focus {
+      outline: 2px solid var(--accent-mora, #a78bfa);
+      outline-offset: 2px;
+      border-color: var(--accent-mora, #a78bfa);
+    }
+
+    /* --- Divider --- */
+    .picker-divider {
+      border: none;
+      border-top: 1px solid var(--border-subtle, rgba(63,63,70,0.4));
+      margin-bottom: 1.5rem;
+    }
+
+    .picker-section-label {
+      font-size: 0.75rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-muted, #71717a);
+      margin-bottom: 0.75rem;
+    }
+
+    /* --- Create-org form --- */
+    .create-form {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .create-input {
+      flex: 1;
+      padding: 0.6rem 0.8rem;
+      background: var(--bg-panel, #121214);
+      border: 1px solid var(--border-subtle, rgba(63,63,70,0.4));
+      border-radius: 6px;
+      color: var(--text-normal, #f4f4f5);
+      font-size: 0.9375rem;
+      outline: none;
+    }
+
+    .create-input:focus {
+      border-color: var(--accent-mora, #a78bfa);
+      outline: 2px solid var(--accent-mora, #a78bfa);
+      outline-offset: 2px;
+    }
+
+    .create-input::placeholder {
+      color: var(--text-muted, #71717a);
+    }
+
+    .create-btn {
+      padding: 0.6rem 1.2rem;
+      background: var(--accent-mora, #a78bfa);
+      color: #09090b;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.9375rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .create-btn:hover { opacity: 0.88; }
+    .create-btn:focus {
+      outline: 2px solid var(--accent-mora, #a78bfa);
+      outline-offset: 2px;
+    }
+    .create-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .form-error {
+      margin-top: 0.5rem;
+      font-size: 0.8125rem;
+      color: #f87171;
+      display: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .org-row, .create-btn { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="picker-shell" role="main">
+    <header class="picker-header">
+      <div class="picker-dot" aria-hidden="true"></div>
+      <h1 class="picker-title">brain_ds</h1>
+    </header>
+
+    <!-- R8: selectable, focusable org rows (server-rendered) -->
+    <ul class="org-list" aria-label="Available workspaces">
+      __BRAIN_DS_ORG_ROWS__
+    </ul>
+
+    <hr class="picker-divider" />
+
+    <p class="picker-section-label">New workspace</p>
+
+    <!-- R9: create-org form always present -->
+    <form
+      class="create-form"
+      id="create-org-form"
+      action="/api/graphs"
+      method="post"
+      aria-label="Create new workspace"
+    >
+      <label for="org-label-input" class="visually-hidden">Workspace name</label>
+      <input
+        id="org-label-input"
+        class="create-input"
+        type="text"
+        name="label"
+        placeholder="workspace name"
+        autocomplete="off"
+        required
+        aria-required="true"
+      />
+      <button type="submit" class="create-btn">Create</button>
+    </form>
+    <p class="form-error" id="form-error" role="alert" aria-live="polite"></p>
+  </main>
+
+  <script>
+    // R11: org selection navigates via native <a href="/?graph_id={id}"> (no JS needed).
+    // R12: create-org form uses XHR + navigates to /?graph_id=<new_id> on success.
+    // Static fallback (no JS): form POST to /api/graphs works without JavaScript.
+    (function () {
+      var form = document.getElementById("create-org-form");
+      var errEl = document.getElementById("form-error");
+      if (!form) return;
+      form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var label = form.querySelector("input[name=label]").value.trim();
+        if (!label) {
+          errEl.textContent = "Workspace name must not be empty.";
+          errEl.style.display = "block";
+          return;
+        }
+        errEl.style.display = "none";
+        var btn = form.querySelector("button[type=submit]");
+        btn.disabled = true;
+        fetch("/api/graphs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label: label }),
+        })
+          .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+          .then(function (res) {
+            if (res.ok) {
+              window.location.href = "/?graph_id=" + res.data.id;
+            } else {
+              errEl.textContent = (res.data && res.data.detail) || "Error creating workspace.";
+              errEl.style.display = "block";
+              btn.disabled = false;
+            }
+          })
+          .catch(function () {
+            errEl.textContent = "Network error. Please retry.";
+            errEl.style.display = "block";
+            btn.disabled = false;
+          });
+      });
+    })();
+  </script>
+</body>
+</html>

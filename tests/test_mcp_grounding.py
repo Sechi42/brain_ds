@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from brain_ds.ontology.entity_types import EntityType
-from brain_ds.ontology.relationship_types import BASE_WEIGHTS, RelationshipType
+from brain_ds.ontology.relationship_types import RelationshipType
 from brain_ds.scoring.engine import ScoringEngine
 
 # These imports will fail (RED) until brain_ds/mcp/grounding.py is created (Task 1.2 / 1.4 / 1.6).
