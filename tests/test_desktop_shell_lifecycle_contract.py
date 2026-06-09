@@ -25,7 +25,7 @@ class DesktopShellLifecycleContractTests(unittest.TestCase):
             "validate_project_root(project_root_raw)?",
             "self.shutdown_running_sidecar()?",
             "pick_ephemeral_port()?",
-            "spawn_sidecar(&canonical_root, port)?",
+            "spawn_sidecar(app, &canonical_root, port)?",
             "poll_for_server_ready(",
             "Ok(LaunchResult {",
         ]
@@ -39,7 +39,7 @@ class DesktopShellLifecycleContractTests(unittest.TestCase):
     def test_sidecar_spawn_contract_uses_uv_and_port_arg(self) -> None:
         content = (TAURI_SRC / "desktop.rs").read_text(encoding="utf-8")
         spawn_match = re.search(
-            r"pub fn spawn_sidecar\([^)]*\) -> Result<Child, DesktopError> \{(?P<body>.*?)\n\}",
+            r"pub fn spawn_sidecar\([^)]*\) -> Result<SidecarChild, DesktopError> \{(?P<body>.*?)\n\}",
             content,
             re.DOTALL,
         )

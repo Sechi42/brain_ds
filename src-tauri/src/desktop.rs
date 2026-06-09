@@ -6,6 +6,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
+use tauri::AppHandle;
 
 pub const DESKTOP_SERVER_HOST: &str = "127.0.0.1";
 pub const DESKTOP_SERVER_PORT: u16 = 8765;
@@ -70,9 +71,33 @@ impl std::fmt::Display for DesktopError {
 
 impl std::error::Error for DesktopError {}
 
+/// Wraps the two possible child process types so that `DesktopState` can hold
+/// either the dev (`uv run`, `std::process::Child`) or bundled (Tauri shell
+/// plugin, `CommandChild`) variant in the same `Mutex<Option<SidecarChild>>`.
+///
+/// Manual `Debug` impl because `CommandChild` does not implement `Debug`.
+pub enum SidecarChild {
+    /// Dev mode: process spawned via `std::process::Command` (`uv run brain_ds …`).
+    /// Supports `try_wait` and the kill+deadline loop.
+    Std(Child),
+    /// Bundled/NSIS mode: process spawned via `app.shell().sidecar("brain_ds")`.
+    /// ADR-1: `CommandChild::kill(self)` consumes self (fire-and-forget); there is
+    /// no `try_wait`/`wait` on this type, so no exit-confirmation loop is possible.
+    Tauri(tauri_plugin_shell::process::CommandChild),
+}
+
+impl std::fmt::Debug for SidecarChild {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SidecarChild::Std(child) => write!(f, "SidecarChild::Std(pid={})", child.id()),
+            SidecarChild::Tauri(child) => write!(f, "SidecarChild::Tauri(pid={})", child.pid()),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct DesktopState {
-    child: Mutex<Option<Child>>,
+    child: Mutex<Option<SidecarChild>>,
     last_port: Mutex<u16>,
     last_project_root: Mutex<Option<PathBuf>>,
 }
@@ -86,13 +111,13 @@ impl DesktopState {
         }
     }
 
-    pub fn launch_with_project_root(&self, project_root_raw: &str) -> Result<LaunchResult, DesktopError> {
+    pub fn launch_with_project_root(&self, app: &AppHandle, project_root_raw: &str) -> Result<LaunchResult, DesktopError> {
         let canonical_root = validate_project_root(project_root_raw)?;
 
         self.shutdown_running_sidecar()?;
 
         let port = pick_ephemeral_port()?;
-        let child = spawn_sidecar(&canonical_root, port)?;
+        let child = spawn_sidecar(app, &canonical_root, port)?;
         {
             let mut child_guard = self
                 .child
@@ -130,7 +155,7 @@ impl DesktopState {
         })
     }
 
-    pub fn retry_last_project(&self) -> Result<LaunchResult, DesktopError> {
+    pub fn retry_last_project(&self, app: &AppHandle) -> Result<LaunchResult, DesktopError> {
         let last_project_root = self
             .last_project_root
             .lock()
@@ -141,7 +166,7 @@ impl DesktopState {
             return Ok(LaunchResult::error("No previous project selected yet."));
         };
 
-        self.launch_with_project_root(last_project_root.to_string_lossy().as_ref())
+        self.launch_with_project_root(app, last_project_root.to_string_lossy().as_ref())
     }
 
     pub fn shutdown_running_sidecar(&self) -> Result<(), DesktopError> {
@@ -150,11 +175,10 @@ impl DesktopState {
             .lock()
             .map_err(|_| DesktopError::SidecarTerminateFailed("state lock poisoned".to_string()))?;
 
-        if let Some(child) = child_guard.as_mut() {
+        if let Some(child) = child_guard.take() {
             terminate_sidecar(child)?;
         }
 
-        *child_guard = None;
         Ok(())
     }
 }
@@ -182,9 +206,12 @@ pub fn validate_project_root(project_root_raw: &str) -> Result<PathBuf, DesktopE
     Ok(canonical)
 }
 
+/// Dev mode: spawn `uv run brain_ds ui serve` via `std::process::Command`.
+/// The `_app` parameter is ignored in dev but keeps the signature uniform with
+/// the bundled variant so both compile against the same call sites.
 #[cfg(not(feature = "bundled"))]
-pub fn spawn_sidecar(project_root: &Path, port: u16) -> Result<Child, DesktopError> {
-    Command::new("uv")
+pub fn spawn_sidecar(_app: &AppHandle, project_root: &Path, port: u16) -> Result<SidecarChild, DesktopError> {
+    let child = Command::new("uv")
         .arg("run")
         .arg("brain_ds")
         .arg("ui")
@@ -196,27 +223,33 @@ pub fn spawn_sidecar(project_root: &Path, port: u16) -> Result<Child, DesktopErr
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| DesktopError::SidecarSpawnFailed(error.to_string()))
+        .map_err(|error| DesktopError::SidecarSpawnFailed(error.to_string()))?;
+    Ok(SidecarChild::Std(child))
 }
 
+/// Bundled/NSIS mode: spawn via Tauri shell plugin sidecar mechanism.
+/// `brain_ds.exe` is NOT on PATH in an NSIS install; `app.shell().sidecar()`
+/// resolves it via the `externalBin` entry in `tauri.conf.json`.
+/// ADR-1: `CommandChild::kill(self)` is fire-and-forget — terminate does not
+/// wait for exit confirmation because no `try_wait`/`wait` is available.
 #[cfg(feature = "bundled")]
-pub fn spawn_sidecar(project_root: &Path, port: u16) -> Result<Child, DesktopError> {
-    let sidecar_name = "brain_ds";
-    let mut command = Command::new(sidecar_name);
-    command
-        .arg("ui")
-        .arg("serve")
-        .arg("--project-root")
-        .arg(project_root)
-        .arg("--port")
-        .arg(port.to_string())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-    // runtime uses app.shell().sidecar("brain_ds") wiring in Tauri command layer
-    let _contract_token = "sidecar(\"brain_ds\")";
-    command
+pub fn spawn_sidecar(app: &AppHandle, project_root: &Path, port: u16) -> Result<SidecarChild, DesktopError> {
+    use tauri_plugin_shell::ShellExt;
+    let (_receiver, child) = app
+        .shell()
+        .sidecar("brain_ds")
+        .map_err(|error| DesktopError::SidecarSpawnFailed(error.to_string()))?
+        .args([
+            "ui",
+            "serve",
+            "--project-root",
+            &project_root.to_string_lossy(),
+            "--port",
+            &port.to_string(),
+        ])
         .spawn()
-        .map_err(|error| DesktopError::SidecarSpawnFailed(error.to_string()))
+        .map_err(|error| DesktopError::SidecarSpawnFailed(error.to_string()))?;
+    Ok(SidecarChild::Tauri(child))
 }
 
 pub fn poll_for_server_ready(port: u16, timeout: Duration, interval: Duration) -> Result<(), DesktopError> {
@@ -236,22 +269,38 @@ pub fn poll_for_server_ready(port: u16, timeout: Duration, interval: Duration) -
     Err(DesktopError::StartupTimeout)
 }
 
-pub fn terminate_sidecar(child: &mut Child) -> Result<(), DesktopError> {
-    let _ = child.kill();
-
-    let deadline = Instant::now() + Duration::from_secs(DEFAULT_SHUTDOWN_TIMEOUT_SECS);
-    while Instant::now() < deadline {
-        match child.try_wait() {
-            Ok(Some(_)) => return Ok(()),
-            Ok(None) => thread::sleep(Duration::from_millis(100)),
-            Err(error) => {
-                return Err(DesktopError::SidecarTerminateFailed(error.to_string()));
+/// Terminate the sidecar child process. Takes ownership of `SidecarChild`
+/// because the `Tauri` variant's `CommandChild::kill(self)` consumes self.
+///
+/// - `Std` variant: kill + `try_wait` deadline loop (same as before the refactor).
+/// - `Tauri` variant: `kill(self)` is fire-and-forget per ADR-1. No wait loop is
+///   possible because `CommandChild` exposes no `try_wait`/`wait`.
+pub fn terminate_sidecar(child: SidecarChild) -> Result<(), DesktopError> {
+    match child {
+        SidecarChild::Std(mut std_child) => {
+            let _ = std_child.kill();
+            let deadline = Instant::now() + Duration::from_secs(DEFAULT_SHUTDOWN_TIMEOUT_SECS);
+            while Instant::now() < deadline {
+                match std_child.try_wait() {
+                    Ok(Some(_)) => return Ok(()),
+                    Ok(None) => thread::sleep(Duration::from_millis(100)),
+                    Err(error) => {
+                        return Err(DesktopError::SidecarTerminateFailed(error.to_string()));
+                    }
+                }
             }
+            // Best-effort second kill if deadline exceeded.
+            let _ = std_child.kill();
+            Ok(())
+        }
+        SidecarChild::Tauri(tauri_child) => {
+            // ADR-1: kill(self) consumes CommandChild. No wait/try_wait available
+            // on this type — exit confirmation is not possible; process exits and
+            // the OS reclaims resources.
+            let _ = tauri_child.kill();
+            Ok(())
         }
     }
-
-    let _ = child.kill();
-    Ok(())
 }
 
 pub fn pick_ephemeral_port() -> Result<u16, DesktopError> {
@@ -307,5 +356,22 @@ mod tests {
             "http://127.0.0.1:8765/api/graphs",
             readiness_endpoint(8765)
         );
+    }
+
+    /// Strict TDD — T0.3: verify that `terminate_sidecar` handles `SidecarChild::Std`
+    /// by wrapping a real OS process (cmd /C exit 0 on Windows). The process exits
+    /// immediately so the deadline loop terminates in the first iteration.
+    #[test]
+    fn terminate_sidecar_std_variant_returns_ok() {
+        // Spawn a no-op process that exits immediately.
+        let child = Command::new("cmd")
+            .args(["/C", "exit", "0"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("cmd /C exit 0 must spawn");
+
+        let result = terminate_sidecar(SidecarChild::Std(child));
+        assert!(result.is_ok(), "terminate_sidecar(Std) should return Ok: {:?}", result.err());
     }
 }
