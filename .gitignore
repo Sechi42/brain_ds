@@ -38,3 +38,6 @@ review-*.png
 
 # Temporary test artifacts
 tmp/
+.coverage
+.coverage.*
+htmlcov/

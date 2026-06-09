@@ -6,7 +6,6 @@ import os
 import io
 import shutil
 import subprocess
-import sys
 import tempfile
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
