@@ -92,7 +92,7 @@ class GraphMetaRepository:
                    contract_version, node_count, edge_count, imported_from,
                    generated_at, created_at, updated_at
               FROM graphs
-          ORDER BY updated_at DESC, id ASC
+          ORDER BY updated_at DESC, rowid DESC, id ASC
             """
         ).fetchall()
         return [GraphMeta(*row) for row in rows]

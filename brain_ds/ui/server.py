@@ -36,14 +36,10 @@ class ServerRuntime:
             workspace = WorkspaceContext.from_root_and_graph(self.project_root, self.project_root / "graph.json")
             return _empty_graph(), workspace
 
-        active = max(
-            graphs,
-            key=lambda item: (
-                str(getattr(item, "updated_at", "") or ""),
-                str(getattr(item, "generated_at", "") or ""),
-                str(getattr(item, "id", "") or ""),
-            ),
-        )
+        # GraphStore.list_graphs() owns the active-graph ordering contract
+        # (most recently updated first). Re-sorting here creates flaky UUID
+        # tie-breaks when two graphs are saved inside the same timestamp tick.
+        active = graphs[0]
         graph = self.store.load_graph(active.id)
         imported_from = Path(active.imported_from).resolve() if active.imported_from else self.project_root / "graph.json"
         workspace = WorkspaceContext.from_root_and_graph(self.project_root, imported_from)

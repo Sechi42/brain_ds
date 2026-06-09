@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from brain_ds.ontology.entity_types import EntityType
-from brain_ds.ontology.graph_model import Edge, Graph, Node
+from brain_ds.ontology.graph_model import Graph, Node
 from brain_ds.ontology.relationship_types import RelationshipType
 from brain_ds.store.errors import GraphAlreadyExistsError
 from brain_ds.store.graph_store import GraphStore
