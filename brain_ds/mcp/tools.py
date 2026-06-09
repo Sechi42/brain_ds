@@ -12,6 +12,7 @@ from brain_ds.mcp.security import (
     SecurityError,
     ValidationError,
     error_boundary,
+    validate_card_sections,
     validate_path_within_root,
     validate_tool_input,
 )
@@ -189,6 +190,8 @@ def list_data_sources(store: GraphStore, params: dict[str, Any]) -> list[dict[st
 @error_boundary
 def update_node(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     validated = validate_tool_input("update_node", params, TOOL_SCHEMAS["update_node"])
+    if "card_sections" in validated:
+        validated["card_sections"] = validate_card_sections(validated["card_sections"])
     graph_id = validated["graph_id"]
     node_id = validated["node_id"]
 

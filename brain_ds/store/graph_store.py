@@ -308,10 +308,27 @@ class GraphStore:
             "timestamp": record.timestamp,
         }
 
+    def _card_section_from_dict(self, section: Any) -> CardSection | None:
+        if not isinstance(section, dict):
+            return None
+        content = section.get("content")
+        if content is None and section.get("body") is not None:
+            content = section.get("body")
+        return CardSection(
+            title=str(section.get("title", "")),
+            content="" if content is None else str(content),
+            icon=str(section.get("icon", "")),
+            order=int(section.get("order", 0) or 0),
+        )
+
     def _node_from_row(self, row: NodeRow) -> Node:
         card_sections = None
         if row.card_sections is not None:
-            card_sections = [CardSection(**section) for section in row.card_sections]
+            card_sections = [
+                section
+                for item in row.card_sections
+                if (section := self._card_section_from_dict(item)) is not None
+            ]
         return Node(
             id=row.id,
             label=row.label,

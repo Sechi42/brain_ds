@@ -1,4 +1,5 @@
 import json
+import re
 import subprocess
 import tempfile
 import unittest
@@ -1716,6 +1717,77 @@ global.WebSocket = class {
 '''
         return _run_node(code)
 
+    def _template_live_sync_patch_harness(self, snippet: str) -> dict:
+        template_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
+        source = template_path.read_text(encoding="utf-8")
+        match = re.search(
+            r"function patchLiveSyncAuthoringFeedback\(api\) \{[\s\S]*?\n      \}",
+            source,
+        )
+        if not match:
+            raise AssertionError("Could not find patchLiveSyncAuthoringFeedback in graph_viewer.html")
+        patch_fn = match.group(0)
+        code = f'''
+const window = global.window = {{
+  setTimeout: (fn) => {{ fn(); return 1; }},
+  brainDsUI: {{
+    detailPanel: {{
+      getSelectedNodeId: () => globalThis.selectedNodeId,
+      getHasEdits: () => globalThis.hasEdits,
+      isEditMode: () => globalThis.editMode,
+      markConflictStale: () => {{ globalThis.conflictMarked = true; }},
+    }},
+  }},
+}};
+globalThis.window = window;
+globalThis.selectedNodeId = null;
+globalThis.hasEdits = false;
+globalThis.editMode = false;
+globalThis.conflictMarked = false;
+globalThis.renderCalls = [];
+globalThis.renderDetailPanel = (nodeId) => {{ globalThis.renderCalls.push(String(nodeId)); }};
+globalThis.editedDetailIndex = {{}};
+globalThis.originalNodes = new Map();
+const document = global.document = {{
+  getElementById: (id) => {{
+    if (id === "detail-body") return {{ parentElement: {{ setAttribute: () => {{ globalThis.conflictAttrSet = true; }} }} }};
+    if (id === "detail-conflict-banner") return {{ removeAttribute: () => {{ globalThis.conflictBannerShown = true; }} }};
+    if (id === "ai-actions-receipts") return null;
+    return null;
+  }},
+  createElement: () => ({{ addEventListener(){{}}, focus(){{}}, dataset: {{}}, children: [], setAttribute(){{}} }}),
+  querySelector: () => null,
+}};
+globalThis.document = document;
+class LiveDataStore {{}}
+LiveDataStore.prototype.applyEvent = function(event) {{
+  const payload = (event && event.payload) || {{}};
+  if (String((event && event.event) || "") === "node.updated" && this._shouldPreserveUnsavedEdits(payload)) {{
+    this._setConflictStale();
+    return;
+  }}
+  this.baseApplied = (this.baseApplied || 0) + 1;
+}};
+LiveDataStore.prototype.queueOrApply = function(event) {{ return this.applyEvent(event); }};
+LiveDataStore.prototype._shouldPreserveUnsavedEdits = function(payload) {{
+  const api = window.brainDsUI && window.brainDsUI.detailPanel;
+  const selected = typeof api.getSelectedNodeId === "function" ? api.getSelectedNodeId() : null;
+  const hasEdits = typeof api.getHasEdits === "function" ? api.getHasEdits() : false;
+  const editMode = typeof api.isEditMode === "function" ? api.isEditMode() : false;
+  return Boolean(editMode && hasEdits && selected && String(selected) === String((payload && payload.id) || ""));
+}};
+LiveDataStore.prototype._setConflictStale = function() {{
+  const api = window.brainDsUI && window.brainDsUI.detailPanel;
+  if (api && typeof api.markConflictStale === "function") api.markConflictStale();
+}};
+const api = {{ LiveDataStore }};
+{patch_fn}
+patchLiveSyncAuthoringFeedback(api);
+const store = new api.LiveDataStore();
+{snippet}
+'''
+        return _run_node(code)
+
     def test_live_data_store_seeding(self):
         out = self._live_sync_harness(r'''
 const context = {
@@ -1735,6 +1807,66 @@ console.log(JSON.stringify({
         self.assertEqual(out["edges"], 1)
         self.assertTrue(out["hasAdj"])
         self.assertTrue(out["hasDetail"])
+
+    def test_template_patch_rerenders_open_card_for_matching_node(self):
+        out = self._template_live_sync_patch_harness('''
+globalThis.selectedNodeId = "A";
+globalThis.editedDetailIndex.A = { sections: [{ title: "Old", content: "before" }] };
+store.applyEvent({
+  event: "node.updated",
+  payload: { id: "A", label: "Alpha", card_sections: [{ title: "New", content: "after" }] },
+});
+console.log(JSON.stringify({
+  renderCalls: globalThis.renderCalls,
+  content: globalThis.editedDetailIndex.A.sections[0].content,
+}));
+''')
+        self.assertEqual(out["renderCalls"], ["A"])
+        self.assertEqual(out["content"], "after")
+
+    def test_template_patch_preserves_unsaved_edits_for_selected_node(self):
+        out = self._template_live_sync_patch_harness('''
+globalThis.selectedNodeId = "A";
+globalThis.editMode = true;
+globalThis.hasEdits = true;
+globalThis.editedDetailIndex.A = { sections: [{ title: "Draft", content: "local edit" }] };
+store.applyEvent({
+  event: "node.updated",
+  payload: { id: "A", label: "Alpha", card_sections: [{ title: "Server", content: "remote" }] },
+});
+console.log(JSON.stringify({
+  renderCalls: globalThis.renderCalls,
+  content: globalThis.editedDetailIndex.A.sections[0].content,
+  conflictMarked: globalThis.conflictMarked,
+}));
+''')
+        self.assertEqual(out["renderCalls"], [])
+        self.assertEqual(out["content"], "local edit")
+        self.assertTrue(out["conflictMarked"])
+
+    def test_template_patch_ignores_unrelated_or_closed_detail_events(self):
+        out = self._template_live_sync_patch_harness('''
+globalThis.selectedNodeId = "A";
+globalThis.editedDetailIndex.A = { sections: [{ title: "Alpha", content: "keep" }] };
+store.applyEvent({
+  event: "node.updated",
+  payload: { id: "B", label: "Beta", card_sections: [{ title: "B", content: "other" }] },
+});
+globalThis.selectedNodeId = null;
+store.applyEvent({
+  event: "node.updated",
+  payload: { id: "A", label: "Alpha", card_sections: [{ title: "A", content: "server" }] },
+});
+console.log(JSON.stringify({
+  renderCalls: globalThis.renderCalls,
+  selectedAContent: globalThis.editedDetailIndex.A.sections[0].content,
+  hasBIndex: Boolean(globalThis.editedDetailIndex.B),
+}));
+''')
+        self.assertEqual(out["renderCalls"], [])
+        self.assertEqual(out["selectedAContent"], "server")
+        self.assertTrue(out["hasBIndex"])
+
 
     def test_live_data_store_fetch_reconciles_state(self):
         out = self._live_sync_harness(r'''

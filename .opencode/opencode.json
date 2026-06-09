@@ -18,7 +18,20 @@
         "playwright-mcp-output",
         "--save-session"
       ],
-      "env": {}
+      "environment": {}
+    },
+    "brain_ds": {
+      "type": "local",
+      "enabled": true,
+      "command": [
+        "C:\\Users\\sergi\\Documents\\brain_ds\\brain_ds.cmd",
+        "mcp",
+        "--project-root",
+        "C:\\Users\\sergi\\Documents\\brain_ds"
+      ],
+      "environment": {
+        "BRAIN_DS_PROJECT_ROOT": "C:\\Users\\sergi\\Documents\\brain_ds"
+      }
     }
   }
 }

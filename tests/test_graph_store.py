@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -116,6 +117,30 @@ class GraphStoreTests(unittest.TestCase):
             },
         )
         self.assertEqual(self._graph_meta("logitrans").edge_count, 2)
+
+    def test_load_graph_tolerates_legacy_body_key_in_card_sections(self) -> None:
+        self.store.create_graph("logitrans", workspace_root=self.temp_dir.name, workspace_path=self.temp_dir.name)
+        self.store.upsert_node(
+            "logitrans",
+            {
+                "id": "N-1",
+                "label": "ERP",
+                "type": "Data Source",
+                "details": {"owner": "ops"},
+                "card_sections": [{"title": "Overview", "content": "Current", "icon": "", "order": 1}],
+            },
+        )
+        self.store.conn.execute(
+            "UPDATE nodes SET card_sections = ? WHERE graph_id = ? AND id = ?",
+            (json.dumps([{"title": "Overview", "body": "Legacy", "icon": "note", "order": 2}]), "logitrans", "N-1"),
+        )
+        self.store.conn.commit()
+
+        graph = self.store.load_graph("logitrans")
+
+        self.assertEqual(graph.nodes[0].card_sections[0].content, "Legacy")
+        self.assertEqual(graph.nodes[0].card_sections[0].icon, "note")
+        self.assertEqual(graph.nodes[0].card_sections[0].order, 2)
 
 
 if __name__ == "__main__":

@@ -1976,16 +1976,30 @@
             if (typeof this.onReceipt === "function") this.onReceipt(event.payload || {});
             return;
           }
-          originalApplyEvent.call(this, event);
+          const dp = window.brainDsUI && window.brainDsUI.detailPanel;
           const payload = (event && event.payload) || {};
+          const selectedNodeId = dp && typeof dp.getSelectedNodeId === "function" ? dp.getSelectedNodeId() : null;
+          const preserve = Boolean(
+            dp
+            && typeof dp.isEditMode === "function"
+            && typeof dp.getHasEdits === "function"
+            && dp.isEditMode()
+            && dp.getHasEdits()
+            && selectedNodeId
+            && String(selectedNodeId) === String(payload.id || "")
+          );
+          originalApplyEvent.call(this, event);
           if (String((event && event.event) || "").startsWith("node.")) {
-            if (payload && payload.id && typeof editedDetailIndex !== "undefined") {
+            if (payload && payload.id && typeof editedDetailIndex !== "undefined" && !preserve) {
               editedDetailIndex[payload.id] = {
                 ...(editedDetailIndex[payload.id] || {}),
                 node: payload,
                 sections: Array.isArray(payload.card_sections) ? payload.card_sections : ((editedDetailIndex[payload.id] || {}).sections || []),
               };
               if (originalNodes && originalNodes.set) originalNodes.set(payload.id, { ...(originalNodes.get(payload.id) || {}), ...payload });
+              if (selectedNodeId && String(selectedNodeId) === String(payload.id) && typeof renderDetailPanel === "function") {
+                renderDetailPanel(payload.id);
+              }
             }
             this._setNodeHighlight(payload.id, event.highlight_type || "update");
           }

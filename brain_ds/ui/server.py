@@ -65,10 +65,14 @@ class ServerRuntime:
             return self._active_graph_payload()
 
     def _render_root_html(self, graph_id: str | None = None) -> str:
-        if graph_id:
-            graph, workspace = self._graph_payload_for(graph_id)
-        else:
-            graph, workspace = self._active_graph_payload()
+        workspace = WorkspaceContext.from_root_and_graph(self.project_root, self.project_root / "graph.json")
+        try:
+            if graph_id:
+                graph, workspace = self._graph_payload_for(graph_id)
+            else:
+                graph, workspace = self._active_graph_payload()
+        except Exception:
+            graph = _empty_graph()
         context = build_render_context(graph, workspace=workspace)
         return render_interactive_html(context)
 

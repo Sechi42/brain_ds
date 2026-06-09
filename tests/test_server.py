@@ -1,4 +1,5 @@
 import io
+import json
 import tempfile
 import unittest
 from contextlib import redirect_stderr
@@ -86,6 +87,46 @@ class TestServerRuntime(unittest.TestCase):
                 response = client.get("/")
                 self.assertEqual(response.status_code, 200)
                 self.assertIn("RENDER_CONTEXT", response.text)
+
+    def test_get_root_tolerates_poisoned_card_sections_row(self):
+        from brain_ds.ui import server
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store_path = root / ".brain_ds" / "store.db"
+            store_path.parent.mkdir(parents=True, exist_ok=True)
+            store = GraphStore(str(store_path), allow_cross_thread=True)
+            try:
+                graph_id = store.create_graph("runtime-org", workspace_root=str(root), workspace_path=str(root))
+                store.upsert_node(
+                    graph_id,
+                    {"id": "valid", "label": "Valid Node", "type": "Department", "details": {"summary": "ok"}},
+                )
+                store.upsert_node(
+                    graph_id,
+                    {
+                        "id": "poisoned",
+                        "label": "Poisoned Node",
+                        "type": "Department",
+                        "details": {"summary": "bad"},
+                        "card_sections": [{"title": "Overview", "content": "new", "icon": "", "order": 1}],
+                    },
+                )
+                store.conn.execute(
+                    "UPDATE nodes SET card_sections = ? WHERE graph_id = ? AND id = ?",
+                    (json.dumps([{"title": "Overview", "body": "legacy only"}]), graph_id, "poisoned"),
+                )
+                store.conn.commit()
+
+                app = server.build_ui_app(project_root=root, store=store)
+                with TestClient(app) as client:
+                    response = client.get("/")
+
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("Valid Node", response.text)
+                self.assertIn("Poisoned Node", response.text)
+            finally:
+                store.close()
 
     def test_get_api_graphs_returns_id_and_label_json(self):
         from brain_ds.ui import server

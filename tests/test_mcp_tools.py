@@ -228,6 +228,22 @@ class MCPToolsTests(unittest.TestCase):
         self.assertEqual(graph_id, self.graph_id)
         self.assertEqual(json.loads(payload)["card_sections"][0]["title"], "Risks")
 
+    def test_update_node_rejects_unknown_card_section_key_and_keeps_store_clean(self) -> None:
+        rejected = update_node(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "node_id": "N-1",
+                "card_sections": [{"title": "Risks", "body": "Budget overrun", "icon": "", "order": 1}],
+            },
+        )
+
+        self.assertEqual(rejected["code"], -32602)
+        self.assertIn("body", rejected["message"])
+
+        reread = get_node(self.store, {"graph_id": self.graph_id, "node_id": "N-1"})
+        self.assertIsNone(reread.get("card_sections"))
+
     def test_add_edge_success_and_missing_nodes_log_error(self) -> None:
         before = self._audit_count()
         created = add_edge(

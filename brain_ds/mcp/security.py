@@ -132,6 +132,8 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     },
 }
 
+_CARD_SECTION_ALLOWED_KEYS = {"title", "content", "icon", "order"}
+
 
 def resolve_store_path(project_root: str) -> Path:
     root_input = Path(project_root)
@@ -213,6 +215,31 @@ def validate_tool_input(tool_name: str, params: dict[str, Any], schema: dict[str
             raise ValidationError(code=-32602, message=f"Expected {expected_type} for {name}")
 
     return params
+
+
+def validate_card_sections(items: Any) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        raise ValidationError(code=-32602, message="card_sections must be an array")
+
+    validated: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            raise ValidationError(code=-32602, message="card_sections items must be objects")
+        unknown_keys = [key for key in item if key not in _CARD_SECTION_ALLOWED_KEYS]
+        if unknown_keys:
+            allowed = ", ".join(["title", "content", "icon", "order"])
+            raise ValidationError(
+                code=-32602,
+                message=f"Unknown card_sections key: {unknown_keys[0]}. Allowed keys: {allowed}",
+            )
+        missing = [key for key in ("title", "content") if key not in item]
+        if missing:
+            raise ValidationError(
+                code=-32602,
+                message=f"card_sections items require: {', '.join(missing)}",
+            )
+        validated.append(item)
+    return validated
 
 
 def error_boundary(handler: Callable[..., dict[str, Any]]) -> Callable[..., dict[str, Any]]:

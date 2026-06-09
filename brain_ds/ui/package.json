@@ -8,6 +8,7 @@
     "watch": "node build/esbuild.config.mjs --watch",
     "e2e": "playwright test",
     "e2e:smoke": "playwright test e2e/smoke.spec.ts",
+    "e2e:ecosystem": "playwright test e2e/ecosystem.spec.ts",
     "typecheck": "tsc --noEmit -p .",
     "bundle-size": "node build/check-bundle-size.mjs",
     "ci": "npm run typecheck && npm run build && npm run bundle-size"
