@@ -4,20 +4,21 @@ import json
 import signal
 import sys
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # noqa: F401  (re-exported for runtime/tests)
 from pathlib import Path
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import Body, FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from brain_ds.api.server import create_app
 from brain_ds.ontology import Graph
+from brain_ds.store.errors import GraphNotFoundError
 from brain_ds.store.graph_store import GraphStore
 
 from .render_context import WorkspaceContext, build_render_context
-from .template_renderer import render_interactive_html
+from .template_renderer import render_interactive_html, render_vault_picker_html
 
 
 def _empty_graph() -> Graph:
@@ -51,8 +52,27 @@ class ServerRuntime:
     def _graphs_payload(self) -> list[dict[str, str]]:
         return [{"id": item.id, "label": item.org or item.id} for item in self.store.list_graphs()]
 
-    def _render_root_html(self) -> str:
-        graph, workspace = self._active_graph_payload()
+    def _graph_payload_for(self, graph_id: str) -> tuple[Graph, WorkspaceContext]:
+        """Load a specific graph by id; falls back to auto-pick on unknown id (R7)."""
+        try:
+            graph = self.store.load_graph(graph_id)
+            graphs = self.store.list_graphs()
+            meta = next((g for g in graphs if g.id == graph_id), None)
+            imported_from = (
+                Path(meta.imported_from).resolve()
+                if meta and meta.imported_from
+                else self.project_root / "graph.json"
+            )
+            workspace = WorkspaceContext.from_root_and_graph(self.project_root, imported_from)
+            return graph, workspace
+        except GraphNotFoundError:
+            return self._active_graph_payload()
+
+    def _render_root_html(self, graph_id: str | None = None) -> str:
+        if graph_id:
+            graph, workspace = self._graph_payload_for(graph_id)
+        else:
+            graph, workspace = self._active_graph_payload()
         context = build_render_context(graph, workspace=workspace)
         return render_interactive_html(context)
 
@@ -101,12 +121,36 @@ def build_ui_app(*, project_root: Path, store: GraphStore) -> FastAPI:
     app = create_app(project_root=project_root, store=store)
 
     @app.get("/")
-    def root_page() -> HTMLResponse:
-        return HTMLResponse(runtime._render_root_html())
+    def root_page(graph_id: str | None = None) -> HTMLResponse:
+        return HTMLResponse(runtime._render_root_html(graph_id=graph_id))
 
     @app.get("/api/graphs")
     def list_graphs() -> JSONResponse:
         return JSONResponse(runtime._graphs_payload())
+
+    @app.get("/vault-picker")
+    def vault_picker() -> HTMLResponse:
+        """R8/R9: list all orgs as focusable rows + always-present create-org form."""
+        graphs = runtime._graphs_payload()
+        return HTMLResponse(render_vault_picker_html(graphs))
+
+    @app.post("/api/graphs", status_code=201)
+    def create_graph(body: dict = Body(...)) -> JSONResponse:
+        raw_label = body.get("label", "") if isinstance(body, dict) else ""
+        label = str(raw_label).strip()
+        if not label:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "label must not be empty or whitespace"},
+            )
+        graph = Graph.from_v1({"nodes": [], "edges": [], "org": label})
+        new_id = runtime.store.save_graph(
+            graph, workspace_root=str(runtime.project_root)
+        )
+        return JSONResponse(
+            status_code=201,
+            content={"id": new_id, "label": label},
+        )
 
     return app
 

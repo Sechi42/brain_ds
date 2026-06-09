@@ -11,6 +11,49 @@ TEMPLATES_DIR = Path(__file__).with_name("templates")
 STATIC_DIR = Path(__file__).with_name("static")
 
 
+def render_vault_picker_html(graphs: list[dict]) -> str:
+    """Render the vault-picker page with org rows and create-org form.
+
+    Args:
+        graphs: list of {"id": str, "label": str} dicts (from _graphs_payload).
+
+    Returns:
+        Fully rendered HTML string with tokens substituted and org rows injected.
+    """
+    templates_root = resources.files("brain_ds.ui").joinpath("templates")
+    static_root = resources.files("brain_ds.ui").joinpath("static")
+
+    template = templates_root.joinpath("vault_picker.html").read_text(encoding="utf-8")
+    tokens_css = static_root.joinpath("tokens.css").read_text(encoding="utf-8")
+
+    # Build server-rendered org rows (R8: keyboard-focusable via <a href>)
+    rows_html = "\n".join(
+        f'      <li>'
+        f'<a class="org-row" href="/?graph_id={g["id"]}">'
+        f'{_escape_html(g["label"])}'
+        f'</a></li>'
+        for g in graphs
+    )
+
+    return (
+        template
+        .replace("__BRAIN_DS_TOKENS_CSS__", tokens_css)
+        .replace("__BRAIN_DS_ORG_ROWS__", rows_html)
+    )
+
+
+def _escape_html(text: str) -> str:
+    """Minimal HTML escaping for org labels injected into the template."""
+    return (
+        text
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+
+
 def render_interactive_html(context: dict, *, template_path: Path | None = None) -> str:
     if template_path:
         template = template_path.read_text(encoding="utf-8")
