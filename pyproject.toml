@@ -35,3 +35,37 @@ include = ["brain_ds*"]
   "assets/icons/*.svg",
   "static/*.css",
 ]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.1.0",
+    "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.15.16",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-ra"]
+
+[tool.ruff]
+target-version = "py311"
+exclude = [
+    ".atl",
+    ".build-venv",
+    ".venv",
+    "build",
+    "dist",
+    "src-tauri/target",
+]
+
+[tool.ruff.format]
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.11"
+files = ["brain_ds", "tests"]
+exclude = "(?x)(^build/|^dist/|^src-tauri/target/|^brain_ds/ui/node_modules/)"
+ignore_missing_imports = true
+namespace_packages = true
+explicit_package_bases = true
