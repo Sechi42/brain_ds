@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import unittest
 import json
 import os
@@ -143,7 +144,6 @@ class MCPClaudeConfigTests(unittest.TestCase):
             for token in forbidden:
                 self.assertNotIn(token, content)
 
-    @unittest.skipUnless(shutil.which("brain_ds") is not None, "brain_ds not found on PATH")
     def test_config_handshake_with_mcp_server(self) -> None:
         from brain_ds.mcp.config import generate_claude_config
 
@@ -154,7 +154,6 @@ class MCPClaudeConfigTests(unittest.TestCase):
                 config = generate_claude_config(root, absolute=True)
 
                 server = config["mcpServers"]["brain_ds"]
-                command = server["command"]
                 args = server["args"]
                 env = os.environ.copy()
                 env.update(server["env"])
@@ -174,7 +173,7 @@ class MCPClaudeConfigTests(unittest.TestCase):
                 ]
                 payload = "\n".join(json.dumps(item) for item in requests) + "\n"
 
-                proc = subprocess.run([command, *args], input=payload, text=True, capture_output=True, env=env, check=False)
+                proc = subprocess.run([sys.executable, "-m", "brain_ds", *args], input=payload, text=True, capture_output=True, env=env, check=False)
                 self.assertEqual(proc.returncode, 0, msg=proc.stderr)
 
                 lines = [line for line in proc.stdout.splitlines() if line.strip()]
@@ -184,7 +183,7 @@ class MCPClaudeConfigTests(unittest.TestCase):
 
                 self.assertEqual(initialize_response["result"]["protocolVersion"], "2024-11-05")
                 tools = tools_response["result"]["tools"]
-                self.assertEqual(len(tools), 12)
+                self.assertEqual(len(tools), 14)
 
     def test_claude_md_contains_required_sections(self) -> None:
         claude_path = Path(__file__).resolve().parents[1] / "CLAUDE.md"
@@ -200,6 +199,8 @@ class MCPClaudeConfigTests(unittest.TestCase):
             "search_graph",
             "update_node",
             "add_edge",
+            "delete_node",
+            "delete_edge",
             "run_elicit",
             "map_connections",
             "generate_brd",

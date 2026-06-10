@@ -16,6 +16,7 @@ async def publish_outbox_batch(
     event_bus: EventBus,
     receipt_store: ReceiptStore | None = None,
 ) -> int:
+    store.outbox_repo.conn.commit()
     rows = store.outbox_repo.get_unpublished_events(limit=50)
     if not rows:
         return 0

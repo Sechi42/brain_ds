@@ -101,6 +101,7 @@
   },
   "meta": {
     "edge_count": 1,
+    "graph_id": "",
     "generated_at": "2026-05-20T10:00:00Z",
     "node_count": 2,
     "org": "Golden Actor",

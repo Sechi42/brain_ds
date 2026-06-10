@@ -555,14 +555,16 @@ class MCPToolsTests(unittest.TestCase):
         typed = list_nodes(self.store, {"graph_id": self.graph_id, "type": "Data Source"})
         self.assertEqual(result, typed)
 
-    def test_registry_has_twelve_tools_and_reads_do_not_audit(self) -> None:
+    def test_registry_has_fourteen_tools_and_reads_do_not_audit(self) -> None:
         names = sorted(TOOL_REGISTRY.keys())
-        self.assertEqual(len(names), 12)
+        self.assertEqual(len(names), 14)
         self.assertEqual(
             names,
             [
                 "add_edge",
                 "create_graph",
+                "delete_edge",
+                "delete_node",
                 "generate_brd",
                 "get_node",
                 "import_graph",

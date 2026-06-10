@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from urllib.request import urlopen
 
+from fastapi.testclient import TestClient
+
 from brain_ds.store.graph_store import GraphStore
 from brain_ds.ui import server
 
@@ -73,7 +75,7 @@ class TestRuntimeRegression(unittest.TestCase):
                 store.import_json(_valid_graph("New Org", generated_at="2026-03-02T08:00:00Z"), workspace_root=str(root))
 
                 runtime = server.ServerRuntime(project_root=root, store=store)
-                active_graph, _ = runtime._active_graph_payload()
+                active_graph, _, _ = runtime._active_graph_payload()
                 self.assertEqual(active_graph.org, "New Org")
 
                 httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), runtime.handler_class())
@@ -95,3 +97,30 @@ class TestRuntimeRegression(unittest.TestCase):
                     httpd.server_close()
                 if "store" in locals():
                     store.close()
+
+    def test_mcp_node_visible_to_ui_api(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store_path = root / ".brain_ds" / "store.db"
+            store_path.parent.mkdir(parents=True, exist_ok=True)
+            writer_store = GraphStore(str(store_path))
+            reader_store = GraphStore(str(store_path), allow_cross_thread=True)
+            try:
+                graph_x = writer_store.create_graph("graph-x", name="Graph X", workspace_root=str(root), workspace_path=str(root))
+                graph_y = writer_store.create_graph("graph-y", name="Graph Y", workspace_root=str(root), workspace_path=str(root))
+                writer_store.upsert_node(graph_x, {"id": "node-x", "label": "Node X", "type": "Department"})
+                writer_store.upsert_node(graph_y, {"id": "node-y", "label": "Node Y", "type": "Department"})
+
+                app = server.build_ui_app(project_root=root, store=reader_store)
+                with TestClient(app) as client:
+                    response = client.get("/api/nodes", params={"graph_id": graph_x})
+
+                self.assertEqual(response.status_code, 200)
+                payload = response.json()
+                self.assertEqual(payload["graph_id"], graph_x)
+                node_ids = [node["id"] for node in payload["nodes"]]
+                self.assertIn("node-x", node_ids)
+                self.assertNotIn("node-y", node_ids)
+            finally:
+                reader_store.close()
+                writer_store.close()

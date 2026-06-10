@@ -15,7 +15,17 @@ from brain_ds.validation import validate_graph
 
 from .render_context import WorkspaceContext
 from .server import run_server
+from .setup import setup_main
 from .viewer import render_graph_data, render_graph_file
+
+
+def _resolve_ui_project_root(project_root_arg: str | None) -> Path:
+    if project_root_arg:
+        return Path(project_root_arg).resolve()
+    env_root = os.environ.get("BRAIN_DS_PROJECT_ROOT")
+    if env_root:
+        return Path(env_root).resolve()
+    return Path(".").resolve()
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -64,7 +74,26 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output format for print-config (default: claude)",
     )
 
+    setup_parser = subparsers.add_parser("setup", help="Configure brain_ds MCP clients for this project")
+    setup_parser.add_argument(
+        "--project-root",
+        default=".",
+        help="Project root used for store and MCP config generation (default: .)",
+    )
+    setup_parser.add_argument(
+        "--agent",
+        choices=["claude", "opencode", "both"],
+        default="both",
+        help="Which agent config(s) to write (default: both)",
+    )
+    setup_parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing files")
+    setup_parser.add_argument("--force", action="store_true", help="Skip confirmation prompt before writing")
+
     return parser
+
+
+def _run_setup(args: argparse.Namespace) -> int:
+    return setup_main(args)
 
 
 def _run_ui(
@@ -187,7 +216,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     if args.command == "ui":
-        project_root = Path(args.project_root).resolve() if args.project_root else Path(".").resolve()
+        project_root = _resolve_ui_project_root(args.project_root)
         if args.probe:
             with socket.create_server(("127.0.0.1", 0)):
                 print("READY")
@@ -246,6 +275,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         except SecurityError as exc:
             print(f"Error: {exc}", file=sys.stderr)
             return 2
+
+    if args.command == "setup":
+        return _run_setup(args)
 
     parser.print_help(sys.stderr)
     return 2

@@ -30,11 +30,11 @@ class ServerRuntime:
         self.project_root = project_root.resolve()
         self.store = store
 
-    def _active_graph_payload(self) -> tuple[Graph, WorkspaceContext]:
+    def _active_graph_payload(self) -> tuple[Graph, WorkspaceContext, str]:
         graphs = self.store.list_graphs()
         if not graphs:
             workspace = WorkspaceContext.from_root_and_graph(self.project_root, self.project_root / "graph.json")
-            return _empty_graph(), workspace
+            return _empty_graph(), workspace, ""
 
         # GraphStore.list_graphs() owns the active-graph ordering contract
         # (most recently updated first). Re-sorting here creates flaky UUID
@@ -43,12 +43,12 @@ class ServerRuntime:
         graph = self.store.load_graph(active.id)
         imported_from = Path(active.imported_from).resolve() if active.imported_from else self.project_root / "graph.json"
         workspace = WorkspaceContext.from_root_and_graph(self.project_root, imported_from)
-        return graph, workspace
+        return graph, workspace, active.id
 
     def _graphs_payload(self) -> list[dict[str, str]]:
         return [{"id": item.id, "label": item.org or item.id} for item in self.store.list_graphs()]
 
-    def _graph_payload_for(self, graph_id: str) -> tuple[Graph, WorkspaceContext]:
+    def _graph_payload_for(self, graph_id: str) -> tuple[Graph, WorkspaceContext, str]:
         """Load a specific graph by id; falls back to auto-pick on unknown id (R7)."""
         try:
             graph = self.store.load_graph(graph_id)
@@ -60,20 +60,21 @@ class ServerRuntime:
                 else self.project_root / "graph.json"
             )
             workspace = WorkspaceContext.from_root_and_graph(self.project_root, imported_from)
-            return graph, workspace
+            return graph, workspace, graph_id
         except GraphNotFoundError:
             return self._active_graph_payload()
 
     def _render_root_html(self, graph_id: str | None = None) -> str:
         workspace = WorkspaceContext.from_root_and_graph(self.project_root, self.project_root / "graph.json")
+        resolved_graph_id = ""
         try:
             if graph_id:
-                graph, workspace = self._graph_payload_for(graph_id)
+                graph, workspace, resolved_graph_id = self._graph_payload_for(graph_id)
             else:
-                graph, workspace = self._active_graph_payload()
+                graph, workspace, resolved_graph_id = self._active_graph_payload()
         except Exception:
             graph = _empty_graph()
-        context = build_render_context(graph, workspace=workspace)
+        context = build_render_context(graph, workspace=workspace, graph_id=resolved_graph_id)
         return render_interactive_html(context)
 
     def _handle_signal(self, signum: int, frame: Any, server: Any = None) -> None:

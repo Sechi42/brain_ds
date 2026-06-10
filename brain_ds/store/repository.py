@@ -313,6 +313,14 @@ class NodeRepository:
         self.conn.execute("DELETE FROM nodes WHERE graph_id = ?", (graph_id,))
         self.conn.commit()
 
+    def delete_node(self, graph_id: str, node_id: str) -> int:
+        cur = self.conn.execute(
+            "DELETE FROM nodes WHERE graph_id = ? AND id = ?",
+            (graph_id, node_id),
+        )
+        self.conn.commit()
+        return int(cur.rowcount or 0)
+
     def _validate_parent_ids(self, graph_id: str, nodes: list[dict]) -> None:
         existing_ids = {
             row[0]
@@ -454,6 +462,14 @@ class EdgeRepository:
             (graph_id, edge_id, source, target, label, weight, reasons, evidence_ids, _utc_now()),
         )
         self.conn.commit()
+
+    def delete_edge(self, graph_id: str, source: str, target: str) -> int:
+        cur = self.conn.execute(
+            "DELETE FROM edges WHERE graph_id = ? AND source = ? AND target = ?",
+            (graph_id, source, target),
+        )
+        self.conn.commit()
+        return int(cur.rowcount or 0)
 
 
 class AuditRepository:

@@ -160,6 +160,15 @@ NODE_WRITE_TEMPLATES: dict[str, object] = {
             "target": "<target-node-id>",
             "label": "<RelationshipType value>",
         },
+        "delete_node": {
+            "graph_id": "<org-slug>",
+            "node_id": "<existing-node-id>",
+        },
+        "delete_edge": {
+            "graph_id": "<org-slug>",
+            "source": "<source-node-id>",
+            "target": "<target-node-id>",
+        },
         "session_state": (
             "Persist session/active-org in Engram only; org domain entities now live in SQLite."
         ),

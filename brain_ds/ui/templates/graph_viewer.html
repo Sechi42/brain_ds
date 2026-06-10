@@ -1927,6 +1927,36 @@
 
       const nodes = new vis.DataSet(RENDER_CONTEXT.nodes || []);
       const edges = new vis.DataSet(RENDER_CONTEXT.edges || []);
+      (function ensureDataSetDeleteSupport() {
+        const proto = window.vis && window.vis.DataSet && window.vis.DataSet.prototype;
+        if (!proto || (typeof proto.remove === "function" && typeof proto.clear === "function")) return;
+        proto.remove = function (items) {
+          const values = Array.isArray(items) ? items : [items];
+          values.forEach((item) => {
+            const id = item && typeof item === "object" ? item.id : item;
+            if (id === undefined || id === null) return;
+            this._map.delete(id);
+          });
+          if (typeof this._emit === "function") this._emit();
+        };
+        proto.clear = function () {
+          this._map.clear();
+          if (typeof this._emit === "function") this._emit();
+        };
+      }());
+      (function pruneStaleOverlayArtifacts() {
+        const activeNodeIds = new Set((nodes.get() || []).map((node) => String(node.id)));
+        document.querySelectorAll(".d4-node[data-id], .graph-node[data-id]").forEach((el) => {
+          const nodeId = el.getAttribute("data-id") || "";
+          if (!activeNodeIds.has(nodeId)) el.remove();
+        });
+        const activeEdgeIds = new Set((edges.get() || []).map((edge) => `${String(edge.from || edge.source || "")}→${String(edge.to || edge.target || "")}`));
+        document.querySelectorAll(".d4-edge[data-source][data-target]").forEach((el) => {
+          const edgeId = `${String(el.getAttribute("data-source") || "")}→${String(el.getAttribute("data-target") || "")}`;
+          if (!activeEdgeIds.has(edgeId)) el.remove();
+        });
+        window.requestAnimationFrame(pruneStaleOverlayArtifacts);
+      }());
       const graphId = String((meta && meta.graph_id) || "");
       if (window.brainDsUI) {
         window.brainDsUI.graphId = graphId;
@@ -2001,9 +2031,35 @@
                 renderDetailPanel(payload.id);
               }
             }
+            if (String((event && event.event) || "") === "node.deleted" && payload && payload.id) {
+              document
+                .querySelectorAll(`.d4-node[data-id="${String(payload.id)}"], .graph-node[data-id="${String(payload.id)}"]`)
+                .forEach((el) => el.remove());
+              if (selectedNodeId && String(selectedNodeId) === String(payload.id) && dp) {
+                if (typeof dp.setSelectedNodeId === "function") dp.setSelectedNodeId(null);
+                if (typeof renderDetailPanel === "function") renderDetailPanel(null);
+              }
+            }
             this._setNodeHighlight(payload.id, event.highlight_type || "update");
           }
           if (String((event && event.event) || "").startsWith("edge.")) this._setEdgeHighlight(payload, event.highlight_type || "update");
+          if (String((event && event.event) || "") === "edge.deleted" && payload && payload.source && payload.target) {
+            const sourceId = String(payload.source);
+            const targetId = String(payload.target);
+            const matchingEdges = this.edgesDataSet && typeof this.edgesDataSet.get === "function"
+              ? this.edgesDataSet.get().filter((edge) => String((edge && (edge.from || edge.source)) || "") === sourceId && String((edge && (edge.to || edge.target)) || "") === targetId)
+              : [];
+            matchingEdges.forEach((edge) => {
+              const edgeId = typeof this.edgeId === "function" ? this.edgeId(edge) : `${sourceId}->${targetId}`;
+              if (this.edgeMap && typeof this.edgeMap.delete === "function") this.edgeMap.delete(edgeId);
+              if (this.edgesDataSet && typeof this.edgesDataSet.remove === "function") this.edgesDataSet.remove([edgeId]);
+            });
+            if (typeof this.rebuildAdjacency === "function") this.rebuildAdjacency();
+            this.context.edges = typeof this.getEdges === "function" ? this.getEdges() : this.context.edges;
+            document
+              .querySelectorAll(`.d4-edge[data-source="${sourceId}"][data-target="${targetId}"]`)
+              .forEach((el) => el.remove());
+          }
         };
         proto.queueOrApply = function (event) {
           if (String((event && event.event) || "") === "tool.invoked") return this.applyEvent(event);

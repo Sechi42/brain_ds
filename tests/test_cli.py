@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -10,6 +11,16 @@ from brain_ds.ui import cli
 
 
 class TestCli(unittest.TestCase):
+    def test_cli_setup_dispatch(self):
+        with patch("brain_ds.ui.cli._run_setup", return_value=0) as run_setup:
+            code = cli.main(["setup", "--dry-run"])
+
+        self.assertEqual(code, 0)
+        run_setup.assert_called_once()
+        args = run_setup.call_args.args[0]
+        self.assertEqual(args.command, "setup")
+        self.assertTrue(args.dry_run)
+
     def test_mcp_print_config_format_opencode_outputs_opencode_schema(self):
         stdout = io.StringIO()
 
@@ -255,6 +266,28 @@ class TestCli(unittest.TestCase):
 
             self.assertEqual(code, 0)
             self.assertEqual(render_mock.call_args.kwargs["workspace"].root, str(root_path.resolve()))
+
+    def test_ui_serve_respects_env_project_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env_root = Path(tmp) / "env-root"
+            env_root.mkdir(parents=True)
+
+            with patch.dict("os.environ", {"BRAIN_DS_PROJECT_ROOT": str(env_root)}, clear=False):
+                with patch("brain_ds.ui.cli.run_server") as run_server:
+                    code = cli.main(["ui", "serve"])
+
+            self.assertEqual(code, 0)
+            run_server.assert_called_once_with(project_root=env_root.resolve(), port=8765)
+
+    def test_ui_serve_env_empty_falls_to_cwd(self):
+        expected_root = Path(os.getcwd()).resolve()
+
+        with patch.dict("os.environ", {"BRAIN_DS_PROJECT_ROOT": ""}, clear=False):
+            with patch("brain_ds.ui.cli.run_server") as run_server:
+                code = cli.main(["ui", "serve"])
+
+        self.assertEqual(code, 0)
+        run_server.assert_called_once_with(project_root=expected_root, port=8765)
 
     def test_ui_dash_output_dash_writes_html_to_stdout(self):
         stdin = io.StringIO('{"org":"PipeOrg","nodes":[],"edges":[]}')

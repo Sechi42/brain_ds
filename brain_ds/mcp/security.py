@@ -84,6 +84,25 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         },
         "additionalProperties": False,
     },
+    "delete_node": {
+        "type": "object",
+        "required": ["graph_id", "node_id"],
+        "properties": {
+            "graph_id": {"type": "string"},
+            "node_id": {"type": "string"},
+        },
+        "additionalProperties": False,
+    },
+    "delete_edge": {
+        "type": "object",
+        "required": ["graph_id", "source", "target"],
+        "properties": {
+            "graph_id": {"type": "string"},
+            "source": {"type": "string"},
+            "target": {"type": "string"},
+        },
+        "additionalProperties": False,
+    },
     "create_graph": {
         "type": "object",
         "required": ["graph_id"],

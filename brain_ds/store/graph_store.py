@@ -236,6 +236,20 @@ class GraphStore:
         self.edge_repo.upsert_edge(graph_id, edge_input)
         self._refresh_graph_counts(graph_id)
 
+    def delete_node(self, graph_id: str, node_id: str) -> int:
+        self._ensure_writable()
+        self._assert_graph_exists(graph_id)
+        deleted = self.node_repo.delete_node(graph_id, node_id)
+        self._refresh_graph_counts(graph_id)
+        return deleted
+
+    def delete_edge(self, graph_id: str, source: str, target: str) -> int:
+        self._ensure_writable()
+        self._assert_graph_exists(graph_id)
+        deleted = self.edge_repo.delete_edge(graph_id, source, target)
+        self._refresh_graph_counts(graph_id)
+        return deleted
+
     def log_audit(
         self,
         tool_name: str,

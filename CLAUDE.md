@@ -17,6 +17,8 @@
 | `search_graph` | data | Search nodes by substring over label/type/details |
 | `update_node` | data | Create/update node fields |
 | `add_edge` | data | Create/update an edge between nodes |
+| `delete_node` | data | Delete one node by id |
+| `delete_edge` | data | Delete edges between source and target |
 | `run_elicit` | agent stub | Requires AI agent workflow |
 | `map_connections` | agent stub | Requires AI agent workflow |
 | `generate_brd` | agent stub | Requires AI agent workflow |
@@ -25,41 +27,49 @@ For MCP server internals and archive details, see `sdd/mcp-server/archive-report
 
 ## Setup
 
-1. Print config (portable default, relative root):
+Use `brain_ds setup`. It creates the local store if needed, writes absolute-root MCP configs, preserves unrelated config entries, and prints the next steps.
+
+### Quick path
+
+1. Run setup once from the project root:
 
 ```bash
-brain_ds mcp print-config --project-root .
+brain_ds setup --project-root . --agent both
 ```
 
-2. Print config with absolute root (use when IDE launch cwd differs):
+2. Review the printed checklist:
+   - rebuild/install the Windows exe
+   - launch the exe and pick this folder
+   - restart your agent client
+   - approve `brain_ds` if prompted
+
+3. In Claude Code, run `/mcp` and confirm `brain_ds` is connected with **14 tools**.
+
+### What `brain_ds setup` guarantees
+
+| Area | Behavior |
+|---|---|
+| Store alignment | Uses `Path.resolve()` so the desktop exe and external agent point at the same absolute project root |
+| Store safety | Creates `.brain_ds/store.db` only when missing |
+| Config safety | Backs up existing config before write and preserves unrelated MCP entries |
+| Supported targets | Writes `.mcp.json`, `.opencode/opencode.json`, or both |
+| Preview mode | `--dry-run` prints a diff preview and writes nothing |
+
+### If you need a manual preview only
+
+```bash
+brain_ds setup --project-root . --agent both --dry-run
+```
+
+### Legacy low-level config output
+
+`brain_ds mcp print-config` still exists for debugging or manual inspection.
 
 ```bash
 brain_ds mcp print-config --project-root . --absolute
 ```
 
-3. Paste the emitted `mcpServers` JSON block into project-local `.claude/settings.json`.
-
-### Windows path check (safer launch)
-
-Use this when Claude Code may start from a different folder.
-
-- [ ] Generate config with absolute root:
-
-```bash
-brain_ds mcp print-config --project-root . --absolute
-```
-
-- [ ] If output still shows `"command": ".\\brain_ds.CMD"`, resolve the installed executable and use that absolute path in `command`:
-
-```powershell
-where.exe brain_ds
-```
-
-- [ ] Keep absolute project-root values in config (`args[2]` and `env.BRAIN_DS_PROJECT_ROOT`) — this is expected and correct.
-
-- [ ] In Claude Code, run `/mcp` and confirm `brain_ds` is connected with **12 tools**.
-
-Example output shape:
+Example Claude output shape:
 
 ```json
 {
@@ -78,15 +88,17 @@ Example output shape:
 
 ## Verification
 
-1. Open Claude Code at the project root.
-2. Run `/mcp` and confirm `brain_ds` is connected.
-3. Verify 12 tools appear.
-4. Call `list_nodes` as a smoke check.
+1. Run `brain_ds setup --project-root . --agent both`.
+2. Open Claude Code at the project root.
+3. Run `/mcp` and confirm `brain_ds` is connected.
+4. Verify 14 tools appear.
+5. Call `list_nodes` as a smoke check.
+6. Live updates flow through the shared SQLite outbox path; MCP writes should reach the running UI without a manual config rewrite.
 
 ## Trade-offs
 
-- Relative `--project-root .` is portable across machines and repo clones.
-- `--absolute` is machine-specific but resilient when launch cwd is not project root.
+- `brain_ds setup` prefers absolute roots because the desktop exe canonicalizes the chosen folder before launching the UI.
+- `brain_ds mcp print-config --project-root .` remains more portable, but it is easier to misalign with the desktop flow if launch cwd changes.
 
 ## Security boundary
 

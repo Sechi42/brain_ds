@@ -44,6 +44,20 @@
     return this._map.get(id);
   };
 
+  DataSet.prototype.remove = function (items) {
+    toArray(items).forEach(function (item) {
+      var id = typeof item === "object" && item !== null ? item.id : item;
+      if (id === undefined || id === null) return;
+      this._map.delete(id);
+    }, this);
+    this._emit();
+  };
+
+  DataSet.prototype.clear = function () {
+    this._map.clear();
+    this._emit();
+  };
+
   function Network(container, data, options) {
     this.container = container;
     this.data = data || { nodes: new DataSet([]), edges: new DataSet([]) };

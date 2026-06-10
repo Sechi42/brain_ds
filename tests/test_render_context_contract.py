@@ -82,6 +82,17 @@ class TestRenderContextContract(unittest.TestCase):
         self.assertNotIn("\\", display_path)
         self.assertEqual(str(PurePosixPath(display_path)), display_path)
 
+    def test_meta_graph_id_populated(self):
+        graph = Graph.from_v1(_sample_graph_payload())
+        workspace = WorkspaceContext.from_root_and_graph(
+            Path("/workspace"),
+            Path("/workspace/acme-corp/billing/v2-graph.json"),
+        )
+
+        context = build_render_context(graph, workspace=workspace, graph_id="g1")
+
+        self.assertEqual(context["meta"]["graph_id"], "g1")
+
     def test_every_node_has_score(self):
         context = build_render_context(Graph.from_v1(_sample_graph_payload()))
         for node in context["nodes"]:

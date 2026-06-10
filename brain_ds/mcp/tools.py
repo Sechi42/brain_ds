@@ -305,6 +305,93 @@ def add_edge(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
 
 
 @error_boundary
+def delete_node(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    validated = validate_tool_input("delete_node", params, TOOL_SCHEMAS["delete_node"])
+    graph_id = validated["graph_id"]
+    node_id = validated["node_id"]
+
+    try:
+        deleted = store.delete_node(graph_id, node_id)
+        if deleted == 0:
+            raise ValidationError(code=-32000, message=f"Node '{node_id}' not found in graph '{graph_id}'")
+
+        result = {"graph_id": graph_id, "node_id": node_id, "deleted": deleted}
+        store.log_audit("delete_node", validated, "ok")
+        store.enqueue_event(
+            "node.deleted",
+            graph_id,
+            {"id": node_id, "graph_id": graph_id},
+        )
+        _enqueue_tool_receipt(
+            store,
+            graph_id=graph_id,
+            tool="delete_node",
+            status="ok",
+            target_id=node_id,
+            params_summary=f"node={node_id}",
+        )
+        return result
+    except ValidationError as exc:
+        _enqueue_tool_receipt(
+            store,
+            graph_id=graph_id,
+            tool="delete_node",
+            status="error",
+            target_id=node_id,
+            params_summary=f"node={node_id} error={exc.message}",
+        )
+        _safe_log_error(store, "delete_node", validated)
+        raise exc
+    except StoreError as exc:
+        _safe_log_error(store, "delete_node", validated)
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+
+
+@error_boundary
+def delete_edge(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    validated = validate_tool_input("delete_edge", params, TOOL_SCHEMAS["delete_edge"])
+    graph_id = validated["graph_id"]
+    source = validated["source"]
+    target = validated["target"]
+
+    try:
+        deleted = store.delete_edge(graph_id, source, target)
+        if deleted == 0:
+            raise ValidationError(code=-32000, message=f"Edge '{source}->{target}' not found in graph '{graph_id}'")
+
+        result = {"graph_id": graph_id, "source": source, "target": target, "deleted": deleted}
+        store.log_audit("delete_edge", validated, "ok")
+        store.enqueue_event(
+            "edge.deleted",
+            graph_id,
+            {"id": f"{source}->{target}", "graph_id": graph_id, "source": source, "target": target},
+        )
+        _enqueue_tool_receipt(
+            store,
+            graph_id=graph_id,
+            tool="delete_edge",
+            status="ok",
+            target_id=f"{source}->{target}",
+            params_summary=f"edge={source}->{target}",
+        )
+        return result
+    except ValidationError as exc:
+        _enqueue_tool_receipt(
+            store,
+            graph_id=graph_id,
+            tool="delete_edge",
+            status="error",
+            target_id=f"{source}->{target}",
+            params_summary=f"edge={source}->{target} error={exc.message}",
+        )
+        _safe_log_error(store, "delete_edge", validated)
+        raise exc
+    except StoreError as exc:
+        _safe_log_error(store, "delete_edge", validated)
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+
+
+@error_boundary
 def run_elicit(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     validate_tool_input("run_elicit", params, TOOL_SCHEMAS["run_elicit"])
     return grounding.elicit_context()
@@ -390,6 +477,20 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "handler": add_edge,
         "schema": TOOL_SCHEMAS["add_edge"],
         "description": "Create/update an edge between existing nodes",
+        "rw": "write",
+        "requires_ai_agent": False,
+    },
+    "delete_node": {
+        "handler": delete_node,
+        "schema": TOOL_SCHEMAS["delete_node"],
+        "description": "Delete one node by id and emit a live delete event",
+        "rw": "write",
+        "requires_ai_agent": False,
+    },
+    "delete_edge": {
+        "handler": delete_edge,
+        "schema": TOOL_SCHEMAS["delete_edge"],
+        "description": "Delete edges between source and target and emit a live delete event",
         "rw": "write",
         "requires_ai_agent": False,
     },

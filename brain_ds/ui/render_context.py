@@ -50,7 +50,7 @@ class WorkspaceContext:
 _workspace_fallback_warned = False
 
 
-def build_render_context(graph: Graph, workspace: WorkspaceContext | None = None) -> dict:
+def build_render_context(graph: Graph, workspace: WorkspaceContext | None = None, *, graph_id: str | None = None) -> dict:
     adjacency: dict[str, set[str]] = defaultdict(set)
     incident_edges: dict[str, list] = defaultdict(list)
     component_ids = _compute_components(graph)
@@ -145,6 +145,7 @@ def build_render_context(graph: Graph, workspace: WorkspaceContext | None = None
         "contract_version": CONTRACT_VERSION,
         "meta": {
             "org": graph.org or "Organization",
+            "graph_id": graph_id or "",
             "generated_at": graph.generated_at or "",
             "node_count": len(nodes),
             "edge_count": len(edges),
