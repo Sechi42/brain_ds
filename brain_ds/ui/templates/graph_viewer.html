@@ -22,6 +22,21 @@
       * { box-sizing: border-box; }
       html, body { height: 100vh; overflow: hidden; }
       body { margin: 0; font-family: Inter, "Segoe UI", Arial, sans-serif; background: var(--bg-main); color: var(--text-normal); }
+      /* Screen-reader-only contract for live regions and the canvas a11y list.
+         The class is referenced by the template AND injected by renderer.ts /
+         renderer-d4 — without this rule every announcement paints as raw text. */
+      .vis-a11y-sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
+        border: 0;
+      }
 
       /* === Workspace shell (PR1 scaffold + center chrome) === */
       .workspace-shell {
@@ -4109,6 +4124,13 @@
         dismissLoading();
       }, 200);
       announceLive("Graph loaded.");
+      // Auto-fit once the initial physics burst + load cascade settle, so the
+      // graph greets the user framed instead of huddled tiny at canvas center.
+      window.setTimeout(() => {
+        if (network && typeof network.fit === "function") {
+          network.fit({ animation: typeof motionEnabled === "function" ? motionEnabled() : true });
+        }
+      }, 1300);
       // toggleEditControls() is now called internally by the detail-panel module.
     </script>
   </body>

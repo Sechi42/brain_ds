@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import uuid
 from pathlib import Path
@@ -24,6 +25,8 @@ from .repository import (
 )
 
 _CONTRACT_VERSION = "1.0.0"
+
+logger = logging.getLogger(__name__)
 
 
 class GraphStore:
@@ -162,12 +165,25 @@ class GraphStore:
         evidence_rows = self.evidence_repo.search_evidence(graph_id)
         meta = next(meta for meta in self.meta_repo.list_graphs() if meta.id == graph_id)
 
+        # Defensive read: edge rows are written without ontology validation
+        # (MCP add_edge / outbox writes accept free-text labels), so a single
+        # unknown RelationshipType must not blank the whole graph — skip it.
+        edges = []
+        for row in edge_rows:
+            try:
+                edges.append(self._edge_from_row(row))
+            except ValueError as exc:
+                logger.warning(
+                    "Skipping edge %s->%s in graph %s: %s",
+                    row.source, row.target, graph_id, exc,
+                )
+
         return Graph(
             schema_version=meta.schema_version,
             org=meta.org,
             generated_at=meta.generated_at or "",
             nodes=[self._node_from_row(row) for row in node_rows],
-            edges=[self._edge_from_row(row) for row in edge_rows],
+            edges=edges,
             evidence=[self._evidence_from_row(row) for row in evidence_rows],
         )
 
