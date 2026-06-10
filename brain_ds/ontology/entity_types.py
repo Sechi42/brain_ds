@@ -9,7 +9,12 @@ class EntityType(Enum):
     ORGANIZATION = ("Organization", "actor", "#111827", ("Overview", "Mission", "Members"))
     DEPARTMENT = ("Department", "actor", "#2563eb", ("Overview", "Responsibilities"))
     ROLE = ("Role", "actor", "#16a34a", ("Overview", "Responsibilities"))
-    DATA_SOURCE = ("Data Source", "data", "#7c3aed", ("Overview", "Owner", "Refresh Cadence"))
+    DATA_SOURCE = (
+        "Data Source",
+        "data",
+        "#7c3aed",
+        ("Overview", "Structure", "Columns / Fields", "Purpose", "Owner", "Refresh Cadence"),
+    )
     HEURISTIC = ("Heuristic", "process", "#f59e0b", ("Overview", "Inputs", "Logic"))
     TACIT_KNOWLEDGE = ("Tacit Knowledge", "data", "#0ea5e9", ("Overview", "Context", "Capture Notes"))
     PROBLEM_IMPROVEMENT_AREA = ("Problem / Improvement Area", "problem", "#dc2626", ("Overview", "Impact", "Current State"))

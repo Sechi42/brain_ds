@@ -94,13 +94,16 @@ Do NOT present vague completion claims such as "data source captured" if identif
 For `Data Source`, require concrete identifiers whenever known. Mark as `Underspecified` if any critical identifier is vague or unknown without being called out.
 
 Capture/check these fields:
+- Kind of source (relational DB, NoSQL, Excel/CSV, API, SaaS, other)
 - System name (exact product/service)
 - Database name
-- Table name
+- Table name (or collection for NoSQL)
 - Excel/CSV file name
 - Workbook name
 - Sheet/hoja name
-- Owner or supplier
+- Key columns/fields and what each one means (document as a markdown table: | Column/Field | Type | Meaning | Notes |)
+- Purpose — what the source is used for and which decisions depend on it
+- Owner or supplier — who manages it day-to-day
 
 Examples that are **underspecified** unless expanded:
 - "an Excel"
@@ -116,7 +119,7 @@ Use these as defaults. Ask one at a time.
 | Entity | Questions |
 |---|---|
 | Organization | 1) What is the organization name? 2) What industry and region should we register for this org? |
-| Data Source | 1) What systems/files/APIs feed this process? 2) Which data source is least trusted and why? |
+| Data Source | 1) What systems/files/APIs feed this process? 2) What kind of source is it (relational DB, NoSQL, Excel/CSV, API, SaaS)? 3) For a database: which database and tables? For Excel/CSV: which workbook and sheets? 4) Which key columns/fields matter, and what does each one mean? 5) What is this source used for, and which decisions depend on it? 6) Who owns or manages it day-to-day? 7) How often is it refreshed or updated (real-time, daily, weekly, manual)? 8) Which data source is least trusted and why? |
 | Department | 1) Which departments participate in this workflow? 2) Which department owns final accountability for the outcome? |
 | Role | 1) Who makes the key decisions day-to-day? 2) Which role is blocked most often and why? |
 | Heuristic | 1) What manual rules do people apply when data is incomplete? 2) Which shortcut is used to decide faster under pressure? |

@@ -113,5 +113,43 @@ class GroundingEntityCoverageTests(unittest.TestCase):
         )
 
 
+class GroundingDataSourceCompletenessTests(unittest.TestCase):
+    """Data Source question bank and write template must cover concrete structure
+    identifiers so the harness cannot silently drift from the skill prose contract.
+    """
+
+    def test_data_source_question_bank_covers_structure_identifiers(self) -> None:
+        questions = " ".join(grounding.QUESTION_BANK.get("Data Source", []))
+        required_topics = [
+            "database and tables",
+            "workbook and sheets",
+            "columns/fields",
+            "used for",
+            "owns or manages",
+            "refreshed or updated",
+        ]
+        for topic in required_topics:
+            with self.subTest(topic=topic):
+                self.assertIn(topic, questions)
+
+    def test_data_source_write_template_captures_structure(self) -> None:
+        ds_template = grounding.NODE_WRITE_TEMPLATES.get("Data Source", {})
+        learned = ds_template.get("details", {}).get("learned", "")
+        required_fields = [
+            "Kind:",
+            "System:",
+            "Database:",
+            "Tables/Sheets:",
+            "Key Columns/Fields:",
+            "Purpose:",
+            "Owner:",
+            "Refresh:",
+            "Trust:",
+        ]
+        for field in required_fields:
+            with self.subTest(field=field):
+                self.assertIn(field, learned)
+
+
 if __name__ == "__main__":
     unittest.main()
