@@ -237,9 +237,9 @@
         align-items: center;
         justify-content: space-between;
         background: var(--bg-panel);
-        border-bottom: 1px solid rgba(63, 63, 70, 0.3);
-        gap: 12px;
-        padding: 0 24px;
+        border-bottom: 1px solid var(--border-subtle);
+        gap: 8px;
+        padding: 0 12px;
         z-index: 10;
       }
       /* Breadcrumb + highlighted graph name */
@@ -250,10 +250,45 @@
         font-size: 12px;
         font-family: var(--font-mono);
         color: var(--text-muted);
+        min-width: 0;
+        overflow: hidden;
+      }
+      /* Breadcrumb shrink priority: the ORG NAME is the identity anchor — it
+         never collapses (capped at 220px); the node/edge counters give way
+         first when the toolbar gets tight. */
+      #workspace-view-label li { white-space: nowrap; }
+      #workspace-view-nodes,
+      #workspace-view-edges {
+        flex-shrink: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       .breadcrumb-highlight { color: var(--accent-color-soft); font-weight: 500; font-family: inherit; }
       .breadcrumb-dot { color: var(--breadcrumb-dot); }
-      .toolbar-actions { display: flex; align-items: center; gap: 12px; }
+      .toolbar-actions { display: flex; align-items: center; gap: 10px; }
+      /* Visual clusters inside the overflow zone — thin dividers, 44px targets kept. */
+      .toolbar-cluster { display: flex; align-items: center; gap: 2px; }
+      .toolbar-divider {
+        width: 1px;
+        height: 22px;
+        background: var(--border-subtle);
+        flex-shrink: 0;
+      }
+      /* Toggle buttons (scroll-zoom, theme) light up morado when pressed. */
+      .toolbar-btn[aria-pressed="true"] {
+        color: var(--accent-mora);
+        background: var(--accent-mora-muted);
+      }
+      .toolbar-btn:focus-visible { outline: 2px solid var(--accent-mora); outline-offset: -2px; }
+      /* Canvas/Lector mode switch — icon-only 44px toggles; aria-pressed (synced
+         to #center-split[data-layout] by the template runtime) lights the active
+         mode morado via the shared .toolbar-btn[aria-pressed] rule. */
+      .mode-switch {
+        display: flex;
+        gap: 2px;
+        flex-shrink: 0;
+      }
       .action-group {
         display: flex;
         background: var(--bg-active);
@@ -337,6 +372,9 @@
         z-index: 20;
       }
       .rail[data-rail-side="left"] .rail-icon {
+        position: relative;
+        display: grid;
+        place-items: center;
         color: var(--text-muted);
         background: transparent;
         border: none;
@@ -345,11 +383,27 @@
       }
       .rail[data-rail-side="left"] .rail-icon:hover {
         color: var(--text-normal);
-        background-color: rgba(255,255,255,0.05);
+        background-color: var(--bg-hover);
       }
+      /* Active rail icon: morado tint + a left edge indicator bar so the
+         selected tool reads instantly (VS Code activity-bar pattern). */
       .rail[data-rail-side="left"] .rail-icon[aria-selected="true"] {
-        color: var(--text-normal);
-        background-color: rgba(63, 63, 70, 0.4);
+        color: var(--accent-mora);
+        background-color: var(--accent-mora-muted);
+      }
+      .rail[data-rail-side="left"] .rail-icon[aria-selected="true"]::before {
+        content: "";
+        position: absolute;
+        left: -2px;
+        top: 10px;
+        bottom: 10px;
+        width: 2.5px;
+        border-radius: 2px;
+        background: var(--accent-mora);
+      }
+      .rail[data-rail-side="left"] .rail-icon:focus-visible {
+        outline: 2px solid var(--accent-mora);
+        outline-offset: -2px;
       }
       .left-rail-icons { gap: 16px !important; padding-top: 0 !important; }
       .left-rail-icons {
@@ -493,9 +547,11 @@
       .control-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
       .button, button { min-height: 44px; padding: 0.45rem 0.75rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-ui); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.85rem; }
       .button:hover, button:hover { background: var(--bg-panel-hover); color: var(--text-normal); }
-      #zoom-fit, #zoom-in, #zoom-out, #scroll-zoom-toggle, #theme-toggle { background: transparent; border: 1px solid var(--border-subtle); color: var(--text-muted); font-size: 0.85rem; }
+      /* Toolbar icon buttons are borderless (.toolbar-btn) — legacy ID rules that
+         re-added borders were removed; pressed state lives on .toolbar-btn[aria-pressed]. */
+      #zoom-fit, #zoom-in, #zoom-out, #scroll-zoom-toggle, #theme-toggle { background: transparent; border: none; color: var(--text-muted); font-size: 0.85rem; }
       #zoom-fit:hover, #zoom-in:hover, #zoom-out:hover, #scroll-zoom-toggle:hover, #theme-toggle:hover { background: var(--bg-panel-hover); color: var(--text-normal); }
-      #scroll-zoom-toggle[aria-pressed="true"] { background: color-mix(in srgb, var(--accent-mora) 22%, transparent); border-color: var(--accent-mora); color: var(--text-bright); }
+      #scroll-zoom-toggle[aria-pressed="true"], #theme-toggle[aria-pressed="true"] { background: var(--accent-mora-muted); color: var(--accent-mora); }
       button[aria-pressed='true'] { border-color: var(--accent-mora); color: var(--accent-mora); }
       /* Light "marco morado" frame on each filter row — subtle accent-mora border +
          tint via color-mix (token-disciplined, no hardcoded hex). Lifts on hover and
@@ -724,8 +780,10 @@
       #workspace-view-org {
         overflow: hidden;
         text-overflow: ellipsis;
-        min-width: 0;
-        flex-shrink: 1;
+        /* Identity anchor: the org name only ellipsizes past its 220px cap;
+           the count items (see breadcrumb shrink priority) give way first. */
+        flex-shrink: 0;
+        max-width: min(50vw, 220px);
       }
       #workspace-view-label li + li::before {
         content: '•';
@@ -1007,6 +1065,53 @@
       .detail-skeleton__line--1 { width: 60%; }
       .detail-skeleton__line--2 { width: 40%; }
       .detail-skeleton__line--3 { width: 25%; }
+
+      /* === Inspector action states ===
+         Edit mode ON and Save-with-pending-edits light up morado so the two
+         stateful actions read at a glance; disabled stays muted (state model). */
+      #edit-toggle[aria-pressed="true"] {
+        background: var(--accent-mora-muted);
+        color: var(--accent-mora);
+        border-color: color-mix(in srgb, var(--accent-mora) 45%, var(--border-subtle));
+      }
+      #detail-save:not([disabled]) {
+        background: var(--accent-mora-muted);
+        color: var(--accent-mora);
+        border-color: color-mix(in srgb, var(--accent-mora) 45%, var(--border-subtle));
+      }
+
+      /* === Inspector accordions (Relaciones / Acciones IA) ===
+         The <details> sections previously had NO styles in production (they
+         only existed in the design-reference CSS) and rendered as bare text. */
+      .inspector-accordion { border-top: 1px solid var(--border-subtle); }
+      .inspector-summary,
+      #detail-body details > summary {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        padding: 0 0.9rem;
+        cursor: pointer;
+        list-style: none;
+        color: var(--text-normal);
+        font-size: 0.85rem;
+        font-weight: 550;
+        border-radius: var(--radius-md);
+        transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+      }
+      .inspector-summary::-webkit-details-marker,
+      #detail-body details > summary::-webkit-details-marker { display: none; }
+      .inspector-summary:hover,
+      #detail-body details > summary:hover { background: var(--bg-panel-hover); }
+      .inspector-summary:focus-visible,
+      #detail-body details > summary:focus-visible { outline: 2px solid var(--accent-mora); outline-offset: -2px; }
+      .inspector-summary .chevron { transition: transform var(--duration-fast) var(--ease-standard); }
+      .inspector-accordion[open] > .inspector-summary .chevron { transform: rotate(90deg); }
+      .inspector-body { padding: 0.5rem 0.9rem 0.8rem; }
+      @media (prefers-reduced-motion: reduce) {
+        .inspector-summary .chevron { transition: none; }
+      }
 
       /* === Scrollbars === */
       .controls::-webkit-scrollbar, .detail-panel::-webkit-scrollbar, #markdown-reader::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -1333,7 +1438,9 @@
         white-space: nowrap;
         padding: 4px 8px;
         border-radius: var(--radius-md);
-        background-color: rgba(10,10,12,0.8);
+        /* Token-based scrim — the old rgba(10,10,12,.8) hardcode made labels
+           a dark pill with near-black text under [data-theme='light']. */
+        background-color: color-mix(in srgb, var(--bg-main) 82%, transparent);
         color: var(--text-bright);
         backdrop-filter: blur(4px);
         -webkit-backdrop-filter: blur(4px);
@@ -1914,8 +2021,12 @@
         <!-- Nav history (back/forward) intentionally reserved for a dedicated history PR -->
         <div class="top-toolbar" role="toolbar" aria-label="Canvas toolbar">
 
-          <!-- Zone: nav — back + forward navigation reserved for history wiring -->
-          <div data-toolbar-zone="nav"></div>
+          <!-- Zone: nav — vault switcher (functional: returns to org picker) -->
+          <div data-toolbar-zone="nav">
+            <button type="button" class="toolbar-btn" id="nav-vaults" aria-label="Cambiar de organización" title="Organizaciones">
+              <svg aria-hidden="true" width="18" height="18"><use href="#icon-folder"/></svg>
+            </button>
+          </div>
 
           <!-- Zone: view — org metadata label (Org · N nodes · M edges · date) -->
           <div data-toolbar-zone="view">
@@ -1931,64 +2042,50 @@
           <!-- Zone: overflow — zoom-fit + theme-toggle as icon buttons + more-actions -->
           <!-- NOTE: #zoom-fit, #theme-toggle, #show-more, #hide-markdown IDs preserved for runtime script compatibility -->
           <div data-toolbar-zone="overflow" class="toolbar-actions">
-            <div class="action-group">
-              <button type="button" id="show-more" class="pill-btn btn-outline" aria-label="Abrir lector completo de markdown">Ver Más</button>
-              <span class="divider-v" aria-hidden="true"></span>
-              <button type="button" id="hide-markdown" class="pill-btn btn-outline" aria-label="Volver al lienzo">Volver al lienzo</button>
+            <!-- Mode switch: canvas ⇄ markdown reader. aria-pressed mirrors
+                 #center-split[data-layout]; synced by the template runtime. -->
+            <div class="mode-switch" role="group" aria-label="Modo de vista">
+              <button type="button" id="hide-markdown" class="toolbar-btn" aria-pressed="true" aria-label="Ver lienzo del grafo" title="Lienzo">
+                <svg aria-hidden="true" width="18" height="18"><use href="#icon-network"/></svg>
+              </button>
+              <button type="button" id="show-more" class="toolbar-btn" aria-pressed="false" aria-label="Abrir lector completo de markdown" title="Lector de markdown">
+                <svg aria-hidden="true" width="18" height="18"><use href="#icon-menu"/></svg>
+              </button>
             </div>
-            <button
-              class="toolbar-btn"
-              id="zoom-out"
-              aria-label="Zoom out"
-            >
-              <!-- Lucide minus — decorative -->
-              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            </button>
-            <button
-              class="toolbar-btn"
-              id="zoom-in"
-              aria-label="Zoom in"
-            >
-              <!-- Lucide plus — decorative -->
-              <svg aria-hidden="true" width="18" height="18"><use href="#icon-plus"/></svg>
-            </button>
-            <button
-              class="toolbar-btn"
-              id="zoom-fit"
-              aria-label="Zoom to fit"
-            >
-              <!-- Lucide maximize-2 (zoom fit) — decorative -->
-              <svg aria-hidden="true" width="18" height="18"><use href="#icon-maximize-2"/></svg>
-            </button>
-            <button
-              class="toolbar-btn"
-              id="center-selection"
-              aria-label="Center selection"
-              disabled
-            >
-              <svg aria-hidden="true" width="18" height="18"><use href="#icon-crosshair"/></svg>
-            </button>
-            <button
-              class="toolbar-btn"
-              id="scroll-zoom-toggle"
-              aria-label="Activar zoom con scroll"
-              aria-pressed="false"
-            >
-              <!-- Lucide search (scroll-to-zoom) — decorative -->
-              <svg aria-hidden="true" width="18" height="18"><use href="#icon-search"/></svg>
-            </button>
-            <button
-              class="toolbar-btn vis-theme-toggle"
-              id="theme-toggle"
-              aria-label="Switch to light theme"
-              aria-pressed="false"
-            >
-              <!-- Lucide sun icon — decorative -->
-              <svg aria-hidden="true" width="18" height="18"><use href="#icon-sun"/></svg>
-            </button>
+            <span class="toolbar-divider" aria-hidden="true"></span>
+            <div class="toolbar-cluster" role="group" aria-label="Zoom y encuadre">
+              <button class="toolbar-btn" id="zoom-out" aria-label="Zoom out" title="Alejar">
+                <!-- Lucide minus — decorative -->
+                <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </button>
+              <button class="toolbar-btn" id="zoom-in" aria-label="Zoom in" title="Acercar">
+                <!-- Lucide plus — decorative -->
+                <svg aria-hidden="true" width="18" height="18"><use href="#icon-plus"/></svg>
+              </button>
+              <button class="toolbar-btn" id="zoom-fit" aria-label="Zoom to fit" title="Encuadrar grafo">
+                <!-- Lucide maximize-2 (zoom fit) — decorative -->
+                <svg aria-hidden="true" width="18" height="18"><use href="#icon-maximize-2"/></svg>
+              </button>
+              <button class="toolbar-btn" id="center-selection" aria-label="Center selection" title="Centrar selección" disabled>
+                <svg aria-hidden="true" width="18" height="18"><use href="#icon-crosshair"/></svg>
+              </button>
+            </div>
+            <span class="toolbar-divider" aria-hidden="true"></span>
+            <div class="toolbar-cluster" role="group" aria-label="Preferencias de vista">
+              <button class="toolbar-btn" id="scroll-zoom-toggle" aria-label="Activar zoom con scroll" title="Zoom con scroll" aria-pressed="false">
+                <!-- Lucide search (scroll-to-zoom) — decorative -->
+                <svg aria-hidden="true" width="18" height="18"><use href="#icon-search"/></svg>
+              </button>
+              <button class="toolbar-btn vis-theme-toggle" id="theme-toggle" aria-label="Switch to light theme" title="Cambiar tema" aria-pressed="false">
+                <!-- Lucide sun icon — decorative -->
+                <svg aria-hidden="true" width="18" height="18"><use href="#icon-sun"/></svg>
+              </button>
+            </div>
+            <span class="toolbar-divider" aria-hidden="true"></span>
             <button
               class="toolbar-btn"
               aria-label="More actions"
+              title="Más acciones"
               data-catalog-id="overflow"
               aria-haspopup="menu"
             >
@@ -2106,8 +2203,8 @@
         var nodesLabel = document.getElementById("workspace-view-nodes");
         var edgesLabel = document.getElementById("workspace-view-edges");
         if (org) org.textContent = meta.org || "Organization";
-        if (nodesLabel) nodesLabel.textContent = (meta.node_count || 0) + " nodes";
-        if (edgesLabel) edgesLabel.textContent = (meta.edge_count || 0) + " edges";
+        if (nodesLabel) nodesLabel.textContent = (meta.node_count || 0) + " nodos";
+        if (edgesLabel) edgesLabel.textContent = (meta.edge_count || 0) + " aristas";
         var statusChip = document.querySelector("[data-status-chip]");
         if (statusChip) {
           var status = String(meta.status_label || "LIVE").toUpperCase().slice(0, 4) || "LIVE";
@@ -2136,6 +2233,9 @@
         };
       }());
       (function pruneStaleOverlayArtifacts() {
+        // Non-browser runtime harnesses stub document without querySelectorAll;
+        // the prune loop is a browser-only fallback, so bail out quietly there.
+        if (typeof document.querySelectorAll !== "function") return;
         // When the renderer-d4 module owns the overlay lifecycle, IT removes
         // stale elements (after the exit animation). Hard-removing here would
         // cut every despawn/sever animation on its first frame.
@@ -2155,7 +2255,9 @@
             if (!activeEdgeIds.has(edgeId)) el.remove();
           });
         }
-        window.requestAnimationFrame(pruneStaleOverlayArtifacts);
+        if (typeof window.requestAnimationFrame === "function") {
+          window.requestAnimationFrame(pruneStaleOverlayArtifacts);
+        }
       }());
       const graphId = String((meta && meta.graph_id) || "");
       if (window.brainDsUI) {
@@ -4123,6 +4225,59 @@
         firstFrameDone = true;
         dismissLoading();
       }, 200);
+      // ── Chrome runtime wiring (rails/toolbar redesign) ──
+      // Nav zone: vault switcher — functional return to the org picker.
+      (function () {
+        var navVaults = document.getElementById("nav-vaults");
+        if (navVaults) {
+          navVaults.addEventListener("click", function () {
+            window.location.href = "/vault-picker";
+          });
+        }
+      }());
+      // Mode switch state: mirror #center-split[data-layout] into aria-pressed
+      // so Lienzo/Lector always shows which mode is active (splitPane owns the
+      // layout attribute; we only observe it).
+      (function () {
+        var split = document.getElementById("center-split");
+        var canvasBtn = document.getElementById("hide-markdown");
+        var readerBtn = document.getElementById("show-more");
+        if (!split || !canvasBtn || !readerBtn) return;
+        var sync = function () {
+          var isReader = split.getAttribute("data-layout") === "reader";
+          canvasBtn.setAttribute("aria-pressed", String(!isReader));
+          readerBtn.setAttribute("aria-pressed", String(isReader));
+        };
+        if (typeof MutationObserver === "function") {
+          new MutationObserver(sync).observe(split, { attributes: true, attributeFilter: ["data-layout"] });
+        }
+        sync();
+      }());
+      // Left panel header follows the active rail tool (title + icon), so the
+      // panel never reads as a generic "Controles del Grafo" blob.
+      (function () {
+        var railRoot = document.querySelector('.rail[data-rail-side="left"]');
+        var title = document.querySelector(".left-panel-shell .panel-header-title");
+        if (!railRoot || !title) return;
+        var iconByName = {
+          "file-tree": "#icon-folder",
+          "search": "#icon-search",
+          "filters": "#icon-filter",
+          "hierarchy": "#icon-network",
+          "layout": "#icon-layout-grid",
+          "navigator": "#icon-globe"
+        };
+        var sync = function () {
+          var active = railRoot.querySelector('.rail-icon[aria-selected="true"]');
+          if (!active) return;
+          var label = active.getAttribute("title") || "Controles del Grafo";
+          var icon = iconByName[active.getAttribute("data-rail-icon")] || "#icon-search";
+          title.innerHTML = '<svg aria-hidden="true" width="16" height="16"><use href="' + icon + '"/></svg> ' + label;
+        };
+        railRoot.addEventListener("click", function () { window.setTimeout(sync, 0); });
+        railRoot.addEventListener("keydown", function () { window.setTimeout(sync, 0); });
+        sync();
+      }());
       announceLive("Graph loaded.");
       // Auto-fit once the initial physics burst + load cascade settle, so the
       // graph greets the user framed instead of huddled tiny at canvas center.

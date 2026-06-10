@@ -445,9 +445,9 @@ class TestSplitPaneModuleContracts(unittest.TestCase):
         self.assertIn('id="show-more"', self.template_text)
         self.assertIn('id="markdown-reader"', self.template_text)
         self.assertIn('id="center-split"', self.template_text)
-        # D.4 visual port: button label aligned with reference (Spanish "Ver Más").
-        # "Show More" / "Ver Más" / "Mostrar más" all acceptable.
-        self.assertRegex(self.template_text, r"Show More|Ver M[áa]s|Mostrar m[áa]s")
+        # Chrome redesign: the trigger is icon-only; the reader affordance is
+        # carried by its accessible name/tooltip ("Lector ..." / "lector").
+        self.assertRegex(self.template_text, r'id="show-more"[^>]*aria-label="[^"]*lector')
 
 
 class TestGraphVisualRichnessD4aContracts(unittest.TestCase):
@@ -608,7 +608,9 @@ class TestGraphVisualRichnessD4deContracts(unittest.TestCase):
             "pointer-events: none",
             ".off-side-label",
             "backdrop-filter: blur(4px)",
-            "rgba(10,10,12,0.8)",
+            # Theme-parity fix: the label scrim is token-based now — the old
+            # rgba(10,10,12,.8) hardcode made labels unreadable in light mode.
+            "background-color: color-mix(in srgb, var(--bg-main) 82%, transparent)",
             "left: calc(100% + 10px)",
             "color: var(--text-bright)",
         ]:

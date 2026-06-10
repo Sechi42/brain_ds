@@ -110,12 +110,23 @@ export function mount(args: D4MountArgs) {
   };
 
   const lifecycleTimeout = (fn: () => void, ms: number) => {
-    const id = window.setTimeout(() => {
+    // `let` + reassignment (not const): test harnesses stub setTimeout as a
+    // SYNCHRONOUS call, and reading a const binding from inside the callback
+    // before initialization completes is a TDZ ReferenceError.
+    let id = 0;
+    id = window.setTimeout(() => {
       lifecycle.timers.delete(id);
       fn();
     }, ms);
     lifecycle.timers.add(id);
     return id;
+  };
+
+  // Runtime harnesses stub element.style without removeProperty — guard it.
+  const removeStyleProp = (el: HTMLElement | SVGElement, prop: string) => {
+    if (el.style && typeof el.style.removeProperty === 'function') {
+      el.style.removeProperty(prop);
+    }
   };
 
   const beginEnter = (el: HTMLElement | SVGElement, delayMs: number) => {
@@ -125,7 +136,7 @@ export function mount(args: D4MountArgs) {
     lifecycleTimeout(() => {
       if (el.getAttribute('data-lifecycle') === 'enter') {
         el.removeAttribute('data-lifecycle');
-        el.style.removeProperty('--lifecycle-delay');
+        removeStyleProp(el, '--lifecycle-delay');
       }
     }, delayMs + LIFECYCLE_ENTER_TOTAL_MS);
   };
@@ -139,7 +150,7 @@ export function mount(args: D4MountArgs) {
       removeEl(el);
       return;
     }
-    el.style.removeProperty('--lifecycle-delay');
+    removeStyleProp(el, '--lifecycle-delay');
     el.setAttribute('data-lifecycle', 'exit');
     (el as HTMLElement).style.pointerEvents = 'none';
     el.addEventListener('animationend', (ev) => {
