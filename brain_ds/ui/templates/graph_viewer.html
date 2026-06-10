@@ -815,6 +815,59 @@
       .pill-btn--primary:hover,
       .btn-primary-outline:hover { background: var(--accent-bg); color: var(--accent-color-soft); }
 
+      /* === Button + panel micro-interactions ===
+         Tactile press feedback and hover lift. All transform/shadow motion is
+         gated behind no-preference; the reduce block silences it. */
+      @media (prefers-reduced-motion: no-preference) {
+        .pill-btn, .btn-outline, .btn-danger-outline, .btn-primary-outline,
+        .segment-btn, .toolbar-btn {
+          transition: background-color var(--duration-fast) var(--ease-standard),
+                      color var(--duration-fast) var(--ease-standard),
+                      border-color var(--duration-fast) var(--ease-standard),
+                      box-shadow var(--duration-fast) var(--ease-standard),
+                      transform var(--duration-fast) var(--ease-standard);
+        }
+        .pill-btn:active:not([disabled]), .btn-outline:active:not([disabled]),
+        .btn-danger-outline:active:not([disabled]), .btn-primary-outline:active:not([disabled]),
+        .segment-btn:active:not([disabled]), .toolbar-btn:active:not([disabled]) {
+          transform: scale(0.96);
+        }
+        .detail-card {
+          transition: background-color var(--duration-normal) var(--ease-standard),
+                      color var(--duration-normal) var(--ease-standard),
+                      border-color var(--duration-normal) var(--ease-standard),
+                      box-shadow var(--duration-normal) var(--ease-standard),
+                      transform var(--duration-normal) var(--ease-standard);
+        }
+        /* Staggered card reveal when the inspector populates. */
+        #detail-body[data-state="ready"] .detail-card,
+        #detail-body[data-state="ready"] .detail-section {
+          animation: inspectorEnter var(--duration-normal) var(--ease-standard) both;
+        }
+        #detail-body[data-state="ready"] > :nth-child(2) { animation-delay: 40ms; }
+        #detail-body[data-state="ready"] > :nth-child(3) { animation-delay: 80ms; }
+        #detail-body[data-state="ready"] > :nth-child(4) { animation-delay: 120ms; }
+        #detail-body[data-state="ready"] > :nth-child(5) { animation-delay: 160ms; }
+        #detail-body[data-state="ready"] > :nth-child(n+6) { animation-delay: 200ms; }
+      }
+      .pill-btn:hover:not([disabled]),
+      .btn-outline:hover:not([disabled]) {
+        border-color: color-mix(in srgb, var(--accent-mora) 35%, var(--border-subtle));
+      }
+      .detail-card:hover {
+        transform: translateY(-1px);
+        border-color: color-mix(in srgb, var(--card-accent, var(--accent-mora)) 30%, var(--border-subtle));
+        box-shadow: var(--shadow-xs);
+      }
+      .detail-score-chip { box-shadow: 0 0 0 1px var(--accent-mora-muted); }
+      @media (prefers-reduced-motion: reduce) {
+        .pill-btn:active, .btn-outline:active, .btn-danger-outline:active,
+        .btn-primary-outline:active, .segment-btn:active, .toolbar-btn:active { transform: none; }
+        .detail-card:hover { transform: none; }
+        #detail-body[data-state="ready"] .detail-card,
+        #detail-body[data-state="ready"] .detail-section { animation: none; }
+      }
+
       /* === Center stage === */
       .network-shell { position: relative; display: flex; flex-direction: column; }
       #center-split { background: transparent; height: 100%; display: flex; flex-direction: column; }
@@ -1461,6 +1514,52 @@
         100% { box-shadow: 0 0 0 12px transparent; }
       }
 
+      /* === Lifecycle choreography (renderer-d4 data-lifecycle contract) ===
+         enter: spawn pop + expanding ring + label slide-in (node), draw-in +
+         glow settle (edge). exit: despawn implode + farewell ring (node),
+         sever retract (edge). data-flash="link": endpoint pulse on new edge.
+         Stagger via --lifecycle-delay set inline by renderer-d4.ts. */
+      @keyframes node-spawn {
+        0%   { transform: scale(0.2); opacity: 0; }
+        62%  { transform: scale(1.16); opacity: 1; }
+        100% { transform: scale(1); opacity: 1; }
+      }
+      @keyframes node-spawn-ring {
+        0%   { transform: scale(0.5); opacity: 0.85; }
+        100% { transform: scale(2.9); opacity: 0; }
+      }
+      @keyframes node-label-reveal {
+        from { opacity: 0; transform: translateY(-50%) translateX(-8px); }
+        to   { opacity: 1; transform: translateY(-50%) translateX(0); }
+      }
+      @keyframes node-despawn {
+        0%   { transform: scale(1); opacity: 1; }
+        28%  { transform: scale(1.22); opacity: 1; }
+        100% { transform: scale(0.05); opacity: 0; }
+      }
+      @keyframes node-label-fade {
+        to { opacity: 0; transform: translateY(-50%) translateX(6px); }
+      }
+      @keyframes edge-draw {
+        from { stroke-dashoffset: 1; }
+        to   { stroke-dashoffset: 0; }
+      }
+      @keyframes edge-glow-settle {
+        0%   { stroke: var(--node-color, var(--accent-mora)); opacity: 1;
+               filter: drop-shadow(0 0 8px var(--node-color-muted, var(--accent-mora-muted))); }
+        100% { stroke: var(--edge-stroke); opacity: 0.7; filter: none; }
+      }
+      @keyframes edge-sever {
+        from { stroke-dashoffset: 0; opacity: 0.7; }
+        to   { stroke-dashoffset: 1; opacity: 0; }
+      }
+      @keyframes node-link-flash {
+        0%   { box-shadow: 0 0 0 0 var(--node-color-muted, var(--accent-mora-muted)),
+                           0 0 16px var(--node-color-muted, var(--accent-mora-muted));
+               border-color: var(--node-color, var(--accent-mora)); }
+        100% { box-shadow: 0 0 0 16px transparent, 0 0 0 transparent; }
+      }
+
       #ai-actions-receipts {
         margin: 0;
         padding: 0;
@@ -1512,6 +1611,69 @@
         .graph-node[data-highlight] .node-circle {
           animation: highlight-pulse 2s ease-out;
         }
+
+        /* — Lifecycle: node enter (spawn pop + ring + label slide) — */
+        .d4-node[data-lifecycle="enter"] .node-circle,
+        .graph-node[data-lifecycle="enter"] .node-circle {
+          animation: node-spawn 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+          animation-delay: var(--lifecycle-delay, 0ms);
+        }
+        .d4-node[data-lifecycle="enter"] .node-circle::before,
+        .graph-node[data-lifecycle="enter"] .node-circle::before {
+          content: '';
+          position: absolute;
+          inset: -2px;
+          border-radius: inherit;
+          border: 2px solid var(--node-color, var(--accent-mora));
+          animation: node-spawn-ring 720ms var(--ease-emphasized) both;
+          animation-delay: calc(var(--lifecycle-delay, 0ms) + 120ms);
+          pointer-events: none;
+        }
+        .d4-node[data-lifecycle="enter"] .node-label,
+        .graph-node[data-lifecycle="enter"] .node-label {
+          animation: node-label-reveal 360ms var(--ease-standard) both;
+          animation-delay: calc(var(--lifecycle-delay, 0ms) + 180ms);
+        }
+
+        /* — Lifecycle: node exit (implode + farewell ring) — */
+        .d4-node[data-lifecycle="exit"],
+        .graph-node[data-lifecycle="exit"] { pointer-events: none; z-index: 5; }
+        .d4-node[data-lifecycle="exit"] .node-circle,
+        .graph-node[data-lifecycle="exit"] .node-circle {
+          animation: node-despawn 380ms cubic-bezier(0.55, 0, 0.68, 0.19) both;
+        }
+        .d4-node[data-lifecycle="exit"] .node-circle::before,
+        .graph-node[data-lifecycle="exit"] .node-circle::before {
+          content: '';
+          position: absolute;
+          inset: -2px;
+          border-radius: inherit;
+          border: 2px solid var(--node-color, var(--accent-mora));
+          animation: node-spawn-ring 420ms ease-out both;
+          pointer-events: none;
+        }
+        .d4-node[data-lifecycle="exit"] .node-label,
+        .graph-node[data-lifecycle="exit"] .node-label {
+          animation: node-label-fade 220ms ease-out both;
+        }
+
+        /* — Lifecycle: edge draw-in / sever (pathLength=1 normalized dash) — */
+        .d4-edge[data-lifecycle="enter"] {
+          stroke-dasharray: 1;
+          animation: edge-draw 520ms var(--ease-emphasized) both,
+                     edge-glow-settle 980ms ease-out both;
+          animation-delay: var(--lifecycle-delay, 0ms);
+        }
+        .d4-edge[data-lifecycle="exit"] {
+          stroke-dasharray: 1;
+          animation: edge-sever 340ms cubic-bezier(0.4, 0, 1, 1) both;
+        }
+
+        /* — Lifecycle: endpoint pulse when a new edge lands — */
+        .d4-node[data-flash="link"] .node-circle,
+        .graph-node[data-flash="link"] .node-circle {
+          animation: node-link-flash 700ms var(--ease-standard) both;
+        }
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -1532,6 +1694,20 @@
         .d4-edge[data-highlight] {
           animation: none;
           outline: 2px solid var(--accent-color-soft);
+        }
+        /* Lifecycle choreography silenced — renderer-d4 also skips the
+           attributes entirely under reduced motion (JS guard), this is the
+           CSS belt to that suspender. */
+        .d4-node[data-lifecycle] .node-circle,
+        .graph-node[data-lifecycle] .node-circle,
+        .d4-node[data-lifecycle] .node-circle::before,
+        .graph-node[data-lifecycle] .node-circle::before,
+        .d4-node[data-lifecycle] .node-label,
+        .graph-node[data-lifecycle] .node-label,
+        .d4-edge[data-lifecycle],
+        .d4-node[data-flash] .node-circle,
+        .graph-node[data-flash] .node-circle {
+          animation: none;
         }
       }
     </style>
@@ -1945,16 +2121,25 @@
         };
       }());
       (function pruneStaleOverlayArtifacts() {
-        const activeNodeIds = new Set((nodes.get() || []).map((node) => String(node.id)));
-        document.querySelectorAll(".d4-node[data-id], .graph-node[data-id]").forEach((el) => {
-          const nodeId = el.getAttribute("data-id") || "";
-          if (!activeNodeIds.has(nodeId)) el.remove();
-        });
-        const activeEdgeIds = new Set((edges.get() || []).map((edge) => `${String(edge.from || edge.source || "")}→${String(edge.to || edge.target || "")}`));
-        document.querySelectorAll(".d4-edge[data-source][data-target]").forEach((el) => {
-          const edgeId = `${String(el.getAttribute("data-source") || "")}→${String(el.getAttribute("data-target") || "")}`;
-          if (!activeEdgeIds.has(edgeId)) el.remove();
-        });
+        // When the renderer-d4 module owns the overlay lifecycle, IT removes
+        // stale elements (after the exit animation). Hard-removing here would
+        // cut every despawn/sever animation on its first frame.
+        const d4Api = window.brainDsUI && window.brainDsUI.rendererD4;
+        const lifecycleOwned = Boolean(d4Api && typeof d4Api.isLifecycleActive === "function" && d4Api.isLifecycleActive());
+        if (!lifecycleOwned) {
+          const activeNodeIds = new Set((nodes.get() || []).map((node) => String(node.id)));
+          document.querySelectorAll(".d4-node[data-id], .graph-node[data-id]").forEach((el) => {
+            if (el.hasAttribute("data-lifecycle")) return; // exit animation in flight
+            const nodeId = el.getAttribute("data-id") || "";
+            if (!activeNodeIds.has(nodeId)) el.remove();
+          });
+          const activeEdgeIds = new Set((edges.get() || []).map((edge) => `${String(edge.from || edge.source || "")}→${String(edge.to || edge.target || "")}`));
+          document.querySelectorAll(".d4-edge[data-source][data-target]").forEach((el) => {
+            if (el.hasAttribute("data-lifecycle")) return;
+            const edgeId = `${String(el.getAttribute("data-source") || "")}→${String(el.getAttribute("data-target") || "")}`;
+            if (!activeEdgeIds.has(edgeId)) el.remove();
+          });
+        }
         window.requestAnimationFrame(pruneStaleOverlayArtifacts);
       }());
       const graphId = String((meta && meta.graph_id) || "");
@@ -2032,9 +2217,15 @@
               }
             }
             if (String((event && event.event) || "") === "node.deleted" && payload && payload.id) {
-              document
-                .querySelectorAll(`.d4-node[data-id="${String(payload.id)}"], .graph-node[data-id="${String(payload.id)}"]`)
-                .forEach((el) => el.remove());
+              // Module path: dataset removal already triggers the despawn
+              // animation + element removal in renderer-d4. Only hard-remove
+              // when the inline fallback (no lifecycle owner) is painting.
+              const d4ApiDel = window.brainDsUI && window.brainDsUI.rendererD4;
+              if (!(d4ApiDel && typeof d4ApiDel.isLifecycleActive === "function" && d4ApiDel.isLifecycleActive())) {
+                document
+                  .querySelectorAll(`.d4-node[data-id="${String(payload.id)}"], .graph-node[data-id="${String(payload.id)}"]`)
+                  .forEach((el) => el.remove());
+              }
               if (selectedNodeId && String(selectedNodeId) === String(payload.id) && dp) {
                 if (typeof dp.setSelectedNodeId === "function") dp.setSelectedNodeId(null);
                 if (typeof renderDetailPanel === "function") renderDetailPanel(null);
@@ -2056,9 +2247,14 @@
             });
             if (typeof this.rebuildAdjacency === "function") this.rebuildAdjacency();
             this.context.edges = typeof this.getEdges === "function" ? this.getEdges() : this.context.edges;
-            document
-              .querySelectorAll(`.d4-edge[data-source="${sourceId}"][data-target="${targetId}"]`)
-              .forEach((el) => el.remove());
+            // Module path: edge removal animates (sever) via renderer-d4
+            // reconciliation; hard-remove only for the inline fallback.
+            const d4ApiEdgeDel = window.brainDsUI && window.brainDsUI.rendererD4;
+            if (!(d4ApiEdgeDel && typeof d4ApiEdgeDel.isLifecycleActive === "function" && d4ApiEdgeDel.isLifecycleActive())) {
+              document
+                .querySelectorAll(`.d4-edge[data-source="${sourceId}"][data-target="${targetId}"]`)
+                .forEach((el) => el.remove());
+            }
           }
         };
         proto.queueOrApply = function (event) {
@@ -2088,6 +2284,11 @@
         };
       }
       patchLiveSyncAuthoringFeedback(liveSyncApi);
+      // Hoisted from the inline-fallback block: the live-sync callbacks below
+      // captured this name while it was block-scoped inside !d4ModuleMounted,
+      // throwing ReferenceError on live node.created when the bundle was
+      // mounted. Both overlay paths (module + inline fallback) read it now.
+      const enteringIds = new Set();
       const liveDataStore = liveSyncApi
         ? new liveSyncApi.LiveDataStore(RENDER_CONTEXT, nodes, edges)
         : null;
@@ -2144,6 +2345,7 @@
           edgesDataset: edges,
           nodesRoot: document.getElementById("d4-nodes"),
           edgesRoot: document.getElementById("d4-edges"),
+          enteringIds,
           onNodeActivate: (nodeId) => focusNode(nodeId),
         });
       }
@@ -2188,7 +2390,6 @@
         edgeEls: new Map(),
         popoverEl: null,
       };
-      const enteringIds = new Set();
       const placementFrames = new Map(); // per-id frame counter for RAF give-up bound
 
       const d4NodeId = (value) => (value === null || value === undefined ? "" : String(value));

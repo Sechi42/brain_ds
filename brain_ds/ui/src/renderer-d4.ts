@@ -1,3 +1,5 @@
+import { motionEnabled } from './motion/motion';
+
 type D4Node = {
   id: string | number;
   label?: string;
@@ -24,6 +26,28 @@ type D4MountArgs = {
 };
 
 let cleanup: null | (() => void) = null;
+
+/**
+ * isLifecycleActive — true while the D4 overlay module owns node/edge DOM
+ * lifecycle (enter/exit animations + element removal). The template's
+ * pruneStaleOverlayArtifacts RAF loop and the authoring-feedback patches
+ * MUST NOT hard-remove overlay elements while this is true, or exit
+ * animations get cut on their first frame.
+ */
+export function isLifecycleActive(): boolean {
+  return cleanup !== null;
+}
+
+// Exit animations must always resolve to removal even if animationend never
+// fires (display:none ancestors, theme swaps). Fallback is the longest exit
+// animation (380ms despawn) + headroom.
+const LIFECYCLE_EXIT_FALLBACK_MS = 700;
+const LIFECYCLE_ENTER_TOTAL_MS = 950;
+const FIRST_PAINT_NODE_STAGGER_MS = 14;
+const FIRST_PAINT_NODE_STAGGER_CAP_MS = 650;
+const FIRST_PAINT_EDGE_BASE_DELAY_MS = 260;
+const FIRST_PAINT_EDGE_STAGGER_MS = 8;
+const FIRST_PAINT_EDGE_STAGGER_CAP_MS = 420;
 
 const d4HexToRgb = (hex: string | null | undefined): string => {
   if (typeof hex !== 'string') return '59,130,246';
@@ -73,6 +97,68 @@ export function mount(args: D4MountArgs) {
     nodeEls: new Map<string, HTMLElement>(),
     edgeEls: new Map<string, SVGLineElement>(),
     popoverEl: null as HTMLElement | null,
+  };
+
+  // Lifecycle bookkeeping — drives enter (spawn) / exit (despawn) animations.
+  // prevNodeIds/prevEdgeKeys are the membership snapshot from the previous
+  // paint; firstPaintDone gates the staggered load cascade vs live enters.
+  const lifecycle = {
+    firstPaintDone: false,
+    prevNodeIds: new Set<string>(),
+    prevEdgeKeys: new Set<string>(),
+    timers: new Set<number>(),
+  };
+
+  const lifecycleTimeout = (fn: () => void, ms: number) => {
+    const id = window.setTimeout(() => {
+      lifecycle.timers.delete(id);
+      fn();
+    }, ms);
+    lifecycle.timers.add(id);
+    return id;
+  };
+
+  const beginEnter = (el: HTMLElement | SVGElement, delayMs: number) => {
+    if (!motionEnabled()) return;
+    el.style.setProperty('--lifecycle-delay', `${Math.max(0, delayMs)}ms`);
+    el.setAttribute('data-lifecycle', 'enter');
+    lifecycleTimeout(() => {
+      if (el.getAttribute('data-lifecycle') === 'enter') {
+        el.removeAttribute('data-lifecycle');
+        el.style.removeProperty('--lifecycle-delay');
+      }
+    }, delayMs + LIFECYCLE_ENTER_TOTAL_MS);
+  };
+
+  const removeEl = (el: Element) => {
+    if (el.parentNode) el.parentNode.removeChild(el);
+  };
+
+  const beginExit = (el: HTMLElement | SVGElement, animationName: string) => {
+    if (!motionEnabled()) {
+      removeEl(el);
+      return;
+    }
+    el.style.removeProperty('--lifecycle-delay');
+    el.setAttribute('data-lifecycle', 'exit');
+    (el as HTMLElement).style.pointerEvents = 'none';
+    el.addEventListener('animationend', (ev) => {
+      if ((ev as AnimationEvent).animationName === animationName) removeEl(el);
+    });
+    lifecycleTimeout(() => removeEl(el), LIFECYCLE_EXIT_FALLBACK_MS);
+  };
+
+  // Link flash — both endpoint nodes pulse in their own color when a new
+  // edge lands between them. Restarted per edge via attribute re-arm.
+  const flashLinkedNode = (nodeId: string) => {
+    if (!motionEnabled()) return;
+    const el = state.nodeEls.get(nodeId);
+    if (!el) return;
+    el.removeAttribute('data-flash');
+    // Force style recalc so re-adding the attribute restarts the animation.
+    void el.offsetWidth;
+    el.setAttribute('data-flash', 'link');
+    lifecycleTimeout(() => el.removeAttribute('data-flash'), 800);
   };
 
   const d4NodeId = (value: unknown) => (value === null || value === undefined ? '' : String(value));
@@ -193,11 +279,15 @@ export function mount(args: D4MountArgs) {
     const selectedPrimary = state.selectedNodeIds.values().next().value || null;
     const related = d4RelatedFor(state.hoveredNodeId || selectedPrimary);
     d4SyncContainerState();
+    // Per-pass enter counter: both the load cascade and live batch arrivals
+    // (e.g. an MCP import_graph) stagger instead of popping simultaneously.
+    let nodeEnterSeq = 0;
 
     nodeRecords.forEach((node, idx) => {
       const id = d4NodeId(node.id);
       const pos = d4WorldToScreen(world[String(node.id)] || { x: 0, y: 0 });
       let el = state.nodeEls.get(id);
+      const isNewElement = !el;
       if (!el) {
         el = document.createElement('button');
         el.type = 'button';
@@ -276,6 +366,12 @@ export function mount(args: D4MountArgs) {
         nodesRoot.appendChild(el);
         state.nodeEls.set(id, el);
       }
+      if (isNewElement && (!lifecycle.firstPaintDone || !lifecycle.prevNodeIds.has(id))) {
+        // Capped stagger: big graphs still settle fast, small ones get the
+        // full choreography. Applies to the load cascade AND live batches.
+        beginEnter(el, Math.min(nodeEnterSeq * FIRST_PAINT_NODE_STAGGER_MS, FIRST_PAINT_NODE_STAGGER_CAP_MS));
+        nodeEnterSeq += 1;
+      }
       const color = d4ColorVars(node);
       el.dataset.state = d4StateForNode(id, related);
       el.style.transform = `translate3d(${pos.x}px, ${pos.y}px, 0) translate(-50%, -50%)`;
@@ -289,18 +385,42 @@ export function mount(args: D4MountArgs) {
       if (enteringIds.has(id)) enteringIds.delete(id);
     });
 
+    // Node exit reconciliation — elements whose record left the dataset
+    // despawn in place (position frozen at their last painted transform).
+    const currentNodeIds = new Set(nodeRecords.map((n) => d4NodeId(n.id)));
+    Array.from(state.nodeEls.keys()).forEach((id) => {
+      if (currentNodeIds.has(id)) return;
+      const el = state.nodeEls.get(id);
+      state.nodeEls.delete(id);
+      if (!el) return;
+      if (state.hoveredNodeId === id) {
+        state.hoveredNodeId = null;
+        d4HidePopover();
+      }
+      beginExit(el, 'node-despawn');
+    });
+
     const nodesById = d4NodeMap();
     const activeEdgeIds = new Set<string>();
     const hasInteraction = Boolean(state.hoveredNodeId) || state.selectedNodeIds.size > 0;
-    (edgesDataset.get() || []).forEach((edge, index) => {
+    // Stable per-pair edge keys (was: array index). Index keys shift identity
+    // whenever an edge is inserted/removed mid-list, which both breaks the
+    // enter/exit diff and re-creates unrelated <line> elements.
+    const edgePairCounts = new Map<string, number>();
+    let edgeIndex = -1;
+    (edgesDataset.get() || []).forEach((edge) => {
       const fromId = d4NodeId(edge.from);
       const toId = d4NodeId(edge.to);
       const fromNode = nodesById.get(fromId);
       const toNode = nodesById.get(toId);
       if (!fromNode || !toNode) return;
+      edgeIndex += 1;
       const fromPos = d4WorldToScreen(world[String(fromNode.id)] || { x: 0, y: 0 });
       const toPos = d4WorldToScreen(world[String(toNode.id)] || { x: 0, y: 0 });
-      const edgeId = String(index);
+      const pairKey = `${fromId}→${toId}`;
+      const dupIndex = edgePairCounts.get(pairKey) || 0;
+      edgePairCounts.set(pairKey, dupIndex + 1);
+      const edgeId = dupIndex === 0 ? pairKey : `${pairKey}#${dupIndex}`;
       activeEdgeIds.add(edgeId);
       let line = state.edgeEls.get(edgeId);
       if (!line) {
@@ -310,8 +430,18 @@ export function mount(args: D4MountArgs) {
         const svgNs = `http${protocolSep}www.w3.org/2000/svg`;
         line = document.createElementNS(svgNs, 'line') as SVGLineElement;
         line.classList.add('d4-edge');
+        // pathLength normalizes dash units to [0,1] so the draw-in/sever
+        // animations are length-independent even while physics moves nodes.
+        line.setAttribute('pathLength', '1');
         edgesRoot.appendChild(line);
         state.edgeEls.set(edgeId, line);
+        if (!lifecycle.firstPaintDone) {
+          beginEnter(line, FIRST_PAINT_EDGE_BASE_DELAY_MS + Math.min(edgeIndex * FIRST_PAINT_EDGE_STAGGER_MS, FIRST_PAINT_EDGE_STAGGER_CAP_MS));
+        } else if (!lifecycle.prevEdgeKeys.has(edgeId)) {
+          beginEnter(line, 0);
+          flashLinkedNode(fromId);
+          flashLinkedNode(toId);
+        }
       }
       const sourceColor = d4ColorVars(fromNode);
       line.style.setProperty('--node-color', sourceColor.color);
@@ -345,12 +475,18 @@ export function mount(args: D4MountArgs) {
       }
     });
 
+    // Edge exit reconciliation — severed edges retract + fade in place
+    // (endpoints frozen at their last painted coordinates).
     Array.from(state.edgeEls.keys()).forEach((edgeId) => {
       if (activeEdgeIds.has(edgeId)) return;
       const line = state.edgeEls.get(edgeId);
-      if (line && line.parentNode) line.parentNode.removeChild(line);
       state.edgeEls.delete(edgeId);
+      if (line) beginExit(line, 'edge-sever');
     });
+
+    lifecycle.prevNodeIds = currentNodeIds;
+    lifecycle.prevEdgeKeys = activeEdgeIds;
+    lifecycle.firstPaintDone = true;
   };
 
   const d4PaintLoop = () => {
@@ -380,6 +516,8 @@ export function mount(args: D4MountArgs) {
     network.off?.('selectNode', onSelectNode);
     network.off?.('deselectNode', onDeselectNode);
     document.removeEventListener('keydown', onEscapeDismiss);
+    lifecycle.timers.forEach((id) => window.clearTimeout(id));
+    lifecycle.timers.clear();
   };
 }
 
