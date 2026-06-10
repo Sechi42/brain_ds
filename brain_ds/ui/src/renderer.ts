@@ -14,8 +14,8 @@
     this.add(items || []);
   }
 
-  DataSet.prototype._emit = function () {
-    this._listeners.forEach(function (handler) { handler(); });
+  DataSet.prototype._emit = function (kind) {
+    this._listeners.forEach(function (handler) { handler(kind || "update"); });
   };
 
   DataSet.prototype._subscribe = function (handler) {
@@ -27,7 +27,7 @@
       if (!item || item.id === undefined || item.id === null) return;
       this._map.set(item.id, Object.assign({}, item));
     }, this);
-    this._emit();
+    this._emit("add");
   };
 
   DataSet.prototype.update = function (items) {
@@ -50,12 +50,12 @@
       if (id === undefined || id === null) return;
       this._map.delete(id);
     }, this);
-    this._emit();
+    this._emit("remove");
   };
 
   DataSet.prototype.clear = function () {
     this._map.clear();
-    this._emit();
+    this._emit("remove");
   };
 
   function Network(container, data, options) {
@@ -160,7 +160,15 @@
     this._popoverEl.setAttribute("aria-hidden", "true");
     this.container.appendChild(this._popoverEl);
 
-    var rerender = this._wake.bind(this);
+    // Structural changes (add/remove) re-warm the simulation so the layout
+    // absorbs the new topology; cosmetic updates (opacity, borders, colors)
+    // only repaint — they must NEVER restart physics or the graph drifts on
+    // every selection/dimming pass.
+    var self_ = this;
+    var rerender = function (kind) {
+      if (kind === "add" || kind === "remove") self_._reheat(0.5);
+      else self_._wake();
+    };
     if (this.data.nodes && this.data.nodes._subscribe) this.data.nodes._subscribe(rerender);
     if (this.data.edges && this.data.edges._subscribe) this.data.edges._subscribe(rerender);
 
@@ -335,7 +343,11 @@
     var layout = options && options.layout && options.layout.hierarchical;
     var physics = options && options.physics;
     if (layout && typeof layout.enabled === "boolean") this.layoutMode = layout.enabled ? "hierarchical" : "free";
-    if (physics && typeof physics.enabled === "boolean") this.physicsEnabled = physics.enabled;
+    if (physics && typeof physics.enabled === "boolean") {
+      // Re-enabling physics re-warms so the layout visibly re-settles.
+      if (physics.enabled && !this.physicsEnabled) this.temperature = Math.max(this.temperature, 0.6);
+      this.physicsEnabled = physics.enabled;
+    }
   };
 
   Network.prototype.setOptions = function (options) {
@@ -609,6 +621,49 @@
     this._resetViewport();
   };
 
+  // BFS hop distances from the dragged node, cached per drag gesture. Movement
+  // is scaled by hop distance so dragging one node rearranges its neighborhood
+  // (Obsidian-style) instead of stirring the whole graph.
+  Network.prototype._dragFalloffFor = function (state) {
+    if (this.dragNodeId === null || this.dragNodeId === undefined) {
+      // Post-drop settle: reuse the gesture's hop map (cleared by _render once
+      // the simulation cools) so the re-layout stays local.
+      return this._dragHops || null;
+    }
+    var dragId = String(this.dragNodeId);
+    if (this._dragHops && this._dragHopsFor === dragId) return this._dragHops;
+    var adjacency = new Map();
+    state.edges.forEach(function (edge) {
+      var from = String(edge.from || edge.source);
+      var to = String(edge.to || edge.target);
+      if (!adjacency.has(from)) adjacency.set(from, []);
+      if (!adjacency.has(to)) adjacency.set(to, []);
+      adjacency.get(from).push(to);
+      adjacency.get(to).push(from);
+    });
+    var hops = new Map();
+    hops.set(dragId, 0);
+    var frontier = [dragId];
+    var depth = 0;
+    while (frontier.length > 0 && depth < 3) {
+      depth += 1;
+      var next = [];
+      for (var f = 0; f < frontier.length; f++) {
+        var neighbors = adjacency.get(frontier[f]) || [];
+        for (var n = 0; n < neighbors.length; n++) {
+          if (!hops.has(neighbors[n])) {
+            hops.set(neighbors[n], depth);
+            next.push(neighbors[n]);
+          }
+        }
+      }
+      frontier = next;
+    }
+    this._dragHops = hops;
+    this._dragHopsFor = dragId;
+    return hops;
+  };
+
   Network.prototype._applyForces = function (state, dt) {
     var nodes = state.nodes;
     var edges = state.edges;
@@ -618,8 +673,27 @@
     var spring = 0.01;
     var restLength = 180;
     var gravity = 0.0024;
-    var maxSteps = Math.min(500, nodes.length * nodes.length);
-    var steps = 0;
+    // Repulsion beyond this distance is < 0.02 — skipping the pair keeps forces
+    // symmetric (the old shared maxSteps budget starved later nodes and jittered).
+    var cutoffSq = 480 * 480;
+    var maxSpeed = 120;
+    var damping = 0.9;
+    var dragHops = this._dragFalloffFor(state);
+    // hop 0 = dragged node (pinned below); 1 hop follows fully, then decays.
+    var falloff = [0, 1, 0.45, 0.18];
+    var farFactor = 0.05;
+
+    var nodesById = new Map();
+    var incident = new Map();
+    for (var p = 0; p < nodes.length; p++) nodesById.set(String(nodes[p].id), nodes[p]);
+    edges.forEach(function (edge) {
+      var from = String(edge.from || edge.source);
+      var to = String(edge.to || edge.target);
+      if (!incident.has(from)) incident.set(from, []);
+      if (!incident.has(to)) incident.set(to, []);
+      incident.get(from).push(to);
+      incident.get(to).push(from);
+    });
 
     for (var i = 0; i < nodes.length; i++) {
       var a = nodes[i];
@@ -633,40 +707,51 @@
 
       for (var j = 0; j < nodes.length; j++) {
         if (i === j) continue;
-        if (steps++ > maxSteps) break;
         var b = nodes[j];
         var dx = a.x - b.x;
         var dy = a.y - b.y;
         var distSq = (dx * dx + dy * dy) || 0.01;
+        if (distSq > cutoffSq) continue;
         var dist = Math.sqrt(distSq);
         var force = repulsion * (1 / (dist * dist));
         fx += (dx / dist) * force;
         fy += (dy / dist) * force;
       }
 
-      edges.forEach(function (edge) {
-        var fromId = edge.from || edge.source;
-        var toId = edge.to || edge.target;
-        if (String(a.id) !== String(fromId) && String(a.id) !== String(toId)) return;
-        var other = nodes.find(function (n) {
-          return String(n.id) === String(String(a.id) === String(fromId) ? toId : fromId);
-        });
-        if (!other) return;
+      var aId = String(a.id);
+      var linked = incident.get(aId) || [];
+      for (var e = 0; e < linked.length; e++) {
+        var other = nodesById.get(linked[e]);
+        if (!other) continue;
         var sx = other.x - a.x;
         var sy = other.y - a.y;
         var sl = Math.sqrt(sx * sx + sy * sy) || 0.01;
         var hooke = spring * (sl - restLength);
         fx += (sx / sl) * hooke;
         fy += (sy / sl) * hooke;
-      });
+      }
 
       fx += (centerX - a.x) * gravity;
       fy += (centerY - a.y) * gravity;
 
-      a.vx = (a.vx + fx * dt) * 0.92;
-      a.vy = (a.vy + fy * dt) * 0.92;
-      a.x += a.vx * this.temperature;
-      a.y += a.vy * this.temperature;
+      a.vx = (a.vx + fx * dt) * damping;
+      a.vy = (a.vy + fy * dt) * damping;
+      var speed = Math.abs(a.vx) + Math.abs(a.vy);
+      if (speed > maxSpeed) {
+        a.vx *= maxSpeed / speed;
+        a.vy *= maxSpeed / speed;
+      } else if (speed < 0.02) {
+        // Deadband: kill sub-pixel residue so a settled graph is truly still.
+        a.vx = 0;
+        a.vy = 0;
+      }
+      var moveScale = 1;
+      if (dragHops) {
+        var hop = dragHops.get(aId);
+        moveScale = hop === undefined ? farFactor : falloff[hop];
+      }
+      a.x += a.vx * this.temperature * moveScale;
+      a.y += a.vy * this.temperature * moveScale;
     }
   };
 
@@ -1212,6 +1297,15 @@
     this._lastTs = ts;
     var state = this._state();
 
+    // Drop the drag-falloff cache only after the post-drop settle cools down
+    // (covers both the canvas and the DOM-overlay drag paths, which clear
+    // dragNodeId directly). Keeping it through the settle keeps the re-layout
+    // local to the dragged neighborhood instead of stirring the whole graph.
+    if (this.dragNodeId === null && this._dragHops && this.temperature < 0.05) {
+      this._dragHops = null;
+      this._dragHopsFor = null;
+    }
+
     if (!this._prefersReducedMotion && this.physicsEnabled && this.temperature >= 0.01) {
       this._applyForces(state, dt);
       this.temperature = this.temperature * 0.95;
@@ -1430,10 +1524,17 @@
     this.contextMenu.target = null;
   };
 
+  // _wake repaints WITHOUT re-warming the simulation. A settled graph must stay
+  // settled on hover/selection/pan — only explicit gestures (drag, structural
+  // data changes, physics re-enable) call _reheat to restart motion.
   Network.prototype._wake = function () {
-    if (this.temperature < 0.01) this.temperature = 0.25;
     if (this._raf) return;
     this._raf = requestAnimationFrame(this._render.bind(this));
+  };
+
+  Network.prototype._reheat = function (t) {
+    this.temperature = Math.max(this.temperature, Number(t) || 0.25);
+    this._wake();
   };
 
   window.vis = { Network: Network, DataSet: DataSet };

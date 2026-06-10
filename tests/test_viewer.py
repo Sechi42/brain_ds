@@ -2904,7 +2904,8 @@ class TestPrBViewerPolishContracts(unittest.TestCase):
     def test_left_rail_section_group_mapping_present(self):
         self.assertIn("applyLeftRailSectionVisibility", self.template_text)
         self.assertIn('"filters": new Set(["filters", "legend"])', self.template_text)
-        self.assertIn('"file-tree": new Set(["search", "score"])', self.template_text)
+        # The folder rail icon routes to the Proyectos / organization-views panel.
+        self.assertIn('"file-tree": new Set(["projects"])', self.template_text)
 
 
 class TestPR2LayoutContainment(unittest.TestCase):

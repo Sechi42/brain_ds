@@ -7,11 +7,12 @@ type D4Node = {
   name?: string;
   type?: string;
   score?: number;
+  hidden?: boolean;
   component_id?: number | string;
   color?: string | { dark?: string; background?: string; light?: string };
 };
 
-type D4Edge = { from: string | number; to: string | number };
+type D4Edge = { from: string | number; to: string | number; hidden?: boolean };
 
 type D4MountArgs = {
   container: HTMLElement;
@@ -285,7 +286,11 @@ export function mount(args: D4MountArgs) {
   };
 
   const d4RenderOverlay = () => {
-    const nodeRecords = (dataset.get() || []).filter((n) => !hiddenTypes.has(String(n.type || '')));
+    // Respect BOTH filter channels: the hiddenTypes set passed at mount AND the
+    // per-record `hidden` flag that the template's applyVisibility() writes into
+    // the dataset (type filters + score threshold). Without the `hidden` check
+    // the left-panel filters have no effect on the overlay.
+    const nodeRecords = (dataset.get() || []).filter((n) => !n.hidden && !hiddenTypes.has(String(n.type || '')));
     const world = d4ReadPositions();
     const selectedPrimary = state.selectedNodeIds.values().next().value || null;
     const related = d4RelatedFor(state.hoveredNodeId || selectedPrimary);
@@ -425,6 +430,9 @@ export function mount(args: D4MountArgs) {
       const fromNode = nodesById.get(fromId);
       const toNode = nodesById.get(toId);
       if (!fromNode || !toNode) return;
+      // Filtered-out endpoints or score-filtered edges must not paint.
+      if (edge.hidden || fromNode.hidden || toNode.hidden) return;
+      if (hiddenTypes.has(String(fromNode.type || '')) || hiddenTypes.has(String(toNode.type || ''))) return;
       edgeIndex += 1;
       const fromPos = d4WorldToScreen(world[String(fromNode.id)] || { x: 0, y: 0 });
       const toPos = d4WorldToScreen(world[String(toNode.id)] || { x: 0, y: 0 });

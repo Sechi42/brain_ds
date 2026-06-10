@@ -1213,7 +1213,7 @@ for(const name of railNames){
 const panelRoot=new El("aside","panel-root");
 body.appendChild(panelRoot);
 byId.set("panel-root",panelRoot);
-const sectionNames=["search","filters","legend","hierarchy","layout","score"];
+const sectionNames=["projects","search","filters","legend","hierarchy","layout","score"];
 const sections={};
 for(const name of sectionNames){
   const sec=new El("section","sec-"+name);
@@ -1264,14 +1264,15 @@ const legendVisible=sections["legend"].hidden===false;
 const searchHiddenOnFilters=sections["search"].hidden===true;
 const hierarchyHiddenOnFilters=sections["hierarchy"].hidden===true;
 
-// TEST 3: click file-tree = main/search(+score) view (no eternal all-sections scroll)
+// TEST 3: click file-tree = Proyectos / organization-views panel only
 railRoot.dispatch("click", { target: railBtns["file-tree"] });
-const fileTreeSearchVisible=sections["search"].hidden===false;
+const fileTreeProjectsVisible=sections["projects"].hidden===false;
+const fileTreeSearchHidden=sections["search"].hidden===true;
 const fileTreeFiltersHidden=sections["filters"].hidden===true;
 const fileTreeHierarchyHidden=sections["hierarchy"].hidden===true;
 const fileTreeLayoutHidden=sections["layout"].hidden===true;
 const fileTreeLegendHidden=sections["legend"].hidden===true;
-const fileTreeScoreVisible=sections["score"].hidden===false;
+const fileTreeScoreHidden=sections["score"].hidden===true;
 
 // TEST 4: double-click active rail = no-op (idempotent)
 railRoot.dispatch("click", { target: railBtns["search"] });
@@ -1290,7 +1291,7 @@ const after=JSON.stringify({
 });
 const doubleClickNoOp=before===after;
 
-console.log(JSON.stringify({searchSelected,fileTreeDeselected,searchTab0,fileTreeTabMinus1,searchVisible,legendHidden,filtersHidden,scoreVisibleInSearch,layoutAriaHidden,filtersSelected,filtersVisible,legendVisible,searchHiddenOnFilters,hierarchyHiddenOnFilters,fileTreeSearchVisible,fileTreeFiltersHidden,fileTreeHierarchyHidden,fileTreeLayoutHidden,fileTreeLegendHidden,fileTreeScoreVisible,doubleClickNoOp}));
+console.log(JSON.stringify({searchSelected,fileTreeDeselected,searchTab0,fileTreeTabMinus1,searchVisible,legendHidden,filtersHidden,scoreVisibleInSearch,layoutAriaHidden,filtersSelected,filtersVisible,legendVisible,searchHiddenOnFilters,hierarchyHiddenOnFilters,fileTreeProjectsVisible,fileTreeSearchHidden,fileTreeFiltersHidden,fileTreeHierarchyHidden,fileTreeLayoutHidden,fileTreeLegendHidden,fileTreeScoreHidden,doubleClickNoOp}));
 '''
             out = _run_node(code, str(html_path))
             self.assertTrue(out["searchSelected"], "search rail MUST be aria-selected=true after setActivePanel")
@@ -1307,12 +1308,13 @@ console.log(JSON.stringify({searchSelected,fileTreeDeselected,searchTab0,fileTre
             self.assertTrue(out["legendVisible"], "legend MUST be visible when filters tab is active")
             self.assertTrue(out["searchHiddenOnFilters"], "search MUST be hidden when filters tab is active")
             self.assertTrue(out["hierarchyHiddenOnFilters"], "hierarchy MUST be hidden when filters tab is active")
-            self.assertTrue(out["fileTreeSearchVisible"], "file-tree should keep search as default main section")
+            self.assertTrue(out["fileTreeProjectsVisible"], "file-tree MUST show the Proyectos / organization-views section")
+            self.assertTrue(out["fileTreeSearchHidden"], "search MUST be hidden when file-tree is active")
             self.assertTrue(out["fileTreeFiltersHidden"], "filters MUST be hidden when file-tree is active")
             self.assertTrue(out["fileTreeHierarchyHidden"], "hierarchy MUST be hidden when file-tree is active")
             self.assertTrue(out["fileTreeLayoutHidden"], "layout MUST be hidden when file-tree is active")
             self.assertTrue(out["fileTreeLegendHidden"], "legend MUST be hidden when file-tree is active")
-            self.assertTrue(out["fileTreeScoreVisible"], "score MUST be visible when file-tree is active")
+            self.assertTrue(out["fileTreeScoreHidden"], "score MUST be hidden when file-tree is active")
             self.assertTrue(out["doubleClickNoOp"], "double setActivePanel on same panel MUST be no-op")
 
     def test_left_collapse_aria_expanded_and_tab_close(self):
