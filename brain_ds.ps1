@@ -5,10 +5,7 @@ if (-not (Get-Command -Name uv -ErrorAction SilentlyContinue)) {
   exit 1
 }
 
-Push-Location $PSScriptRoot
-try {
-  & uv run brain_ds @args
-  exit $LASTEXITCODE
-} finally {
-  Pop-Location
-}
+# Keep the caller's cwd: the MCP server resolves its workspace from it.
+# --project points uv at this repo's environment without chdir.
+& uv run --project $PSScriptRoot brain_ds @args
+exit $LASTEXITCODE

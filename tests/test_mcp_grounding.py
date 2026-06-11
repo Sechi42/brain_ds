@@ -117,7 +117,7 @@ class TestCat2Accessors(unittest.TestCase):
 class TestComposerReturnShapes(unittest.TestCase):
     """Task 1.5 — composer return-shape tests."""
 
-    def test_elicit_context_has_all_9_keys(self) -> None:
+    def test_elicit_context_has_all_10_keys(self) -> None:
         result = elicit_context()
         expected_keys = {
             "entity_types",
@@ -129,15 +129,26 @@ class TestComposerReturnShapes(unittest.TestCase):
             "org_slug_rules",
             "node_id_format",
             "node_write_templates",
+            "workflow",
         }
         self.assertEqual(set(result.keys()), expected_keys)
+
+    def test_elicit_workflow_mandates_dual_persistence(self) -> None:
+        result = elicit_context()
+        workflow = result["workflow"]
+        steps = " ".join(workflow["steps"])
+        self.assertIn("update_node", steps)
+        self.assertIn("mem_save", steps)
+        self.assertIn("suggest_connections", steps)
+        self.assertIn("single source of truth", workflow["dual_persistence"])
+        self.assertIn("Never represent the org graph in local files", workflow["anti_drift"])
 
     def test_elicit_context_omits_legacy_engram_keys(self) -> None:
         result = elicit_context()
         self.assertNotIn("topic_key_format", result)
         self.assertNotIn("mem_save_templates", result)
 
-    def test_map_connections_context_has_4_keys(self) -> None:
+    def test_map_connections_context_has_6_keys(self) -> None:
         result = map_connections_context()
         expected_keys = {
             "entity_types",
@@ -145,15 +156,26 @@ class TestComposerReturnShapes(unittest.TestCase):
             "relationship_labels",
             "scoring_factors",
             "retrieval_contract",
+            "rag_workflow",
         }
         self.assertEqual(set(result.keys()), expected_keys)
 
     def test_map_connections_context_retrieval_contract_mentions_sqlite_queries(self) -> None:
         result = map_connections_context()
         retrieval_contract = result["retrieval_contract"]
+        self.assertIn("suggest_connections(graph_id=<slug>, node_id=<id>)", retrieval_contract)
         self.assertIn("list_nodes(graph_id=<slug>, type=<EntityType>)", retrieval_contract)
         self.assertIn("search_graph(graph_id=<slug>, query=<text>)", retrieval_contract)
         self.assertIn("typed SQL filters are not equivalent to Engram substring search", retrieval_contract)
+
+    def test_map_rag_workflow_routes_linking_through_suggest_connections(self) -> None:
+        result = map_connections_context()
+        rag_workflow = result["rag_workflow"]
+        steps = " ".join(rag_workflow["steps"])
+        self.assertIn("suggest_connections", steps)
+        self.assertIn("add_edge", steps)
+        self.assertIn("Never bulk-read the whole graph", steps)
+        self.assertIn("thousands of nodes", rag_workflow["scaling_contract"])
 
     def test_generate_brd_context_has_5_keys(self) -> None:
         result = generate_brd_context()

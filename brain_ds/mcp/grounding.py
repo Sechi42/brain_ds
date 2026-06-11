@@ -1,14 +1,21 @@
 """MCP grounding context module.
 
-Provides two categories of context for the B1 context-return tools:
+Provides three categories of context for the B1 context-return tools:
 - Category-1: derived at runtime from ontology enums (zero drift).
 - Category-2: hand-maintained Python constants (skill workflow prose for
   non-Claude clients that do not ship skills/*.md files).
+- Category-3: live workspace scoping (build_workspace_context) — reads the
+  active store metadata and the global workspace registry so agents always
+  know WHICH vault they are touching before reading or writing.
 
-This module is context-only: no store queries, no I/O, no side effects.
+The Category-1/2 composers stay pure (no store queries, no I/O); only the
+Category-3 builder touches the store and the registry.
 """
 from __future__ import annotations
 
+from typing import Any
+
+import brain_ds.workspaces as workspace_registry
 from brain_ds.ontology.entity_types import EntityType
 from brain_ds.ontology.relationship_types import BASE_WEIGHTS, RelationshipType
 from brain_ds.scoring.engine import ScoringEngine
@@ -224,13 +231,86 @@ NODE_WRITE_TEMPLATES: dict[str, object] = {
     },
 }
 
+# Source: skills/elicit-context/SKILL.md "Persistence Workflow (Mandatory)" — keep in sync.
+ELICIT_WORKFLOW: dict[str, object] = {
+    "steps": [
+        "1. Resolve the org graph first: list_graphs, then create_graph only if the org slug is missing.",
+        "2. Ask questions from question_bank (max 5 per session), prioritizing Data Source coverage.",
+        (
+            "3. Apply the completeness gate: if the user's answer is partial, vague, or leaves gaps, stay "
+            "on the SAME question and ask focused follow-ups until the answer is complete. Never advance "
+            "to the next question with a half-answered one."
+        ),
+        (
+            "4. Once the user confirms the save, persist EVERY captured entity to SQLite via update_node "
+            "(and add_edge for relationships the user stated) in that same turn. Never defer, skip, or "
+            "partially persist."
+        ),
+        (
+            "5. Mirror session-level findings to Engram via mem_save. Engram keeps session narrative and "
+            "decisions; SQLite keeps the org graph. Both are mandatory."
+        ),
+        (
+            "6. After each node is persisted, call suggest_connections(graph_id, node_id) and evaluate the "
+            "candidates so new information gets linked while it is fresh."
+        ),
+    ],
+    "completeness_gate": (
+        "A question is answered only when it is complete for the entity being captured: every required "
+        "field in the matching node_write_template has real content (no placeholders, no 'I guess', no "
+        "unnamed systems or roles). When something is missing, ask one focused follow-up at a time about "
+        "the SAME topic — do not move to the next question-bank question until there are no gaps."
+    ),
+    "dual_persistence": (
+        "SQLite via brain_ds MCP (update_node/add_edge) is the single source of truth for org domain "
+        "nodes and edges; Engram (mem_save) stores session context. Saving to only one store is a "
+        "workflow violation."
+    ),
+    "anti_drift": (
+        "Never represent the org graph in local files, markdown notes, or chat-only summaries. "
+        "If a brain_ds MCP call fails, surface the error and retry — do not silently fall back to "
+        "another storage mechanism."
+    ),
+}
+
 # Source: skills/map-connections/SKILL.md "Retrieval Workflow (Mandatory)" — keep in sync.
 MAP_RETRIEVAL_CONTRACT: str = (
-    "Use list_nodes(graph_id=<slug>, type=<EntityType>) for complete typed retrieval and "
+    "Use suggest_connections(graph_id=<slug>, node_id=<id>) as the primary linking retrieval; "
+    "use list_nodes(graph_id=<slug>, type=<EntityType>) for complete typed retrieval and "
     "search_graph(graph_id=<slug>, query=<text>) for substring lookups inside the resolved org graph. "
     "typed SQL filters are not equivalent to Engram substring search, so validate retrieval changes on a seeded vault "
     "before assuming parity."
 )
+
+# Source: skills/map-connections/SKILL.md "Connection RAG Workflow (Mandatory)" — keep in sync.
+MAP_RAG_WORKFLOW: dict[str, object] = {
+    "steps": [
+        (
+            "1. Immediately after creating or updating a node via update_node, call "
+            "suggest_connections(graph_id, node_id) for that node."
+        ),
+        (
+            "2. Evaluate each candidate with your own knowledge of the org: accept, reject, or defer. "
+            "Suggestions are candidates, not commands."
+        ),
+        (
+            "3. For accepted candidates call add_edge with the returned suggested_edge "
+            "(source, target, label); adjust the label only when you have better evidence."
+        ),
+        (
+            "4. Use get_node only on top candidates that need more detail before deciding. "
+            "Never bulk-read the whole graph to find link targets."
+        ),
+        (
+            "5. As the graph grows, raise threshold (default 0.3) or lower limit to keep responses small."
+        ),
+    ],
+    "scaling_contract": (
+        "suggest_connections computes compatibility server-side (type rules + token overlap + shared "
+        "neighbors) and excludes already-connected nodes, so agent context stays small even at "
+        "thousands of nodes."
+    ),
+}
 
 
 # Source: skills/map-connections/SKILL.md "Deterministic Connection Rules" — keep in sync.
@@ -355,16 +435,63 @@ COMPLETENESS_MATRIX_TEMPLATE: dict[str, object] = {
 }
 
 # ---------------------------------------------------------------------------
+# Category-3 — live workspace scoping
+# ---------------------------------------------------------------------------
+
+# Harness-owned protocol (mirrored as "Workspace Scope (Mandatory)" in
+# skills/elicit-context/SKILL.md and skills/map-connections/SKILL.md).
+WORKSPACE_PROTOCOL: dict[str, object] = {
+    "scope_rule": (
+        "Work ONLY inside the workspace that matches the folder the user is working in. "
+        "workspace.active_project_root is the folder this MCP server is currently bound to — "
+        "it is NOT necessarily the user's folder."
+    ),
+    "mismatch_rule": (
+        "Before reading or writing any graph, compare the user's current folder with "
+        "active_project_root. If they differ, call open_workspace(path=<user folder>) when that "
+        "folder appears in registered_workspaces; otherwise STOP and ask the user which workspace "
+        "to use (show the list_workspaces options). Never write into a workspace the user did not "
+        "explicitly choose."
+    ),
+    "registration_rule": (
+        "If the user's folder is not registered, do not guess and do not fall back to another "
+        "workspace: tell the user to run 'brain_ds setup' in that folder or pick it in the "
+        "brain_ds desktop app, then retry open_workspace."
+    ),
+}
+
+
+def build_workspace_context(store: Any) -> dict[str, object]:
+    """Live workspace scoping payload attached to every grounding tool response."""
+    active_root = workspace_registry.project_root_from_store_path(store.path).resolve()
+    graphs = [
+        {
+            "id": meta.id,
+            "name": meta.org or meta.id,
+            "node_count": meta.node_count,
+            "edge_count": meta.edge_count,
+        }
+        for meta in store.list_graphs()
+    ]
+    return {
+        "active_project_root": str(active_root),
+        "active_graphs": graphs,
+        "registered_workspaces": workspace_registry.list_workspaces(),
+        "protocol": WORKSPACE_PROTOCOL,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Composers — assemble grounding context payloads for each tool
 # ---------------------------------------------------------------------------
 
 
 def elicit_context() -> dict[str, object]:
-    """Return the 9-key grounding context payload for run_elicit.
+    """Return the 10-key grounding context payload for run_elicit.
 
     Keys: entity_types, supertypes, expected_sections, relationship_types,
           base_weights, question_bank, org_slug_rules, node_id_format,
-          node_write_templates.
+          node_write_templates, workflow.
     """
     return {
         "entity_types": build_entity_types(),
@@ -376,14 +503,15 @@ def elicit_context() -> dict[str, object]:
         "org_slug_rules": ORG_SLUG_RULES,
         "node_id_format": NODE_ID_FORMAT,
         "node_write_templates": NODE_WRITE_TEMPLATES,
+        "workflow": ELICIT_WORKFLOW,
     }
 
 
 def map_connections_context() -> dict[str, object]:
-    """Return the 5-key grounding context payload for map_connections.
+    """Return the 6-key grounding context payload for map_connections.
 
     Keys: entity_types, connection_rules, relationship_labels, scoring_factors,
-          retrieval_contract.
+          retrieval_contract, rag_workflow.
     scoring_factors comes from ScoringEngine (distinct from connection_rules
     strength heuristics — the skill's own weak/strong labels live in connection_rules).
     """
@@ -393,6 +521,7 @@ def map_connections_context() -> dict[str, object]:
         "relationship_labels": build_relationship_labels(),
         "scoring_factors": build_scoring_factors(),
         "retrieval_contract": MAP_RETRIEVAL_CONTRACT,
+        "rag_workflow": MAP_RAG_WORKFLOW,
     }
 
 

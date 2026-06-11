@@ -133,12 +133,14 @@ if path.exists() and path.read_text(encoding="utf-8").strip():
 else:
     data = {}
 
+# No pinned --project-root and no BRAIN_DS_PROJECT_ROOT: the server resolves
+# its root from the session cwd, so each session gets the store of the folder
+# it was opened in (workspace scoping fix).
 mcp = data.setdefault("mcp", {})
 mcp["brain_ds"] = {
     "type": "local",
     "enabled": True,
-    "command": [wrapper, "mcp", "--project-root", root],
-    "environment": {"BRAIN_DS_PROJECT_ROOT": root},
+    "command": [wrapper, "mcp"],
 }
 
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")

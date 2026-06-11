@@ -555,9 +555,9 @@ class MCPToolsTests(unittest.TestCase):
         typed = list_nodes(self.store, {"graph_id": self.graph_id, "type": "Data Source"})
         self.assertEqual(result, typed)
 
-    def test_registry_has_fourteen_tools_and_reads_do_not_audit(self) -> None:
+    def test_registry_has_seventeen_tools_and_reads_do_not_audit(self) -> None:
         names = sorted(TOOL_REGISTRY.keys())
-        self.assertEqual(len(names), 14)
+        self.assertEqual(len(names), 17)
         self.assertEqual(
             names,
             [
@@ -571,9 +571,12 @@ class MCPToolsTests(unittest.TestCase):
                 "list_data_sources",
                 "list_graphs",
                 "list_nodes",
+                "list_workspaces",
                 "map_connections",
+                "open_workspace",
                 "run_elicit",
                 "search_graph",
+                "suggest_connections",
                 "update_node",
             ],
         )

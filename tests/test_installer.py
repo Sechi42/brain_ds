@@ -282,11 +282,17 @@ class InstallerTests(unittest.TestCase):
         ps1 = (ROOT / "brain_ds.ps1").read_text(encoding="utf-8")
 
         self.assertIn("#!/usr/bin/env bash", sh)
-        self.assertIn('uv run brain_ds "$@"', sh)
+        self.assertIn('uv run --project "$SCRIPT_DIR" brain_ds "$@"', sh)
         self.assertIn("%~dp0", cmd)
-        self.assertIn("uv run brain_ds %*", cmd)
+        self.assertIn('uv run --project "%~dp0." brain_ds %*', cmd)
         self.assertIn("$PSScriptRoot", ps1)
         self.assertIn("exit $LASTEXITCODE", ps1)
+
+        # Workspace scoping contract: wrappers must NOT chdir — the MCP server
+        # resolves its project root from the caller's cwd.
+        self.assertNotIn("cd /d", cmd)
+        self.assertNotIn('cd "$SCRIPT_DIR"', sh)
+        self.assertNotIn("Push-Location", ps1)
 
     def test_wrapper_passes_arguments(self):
         bash_path = usable_bash()
@@ -315,7 +321,11 @@ class InstallerTests(unittest.TestCase):
             check=False,
         )
 
-        self.assertEqual(record.read_text(encoding="utf-8").strip(), "run brain_ds ui graph.json --open")
+        recorded = record.read_text(encoding="utf-8").strip()
+        # SCRIPT_DIR is platform-dependent (posix-style under Git Bash), so
+        # assert around the --project flag instead of an exact path match.
+        self.assertTrue(recorded.startswith("run --project "), msg=recorded)
+        self.assertTrue(recorded.endswith("brain_ds ui graph.json --open"), msg=recorded)
 
     def test_wrapper_propagates_exit_code(self):
         bash_path = usable_bash()
@@ -361,7 +371,9 @@ class InstallerTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("install uv", (result.stdout + result.stderr).lower())
 
-    def test_wrapper_resolves_repo_root(self):
+    def test_wrapper_preserves_caller_cwd(self):
+        # Workspace scoping: the MCP server resolves its root from the session
+        # cwd, so the wrapper must run uv from the caller's directory.
         wrapper = ROOT / "brain_ds.cmd"
         self.assertTrue(wrapper.exists())
 
@@ -388,7 +400,7 @@ class InstallerTests(unittest.TestCase):
         )
 
         resolved = record.read_text(encoding="utf-8").strip().rstrip("\\")
-        expected = str(ROOT).rstrip("\\")
+        expected = str(self.tmp).rstrip("\\")
         self.assertEqual(resolved.lower(), expected.lower())
 
     def test_register_path_copies_wrapper_ps1(self):

@@ -7,7 +7,7 @@ license: MIT
 disable-model-invocation: true
 metadata:
   author: sechi42
-  version: "1.3.2"
+  version: "1.4.0"
 ---
 
 # Map Connections Skill
@@ -16,6 +16,12 @@ metadata:
 - Run ONLY when the user explicitly triggers `/map-connections`.
 - Use `/map-connections --save` only when the user explicitly wants to persist the generated report.
 - This skill is manual slash-command only and MUST NOT auto-activate from conversational mentions.
+
+## Workspace Scope (Mandatory)
+
+- Work ONLY in the workspace that matches the folder the user is working in. The grounding payload's `workspace.active_project_root` is the folder the MCP server is bound to — it is NOT necessarily the user's folder.
+- Before any read/write, compare the user's current folder with `active_project_root`. If they differ, call `open_workspace(path=<user folder>)` when that folder appears in `registered_workspaces`; otherwise STOP and ask the user which workspace to use (show `list_workspaces` options).
+- If the user's folder is not registered, do not guess and do not fall back to another workspace: tell the user to run `brain_ds setup` in that folder or pick it in the brain_ds desktop app, then retry.
 
 ## Command Contract
 
@@ -58,12 +64,23 @@ Run typed SQLite retrievals against the resolved org graph.
 ```
 
 Rules:
-1. `list_nodes` is the PRIMARY retrieval path. Use one typed call per entity family to build the complete dataset.
+1. For LINKING a specific node, `suggest_connections` is the PRIMARY retrieval path (see Connection RAG Workflow below). For FULL REPORTS, `list_nodes` is the PRIMARY retrieval path: one typed call per entity family builds the complete dataset.
 2. Use `search_graph` only for targeted substring expansion inside the same resolved org graph.
 3. Never use `mem_search` / `mem_get_observation` for org domain retrieval in this workflow.
 4. Never mix multiple graph IDs in one report.
 5. If the resolved graph returns zero nodes, emit: `No domain knowledge captured yet in SQLite. Run /elicit-context first to populate the organization graph.`
 6. typed SQL filters are not equivalent to Engram substring search. validate the difference on a seeded vault before assuming parity.
+
+## Connection RAG Workflow (Mandatory)
+
+When new information enters the graph, link it without re-reading the whole graph:
+
+1. Immediately after creating or updating a node via `update_node`, call `suggest_connections(graph_id=<slug>, node_id=<id>)` for that node.
+2. The server ranks compatible nodes (type rules + token overlap + shared neighbors), excludes already-connected nodes, and returns at most `limit` candidates above `threshold` (default 0.3) with a `suggested_edge` (source, target, label).
+3. Evaluate each candidate with your own knowledge of the org: accept, reject, or defer. Suggestions are candidates, not commands.
+4. For accepted candidates call `add_edge` with the returned `suggested_edge`; adjust the label only when you have better evidence.
+5. Use `get_node` only on top candidates that need more detail before deciding. Never bulk-read the whole graph to find link targets.
+6. As the graph grows, raise `threshold` or lower `limit` to keep responses small — this keeps the flow scalable to thousands of nodes.
 
 ## Parsing and Normalization
 

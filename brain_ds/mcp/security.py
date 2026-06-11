@@ -130,6 +130,31 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         },
         "additionalProperties": False,
     },
+    "suggest_connections": {
+        "type": "object",
+        "required": ["graph_id", "node_id"],
+        "properties": {
+            "graph_id": {"type": "string"},
+            "node_id": {"type": "string"},
+            "threshold": {"type": "number"},
+            "limit": {"type": "integer"},
+        },
+        "additionalProperties": False,
+    },
+    "list_workspaces": {
+        "type": "object",
+        "required": [],
+        "properties": {},
+        "additionalProperties": False,
+    },
+    "open_workspace": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+            "path": {"type": "string"},
+        },
+        "additionalProperties": False,
+    },
     # B1 context-return tools — zero-param empty-object schemas (matching list_graphs pattern).
     "run_elicit": {
         "type": "object",

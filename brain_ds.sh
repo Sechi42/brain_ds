@@ -8,6 +8,7 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-cd "$SCRIPT_DIR" || exit 1
-uv run brain_ds "$@"
+# Keep the caller's cwd: the MCP server resolves its workspace from it.
+# --project points uv at this repo's environment without chdir.
+uv run --project "$SCRIPT_DIR" brain_ds "$@"
 exit $?

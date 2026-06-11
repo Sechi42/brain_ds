@@ -7,7 +7,7 @@ license: MIT
 disable-model-invocation: true
 metadata:
   author: sechi42
-  version: "1.3.2"
+  version: "1.4.0"
 ---
 
 # Elicit Context Skill
@@ -34,22 +34,29 @@ Canonical source of truth: `brain_ds.ontology.EntityType`.
 | Solution | WHAT operational improvement is proposed/implemented | Auto-reroute dispatch queue |
 | Decision | WHY a strategic/product/architecture choice was made | Adopt event-driven notifications |
 
+## Workspace Scope (Mandatory)
+
+- Work ONLY in the workspace that matches the folder the user is working in. The grounding payload's `workspace.active_project_root` is the folder the MCP server is bound to — it is NOT necessarily the user's folder.
+- Before any read/write, compare the user's current folder with `active_project_root`. If they differ, call `open_workspace(path=<user folder>)` when that folder appears in `registered_workspaces`; otherwise STOP and ask the user which workspace to use (show `list_workspaces` options).
+- If the user's folder is not registered, do not guess and do not fall back to another workspace: tell the user to run `brain_ds setup` in that folder or pick it in the brain_ds desktop app, then retry.
+
 ## Interview Workflow
 
 1. Ask exactly ONE question.
 2. Wait for the user response before anything else.
-3. Resolve organization first (priority: `--org <name|slug>` > `session/active-org` > `default`).
-4. Echo `Resolved organization: <name> (<source>)` before persisting.
-5. Ask Data Source questions before Department/Role questions whenever coverage is still missing.
-6. Interpret response into one of the entity types.
-7. If user says `skip`, `pass`, or `next`, mark current item as unanswered and continue.
-8. Stop after 5 asked questions OR when user says `done`, `save`, or `stop`.
-9. Show a summary draft of captured observations.
-10. Run the **Remaining Gaps / Follow-up Needed** check (below) before confirmation.
-11. Show a `Remaining Gaps / Follow-up Needed` section listing all missing or underspecified items.
-12. Ask for explicit confirmation before persistence: `Confirm save? (yes/no/edit)`.
-13. If `edit`, apply requested edits and re-show summary + remaining gaps before asking confirmation again.
-14. Persist only after explicit `yes`/`save`.
+3. Apply the completeness gate: if the answer is partial, vague, or leaves gaps, stay on the SAME question and ask one focused follow-up at a time until the answer is complete. Never advance to the next question with a half-answered one.
+4. Resolve organization first (priority: `--org <name|slug>` > `session/active-org` > `default`).
+5. Echo `Resolved organization: <name> (<source>)` before persisting.
+6. Ask Data Source questions before Department/Role questions whenever coverage is still missing.
+7. Interpret response into one of the entity types.
+8. If user says `skip`, `pass`, or `next`, mark current item as unanswered and continue.
+9. Stop after 5 asked questions OR when user says `done`, `save`, or `stop`.
+10. Show a summary draft of captured observations.
+11. Run the **Remaining Gaps / Follow-up Needed** check (below) before confirmation.
+12. Show a `Remaining Gaps / Follow-up Needed` section listing all missing or underspecified items.
+13. Ask for explicit confirmation before persistence: `Confirm save? (yes/no/edit)`.
+14. If `edit`, apply requested edits and re-show summary + remaining gaps before asking confirmation again.
+15. Persist only after explicit `yes`/`save`.
 
 ### Organization Resolution Contract (Slice 1)
 
@@ -137,6 +144,15 @@ Validation prompts (mandatory when data is inconsistent or incomplete):
 - KPI trend sanity: if target appears below current for a "higher-is-better" KPI, ask: `Target (<target>) is below current (<current>) — is a decrease the actual goal?`
 - Solution linkage: if no related KPI or Problem / Improvement Area is provided, ask: `What KPI does this improve, or what problem/improvement area does it resolve?`
 - Decision depth: if rationale or alternatives are missing, ask: `What made you choose this option over the alternatives?`
+
+## Persistence Workflow (Mandatory)
+
+Dual persistence is mandatory on every confirmed save:
+
+1. SQLite via the brain_ds MCP (`update_node` / `add_edge`) is the single source of truth for org domain nodes and edges. Once the user confirms the save, persist EVERY captured entity in that same turn — never defer, skip, or partially persist.
+2. Engram (`mem_save`) stores session narrative and decisions only — never org domain entities by themselves.
+3. After each node is persisted, call `suggest_connections(graph_id=<slug>, node_id=<id>)` and evaluate the candidates so new information gets linked while it is fresh (see map-connections Connection RAG Workflow).
+4. Anti-drift: never represent the org graph in local files, markdown notes, or chat-only summaries. If a brain_ds MCP call fails, surface the error and retry — do not silently fall back to another storage mechanism.
 
 ## SQLite MCP Write Contracts
 

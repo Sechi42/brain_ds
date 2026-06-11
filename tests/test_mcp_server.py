@@ -13,13 +13,23 @@ from brain_ds.ui import cli
 
 
 class MCPServerCliTests(unittest.TestCase):
-    def test_mcp_missing_root_exits_2_and_prints_usage(self) -> None:
-        stderr = io.StringIO()
-        with redirect_stderr(stderr):
-            code = cli.main(["mcp"])
+    def test_mcp_falls_back_to_cwd_when_flag_and_env_missing(self) -> None:
+        import os
 
-        self.assertEqual(code, 2)
-        self.assertIn("usage: brain_ds mcp", stderr.getvalue())
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            previous_cwd = Path.cwd()
+            os.chdir(root)
+            try:
+                with patch.dict("os.environ"):
+                    os.environ.pop("BRAIN_DS_PROJECT_ROOT", None)
+                    with patch("brain_ds.ui.cli.run_mcp_server") as run_mcp_server:
+                        code = cli.main(["mcp"])
+            finally:
+                os.chdir(previous_cwd)
+
+        self.assertEqual(code, 0)
+        run_mcp_server.assert_called_once_with(root)
 
     def test_mcp_dispatches_to_server_with_explicit_project_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -144,7 +154,7 @@ class MCPServerLifecycleTests(unittest.TestCase):
 
             self.assertIn("capabilities", initialize_response["result"])
             tools = tools_response["result"]["tools"]
-            self.assertEqual(len(tools), 14)
+            self.assertEqual(len(tools), 17)
             self.assertTrue(all("inputSchema" in tool for tool in tools))
 
     def test_run_mcp_server_tools_call_dispatches_read_tool(self) -> None:
@@ -182,6 +192,43 @@ class MCPServerLifecycleTests(unittest.TestCase):
             result_payload = json.loads(call_response["result"]["content"][0]["text"])
             self.assertEqual(len(result_payload), 1)
             self.assertEqual(result_payload[0]["id"], "N-1")
+
+    def test_run_mcp_server_map_connections_survives_cp1252_stdout(self) -> None:
+        from brain_ds.mcp.server import run_mcp_server
+
+        class _NarrowStdout:
+            """write/flush only — no reconfigure, encodes cp1252 like a legacy Windows console."""
+
+            def __init__(self) -> None:
+                self.buffer = io.BytesIO()
+                self._wrapper = io.TextIOWrapper(self.buffer, encoding="cp1252", newline="")
+
+            def write(self, text: str) -> int:
+                return self._wrapper.write(text)
+
+            def flush(self) -> None:
+                self._wrapper.flush()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._create_store_fixture(root)
+
+            request = {
+                "jsonrpc": "2.0",
+                "id": 12,
+                "method": "tools/call",
+                "params": {"name": "map_connections", "arguments": {}},
+            }
+            stdin = io.StringIO(json.dumps(request) + "\n")
+            stdout = _NarrowStdout()
+            with patch("brain_ds.mcp.server.sys.stdin", stdin), patch("brain_ds.mcp.server.sys.stdout", stdout):
+                run_mcp_server(root)
+
+            raw = stdout.buffer.getvalue().decode("cp1252")
+            payload = json.loads(raw.strip())
+            self.assertIn("result", payload)
+            context = json.loads(payload["result"]["content"][0]["text"])
+            self.assertIn("connection_rules", context)
 
     def test_run_mcp_server_tools_call_unknown_tool_returns_safe_error(self) -> None:
         from brain_ds.mcp.server import run_mcp_server

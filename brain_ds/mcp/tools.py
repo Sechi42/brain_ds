@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 
 import brain_ds.mcp.grounding as grounding
+import brain_ds.scoring.similarity as similarity
+import brain_ds.workspaces as workspace_registry
 from brain_ds.mcp.security import (
     TOOL_SCHEMAS,
     SecurityError,
@@ -392,21 +394,82 @@ def delete_edge(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
 
 
 @error_boundary
+def suggest_connections(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    validated = validate_tool_input("suggest_connections", params, TOOL_SCHEMAS["suggest_connections"])
+    graph_id = validated["graph_id"]
+    node_id = validated["node_id"]
+
+    try:
+        nodes = store.query_nodes(graph_id)
+        edges = store.query_edges(graph_id)
+    except GraphNotFoundError as exc:
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+
+    try:
+        return similarity.suggest_connections_for_node(
+            nodes,
+            edges,
+            node_id,
+            threshold=validated.get("threshold", similarity.DEFAULT_THRESHOLD),
+            limit=validated.get("limit", similarity.DEFAULT_LIMIT),
+        )
+    except KeyError as exc:
+        raise ValidationError(code=-32000, message=f"Node '{node_id}' not found in graph '{graph_id}'") from exc
+
+
+@error_boundary
+def list_workspaces(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    validate_tool_input("list_workspaces", params, TOOL_SCHEMAS["list_workspaces"])
+    active_root = _project_root_from_store_path(store.path).resolve()
+    active_key = workspace_registry.normalize_root(active_root)
+
+    entries: list[dict[str, Any]] = []
+    active_registered = False
+    for entry in workspace_registry.list_workspaces():
+        is_active = workspace_registry.normalize_root(entry["path"]) == active_key
+        active_registered = active_registered or is_active
+        entries.append({**entry, "active": is_active})
+
+    return {
+        "active_project_root": str(active_root),
+        "active_registered": active_registered,
+        "workspaces": entries,
+    }
+
+
+@error_boundary
+def open_workspace(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    # The store swap lives in the MCP server session (brain_ds/mcp/server.py);
+    # this handler only exists so the registry stays the single tool catalog.
+    validate_tool_input("open_workspace", params, TOOL_SCHEMAS["open_workspace"])
+    raise ValidationError(
+        code=-32000,
+        message="open_workspace is only available through the MCP server session",
+    )
+
+
+@error_boundary
 def run_elicit(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     validate_tool_input("run_elicit", params, TOOL_SCHEMAS["run_elicit"])
-    return grounding.elicit_context()
+    payload = grounding.elicit_context()
+    payload["workspace"] = grounding.build_workspace_context(store)
+    return payload
 
 
 @error_boundary
 def map_connections(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     validate_tool_input("map_connections", params, TOOL_SCHEMAS["map_connections"])
-    return grounding.map_connections_context()
+    payload = grounding.map_connections_context()
+    payload["workspace"] = grounding.build_workspace_context(store)
+    return payload
 
 
 @error_boundary
 def generate_brd(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     validate_tool_input("generate_brd", params, TOOL_SCHEMAS["generate_brd"])
-    return grounding.generate_brd_context()
+    payload = grounding.generate_brd_context()
+    payload["workspace"] = grounding.build_workspace_context(store)
+    return payload
 
 
 def _safe_log_error(store: GraphStore, tool_name: str, payload: dict[str, Any]) -> None:
@@ -491,6 +554,27 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "handler": delete_edge,
         "schema": TOOL_SCHEMAS["delete_edge"],
         "description": "Delete edges between source and target and emit a live delete event",
+        "rw": "write",
+        "requires_ai_agent": False,
+    },
+    "suggest_connections": {
+        "handler": suggest_connections,
+        "schema": TOOL_SCHEMAS["suggest_connections"],
+        "description": "Rank compatible nodes for one node so the agent can decide which edges to add",
+        "rw": "read",
+        "requires_ai_agent": False,
+    },
+    "list_workspaces": {
+        "handler": list_workspaces,
+        "schema": TOOL_SCHEMAS["list_workspaces"],
+        "description": "List globally registered workspaces (project folders) and mark the active one",
+        "rw": "read",
+        "requires_ai_agent": False,
+    },
+    "open_workspace": {
+        "handler": open_workspace,
+        "schema": TOOL_SCHEMAS["open_workspace"],
+        "description": "Switch the active workspace to a registered project folder",
         "rw": "write",
         "requires_ai_agent": False,
     },

@@ -2,18 +2,42 @@ from __future__ import annotations
 
 import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from brain_ds.mcp.security import resolve_store_path
+import brain_ds.workspaces as workspace_registry
+from brain_ds.mcp.security import ValidationError, resolve_store_path, validate_tool_input
 from brain_ds.mcp.tools import TOOL_REGISTRY
 from brain_ds.store.graph_store import GraphStore
 
 
+class McpSession:
+    """Mutable server-side session: open_workspace swaps the active store."""
+
+    def __init__(self, project_root: Path, store: GraphStore):
+        self.project_root = project_root
+        self.store = store
+
+
+def _open_session(project_root: Path) -> McpSession:
+    canonical_root = project_root.resolve()
+    store_existed = (canonical_root / ".brain_ds" / "store.db").exists()
+    store_path = resolve_store_path(str(canonical_root))
+    store = GraphStore(str(store_path), read_only=False)
+    if store_existed:
+        # Only pre-initialized workspaces enter the global registry; a cwd
+        # fallback landing on a junk folder must not pollute the vault list.
+        try:
+            workspace_registry.register_workspace(canonical_root)
+        except OSError:
+            pass
+    return McpSession(canonical_root, store)
+
+
 def run_mcp_server(project_root: Path) -> None:
     _ensure_utf8_stdout()
-    store_path = resolve_store_path(str(project_root))
-    store = GraphStore(str(store_path), read_only=False)
+    session = _open_session(project_root)
 
     try:
         for raw_line in sys.stdin:
@@ -56,15 +80,15 @@ def run_mcp_server(project_root: Path) -> None:
                 continue
 
             if method == "tools/call":
-                _write_response(_handle_tools_call(request_id, request.get("params", {}), store))
+                _write_response(_handle_tools_call(request_id, request.get("params", {}), session))
                 continue
 
             _write_response({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32601, "message": "Method not found"}})
     finally:
-        store.close()
+        session.store.close()
 
 
-def _handle_tools_call(request_id: Any, params: dict[str, Any], store: GraphStore) -> dict[str, Any]:
+def _handle_tools_call(request_id: Any, params: dict[str, Any], session: McpSession) -> dict[str, Any]:
     tool_name = params.get("name")
     arguments = params.get("arguments", {})
 
@@ -82,8 +106,13 @@ def _handle_tools_call(request_id: Any, params: dict[str, Any], store: GraphStor
     if tool_meta is None:
         return {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"}}
 
+    # open_workspace mutates the session (store swap), so it cannot run through
+    # the stateless tool handlers.
+    if tool_name == "open_workspace":
+        return _handle_open_workspace(request_id, arguments, session)
+
     try:
-        result = tool_meta["handler"](store, arguments)
+        result = tool_meta["handler"](session.store, arguments)
     except Exception:
         return {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32000, "message": "Internal error"}}
 
@@ -94,6 +123,51 @@ def _handle_tools_call(request_id: Any, params: dict[str, Any], store: GraphStor
             "error": {"code": result["code"], "message": result["message"]},
         }
 
+    return _tool_result(request_id, result)
+
+
+def _handle_open_workspace(request_id: Any, arguments: dict[str, Any], session: McpSession) -> dict[str, Any]:
+    try:
+        validate_tool_input("open_workspace", arguments)
+    except ValidationError as exc:
+        return {"jsonrpc": "2.0", "id": request_id, "error": {"code": exc.code, "message": exc.message}}
+
+    target = arguments["path"]
+    entry = workspace_registry.find_workspace(target)
+    if entry is None:
+        registered = [item["path"] for item in workspace_registry.list_workspaces()]
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "error": {
+                "code": -32000,
+                "message": (
+                    f"Workspace not registered: {target}. Registered workspaces: "
+                    f"{registered or 'none'}. Run 'brain_ds setup' in that folder or pick it in "
+                    "the brain_ds desktop app, then retry."
+                ),
+            },
+        }
+
+    try:
+        store_path = resolve_store_path(entry["path"])
+        new_store = GraphStore(str(store_path), read_only=False)
+    except Exception as exc:  # noqa: BLE001 — surface as JSON-RPC error, keep current store
+        return {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32000, "message": str(exc) or "Internal error"}}
+
+    session.store.close()
+    session.store = new_store
+    session.project_root = Path(entry["path"]).resolve()
+    workspace_registry.register_workspace(session.project_root)
+
+    result = {
+        "project_root": str(session.project_root),
+        "graphs": [asdict(meta) for meta in new_store.list_graphs()],
+    }
+    return _tool_result(request_id, result)
+
+
+def _tool_result(request_id: Any, result: Any) -> dict[str, Any]:
     return {
         "jsonrpc": "2.0",
         "id": request_id,

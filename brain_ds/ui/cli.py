@@ -263,11 +263,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             sys.stdout.write("\n")
             return 0
 
-        project_root = args.project_root or os.environ.get("BRAIN_DS_PROJECT_ROOT")
-
-        if not project_root:
-            print("usage: brain_ds mcp [-h] [--project-root PROJECT_ROOT]", file=sys.stderr)
-            return 2
+        # Same precedence as the UI: flag → env → cwd. The cwd fallback is what
+        # lets a single global MCP entry follow the folder each session runs in.
+        project_root = args.project_root or os.environ.get("BRAIN_DS_PROJECT_ROOT") or str(Path.cwd())
 
         try:
             run_mcp_server(Path(project_root).resolve())

@@ -120,12 +120,13 @@ function Sync-BrainDsMcpToGlobal {
   }
   if ($null -eq $cfg.mcp) { $cfg.mcp = [pscustomobject]@{} }
 
-  $repoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+  # No pinned --project-root and no BRAIN_DS_PROJECT_ROOT: the server resolves
+  # its root from the session cwd, so each OpenCode session gets the store of
+  # the folder it was opened in (workspace scoping fix).
   $cfg.mcp | Add-Member -NotePropertyName 'brain_ds' -NotePropertyValue ([pscustomobject]@{
       type = 'local'
       enabled = $true
-      command = @($cmd, 'mcp', '--project-root', $repoRoot)
-      environment = [pscustomobject]@{ BRAIN_DS_PROJECT_ROOT = $repoRoot }
+      command = @($cmd, 'mcp')
     }) -Force
 
   ($cfg | ConvertTo-Json -Depth 20) | Set-Content -LiteralPath $ConfigPath -Encoding UTF8

@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import json
 import os
+import sys
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -11,6 +12,7 @@ from pathlib import Path
 
 from brain_ds.mcp.config import generate_claude_config, generate_opencode_config
 from brain_ds.store.graph_store import GraphStore
+from brain_ds.workspaces import register_workspace
 
 
 CHECKLIST_LINES = [
@@ -148,38 +150,82 @@ def _display_path(project_root: Path, target_path: Path) -> str:
     return target_path.relative_to(project_root).as_posix()
 
 
+def apply_setup(project_root: Path, *, agent: str = "both") -> dict:
+    """Write MCP configs + store + manifest for project_root. Shared by the
+    CLI (`brain_ds setup`) and the desktop endpoint (POST /api/setup-mcp)."""
+    project_root = project_root.resolve()
+    targets = _targets_for(project_root, agent)
+    _ensure_store(project_root, dry_run=False)
+    register_workspace(project_root)
+
+    written: list[str] = []
+    for target in targets:
+        existing = _load_json(target.path, default_root_key=target.root_key)
+        merged = _merged_payload(existing, target)
+        after = _render_json(merged)
+        target.path.parent.mkdir(parents=True, exist_ok=True)
+        if target.path.exists():
+            _backup_path(target.path).write_text(target.path.read_text(encoding="utf-8"), encoding="utf-8")
+        target.path.write_text(after, encoding="utf-8")
+        written.append(_display_path(project_root, target.path))
+
+    _write_manifest(project_root, [target.agent for target in targets])
+    return {
+        "project_root": str(project_root),
+        "agents": [target.agent for target in targets],
+        "written": written,
+        "checklist": list(CHECKLIST_LINES),
+    }
+
+
+def _prompt_interactive(default_root: Path) -> tuple[Path, str]:
+    print("brain_ds setup — interactive mode (no flags given)")
+    raw_root = input(f"Project root [{default_root}]: ").strip()
+    project_root = Path(raw_root) if raw_root else default_root
+    raw_agent = input("Agent target — claude / opencode / both [both]: ").strip().lower()
+    agent = raw_agent if raw_agent in {"claude", "opencode", "both"} else "both"
+    return project_root, agent
+
+
 def setup_main(args) -> int:
-    project_root = Path(args.project_root or ".").resolve()
-    targets = _targets_for(project_root, args.agent)
+    interactive = (
+        args.project_root is None
+        and not args.dry_run
+        and not args.force
+        and sys.stdin is not None
+        and sys.stdin.isatty()
+    )
+    if interactive:
+        project_root, agent = _prompt_interactive(Path.cwd())
+        project_root = project_root.resolve()
+    else:
+        project_root = Path(args.project_root or ".").resolve()
+        agent = args.agent
+
+    targets = _targets_for(project_root, agent)
 
     if not args.force and not args.dry_run and not _confirm(project_root, targets):
         print("Setup cancelled.")
         return 1
 
-    _ensure_store(project_root, dry_run=args.dry_run)
-
     print(f"Resolved project root: {project_root}")
-    for target in targets:
-        existing = _load_json(target.path, default_root_key=target.root_key)
-        merged = _merged_payload(existing, target)
-        before = _render_json(existing)
-        after = _render_json(merged)
-        display_path = _display_path(project_root, target.path)
-        print(f"Config target ({target.agent}): {display_path}")
 
-        if args.dry_run:
+    if args.dry_run:
+        _ensure_store(project_root, dry_run=True)
+        for target in targets:
+            existing = _load_json(target.path, default_root_key=target.root_key)
+            merged = _merged_payload(existing, target)
+            before = _render_json(existing)
+            after = _render_json(merged)
+            display_path = _display_path(project_root, target.path)
+            print(f"Config target ({target.agent}): {display_path}")
             print(f"DRY RUN: preview for {display_path}")
             print(_diff_preview(Path(display_path), before, after) or "(no changes)")
-            continue
+        return 0
 
-        target.path.parent.mkdir(parents=True, exist_ok=True)
-        if target.path.exists():
-            _backup_path(target.path).write_text(target.path.read_text(encoding="utf-8"), encoding="utf-8")
-        target.path.write_text(after, encoding="utf-8")
-
-    if not args.dry_run:
-        _write_manifest(project_root, [target.agent for target in targets])
-
+    result = apply_setup(project_root, agent=agent)
+    for path in result["written"]:
+        print(f"Config target written: {path}")
     for line in CHECKLIST_LINES:
         print(line)
 

@@ -19,15 +19,26 @@
 | `add_edge` | data | Create/update an edge between nodes |
 | `delete_node` | data | Delete one node by id |
 | `delete_edge` | data | Delete edges between source and target |
-| `run_elicit` | agent stub | Requires AI agent workflow |
-| `map_connections` | agent stub | Requires AI agent workflow |
-| `generate_brd` | agent stub | Requires AI agent workflow |
+| `suggest_connections` | data | Rank compatible nodes for one node (connection RAG) |
+| `list_workspaces` | workspace | List globally registered workspaces and mark the active one |
+| `open_workspace` | workspace | Switch the active workspace to a registered project folder |
+| `run_elicit` | grounding | Elicit grounding context + dual-persistence workflow |
+| `map_connections` | grounding | Map grounding context + connection RAG workflow |
+| `generate_brd` | grounding | BRD grounding context |
 
 For MCP server internals and archive details, see `sdd/mcp-server/archive-report`.
 
+## Workspace scoping
+
+- The MCP server resolves its project root with precedence `--project-root` → `BRAIN_DS_PROJECT_ROOT` → **session cwd**. The global OpenCode entry written by `install-opencode.ps1 -Global` pins nothing, so each session binds to the folder it was opened in.
+- Every initialized workspace (via `brain_ds setup`, the desktop vault picker, or an MCP launch over an existing store) is registered in the global registry `~/.brain_ds/workspaces.json` (override dir with `BRAIN_DS_HOME`).
+- Agents must follow `WORKSPACE_PROTOCOL` (attached to every grounding payload as `workspace`): operate only in the workspace matching the user's folder, switch with `open_workspace`, and ask the user when the target folder is not registered. `open_workspace` only accepts registered paths — that is the sandbox boundary for store switching.
+
 ## Setup
 
-Use `brain_ds setup`. It creates the local store if needed, writes absolute-root MCP configs, preserves unrelated config entries, and prints the next steps.
+**Unified install guide: see `INSTALL.md`** (exe build, MCP config — interactive CLI wizard, one-shot command, or from the desktop vault picker — and harness verification).
+
+Use `brain_ds setup`. It creates the local store if needed, writes absolute-root MCP configs, preserves unrelated config entries, and prints the next steps. Run it with no flags in a terminal for the interactive wizard. The desktop vault picker exposes the same engine via **Configurar MCP para este proyecto** (`POST /api/setup-mcp`).
 
 ### Quick path
 
@@ -43,7 +54,7 @@ brain_ds setup --project-root . --agent both
    - restart your agent client
    - approve `brain_ds` if prompted
 
-3. In Claude Code, run `/mcp` and confirm `brain_ds` is connected with **14 tools**.
+3. In Claude Code, run `/mcp` and confirm `brain_ds` is connected with **17 tools**.
 
 ### What `brain_ds setup` guarantees
 
@@ -91,7 +102,7 @@ Example Claude output shape:
 1. Run `brain_ds setup --project-root . --agent both`.
 2. Open Claude Code at the project root.
 3. Run `/mcp` and confirm `brain_ds` is connected.
-4. Verify 14 tools appear.
+4. Verify 17 tools appear.
 5. Call `list_nodes` as a smoke check.
 6. Live updates flow through the shared SQLite outbox path; MCP writes should reach the running UI without a manual config rewrite.
 

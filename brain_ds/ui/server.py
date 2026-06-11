@@ -16,6 +16,7 @@ from brain_ds.api.server import create_app
 from brain_ds.ontology import Graph
 from brain_ds.store.errors import GraphNotFoundError
 from brain_ds.store.graph_store import GraphStore
+from brain_ds.workspaces import register_workspace
 
 from .render_context import WorkspaceContext, build_render_context
 from .template_renderer import render_interactive_html, render_vault_picker_html
@@ -135,6 +136,20 @@ def build_ui_app(*, project_root: Path, store: GraphStore) -> FastAPI:
         graphs = runtime._graphs_payload()
         return HTMLResponse(render_vault_picker_html(graphs))
 
+    @app.post("/api/setup-mcp")
+    def setup_mcp(body: dict = Body(default={})) -> JSONResponse:
+        """Configure brain_ds MCP clients for this project from inside the desktop UI."""
+        from .setup import apply_setup
+
+        agent = str(body.get("agent", "both")) if isinstance(body, dict) else "both"
+        if agent not in {"claude", "opencode", "both"}:
+            return JSONResponse(status_code=400, content={"detail": "agent must be claude, opencode or both"})
+        try:
+            result = apply_setup(runtime.project_root, agent=agent)
+        except OSError as exc:
+            return JSONResponse(status_code=500, content={"detail": str(exc)})
+        return JSONResponse(content=result)
+
     @app.post("/api/graphs", status_code=201)
     def create_graph(body: dict = Body(...)) -> JSONResponse:
         raw_label = body.get("label", "") if isinstance(body, dict) else ""
@@ -208,6 +223,12 @@ def run_server(*, project_root: Path, port: int = 8765) -> None:
     root = project_root.resolve()
     store_path = _resolve_store_path(root)
     store = GraphStore(str(store_path), allow_cross_thread=True)
+    # Desktop vault-picker flow: opening a folder makes it globally
+    # discoverable (Obsidian-style) for MCP clients in other sessions.
+    try:
+        register_workspace(root)
+    except OSError:
+        pass
     _scan_project_root(root, store)
     runtime = ServerRuntime(project_root=root, store=store)
     app = build_ui_app(project_root=root, store=store)

@@ -7,6 +7,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-cd /d "%~dp0" || exit /b 1
-uv run brain_ds %*
+rem Keep the caller's cwd: the MCP server resolves its workspace from it.
+rem --project points uv at this repo's environment without chdir.
+uv run --project "%~dp0." brain_ds %*
 exit /b %ERRORLEVEL%
