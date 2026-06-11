@@ -1,0 +1,109 @@
+name: build-windows-exe
+
+# Security posture:
+# - All actions pinned to full commit SHAs (no mutable tags).
+# - Top-level permissions empty; each job grants only what it needs.
+# - Package-manager lifecycle scripts disabled globally (clean libraries).
+# - Locked installs only: uv.lock for Python, --locked for cargo installs.
+# - The installer .exe is uploaded to a DRAFT release, never as a public
+#   Actions artifact: drafts are visible only to users with write access,
+#   so on this public repo only the owner can download the binary.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Supply-chain hardening: never run npm/pnpm lifecycle scripts.
+  NPM_CONFIG_IGNORE_SCRIPTS: "true"
+  PNPM_CONFIG_IGNORE_SCRIPTS: "true"
+  UV_NO_PROGRESS: "1"
+
+jobs:
+  test:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+
+      - name: Sync dependencies (locked)
+        run: uv sync --locked
+
+      - name: Run test suite
+        run: uv run python -m pytest tests/ -q
+
+  build-exe:
+    # Build + private delivery only for trusted refs (merge to main or manual
+    # dispatch). PRs get the test job, never release credentials.
+    if: github.event_name != 'pull_request'
+    runs-on: windows-latest
+    permissions:
+      contents: write # required to create the draft release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+
+      - name: Select stable Rust
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+
+      - name: Cache cargo registry and tauri build
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-tauri-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-tauri-
+
+      - name: Install Tauri CLI (locked)
+        shell: pwsh
+        run: |
+          cmd /c "cargo tauri --version >nul 2>nul"
+          if ($LASTEXITCODE -ne 0) {
+            cargo install tauri-cli --version "^2.0.0" --locked
+          }
+          cargo tauri --version
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: ./scripts/build-windows-exe.ps1
+
+      - name: Upload installer to draft release (owner-only download)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $exe = Get-ChildItem dist/*setup.exe | Select-Object -First 1
+          if (-not $exe) { throw "No installer found in dist/" }
+          $tag = "exe-build-$env:GITHUB_RUN_NUMBER"
+          gh release create $tag $exe.FullName `
+            --draft `
+            --title "brain_ds installer build #$env:GITHUB_RUN_NUMBER" `
+            --notes "Commit: $env:GITHUB_SHA`nWorkflow run: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          Write-Output "Draft release created: $tag (visible solo para colaboradores con write access)"
