@@ -14,10 +14,18 @@ class TestMarkdownFullPanelReaderPR3(unittest.TestCase):
         cls.split_text = SPLIT_PANE.read_text(encoding="utf-8")
 
     def test_reader_trigger_is_prominent_pill_button(self):
+        # Chrome redesign: the reader trigger is now an icon-only 44px toolbar
+        # toggle inside the .mode-switch group, with aria-pressed state synced
+        # to #center-split[data-layout] (replaces the old .pill-btn treatment).
         self.assertRegex(
             self.template_text,
-            r'id="show-more"[^>]*class="[^"]*pill-btn',
-            "show-more control must use .pill-btn for accessible prominence",
+            r'id="show-more"[^>]*class="[^"]*toolbar-btn',
+            "show-more control must be a 44px toolbar toggle in the mode switch",
+        )
+        self.assertRegex(
+            self.template_text,
+            r'id="show-more"[^>]*aria-pressed=',
+            "show-more must expose aria-pressed so the active mode is readable",
         )
 
     def test_center_split_supports_reader_layout_state(self):

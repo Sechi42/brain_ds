@@ -1357,12 +1357,20 @@ class TestWorkspaceShellPr15ChromePolish(unittest.TestCase):
                 f"Expected data-toolbar-zone='{zone}' in toolbar (section-4 pattern)",
             )
 
-    def test_toolbar_nav_zone_is_reserved_and_empty(self):
-        """nav zone MUST be present and reserved (no controls rendered)."""
+    def test_toolbar_nav_zone_hosts_vault_switcher(self):
+        """nav zone hosts the functional vault switcher (chrome redesign).
+
+        Previously reserved/empty; now it carries exactly one control:
+        #nav-vaults, returning the user to the org picker.
+        """
         import re
         match = re.search(r'<div\s+data-toolbar-zone="nav">([\s\S]*?)</div>', self.template_text)
         self.assertIsNotNone(match, "Expected data-toolbar-zone='nav' container")
-        self.assertNotIn("<button", match.group(1), "nav zone must remain empty/reserved")
+        self.assertIn('id="nav-vaults"', match.group(1), "nav zone must host the vault switcher")
+        self.assertEqual(
+            match.group(1).count("<button"), 1,
+            "nav zone carries exactly the vault switcher — no extra controls",
+        )
 
     def test_toolbar_overflow_has_catalog_id_and_haspopup(self):
         """overflow zone MUST contain data-catalog-id='overflow' with aria-haspopup='menu'."""
@@ -2896,7 +2904,8 @@ class TestPrBViewerPolishContracts(unittest.TestCase):
     def test_left_rail_section_group_mapping_present(self):
         self.assertIn("applyLeftRailSectionVisibility", self.template_text)
         self.assertIn('"filters": new Set(["filters", "legend"])', self.template_text)
-        self.assertIn('"file-tree": new Set(["search", "score"])', self.template_text)
+        # The folder rail icon routes to the Proyectos / organization-views panel.
+        self.assertIn('"file-tree": new Set(["projects"])', self.template_text)
 
 
 class TestPR2LayoutContainment(unittest.TestCase):
@@ -2930,12 +2939,21 @@ class TestPR2LayoutContainment(unittest.TestCase):
             "#workspace-view-org must have text-overflow: ellipsis",
         )
 
-    def test_breadcrumb_org_li_min_width_zero(self):
-        """#workspace-view-org li must have min-width: 0 to allow flex-shrink."""
+    def test_breadcrumb_org_li_shrink_priority(self):
+        """Org name is the identity anchor: capped width, never shrinks first.
+
+        Chrome redesign inverted the old min-width:0 shrink contract — the
+        node/edge counters give way before the org name does.
+        """
         self.assertRegex(
             self.tpl,
-            r"#workspace-view-org\s*\{[^}]*min-width:\s*0",
-            "#workspace-view-org must have min-width: 0 to allow flex shrinking",
+            r"#workspace-view-org\s*\{[^}]*flex-shrink:\s*0",
+            "#workspace-view-org must not shrink before the counters",
+        )
+        self.assertRegex(
+            self.tpl,
+            r"#workspace-view-org\s*\{[^}]*max-width:",
+            "#workspace-view-org must cap its width so extreme names still ellipsize",
         )
 
     # --- T2.3: view-zone hard containment (S2.1.b) — already partially present ---

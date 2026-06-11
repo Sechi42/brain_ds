@@ -180,7 +180,7 @@ export function setActivePanel(name: string): void {
 
   // (c): section visibility
   const sectionGroups: Record<string, Set<string>> = {
-    "file-tree": new Set(["search", "score"]),
+    "file-tree": new Set(["projects"]),
     "search": new Set(["search", "score"]),
     "filters": new Set(["filters", "legend"]),
     "hierarchy": new Set(["hierarchy"]),

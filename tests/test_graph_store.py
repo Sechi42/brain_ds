@@ -118,6 +118,33 @@ class GraphStoreTests(unittest.TestCase):
         )
         self.assertEqual(self._graph_meta("logitrans").edge_count, 2)
 
+    def test_load_graph_skips_edges_with_unknown_relationship_label(self) -> None:
+        # MCP add_edge / outbox writes persist rows without ontology validation,
+        # so the read path must tolerate a free-text label instead of blanking
+        # the whole graph (regression: viewer rendered empty for LogiTrans).
+        self.store.create_graph("logitrans", workspace_root=self.temp_dir.name, workspace_path=self.temp_dir.name)
+        self.store.upsert_node(
+            "logitrans",
+            {"id": "N-1", "label": "ERP", "type": "Data Source", "details": {"owner": "ops"}},
+        )
+        self.store.upsert_node(
+            "logitrans",
+            {"id": "N-2", "label": "CRM", "type": "Data Source", "details": {"owner": "sales"}},
+        )
+        self.store.upsert_edge(
+            "logitrans",
+            {"source": "N-1", "target": "N-2", "label": RelationshipType.DEPENDS_ON.value},
+        )
+        self.store.upsert_edge(
+            "logitrans",
+            {"source": "N-2", "target": "N-1", "label": "validates live MCP edge", "edge_id": "E-bad"},
+        )
+
+        graph = self.store.load_graph("logitrans")
+
+        self.assertEqual(len(graph.edges), 1)
+        self.assertEqual(graph.edges[0].label, RelationshipType.DEPENDS_ON)
+
     def test_load_graph_tolerates_legacy_body_key_in_card_sections(self) -> None:
         self.store.create_graph("logitrans", workspace_root=self.temp_dir.name, workspace_path=self.temp_dir.name)
         self.store.upsert_node(

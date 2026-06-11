@@ -73,6 +73,12 @@ QUESTION_BANK: dict[str, list[str]] = {
     ],
     "Data Source": [
         "What systems/files/APIs feed this process?",
+        "What kind of source is it (relational DB, NoSQL, Excel/CSV, API, SaaS)?",
+        "For a database: which database and tables? For Excel/CSV: which workbook and sheets?",
+        "Which key columns/fields matter, and what does each one mean?",
+        "What is this source used for, and which decisions depend on it?",
+        "Who owns or manages it day-to-day?",
+        "How often is it refreshed or updated (real-time, daily, weekly, manual)?",
         "Which data source is least trusted and why?",
     ],
     "Department": [
@@ -171,6 +177,25 @@ NODE_WRITE_TEMPLATES: dict[str, object] = {
         },
         "session_state": (
             "Persist session/active-org in Engram only; org domain entities now live in SQLite."
+        ),
+    },
+    "Data Source": {
+        "details": {
+            "what": "<system/file/API description — exact product and identifiers>",
+            "why": "<what this source is used for and which decisions depend on it>",
+            "where": "<exact location: server/database, workbook path, API endpoint>",
+            "learned": (
+                "Kind: <relational-db|nosql|excel|csv|api|saas|other>; System: <exact product>; "
+                "Database: <name or n/a>; Tables/Sheets: <names>; "
+                "Key Columns/Fields: <name: meaning; name: meaning>; "
+                "Purpose: <what it serves>; Owner: <dept/role>; Refresh: <cadence>; "
+                "Trust: <high|medium|low — why>"
+            ),
+        },
+        "structure_note": (
+            "When column/table/sheet documentation exists, capture it as a markdown table "
+            "in a 'Columns / Fields' card section: | Column/Field | Type | Meaning | Notes |. "
+            "The viewer renders markdown tables in the reader."
         ),
     },
     "KPI": {

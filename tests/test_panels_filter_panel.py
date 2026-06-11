@@ -336,13 +336,22 @@ class TestPR3BugGuardrailsContracts(unittest.TestCase):
         )
 
     def test_renderer_cleans_stale_edge_elements(self):
-        """D4 renderer must prune stale edge SVGs so highlight ghosts cannot persist."""
+        """D4 renderer must prune stale edge SVGs so highlight ghosts cannot persist.
+
+        Since the lifecycle choreography change, stale edges are removed through
+        beginExit (sever animation -> removeEl) instead of a direct removeChild.
+        """
         src = RENDERER_D4.read_text(encoding="utf-8")
         self.assertIn("activeEdgeIds", src, "renderer-d4.ts must track activeEdgeIds each render")
         self.assertRegex(
             src,
-            r"removeChild\(line\)",
-            "renderer-d4.ts must remove stale edge lines from SVG root",
+            r"beginExit\(line, 'edge-sever'\)",
+            "renderer-d4.ts must route stale edge lines through the exit lifecycle (which removes them)",
+        )
+        self.assertRegex(
+            src,
+            r"el\.parentNode\.removeChild\(el\)",
+            "renderer-d4.ts exit lifecycle must ultimately remove the element from the DOM",
         )
 
     def test_filter_eye_icons_use_currentcolor_paint_rule(self):
