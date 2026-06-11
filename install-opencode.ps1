@@ -84,6 +84,54 @@ function Deploy-BrainDsCommands {
   return $templates.Count
 }
 
+function Sync-BrainDsMcpToGlobal {
+  <#
+    Merge the brain_ds MCP server entry into the user's global OpenCode config
+    (~/.config/opencode/opencode.json) using the same payload the project-mode
+    `apply_setup` writes. Always creates a timestamped backup before mutating,
+    and never touches other MCP servers that the user already has configured.
+  #>
+  param([string]$ConfigPath, [string]$RepoRoot)
+
+  New-Item -ItemType Directory -Path (Split-Path -Parent $ConfigPath) -Force | Out-Null
+
+  if (Test-Path -LiteralPath $ConfigPath) {
+    $raw = Get-Content -LiteralPath $ConfigPath -Raw
+    $cfg = if ([string]::IsNullOrWhiteSpace($raw)) { [pscustomobject]@{} } else { $raw | ConvertFrom-Json }
+  } else {
+    $cfg = [pscustomobject]@{}
+  }
+
+  # Backup the entire global config (small file, cheap insurance).
+  $backup = "{0}.{1}.bak" -f $ConfigPath, (Get-Date -Format "yyyyMMddTHHmmssZ")
+  if (Test-Path -LiteralPath $ConfigPath) {
+    Copy-Item -LiteralPath $ConfigPath -Destination $backup -Force
+  }
+
+  # Resolve the local brain_ds.cmd wrapper inside the repo so the global
+  # config points at the same MCP the project's .opencode/opencode.json uses.
+  $cmd = Join-Path $RepoRoot 'brain_ds.cmd'
+  if (-not (Test-Path -LiteralPath $cmd)) {
+    throw "Local brain_ds wrapper not found: $cmd. Run 'uv sync' first."
+  }
+
+  if (-not ($cfg.PSObject.Properties.Name -contains 'mcp')) {
+    $cfg | Add-Member -NotePropertyName 'mcp' -NotePropertyValue ([pscustomobject]@{})
+  }
+  if ($null -eq $cfg.mcp) { $cfg.mcp = [pscustomobject]@{} }
+
+  $repoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+  $cfg.mcp | Add-Member -NotePropertyName 'brain_ds' -NotePropertyValue ([pscustomobject]@{
+      type = 'local'
+      enabled = $true
+      command = @($cmd, 'mcp', '--project-root', $repoRoot)
+      environment = [pscustomobject]@{ BRAIN_DS_PROJECT_ROOT = $repoRoot }
+    }) -Force
+
+  ($cfg | ConvertTo-Json -Depth 20) | Set-Content -LiteralPath $ConfigPath -Encoding UTF8
+  return $backup
+}
+
 if ($Global -and $Project) {
   "Choose only one scope: --global or --project"
   exit 3
@@ -211,10 +259,13 @@ if ($InstallMode -eq 'project') {
 
 $agentStatus = 'skipped'
 $commandStatus = 'skipped'
+$mcpStatus = 'skipped'
 if ($Agent) {
   $agentStatus = Insert-BrainDsAgent -ConfigPath $opencodeConfig
   $count = Deploy-BrainDsCommands -DestinationRoot $GlobalCommandsRoot
   $commandStatus = "deployed ($count files)"
+  $backup = Sync-BrainDsMcpToGlobal -ConfigPath $opencodeConfig -RepoRoot $RootDir
+  $mcpStatus = "synced (backup: $backup)"
 }
 if ($InstallMode -eq 'project' -and -not (Test-Path -LiteralPath $AgentsPath)) {
 @"
@@ -249,6 +300,7 @@ if ($InstallMode -eq 'global') {
 if ($Agent) {
   "brain_ds agent: $agentStatus"
   "brain_ds commands: $commandStatus"
+  "brain_ds mcp: $mcpStatus"
 }
 if (-not $engramDetected) {
   "Warning: Engram not detected. Install: https://github.com/engram-labs/engram-opencode"

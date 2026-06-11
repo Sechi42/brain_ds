@@ -100,6 +100,51 @@ deploy_brain_ds_commands() {
   done
 }
 
+sync_brain_ds_mcp_to_global() {
+  local config_path="$HOME/.config/opencode/opencode.json"
+  local repo_root="$1"
+  mkdir -p "$(dirname "$config_path")"
+
+  local backup="${config_path}.$(date -u +%Y%m%dT%H%M%SZ).bak"
+  if [ -f "$config_path" ]; then
+    cp "$config_path" "$backup"
+  fi
+
+  local wrapper="$repo_root/brain_ds.sh"
+  if [ ! -f "$wrapper" ]; then
+    echo "Local brain_ds wrapper not found: $wrapper. Run 'uv sync' first." >&2
+    return 1
+  fi
+
+  local repo_root_abs
+  repo_root_abs="$(cd "$repo_root" && pwd)"
+
+  python - "$config_path" "$repo_root_abs" "$wrapper" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+root = sys.argv[2]
+wrapper = sys.argv[3]
+
+if path.exists() and path.read_text(encoding="utf-8").strip():
+    data = json.loads(path.read_text(encoding="utf-8"))
+else:
+    data = {}
+
+mcp = data.setdefault("mcp", {})
+mcp["brain_ds"] = {
+    "type": "local",
+    "enabled": True,
+    "command": [wrapper, "mcp", "--project-root", root],
+    "environment": {"BRAIN_DS_PROJECT_ROOT": root},
+}
+
+path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PY
+}
+
 if ! check_cmd opencode; then
   echo "OpenCode CLI not found. Install: https://opencode.ai/docs"
   exit 1
@@ -245,8 +290,10 @@ if $WITH_AGENT; then
   for name in brain-ds-pipeline.md brain-ds-map.md brain-ds-brd.md elicit-context.md map-connections.md generate-brd.md; do
     command_count=$((command_count + 1))
   done
+  mcp_backup="$(sync_brain_ds_mcp_to_global "$ROOT_DIR" 2>/dev/null && echo "ok" || echo "failed")"
   echo "brain_ds agent: installed"
   echo "brain_ds commands: deployed (${command_count} files)"
+  echo "brain_ds mcp: ${mcp_backup}"
 fi
 if ! $ENGRAM_OK; then
   echo "Warning: Engram not detected. Install: https://github.com/engram-labs/engram-opencode"
