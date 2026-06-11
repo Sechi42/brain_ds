@@ -6,8 +6,8 @@ subtask: false
 
 Run `/generate-brd` for the resolved organization.
 
-1. Read full Engram observations (no previews).
-2. Keep org scoping consistent (no mixed prefixes).
+1. Resolve the organization graph, then read domain entities through brain_ds MCP typed retrieval (`list_nodes`), not Engram.
+2. Keep org scoping consistent (no mixed graph IDs).
 3. Return read-only BRD by default.
 4. Persist only when user explicitly requests `--save`.
 5. Keep exactly 14 sections in required order.
