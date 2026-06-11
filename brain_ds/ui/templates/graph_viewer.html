@@ -1039,6 +1039,12 @@
       .wikilink { color: var(--accent-mora); text-decoration: none; border-bottom: 1px dashed transparent; }
       .wikilink:hover { border-bottom-color: currentColor; }
       #show-more, #hide-markdown { min-width: 44px; min-height: 44px; }
+      /* Reader edit chrome — toolbar pinned above the content/editor. */
+      #markdown-reader .reader-toolbar { display: flex; align-items: center; gap: 0.5rem; position: sticky; top: 0; z-index: 6; margin: -0.5rem 0 0.75rem; padding: 0.5rem 0; background: var(--bg-panel); border-bottom: 1px solid var(--border-subtle); }
+      #markdown-reader .reader-btn { flex: 0 0 auto; min-height: 36px; padding: 0.3rem 0.9rem; white-space: nowrap; width: auto; }
+      #markdown-reader .reader-status { color: var(--text-muted); font-size: 0.8rem; }
+      #markdown-reader .reader-editor { width: 100%; min-height: 70vh; resize: vertical; background: var(--bg-main); color: var(--text-normal); border: 1px solid var(--border-subtle); border-radius: var(--radius-ui); padding: 0.75rem 1rem; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.85rem; line-height: 1.55; }
+      #markdown-reader .reader-editor:focus-visible { outline: 2px solid var(--accent-mora); outline-offset: 1px; }
       .control-row[aria-label="Center pane actions"] { padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border-subtle); background: var(--bg-panel); }
       .viewer-loading, .empty-state { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; }
       .viewer-loading.is-visible, .empty-state.is-visible { display: flex; }
@@ -3192,9 +3198,61 @@
           .join("\n\n");
       };
 
+      const parseMarkdownSections = (raw) => {
+        const lines = String(raw || "").split(/\r?\n/);
+        const sections = [];
+        let current = null;
+        for (const line of lines) {
+          const heading = line.match(/^##\s+(.*)$/);
+          if (heading) {
+            if (current) sections.push(current);
+            current = { title: heading[1].trim() || "Section", lines: [] };
+          } else {
+            if (!current) current = { title: "Overview", lines: [] };
+            current.lines.push(line);
+          }
+        }
+        if (current) sections.push(current);
+        return sections.map((section, index) => ({
+          title: section.title,
+          content: section.lines.join("\n").trim(),
+          icon: "",
+          order: index + 1,
+        }));
+      };
+
+      const saveReaderMarkdown = async (markdown) => {
+        const selectedId = window.brainDsUI.detailPanel.getSelectedNodeId();
+        if (!selectedId) return false;
+        const entry = editedDetailIndex[selectedId];
+        if (!entry) return false;
+        const previousByTitle = {};
+        (entry.sections || []).forEach((section) => {
+          if (section && section.title) previousByTitle[section.title] = section;
+        });
+        const cardSections = parseMarkdownSections(markdown).map((section) => ({
+          ...section,
+          icon: (previousByTitle[section.title] && previousByTitle[section.title].icon) || "",
+        }));
+        const graphId = window.brainDsUI.graphId || "";
+        if (!graphId) return false;
+        try {
+          const response = await fetch(`/api/nodes/${encodeURIComponent(selectedId)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ graph_id: graphId, changes: { card_sections: cardSections } }),
+          });
+          if (!response.ok) return false;
+        } catch (e) {
+          return false;
+        }
+        entry.sections = cardSections;
+        return true;
+      };
+
       const centerSplitEl = document.getElementById("center-split");
       if (centerSplitEl && window.brainDsUI.splitPane) {
-        window.brainDsUI.splitPane.mount(centerSplitEl, { getMarkdown });
+        window.brainDsUI.splitPane.mount(centerSplitEl, { getMarkdown, saveMarkdown: saveReaderMarkdown });
       }
 
       // Keep local refs for renderSelectionPanel (multi-select panel, NOT extracted in PR 3).
@@ -4068,6 +4126,10 @@
         // steal); the toolbar toggle (lupa) opts out for trackpad users.
         const wheelHandler = (event) => {
           if (typeof network._applyZoom !== "function") return;
+          // Reader mode: the wheel must scroll the markdown, never zoom the
+          // hidden canvas (zooming it blind is how the graph "se ve raro" on return).
+          if (centerSplit.getAttribute("data-layout") === "reader") return;
+          if (event.target && typeof event.target.closest === "function" && event.target.closest("#markdown-reader")) return;
           event.preventDefault();
           const rect = canvasEl().getBoundingClientRect();
           const factor = Math.pow(1.1, -Math.sign(event.deltaY));
@@ -4365,6 +4427,17 @@
         rightCollapseBtn.addEventListener('click', () => {
           if (!isExpanded()) select(null);
         });
+        // Keep the reader rail icon lit while the center pane is in reader mode
+        // (splitPane owns data-layout; the icon mirrors it like Lienzo/Lector do).
+        const centerSplit = document.getElementById('center-split');
+        const readerIcon = railRight.querySelector("[data-rail-icon='reader']");
+        if (centerSplit && readerIcon && typeof MutationObserver === 'function') {
+          const syncReaderIcon = () => {
+            readerIcon.setAttribute('aria-selected', String(centerSplit.getAttribute('data-layout') === 'reader'));
+          };
+          syncReaderIcon();
+          new MutationObserver(syncReaderIcon).observe(centerSplit, { attributes: true, attributeFilter: ['data-layout'] });
+        }
       }());
 
       // --- Side-panel resize: drag (or arrow-key) the handle to mutate the grid
@@ -4557,6 +4630,9 @@
           var isReader = split.getAttribute("data-layout") === "reader";
           canvasBtn.setAttribute("aria-pressed", String(!isReader));
           readerBtn.setAttribute("aria-pressed", String(isReader));
+          // Returning to canvas after the reader hid it: repaint so the graph
+          // never reappears stale.
+          if (!isReader && network && typeof network._wake === "function") network._wake();
         };
         if (typeof MutationObserver === "function") {
           new MutationObserver(sync).observe(split, { attributes: true, attributeFilter: ["data-layout"] });

@@ -82,6 +82,10 @@ Source of truth: `brain_ds/ontology/entity_types.py` (`brain_ds.ontology.EntityT
 
 ## Quick Start — From zero to first BRD
 
+> **Installing the exe, the MCP server, or the harness? The single source of
+> truth is [`INSTALL.md`](INSTALL.md)** — exe build, interactive `brain_ds setup`
+> wizard, one-shot CLI, desktop-side MCP setup, and verification checklist.
+
 This section is a **literal walkthrough** — the order matters, and each step explains what's happening behind the scenes so you understand the system, not just the commands.
 
 ### Prerequisites

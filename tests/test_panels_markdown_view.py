@@ -38,7 +38,11 @@ class TestMarkdownFullPanelReaderPR3(unittest.TestCase):
 
     def test_escape_handler_returns_to_previous_layout(self):
         self.assertIn("event.key === 'Escape'", self.split_text)
-        self.assertIn("root.setAttribute('data-layout', previousLayout)", self.split_text)
+        # Guarded restore: previousLayout must never re-enter 'reader' (back-trap bug).
+        self.assertIn(
+            "root.setAttribute('data-layout', previousLayout === 'reader' ? 'collapsed' : previousLayout)",
+            self.split_text,
+        )
 
     def test_focus_restores_to_trigger_when_reader_closes(self):
         self.assertIn("lastTrigger", self.split_text)

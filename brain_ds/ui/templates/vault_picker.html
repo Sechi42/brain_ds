@@ -201,6 +201,19 @@
       <button type="submit" class="create-btn">Create</button>
     </form>
     <p class="form-error" id="form-error" role="alert" aria-live="polite"></p>
+
+    <hr class="picker-divider" style="margin-top: 1.5rem;" />
+
+    <p class="picker-section-label">Agent / MCP</p>
+
+    <!-- Desktop-side MCP install: writes .mcp.json / .opencode/opencode.json
+         for THIS project root via POST /api/setup-mcp (same engine as `brain_ds setup`). -->
+    <div class="create-form">
+      <button type="button" class="create-btn" id="setup-mcp-btn" style="flex: 1;">
+        Configurar MCP para este proyecto
+      </button>
+    </div>
+    <p class="form-error" id="setup-mcp-result" role="status" aria-live="polite"></p>
   </main>
 
   <script>
@@ -241,6 +254,40 @@
             errEl.textContent = "Network error. Please retry.";
             errEl.style.display = "block";
             btn.disabled = false;
+          });
+      });
+    })();
+
+    // Agent/MCP setup from inside the desktop: one click writes the configs.
+    (function () {
+      var btn = document.getElementById("setup-mcp-btn");
+      var out = document.getElementById("setup-mcp-result");
+      if (!btn || !out) return;
+      btn.addEventListener("click", function () {
+        btn.disabled = true;
+        out.style.display = "block";
+        out.style.color = "var(--text-muted, #71717a)";
+        out.textContent = "Configurando…";
+        fetch("/api/setup-mcp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agent: "both" }),
+        })
+          .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+          .then(function (res) {
+            btn.disabled = false;
+            if (res.ok) {
+              out.style.color = "var(--text-normal, #f4f4f5)";
+              out.textContent = "Listo: " + res.data.written.join(", ") + " — reinicia tu agente (Claude Code / OpenCode) y aprueba brain_ds.";
+            } else {
+              out.style.color = "#f87171";
+              out.textContent = (res.data && res.data.detail) || "Error al configurar MCP.";
+            }
+          })
+          .catch(function () {
+            btn.disabled = false;
+            out.style.color = "#f87171";
+            out.textContent = "Error de red al configurar MCP.";
           });
       });
     })();
