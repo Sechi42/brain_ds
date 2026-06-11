@@ -11,6 +11,7 @@ from brain_ds.store.graph_store import GraphStore
 
 
 def run_mcp_server(project_root: Path) -> None:
+    _ensure_utf8_stdout()
     store_path = resolve_store_path(str(project_root))
     store = GraphStore(str(store_path), read_only=False)
 
@@ -28,6 +29,13 @@ def run_mcp_server(project_root: Path) -> None:
 
             request_id = request.get("id")
             method = request.get("method")
+
+            # JSON-RPC notifications carry no id and MUST NOT receive a response.
+            # Some clients (e.g. Claude Code, OpenCode) send
+            # "notifications/initialized" after the initialize handshake; we
+            # acknowledge by ignoring it.
+            if request_id is None and isinstance(method, str) and method.startswith("notifications/"):
+                continue
 
             if method == "initialize":
                 _write_response(
@@ -106,6 +114,20 @@ def _mcp_tools_list() -> list[dict[str, Any]]:
     return tools
 
 
+def _ensure_utf8_stdout() -> None:
+    # Windows consoles default to cp1252; non-Latin payload chars would raise
+    # UnicodeEncodeError at write time and kill the stdio loop.
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure is not None:
+        try:
+            reconfigure(encoding="utf-8")
+        except (ValueError, OSError):
+            pass
+
+
 def _write_response(payload: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    try:
+        sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except UnicodeEncodeError:
+        sys.stdout.write(json.dumps(payload, ensure_ascii=True) + "\n")
     sys.stdout.flush()
