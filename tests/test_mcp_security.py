@@ -94,7 +94,9 @@ class ResolveStorePathTests(unittest.TestCase):
             except OSError as exc:
                 self.skipTest(f"Symlink creation unavailable on this platform: {exc}")
 
-            with self.assertRaisesRegex(SecurityError, "Store path escapes canonical root"):
+            # Both escape guards (realpath prefix and relative_to) reject this;
+            # assert the rejection, not which guard fires first.
+            with self.assertRaisesRegex(SecurityError, "Store path escapes"):
                 resolve_store_path(str(root))
 
 
