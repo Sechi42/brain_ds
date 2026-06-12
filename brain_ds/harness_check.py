@@ -87,3 +87,24 @@ def check_project_mcp_entries(project_root: Path) -> list[CheckResult]:
     else:
         results.append(CheckResult("mcp-roots-aligned", "SKIP", "one or both MCP entries missing"))
     return results
+
+
+def check_skills_mirror(project_root: Path) -> list[CheckResult]:
+    canonical = project_root / "skills"
+    mirror = project_root / ".opencode" / "skills"
+    if not canonical.is_dir():
+        return [CheckResult("skills-mirror-parity", "SKIP", "no skills/ folder in this project")]
+    drifted: list[str] = []
+    for skill_file in sorted(canonical.glob("*/SKILL.md")):
+        mirrored = mirror / skill_file.parent.name / "SKILL.md"
+        if not mirrored.is_file() or mirrored.read_bytes() != skill_file.read_bytes():
+            drifted.append(skill_file.parent.name)
+    if drifted:
+        return [
+            CheckResult(
+                "skills-mirror-parity",
+                "FAIL",
+                f"skills/ vs .opencode/skills/ drift: {', '.join(drifted)} — re-run install-opencode",
+            )
+        ]
+    return [CheckResult("skills-mirror-parity", "PASS", "skills/ == .opencode/skills/ (byte-identical)")]

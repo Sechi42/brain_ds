@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from brain_ds.harness_check import check_project_mcp_entries
+from brain_ds.harness_check import check_project_mcp_entries, check_skills_mirror
 
 
 def _write_json(path: Path, data: dict) -> None:
@@ -55,6 +55,17 @@ class HarnessCheckTests(unittest.TestCase):
         )
         results = check_project_mcp_entries(self.project)
         self.assertEqual(self._by_name(results, "mcp-roots-aligned").status, "FAIL")
+
+    def test_skills_mirror_detects_drift(self) -> None:
+        canonical = self.project / "skills" / "generate-brd"
+        mirror = self.project / ".opencode" / "skills" / "generate-brd"
+        canonical.mkdir(parents=True)
+        mirror.mkdir(parents=True)
+        (canonical / "SKILL.md").write_text("v2", encoding="utf-8")
+        (mirror / "SKILL.md").write_text("v1", encoding="utf-8")
+        results = check_skills_mirror(self.project)
+        self.assertEqual(results[0].status, "FAIL")
+        self.assertIn("generate-brd", results[0].detail)
 
 
 if __name__ == "__main__":
