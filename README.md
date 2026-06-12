@@ -2,252 +2,189 @@
 
 ![brain_ds_logo](assets/images/brain_ds_logo.png)
 
-Enterprise Data & Knowledge Mapper: an organizational context brain for AI agents.
-
-## What this is
-
-`brain_ds` helps teams map how knowledge moves across an organization: people, departments, data sources, tacit know-how, problems/improvement areas, decisions, and outcomes.
-It is designed so agents can reason with business context instead of isolated prompts.
+`brain_ds` is an enterprise graph workspace for organizational knowledge: SQLite-backed graph storage, read-only data-source exploration, offline UI, MCP tools, and guided agent workflows for elicitation, mapping, and BRD generation.
 
 ![brain_ds_AQTT](assets/images/brain_ds_AQTT.png)
 
-## Core brain storage
+## Quick path
 
-- **Engram** is used as the persistent storage brain.
-- Knowledge is scoped by organization and domain paths so context stays separated and traceable.
+1. Install dependencies: `uv sync`
+2. Configure the MCP server: `brain_ds setup --project-root . --agent both`
+3. Open your agent client in this repo and verify `/mcp` shows **20 tools**
+4. Run one of the workflow commands below
+
+## What ships today
+
+| Area | Current behavior |
+|---|---|
+| Graph store | Local SQLite store under `.brain_ds/store.db` |
+| Search | FTS5 when available, plus accent-insensitive Python fallback and fuzzy matching in the UI |
+| Data sources | Read-only SQLite + CSV connectors, plus MCP exploration/query tools |
+| UI | Offline graph viewer with tabs, BRD panel, markdown reader, wikilinks, backlinks, and in-reader history |
+| Automation | MCP server + project skills + project agents |
+| Memory | Engram is optional cross-session memory for agent workflows; the authoritative graph/runtime data stays in the local SQLite store |
+
+## Architecture at a glance
+
+### Runtime surfaces
+
+| Surface | Role |
+|---|---|
+| `brain_ds/store/*` | SQLite graph persistence, migrations, FTS5, outbox/live sync plumbing |
+| `brain_ds/connectors/*` | Safe read-only CSV and SQLite connectors |
+| `brain_ds/mcp/*` | MCP stdio server, validation, grounding, workspace switching |
+| `brain_ds/ui/*` | Offline HTML viewer, renderer, tabs, panels, BRD reader |
+| `skills/*` | Workflow skills mirrored into `.opencode/skills/*` |
+| `.claude/agents/*` | Read-only/query/orchestrator agent definitions |
+
+### Read-only data source safety
+
+Write access to external data sources is intentionally blocked at three layers:
+
+| Layer | Contract |
+|---|---|
+| Connector | `ReadOnlyConnector` exposes read-only exploration methods only |
+| MCP validation | exploration/query tools reject write-like modes and non-SELECT SQLite queries |
+| Agent prompt | `brainds-source-explorer` explicitly forbids mutations |
+
+## MCP tools (20)
+
+| Category | Tools |
+|---|---|
+| Graph data | `list_graphs`, `create_graph`, `import_graph`, `list_nodes`, `list_data_sources`, `get_node`, `search_graph`, `update_node`, `add_edge`, `delete_node`, `delete_edge`, `suggest_connections` |
+| Data source exploration | `list_source_connections`, `explore_source`, `query_source` |
+| Workspace | `list_workspaces`, `open_workspace` |
+| Grounding workflows | `run_elicit`, `map_connections`, `generate_brd` |
+
+See `CLAUDE.md` for the pinned MCP inventory and harness maintenance rules.
 
 ## OpenCode commands and skills
-
-Use these slash commands from OpenCode:
 
 | Command | Purpose |
 |---|---|
 | `/elicit-context` | Capture and structure missing organizational context |
-| `/map-connections` | Build a cross-entity map from stored organizational knowledge |
-| `/map-connections --graph` | Same mapping flow, plus graph-oriented view/output |
-| `/map-connections --graph-json` | Generate and save `<org>-graph.json` graph data contract |
-| `/map-connections --graph-ui` | Generate graph JSON and auto-create interactive offline HTML viewer (default mode) |
-| `/generate-brd` | Generate a BRD from the mapped knowledge base |
-| `/brain-ds-pipeline` | Orchestrate full `/elicit-context` → `/map-connections` → `/generate-brd` flow |
-| `/brain-ds-map` | Orchestrate mapping step with context checks |
-| `/brain-ds-brd` | Orchestrate BRD step with map checks |
+| `/map-connections` | Build a cross-entity relationship map |
+| `/map-connections --graph` | Produce the mapping plus graph-oriented output |
+| `/map-connections --graph-json` | Save the graph JSON contract |
+| `/map-connections --graph-ui` | Generate graph JSON and offline interactive viewer |
+| `/generate-brd` | Generate a BRD from the mapped graph/domain context |
+| `/share-brainds` | Regenerate shared skill index output |
+| `/brainds-docs` | Author node docs and `card_sections` |
+| `/brainds-registry` | Audit harness / ontology / tool / skill drift |
 
-### Graph viewer quick start
+## UI capabilities
 
-- Default interactive offline viewer: `uv run brain_ds ui <org-graph.json>`
-- Simple legacy fallback (PyVis): `uv run brain_ds ui <org-graph.json> --simple`
-- Optional auto-open: `uv run brain_ds ui <org-graph.json> --open`
-- Custom output path: `uv run brain_ds ui <org-graph.json> --output reports/viewer.html`
-- Compatibility fallback still supported: `python -m brain_ds.ui <org-graph.json>`
+### Graph workspace
 
-#### Node detail cards (interactive viewer)
+- Offline interactive graph viewer
+- Session-persistent graph tabs
+- Right-rail BRD panel
+- Left-rail project/search/filter/hierarchy/layout panels
+- Canvas + D4 overlay hybrid rendering
 
-- The interactive panel is **read-only** and renders from `RENDER_CONTEXT.detail_index` (Python render-prep contract), not from browser-side derivation.
-- Evidence appears as native `details/summary` blocks with provenance/source metadata when available.
-- Relationship rationale is grouped by **incoming** and **outgoing** links and includes reasons/evidence IDs when present.
-- Producer-first rule: generate structured `card_sections` + node `evidence_ids` + graph `evidence[]` during `/map-connections --graph-json` so the viewer can render complete node cards.
+### Reader experience
 
-### Optional graph viewer dependency
+- Full markdown reader panel
+- Wikilinks (`[[...]]`) navigation
+- Backlinks derived from notes/sections
+- In-reader back history (`Alt+Left`)
+- Inspector + reader coordination through the shared render context
 
-- Interactive HTML generation is Python-only and offline by default (vendored local JS/CSS embedded into output HTML).
-- `pyvis` is only required for `--simple` fallback mode.
-- Install base project with: `uv sync`
-- Enable `--simple` fallback dependency with: `uv sync --extra simple`
-- If `pyvis` is unavailable, interactive default still works; only `--simple` fails with a dependency hint.
+### Search
 
-## Organization scoping model
+- SQLite FTS5 search in the store
+- Accent-insensitive fallback for environments without FTS hits
+- UI search flows over live node snapshots
 
-- Scope commands with `--org <name|slug>` when needed.
-- Store and reason over artifacts with paths like:
-  - `org/<slug>/domain/...`
+## Agents
 
-This keeps multi-organization work clean and avoids context bleeding.
+| Agent | Purpose |
+|---|---|
+| `brainds-query-consultant` | Read-only graph Q&A over nodes, sources, owners, and relationships |
+| `brainds-source-explorer` | Read-only exploration of Google Sheets, CSV, and SQLite sources |
+| `brainds-orchestrator` | Full elicit → map → BRD workflow coordination |
 
-## Supported entity types (current)
+## Installed project skills
 
-Source of truth: `brain_ds/ontology/entity_types.py` (`brain_ds.ontology.EntityType`).
+| Skill | Purpose |
+|---|---|
+| `elicit-context` | Structured domain knowledge interview |
+| `map-connections` | Deterministic relationship mapping |
+| `generate-brd` | 14-section BRD generation |
+| `share-brainds` | Shared skill-index regeneration |
+| `brainds-docs` | Node documentation and card sections |
+| `brainds-registry` | Harness/tool/skill sync audit |
 
-- Organization
-- Department
-- Role
-- Data Source
-- Heuristic
-- Tacit Knowledge
-- Problem / Improvement Area
-- Project
-- Risk
-- Decision
-- KPI
-- Solution
+Project skill mirrors under `.opencode/skills/*` must stay byte-identical to `skills/*`.
 
-## Quick Start — From zero to first BRD
-
-> **Installing the exe, the MCP server, or the harness? The single source of
-> truth is [`INSTALL.md`](INSTALL.md)** — exe build, interactive `brain_ds setup`
-> wizard, one-shot CLI, desktop-side MCP setup, and verification checklist.
-
-This section is a **literal walkthrough** — the order matters, and each step explains what's happening behind the scenes so you understand the system, not just the commands.
+## Setup
 
 ### Prerequisites
 
-Before anything works, you need three things:
+| Tool | Why |
+|---|---|
+| Git | Clone and update the repo |
+| Python + `uv` | Main runtime and dependency management |
+| Node + `pnpm` | UI / Playwright tooling |
+| Optional: Engram | Cross-session memory for agent workflows |
 
-| What | Why you need it | Install link |
-|------|----------------|--------------|
-| **Git** | Clone the repo and manage changes | https://git-scm.com/downloads |
-| **OpenCode** | The AI terminal where slash commands (`/elicit-context`, etc.) run. This is NOT a plugin — it's an AI coding terminal that supports agent skills and MCP tools. | https://opencode.ai |
-| **Engram** (optional) | Persistent memory backend. brain_ds uses it for entity observations, session history, and knowledge recall across sessions. Without it, you lose cross-session memory — but the MCP graph store (SQLite) still works. **Install it if you want memory that persists across sessions.** | https://engram.shechi.com |
-| **uv** (recommended) | Python package manager for the graph viewer (`/map-connections --graph-ui`). Optional but useful. | https://docs.astral.sh/uv/getting-started/installation/ |
-
-### Step 1 — Clone and install project skills
+### Install
 
 ```bash
 git clone <repo-url>
 cd brain_ds
+uv sync
 ```
 
-Run the installer to wire up OpenCode skills:
+Optional skill wiring helpers:
 
-- **PowerShell**: `./install-opencode.ps1 -Project -Agent`
-- **Bash**: `./install-opencode.sh --project --agent`
+- PowerShell: `./install-opencode.ps1 -Project -Agent`
+- Bash: `./install-opencode.sh --project --agent`
 
-This copies the project skills (`skills/elicit-context/`, `skills/map-connections/`, `skills/generate-brd/`) into `.opencode/skills/` so OpenCode can discover them. It also runs `uv sync` if `uv` is available.
+### Configure MCP
 
-### Step 2 — Configure the brain_ds MCP server
-
-brain_ds has a Python MCP server that provides 6 data tools (`list_graphs`, `list_nodes`, `search_graph`, `get_node`, `update_node`, `add_edge`) plus 3 workflow stubs. OpenCode needs to know about it.
-
-In your OpenCode configuration, add an MCP entry pointing to:
-
-```json
-{
-  "mcpServers": {
-    "brain_ds": {
-      "command": "uv",
-      "args": ["run", "python", "-m", "brain_ds.mcp.server"]
-    }
-  }
-}
-```
-
-Without this, slash commands will look like they do nothing because the MCP tools powering them won't respond.
-
-### Step 3 — Verify everything works
-
-Open OpenCode inside the `brain_ds` directory and type:
-
-```
-/elicit-context
-```
-
-If the skills and MCP are wired correctly, you'll see me (the orchestrator) start an interactive interview — asking one question at a time about your organization.
-
-If nothing happens or you get an error:
-- Check that Engram is running (`engram doctor`)
-- Check that the MCP server is listed in OpenCode's connected tools
-- Run `uv sync` to make sure Python dependencies are installed
-
-### Step 4 — How the pipeline actually works (the real flow)
-
-This is the part that's **not obvious from reading the code**. The three commands MUST run in order, and each one is an interactive conversation with the orchestrator, not a silent batch job.
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                                                         │
-│  /elicit-context                                         │
-│  ───────────────                                         │
-│  I ask you questions about your organization,             │
-│  one at a time, max 5 per session.                       │
-│  You answer. I save structured observations to Engram.    │
-│  Entity types captured: Department, Role, Data Source,    │
-│  Heuristic, Tacit Knowledge, Problem/Improvement Area,   │
-│  KPI, Solution, Decision, Organization.                  │
-│                                                         │
-│  When done, I call the MCP stub `run_elicit`             │
-│  (this is just a hook — the real work is in Engram).    │
-│                                                         │
-│  ─────────────────────────────────────────────────       │
-│                                                         │
-│  /map-connections                                        │
-│  ───────────────                                         │
-│  I query Engram with 12 parallel searches.               │
-│  I fetch EVERY full observation (no previews).           │
-│  I tokenize and score connections by overlap rules.      │
-│  I produce a report with:                                │
-│    - Entity Table                                        │
-│    - Information Flows (Role → Data Source)              │
-│    - Overlaps (shared operational contexts)              │
-│    - Broken Links (references to things not found)       │
-│    - Missing Knowledge (entity types with no data)       │
-│    - DS Intervention Opportunities                      │
-│    - Provenance Table                                    │
-│                                                         │
-│  You can also use --graph (Mermaid) or --graph-json      │
-│  (JSON data contract, feedable to the Python viewer).    │
-│  --save persists the report to Engram.                   │
-│                                                         │
-│  I call the MCP stub `map_connections` at the end.       │
-│                                                         │
-│  ─────────────────────────────────────────────────       │
-│                                                         │
-│  /generate-brd                                           │
-│  ───────────────                                         │
-│  I retrieve everything from Engram again.                │
-│  I build a 14-section Business Requirements Document:    │
-│    1. Header          8. ADR Log                         │
-│    2. Executive Summ  9. Data Provenance                 │
-│    3. Current State   10. Risk Register                  │
-│    4. Requirements    11. Cross-Dept Overlap Map         │
-│    5. Data Sources    12. Project Portfolio              │
-│    6. Stakeholder     13. KPI Dashboard                  │
-│    7. Solution Opts   14. Improvement Roadmap            │
-│                                                         │
-│  The ADR is ALWAYS saved to Engram (architecture record).│
-│  The BRD is only saved if you add --save.                │
-│  I call the MCP stub `generate_brd` at the end.          │
-│                                                         │
-└─────────────────────────────────────────────────────────┘
-```
-
-**Key insight**: The 3 MCP stubs (`run_elicit`, `map_connections`, `generate_brd`) are NOT entry points. They're **sentinel hooks** that I call at the end of each skill workflow. All the real work happens through:
-- `mem_save` / `mem_search` / `mem_get_observation` (Engram tools)
-- `brain_ds_list_nodes` / `brain_ds_update_node` / `brain_ds_add_edge` (MCP data tools)
-- The orchestrator's multi-step workflows defined in the skill files
-
-### Step 5 — Visualize your graph (optional)
-
-After running `/map-connections --graph-json`, you'll get a `<org-name>-graph.json` file. To view it:
+Preferred path:
 
 ```bash
-uv run brain_ds ui <org-name>-graph.json
+brain_ds setup --project-root . --agent both
 ```
 
-This generates a standalone HTML file with an interactive node graph (search, filter, legend, neighborhood highlight, layout controls). No server needed — the HTML is fully offline.
+Then open your client in this repo and confirm `/mcp` shows `brain_ds` connected with **20 tools**.
 
-You can also run the full pipeline in one go:
-```bash
-/map-connections --graph-ui
-```
-This generates the JSON, creates the HTML viewer, and opens it.
+## Graph viewer quick start
 
-## Invoking brain_ds
+| Command | Result |
+|---|---|
+| `uv run brain_ds ui <org-graph.json>` | Generate the default offline interactive viewer |
+| `uv run brain_ds ui <org-graph.json> --open` | Generate and open it |
+| `uv run brain_ds ui <org-graph.json> --simple` | Legacy PyVis fallback |
+| `uv run brain_ds ui <org-graph.json> --output reports/viewer.html` | Custom output path |
 
-You can keep using `uv run brain_ds ...`, or use repo-root wrappers:
+## Important docs
 
-- Bash: `./brain_ds.sh ui org-graph.json`
-- CMD: `brain_ds.cmd ui org-graph.json`
-- PowerShell: `./brain_ds.ps1 ui org-graph.json`
-
-Optional PATH registration via installers:
-
-- PowerShell: `./install-opencode.ps1 -RegisterPath`
-- Bash: `./install-opencode.sh --register-path`
-
-This copies wrapper scripts to `~/.config/opencode/bin/` so you can invoke them globally once that directory is on your `PATH`.
+| File | Why it matters |
+|---|---|
+| `INSTALL.md` | Canonical install/setup guide |
+| `CLAUDE.md` | MCP inventory, setup, and harness maintenance |
+| `AGENTS.md` | Project commands, skills, and maintenance rules |
 
 ## Repository structure
 
 | Path | Description |
 |---|---|
-| `skills/` | Project skills used by OpenCode workflows |
-| `.atl/skill-registry.md` | Local skill registry and compact rules |
+| `brain_ds/` | Python package |
+| `brain_ds/ui/` | Offline viewer templates, assets, TS modules |
+| `tests/` | Python test suite |
+| `skills/` | Project skill sources |
+| `.opencode/skills/` | Mirrored OpenCode-discoverable skills |
+| `.claude/agents/` | Agent definitions |
+
+## Verification shortcuts
+
+| Command | Scope |
+|---|---|
+| `uv run pytest` | Python suite |
+| `uv run ruff check .` | Python lint |
+| `uv run mypy brain_ds tests` | Python typing |
+| `pnpm --dir brain_ds/ui exec playwright test` | UI E2E |
+| `cargo test --manifest-path src-tauri/Cargo.toml` | Rust tests |

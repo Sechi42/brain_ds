@@ -84,7 +84,7 @@ line-ending = "lf"
 # ADVISORY ONLY — not part of the test/TDD gate. The codebase is largely
 # untyped; mypy is a separate `mypy brain_ds` command, not a blocker.
 python_version = "3.11"
-exclude = "(?x)(^build/|^dist/|^src-tauri/target/|^brain_ds/ui/node_modules/)"
+exclude = "(?x)(^build/|^dist/|^src-tauri/target/|^brain_ds/ui/node_modules/|^tmp/|^e2e-sandbox/)"
 ignore_missing_imports = true
 namespace_packages = true
 explicit_package_bases = true

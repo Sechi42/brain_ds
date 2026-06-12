@@ -11,6 +11,9 @@ See `_shared/skill-resolver.md` for the full resolution protocol.
 | `/elicit-context` — Structured context interview for Data Science domain discovery | `elicit-context` | `brain_ds/skills/elicit-context/SKILL.md` |
 | `/generate-brd` or `/generate-brd --save` — Generate a 14-section BRD from SQLite domain entities | `generate-brd` | `brain_ds/skills/generate-brd/SKILL.md` |
 | `/map-connections`, `/map-connections --graph`, `--save` — Build relationship map from domain entities | `map-connections` | `brain_ds/skills/map-connections/SKILL.md` |
+| After creating/modifying any brain_ds skill, or `/share-brainds` — Regenerate skills/SHARED_CONTEXT.md | `share-brainds` | `skills/share-brainds/SKILL.md` |
+| When writing or updating node documentation, card_sections, or BRD content | `brainds-docs` | `skills/brainds-docs/SKILL.md` |
+| After adding/renaming entity types, relationship types, MCP tools, or editing any SKILL.md | `brainds-registry` | `skills/brainds-registry/SKILL.md` |
 | When creating a pull request, opening a PR, or preparing changes for review | `branch-pr` | `brain_ds/.claude/skills/branch-pr/SKILL.md` |
 | When a PR would exceed 400 changed lines, planning chained/stacked PRs, or reviewable slices | `chained-pr` | `brain_ds/.claude/skills/chained-pr/SKILL.md` |
 | When writing guides, READMEs, RFCs, onboarding docs, architecture docs, or review-facing documentation | `cognitive-doc-design` | `brain_ds/.claude/skills/cognitive-doc-design/SKILL.md` |
@@ -201,9 +204,47 @@ Pre-digested rules per skill. Delegators copy matching blocks into sub-agent pro
 - If SDD tasks forecast a >400-line change, group commits into chained PR slices before implementing.
 - Use Conventional Commits format: `type(scope): description`.
 
+### share-brainds
+- Trigger on `/share-brainds` or immediately after any `skills/*/SKILL.md` or `.opencode/skills/*/SKILL.md` change.
+- Glob `skills/*/SKILL.md` first — never assume which skills exist.
+- Write summaries only — never copy raw SKILL.md content into SHARED_CONTEXT.md.
+- Each summary covers: name, trigger, inputs, outputs, MCP tools used (5-6 sentences max).
+- Order entries alphabetically by skill name inside SHARED_CONTEXT.md.
+- Always end with a mirror reminder: `.opencode/skills/` must be byte-identical to `skills/`.
+- Running again must overwrite cleanly — output is always idempotent.
+
+### brainds-docs
+- Apply when writing or editing `details` objects or `card_sections` for any graph node.
+- Always use entity-type section order: Data Source → Overview, Structure, Columns/Fields, Purpose, Owner, Refresh Cadence.
+- Columns/Fields MUST be a markdown table with columns: Column/Field | Type | Meaning | Notes.
+- Mark vague columns with `[needs clarification]` in Notes — never omit them.
+- Wikilinks use `[[node-id|Label]]` syntax — node-id must be an existing node in the same graph.
+- card_sections `order` is monotonically increasing from 1; icon values from: info, database, table, target, user, clock, lightbulb, alert, map-pin, link.
+- Lead with answer: Overview is always one-sentence fact first; context comes after.
+- Never put raw HTML inside card_sections `content`.
+
+### brainds-registry
+- Trigger after any change to: `entity_types.py`, `relationship_types.py`, `tools.py` TOOL_REGISTRY, `scoring/engine.py`, any `SKILL.md`.
+- EntityType added/renamed: update QUESTION_BANK in `grounding.py` AND ELICIT_EXEMPT_TYPES in drift guard test.
+- RelationshipType added/renamed: review CONNECTION_RULES prose in `grounding.py`; update map-connections SKILL.md edge label tables.
+- MCP tool count changed: update CLAUDE.md tool count + inventory table AND any test assertion that pins `len(tools)`.
+- Skill prose changed: update mirrored Category-2 constants in `grounding.py`; sync `.opencode/skills/` mirror; run `/share-brainds`.
+- Drift guard red = harness needs updating — never suppress the test to unblock.
+- Same-change rule: harness updates go in the SAME commit as the triggering change — never deferred.
+- `skills/*/SKILL.md` and `.opencode/skills/*/SKILL.md` must be byte-identical at all times.
+
+## Agent Definitions
+
+| Agent | Model | Purpose | Path |
+|---|---|---|---|
+| `brainds-query-consultant` | sonnet | Read-only graph Q&A (list_graphs, list_nodes, search_graph, suggest_connections, get_node only) | `.claude/agents/brainds-query-consultant.md` |
+| `brainds-source-explorer` | sonnet | Read-only external source exploration; outputs card_sections-ready findings | `.claude/agents/brainds-source-explorer.md` |
+| `brainds-orchestrator` | opus | Coordinates elicit → map → BRD; delegates deep dives to sub-agents | `.claude/agents/brainds-orchestrator.md` |
+
 ## Project Conventions
 
 | File | Path | Notes |
 |------|------|-------|
 | `CLAUDE.md` | `brain_ds/CLAUDE.md` | Project instructions: MCP tool inventory, setup, harness maintenance checklist, security boundary |
-| `AGENTS.md` | `brain_ds/AGENTS.md` | Quick commands for `/elicit-context`, `/map-connections`, `/generate-brd`; references this registry |
+| `AGENTS.md` | `brain_ds/AGENTS.md` | Quick commands, skills table, agent definitions table; references this registry |
+| `SHARED_CONTEXT.md` | `brain_ds/skills/SHARED_CONTEXT.md` | One-paragraph summaries of all brain_ds skills; regenerate with `/share-brainds` |
