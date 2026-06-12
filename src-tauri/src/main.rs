@@ -1,4 +1,4 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(all(not(debug_assertions), windows), windows_subsystem = "windows")]
 
 mod commands;
 mod desktop;
@@ -32,10 +32,9 @@ fn acquire_instance_lock() -> Result<bool, String> {
     }
 
     if lock_path.exists() {
-        let content =
-            fs::read_to_string(&lock_path).unwrap_or_default();
+        let content = fs::read_to_string(&lock_path).unwrap_or_default();
         if let Ok(pid) = content.trim().parse::<u32>() {
-            if desktop::win32::is_process_alive(pid) {
+            if desktop::platform::is_process_alive(pid) {
                 return Ok(true); // Another live instance owns the lock.
             }
             // Stale lock — PID no longer alive. Remove and acquire.
@@ -44,10 +43,9 @@ fn acquire_instance_lock() -> Result<bool, String> {
     }
 
     let pid = std::process::id();
-    let mut f = fs::File::create(&lock_path)
-        .map_err(|e| format!("Cannot create instance lock: {e}"))?;
-    write!(f, "{pid}")
-        .map_err(|e| format!("Cannot write instance lock: {e}"))?;
+    let mut f =
+        fs::File::create(&lock_path).map_err(|e| format!("Cannot create instance lock: {e}"))?;
+    write!(f, "{pid}").map_err(|e| format!("Cannot write instance lock: {e}"))?;
     Ok(false)
 }
 

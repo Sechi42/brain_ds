@@ -9,13 +9,13 @@ use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
 // ---------------------------------------------------------------------------
-// Windows FFI: check whether a process is still alive by PID (used by the
+// Platform FFI: check whether a process is still alive by PID (used by the
 // Tauri/bundled terminate path since CommandChild has no try_wait/wait).
 // ---------------------------------------------------------------------------
 #[cfg(windows)]
-pub mod win32 {
-    use std::time::{Duration, Instant};
+pub mod platform {
     use std::thread;
+    use std::time::{Duration, Instant};
 
     const SYNCHRONIZE: u32 = 0x0010_0000;
     const PROCESS_QUERY_INFORMATION: u32 = 0x0400;
@@ -73,14 +73,68 @@ pub mod win32 {
 }
 
 #[cfg(not(windows))]
-pub mod win32 {
+pub mod platform {
+    #[cfg(target_os = "macos")]
+    use std::io;
+    #[cfg(target_os = "macos")]
+    use std::thread;
     use std::time::Duration;
+
+    #[cfg(target_os = "macos")]
+    fn exited_child_was_reaped(pid: i32) -> bool {
+        let mut status = 0;
+        unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) == pid }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn process_exists(pid: i32) -> bool {
+        if exited_child_was_reaped(pid) {
+            return false;
+        }
+
+        let result = unsafe { libc::kill(pid, 0) };
+        if result == 0 {
+            return true;
+        }
+
+        matches!(
+            io::Error::last_os_error().raw_os_error(),
+            Some(code) if code == libc::EPERM
+        )
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn kill_and_wait(pid: u32, timeout: Duration, interval: Duration) -> bool {
+        let pid = pid as i32;
+        let kill_result = unsafe { libc::kill(pid, libc::SIGTERM) };
+        if kill_result != 0 && !process_exists(pid) {
+            return true;
+        }
+
+        let deadline = std::time::Instant::now() + timeout;
+        while std::time::Instant::now() < deadline {
+            if !process_exists(pid) {
+                return true;
+            }
+            thread::sleep(interval);
+        }
+
+        false
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn is_process_alive(pid: u32) -> bool {
+        process_exists(pid as i32)
+    }
+
+    #[cfg(all(not(windows), not(target_os = "macos")))]
     /// Non-Windows stub: just sleep for the timeout and hope the process died.
     pub fn kill_and_wait(_pid: u32, timeout: Duration, _interval: Duration) -> bool {
         std::thread::sleep(timeout);
         true // Best-effort — no process query API available.
     }
 
+    #[cfg(all(not(windows), not(target_os = "macos")))]
     /// Non-Windows stub: cannot query process liveness; always returns false
     /// (best-effort — the lock file will just be overwritten).
     pub fn is_process_alive(_pid: u32) -> bool {
@@ -130,11 +184,21 @@ pub enum DesktopError {
 impl std::fmt::Display for DesktopError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DesktopError::InvalidProjectPath(message) => write!(f, "Invalid project path: {message}"),
-            DesktopError::SidecarSpawnFailed(message) => write!(f, "Failed to start desktop sidecar: {message}"),
-            DesktopError::StartupTimeout => write!(f, "Timed out waiting for brain_ds server startup"),
-            DesktopError::StartupProbeFailed(message) => write!(f, "Failed probing brain_ds server: {message}"),
-            DesktopError::SidecarTerminateFailed(message) => write!(f, "Failed stopping desktop sidecar: {message}"),
+            DesktopError::InvalidProjectPath(message) => {
+                write!(f, "Invalid project path: {message}")
+            }
+            DesktopError::SidecarSpawnFailed(message) => {
+                write!(f, "Failed to start desktop sidecar: {message}")
+            }
+            DesktopError::StartupTimeout => {
+                write!(f, "Timed out waiting for brain_ds server startup")
+            }
+            DesktopError::StartupProbeFailed(message) => {
+                write!(f, "Failed probing brain_ds server: {message}")
+            }
+            DesktopError::SidecarTerminateFailed(message) => {
+                write!(f, "Failed stopping desktop sidecar: {message}")
+            }
         }
     }
 }
@@ -182,7 +246,11 @@ impl DesktopState {
         }
     }
 
-    pub fn launch_with_project_root(&self, app: &AppHandle, project_root_raw: &str) -> Result<LaunchResult, DesktopError> {
+    pub fn launch_with_project_root(
+        &self,
+        app: &AppHandle,
+        project_root_raw: &str,
+    ) -> Result<LaunchResult, DesktopError> {
         let canonical_root = validate_project_root(project_root_raw)?;
 
         self.shutdown_running_sidecar()?;
@@ -263,7 +331,9 @@ pub fn validate_project_root(project_root_raw: &str) -> Result<PathBuf, DesktopE
 
     let candidate = PathBuf::from(project_root_raw);
     if !candidate.exists() {
-        return Err(DesktopError::InvalidProjectPath("Path does not exist".to_string()));
+        return Err(DesktopError::InvalidProjectPath(
+            "Path does not exist".to_string(),
+        ));
     }
 
     if !candidate.is_dir() {
@@ -281,7 +351,11 @@ pub fn validate_project_root(project_root_raw: &str) -> Result<PathBuf, DesktopE
 /// The `_app` parameter is ignored in dev but keeps the signature uniform with
 /// the bundled variant so both compile against the same call sites.
 #[cfg(not(feature = "bundled"))]
-pub fn spawn_sidecar(_app: &AppHandle, project_root: &Path, port: u16) -> Result<SidecarChild, DesktopError> {
+pub fn spawn_sidecar(
+    _app: &AppHandle,
+    project_root: &Path,
+    port: u16,
+) -> Result<SidecarChild, DesktopError> {
     let child = Command::new("uv")
         .arg("run")
         .arg("brain_ds")
@@ -304,7 +378,11 @@ pub fn spawn_sidecar(_app: &AppHandle, project_root: &Path, port: u16) -> Result
 /// ADR-1: `CommandChild::kill(self)` is fire-and-forget — terminate does not
 /// wait for exit confirmation because no `try_wait`/`wait` is available.
 #[cfg(feature = "bundled")]
-pub fn spawn_sidecar(app: &AppHandle, project_root: &Path, port: u16) -> Result<SidecarChild, DesktopError> {
+pub fn spawn_sidecar(
+    app: &AppHandle,
+    project_root: &Path,
+    port: u16,
+) -> Result<SidecarChild, DesktopError> {
     use tauri_plugin_shell::ShellExt;
     let (_receiver, child) = app
         .shell()
@@ -323,7 +401,11 @@ pub fn spawn_sidecar(app: &AppHandle, project_root: &Path, port: u16) -> Result<
     Ok(SidecarChild::Tauri(child))
 }
 
-pub fn poll_for_server_ready(port: u16, timeout: Duration, interval: Duration) -> Result<(), DesktopError> {
+pub fn poll_for_server_ready(
+    port: u16,
+    timeout: Duration,
+    interval: Duration,
+) -> Result<(), DesktopError> {
     let endpoint = readiness_endpoint(port);
     let deadline = Instant::now() + timeout;
     let mut last_probe_error: Option<String> = None;
@@ -379,11 +461,11 @@ pub fn terminate_sidecar(child: SidecarChild) -> Result<(), DesktopError> {
             // Capture PID before kill() consumes the child.
             let pid = tauri_child.pid();
             // ADR-1 (amended): kill(self) is still fire-and-forget on the
-            // CommandChild handle, but we now follow up with a Win32 wait
+            // CommandChild handle, but we now follow up with a platform wait
             // loop (kill_and_wait) keyed on the captured PID so the old
             // sidecar is reliably dead before the next one spawns.
             let _ = tauri_child.kill();
-            let exited = win32::kill_and_wait(
+            let exited = platform::kill_and_wait(
                 pid,
                 Duration::from_secs(DEFAULT_SHUTDOWN_TIMEOUT_SECS),
                 Duration::from_millis(150),
@@ -421,12 +503,59 @@ mod tests {
     use std::fs;
     use std::io::{Read, Write};
 
+    #[cfg(target_os = "macos")]
+    fn spawn_sleep_process(seconds: u64) -> Child {
+        Command::new("sleep")
+            .arg(seconds.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("sleep process must spawn")
+    }
+
+    #[cfg(target_os = "macos")]
+    fn spawn_term_ignoring_process(seconds: u64) -> Child {
+        Command::new("sh")
+            .args(["-c", &format!("trap '' TERM; sleep {seconds}")])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("term-ignoring sleep process must spawn")
+    }
+
+    fn spawn_noop_process() -> Child {
+        #[cfg(windows)]
+        let mut command = {
+            let mut command = Command::new("cmd");
+            command.args(["/C", "exit", "0"]);
+            command
+        };
+
+        #[cfg(not(windows))]
+        let mut command = {
+            let mut command = Command::new("sh");
+            command.args(["-c", "exit 0"]);
+            command
+        };
+
+        command
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("no-op process must spawn")
+    }
+
     fn spawn_probe_server(status_line: &str) -> (u16, thread::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("test server must bind");
-        let port = listener.local_addr().expect("test server must expose local addr").port();
+        let port = listener
+            .local_addr()
+            .expect("test server must expose local addr")
+            .port();
         let status_line = status_line.to_string();
         let handle = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().expect("test server must accept one connection");
+            let (mut stream, _) = listener
+                .accept()
+                .expect("test server must accept one connection");
             let mut buffer = [0_u8; 1024];
             let _ = stream.read(&mut buffer);
             write!(
@@ -441,10 +570,8 @@ mod tests {
 
     #[test]
     fn validate_project_root_accepts_existing_directory() {
-        let tmp = std::env::temp_dir().join(format!(
-            "brain_ds_desktop_test_{}",
-            std::process::id()
-        ));
+        let tmp =
+            std::env::temp_dir().join(format!("brain_ds_desktop_test_{}", std::process::id()));
         fs::create_dir_all(&tmp).expect("temporary directory must be created");
 
         let validated = validate_project_root(tmp.to_string_lossy().as_ref())
@@ -462,60 +589,137 @@ mod tests {
 
     #[test]
     fn readiness_endpoint_targets_api_graphs() {
-        assert_eq!(
-            "http://127.0.0.1:8765/api/graphs",
-            readiness_endpoint(8765)
-        );
+        assert_eq!("http://127.0.0.1:8765/api/graphs", readiness_endpoint(8765));
     }
 
     #[test]
     fn poll_for_server_ready_returns_ok_after_http_200_probe() {
         let (port, handle) = spawn_probe_server("200 OK");
 
-        let result = poll_for_server_ready(
-            port,
-            Duration::from_millis(250),
-            Duration::from_millis(10),
-        );
+        let result =
+            poll_for_server_ready(port, Duration::from_millis(250), Duration::from_millis(10));
 
         handle.join().expect("test server must join cleanly");
-        assert!(result.is_ok(), "200 probe should be considered ready: {result:?}");
+        assert!(
+            result.is_ok(),
+            "200 probe should be considered ready: {result:?}"
+        );
     }
 
     #[test]
     fn poll_for_server_ready_reports_probe_failure_after_http_500() {
         let (port, handle) = spawn_probe_server("500 Internal Server Error");
 
-        let result = poll_for_server_ready(
-            port,
-            Duration::from_millis(250),
-            Duration::from_millis(10),
-        );
+        let result =
+            poll_for_server_ready(port, Duration::from_millis(250), Duration::from_millis(10));
 
         handle.join().expect("test server must join cleanly");
 
         match result {
             Err(DesktopError::StartupProbeFailed(message)) => {
-                assert!(message.contains("500"), "probe failure should mention HTTP 500: {message}");
+                assert!(
+                    message.contains("500"),
+                    "probe failure should mention HTTP 500: {message}"
+                );
             }
             other => panic!("expected StartupProbeFailed after HTTP 500, got {other:?}"),
         }
     }
 
     /// Strict TDD — T0.3: verify that `terminate_sidecar` handles `SidecarChild::Std`
-    /// by wrapping a real OS process (cmd /C exit 0 on Windows). The process exits
-    /// immediately so the deadline loop terminates in the first iteration.
+    /// by wrapping a real OS process. The process exits immediately so the
+    /// deadline loop terminates in the first iteration.
     #[test]
     fn terminate_sidecar_std_variant_returns_ok() {
-        // Spawn a no-op process that exits immediately.
-        let child = Command::new("cmd")
-            .args(["/C", "exit", "0"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("cmd /C exit 0 must spawn");
+        let child = spawn_noop_process();
 
         let result = terminate_sidecar(SidecarChild::Std(child));
-        assert!(result.is_ok(), "terminate_sidecar(Std) should return Ok: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "terminate_sidecar(Std) should return Ok: {:?}",
+            result.err()
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn is_process_alive_mac_returns_true_for_live_pid() {
+        let mut child = spawn_sleep_process(10);
+        let pid = child.id();
+
+        assert!(
+            platform::is_process_alive(pid),
+            "live macOS child process should be reported as alive"
+        );
+
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn is_process_alive_mac_returns_false_for_exited_pid() {
+        let mut child = spawn_sleep_process(10);
+        let pid = child.id();
+
+        let _ = child.kill();
+        let _ = child.wait();
+
+        assert!(
+            !platform::is_process_alive(pid),
+            "exited macOS child process should not be reported as alive"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn kill_and_wait_mac_terminates_child() {
+        let mut child = spawn_sleep_process(30);
+        let pid = child.id();
+
+        let terminated =
+            platform::kill_and_wait(pid, Duration::from_secs(2), Duration::from_millis(100));
+
+        let wait_status = child
+            .try_wait()
+            .expect("child wait status must be queryable");
+        if wait_status.is_none() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+
+        assert!(
+            terminated,
+            "kill_and_wait should report successful termination"
+        );
+        assert!(wait_status.is_some(), "child process should have exited");
+        assert!(
+            !platform::is_process_alive(pid),
+            "child process should not be alive after termination"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn kill_and_wait_mac_times_out() {
+        let mut child = spawn_term_ignoring_process(30);
+        let pid = child.id();
+
+        let terminated =
+            platform::kill_and_wait(pid, Duration::from_millis(200), Duration::from_millis(50));
+
+        if let Ok(None) = child.try_wait() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+
+        assert!(
+            !terminated,
+            "kill_and_wait should report timeout for TERM-ignoring child"
+        );
+        assert!(
+            platform::is_process_alive(pid) || matches!(child.try_wait(), Ok(Some(_))),
+            "timeout case should not falsely report successful termination"
+        );
     }
 }
