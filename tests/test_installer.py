@@ -117,6 +117,8 @@ class InstallerTests(unittest.TestCase):
 
     def run_ps1(self, *args: str):
         ps = Path(os.environ.get("WINDIR", "C:\\Windows")) / "System32/WindowsPowerShell/v1.0/powershell.exe"
+        if not ps.exists():
+            self.skipTest("Windows PowerShell not available in test environment")
         env = os.environ.copy()
         env["PATH"] = str(self.bin)
         env["HOME"] = str(self.home)
@@ -408,6 +410,7 @@ class InstallerTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("install uv", (result.stdout + result.stderr).lower())
 
+    @unittest.skipUnless(os.name == "nt", "exercises brain_ds.cmd via cmd.exe")
     def test_wrapper_preserves_caller_cwd(self):
         # Workspace scoping: the MCP server resolves its root from the session
         # cwd, so the wrapper must run uv from the caller's directory.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -78,6 +79,7 @@ class WorkspaceRegistryTests(RegistryHomeMixin):
 
         self.assertEqual(workspaces.list_workspaces(), [])
 
+    @unittest.skipUnless(os.name == "nt", "feeds a backslash Windows store path")
     def test_project_root_from_store_path_strips_brain_ds_dir(self) -> None:
         root = workspaces.project_root_from_store_path(r"C:\proj\.brain_ds\store.db")
         self.assertEqual(root.name, "proj")

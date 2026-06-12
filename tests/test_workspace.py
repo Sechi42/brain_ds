@@ -1,3 +1,4 @@
+import os
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -19,6 +20,7 @@ class TestWorkspaceContext(unittest.TestCase):
         self.assertEqual(workspace.display_path, "acme/graph.json")
         self.assertIsInstance(workspace.store_path, Path)
 
+    @unittest.skipUnless(os.name == "nt", "asserts Windows drive-letter path semantics")
     def test_windows_display_path_uses_forward_slashes_and_store_path_uses_hidden_dir(self):
         workspace = WorkspaceContext.from_root_and_graph(
             Path("C:/workspace"),
