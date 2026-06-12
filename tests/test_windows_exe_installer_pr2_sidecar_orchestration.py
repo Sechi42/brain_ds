@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 import unittest
 from pathlib import Path
 
@@ -150,6 +152,68 @@ class WindowsExeInstallerPr2SidecarOrchestrationTests(unittest.TestCase):
             self.assertTrue(
                 image.startswith(png_sig) or image.startswith(b"(\x00\x00\x00"),
                 f"ICO image {i} is neither PNG nor BMP/DIB payload",
+            )
+
+    def test_nsis_installerHooks_configured_in_tauri_config(self) -> None:
+        tauri_config = TAURI_ROOT / "tauri.conf.json"
+        config = json.loads(tauri_config.read_text(encoding="utf-8"))
+
+        nsis = config["bundle"]["windows"]["nsis"]
+        self.assertIn(
+            "installerHooks",
+            nsis,
+            "bundle.windows.nsis must declare installerHooks so the sidecar guard runs",
+        )
+
+        hook_rel = nsis["installerHooks"]
+        hook_path = (TAURI_ROOT / hook_rel).resolve()
+        self.assertTrue(
+            hook_path.is_file(),
+            f"installerHooks path must resolve to an existing file: {hook_path}",
+        )
+
+    def test_hooks_nsh_contains_sidecar_check_in_all_required_macros(self) -> None:
+        hooks = TAURI_ROOT / "windows" / "hooks.nsh"
+        self.assertTrue(hooks.exists(), "src-tauri/windows/hooks.nsh must exist")
+        content = hooks.read_text(encoding="utf-8")
+
+        for macro in ("NSIS_HOOK_PREINSTALL", "NSIS_HOOK_PREUNINSTALL"):
+            body_match = re.search(
+                rf"!macro\s+{macro}\b(.*?)!macroend", content, re.DOTALL
+            )
+            self.assertIsNotNone(
+                body_match, f"hooks.nsh must define the {macro} macro"
+            )
+            body = body_match.group(1)
+            self.assertIn(
+                'CheckIfAppIsRunning "brain_ds.exe"',
+                body,
+                f"{macro} must guard the sidecar process brain_ds.exe",
+            )
+
+    def test_sidecar_name_drift_externalBin_matches_hooks_reference(self) -> None:
+        tauri_config = TAURI_ROOT / "tauri.conf.json"
+        config = json.loads(tauri_config.read_text(encoding="utf-8"))
+
+        external_bins = config["bundle"]["externalBin"]
+        sidecar_basename = Path(external_bins[0]).name  # "brain_ds"
+        # Tauri strips the target triple and runs the sidecar as <name>.exe.
+        sidecar_process = f"{sidecar_basename}.exe"
+
+        content = (TAURI_ROOT / "windows" / "hooks.nsh").read_text(encoding="utf-8")
+        calls = re.findall(
+            r'CheckIfAppIsRunning\s+"([^"]+)"', content
+        )
+        self.assertEqual(
+            2,
+            len(calls),
+            "Expected exactly two sidecar guard calls (PREINSTALL + PREUNINSTALL)",
+        )
+        for proc in calls:
+            self.assertEqual(
+                sidecar_process,
+                proc,
+                "hooks.nsh sidecar process name drifted from externalBin basename",
             )
 
     def test_nsis_license_file_path_resolves_from_tauri_config(self) -> None:
