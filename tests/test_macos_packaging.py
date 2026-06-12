@@ -57,6 +57,30 @@ class MacOSPackagingTests(unittest.TestCase):
         gitignore = (TAURI_ROOT / "binaries" / ".gitignore").read_text(encoding="utf-8")
         self.assertIn("brain_ds-*-apple-darwin*", gitignore)
 
+    def test_macos_ci_workflow_builds_on_macos_runner_with_secure_delivery(self) -> None:
+        workflow = ROOT / ".github" / "workflows" / "build-macos-exe.yml"
+        self.assertTrue(workflow.exists(), ".github/workflows/build-macos-exe.yml must exist")
+
+        content = workflow.read_text(encoding="utf-8")
+        # macOS runner, not Windows.
+        self.assertIn("runs-on: macos-latest", content)
+        self.assertNotIn("windows-latest", content)
+        # Invokes the macOS build script and ships a .dmg.
+        self.assertIn("scripts/build-macos.sh", content)
+        self.assertIn(".dmg", content)
+        # Same supply-chain / private-delivery posture as the Windows workflow.
+        self.assertIn("npm install -g pnpm@11.0.8", content)
+        self.assertIn("--locked", content)
+        self.assertIn("--draft", content)
+        self.assertIn("if: github.event_name != 'pull_request'", content)
+        # Deterministic, arch-tagged artifact naming.
+        self.assertIn("brain_ds-macos-", content)
+
+    def test_install_doc_covers_macos_unsigned_build(self) -> None:
+        install = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
+        self.assertIn("./scripts/build-macos.sh", install)
+        self.assertIn("Gatekeeper", install)
+
 
 if __name__ == "__main__":
     unittest.main()

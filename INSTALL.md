@@ -50,6 +50,30 @@ Ejecutá el instalador de `dist/` y listo.
 > código Python del MCP, rebuildeá el exe. El CLI editable del paso 1 no
 > necesita rebuild nunca.
 
+### macOS (`.dmg` / `.app`)
+
+En macOS el empaquetado se hace con el script equivalente (Bash):
+
+```bash
+./scripts/build-macos.sh
+```
+
+Hace lo mismo que el de Windows pero produce `dmg` y `app`: venv de build
+(CPython 3.13), PyInstaller del sidecar con nombre por arquitectura
+(`brain_ds-x86_64-apple-darwin` / `brain_ds-aarch64-apple-darwin`), probe de
+`READY`, `cargo tauri build --features bundled --bundles dmg,app` y copia el
+`.dmg` a `dist/`. Requiere `aarch64-apple-darwin` o `x86_64-apple-darwin`
+instalado según tu Mac.
+
+> **Build draft, sin firmar.** Los artefactos macOS NO están firmados ni
+> notarizados. Gatekeeper va a avisar en la primera apertura: abrí con
+> clic derecho → **Abrir**, o desde *Ajustes → Privacidad y seguridad →
+> Abrir de todas formas*. En CI el `.dmg` se sube a un **draft release**
+> (solo visible para colaboradores con write access), igual que el `.exe`.
+
+CI genera ambos artefactos al hacer merge a `main`: el `.exe` (NSIS) en
+`build-windows-exe.yml` y el `.dmg` macOS en `build-macos-exe.yml`.
+
 ---
 
 ## 3. Configurar el MCP + harness (elegí UNA forma)
