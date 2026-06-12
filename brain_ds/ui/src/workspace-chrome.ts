@@ -16,7 +16,8 @@ export interface WorkspaceChromeDeps {
 }
 
 // Rail icon names — defines the ordered tablist.
-const RAIL_NAMES = ["file-tree", "search", "filters", "hierarchy", "layout", "navigator"] as const;
+// "navigator" removed (duplicates file-tree/projects functionality).
+const RAIL_NAMES = ["file-tree", "search", "filters", "hierarchy", "layout"] as const;
 type RailName = (typeof RAIL_NAMES)[number];
 
 // Module-level state — single instance per page.
@@ -185,7 +186,6 @@ export function setActivePanel(name: string): void {
     "filters": new Set(["filters", "legend"]),
     "hierarchy": new Set(["hierarchy"]),
     "layout": new Set(["layout"]),
-    "navigator": new Set(["navigator"]),
   };
   const visible = sectionGroups[name] || sectionGroups["file-tree"];
   for (const sec of sections) {

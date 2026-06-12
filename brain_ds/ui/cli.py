@@ -127,7 +127,7 @@ def _run_ui(
         try:
             graph_path = project_root / "(stdin)"
             workspace = WorkspaceContext.from_root_and_graph(project_root, graph_path)
-            output_path = render_graph_data(
+            rendered_output = render_graph_data(
                 graph_dict,
                 output_path=output,
                 workspace=workspace,
@@ -145,7 +145,7 @@ def _run_ui(
             print("Error: pyvis not installed. Run: uv sync --extra simple", file=sys.stderr)
             return 1
 
-        print(f"HTML viewer generated: {output_path}")
+        print(f"HTML viewer generated: {rendered_output}")
         return 0
 
     json_path = Path(graph_json).resolve()
@@ -153,12 +153,12 @@ def _run_ui(
         print(f"Error: file not found: {json_path}", file=sys.stderr)
         return 2
 
-    output_path = Path(output).resolve() if output else None
+    render_output: Path | str | None = "-" if output == "-" else (Path(output).resolve() if output else None)
     try:
         workspace = WorkspaceContext.from_root_and_graph(project_root, json_path)
-        output_path = render_graph_file(
+        rendered_output = render_graph_file(
             json_path,
-            output_path=output_path,
+            output_path=render_output if isinstance(render_output, Path) else None,
             workspace=workspace,
             open_browser=open_browser,
             simple=simple,
@@ -174,7 +174,7 @@ def _run_ui(
         print("Error: pyvis not installed. Run: uv sync --extra simple", file=sys.stderr)
         return 1
 
-    print(f"HTML viewer generated: {output_path}")
+    print(f"HTML viewer generated: {rendered_output}")
     return 0
 
 
@@ -265,10 +265,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         # Same precedence as the UI: flag → env → cwd. The cwd fallback is what
         # lets a single global MCP entry follow the folder each session runs in.
-        project_root = args.project_root or os.environ.get("BRAIN_DS_PROJECT_ROOT") or str(Path.cwd())
+        project_root_arg = args.project_root or os.environ.get("BRAIN_DS_PROJECT_ROOT") or str(Path.cwd())
 
         try:
-            run_mcp_server(Path(project_root).resolve())
+            run_mcp_server(Path(project_root_arg).resolve())
             return 0
         except SecurityError as exc:
             print(f"Error: {exc}", file=sys.stderr)

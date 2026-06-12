@@ -1331,19 +1331,20 @@ class TestWorkspaceShellPr15ChromePolish(unittest.TestCase):
         )
 
     def test_tab_close_buttons_have_catalog_id(self):
-        """Each tab's close button MUST have data-catalog-id='tab-close'."""
+        """Each tab close button MUST carry the tabs.ts close-target attribute."""
+        tabs_text = (Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src" / "tabs.ts").read_text(encoding="utf-8")
         self.assertIn(
-            'data-catalog-id="tab-close"',
-            self.template_text,
-            "Expected data-catalog-id='tab-close' on tab close button (section-4 pattern)",
+            "data-tab-close-for",
+            tabs_text,
+            "Expected data-tab-close-for on tab close button (current tabs.ts contract)",
         )
 
     def test_tab_new_button_present(self):
-        """New-tab button MUST be present as a separate 44×36 button with data-catalog-id='tab-new'."""
+        """New-tab button MUST be present as a separate 44×36 button."""
         self.assertIn(
-            'data-catalog-id="tab-new"',
+            'class="tab-new"',
             self.template_text,
-            "Expected data-catalog-id='tab-new' on new-tab button (section-4 pattern)",
+            "Expected standalone .tab-new button in the tab strip",
         )
 
     # ── T2: Toolbar zones — all four present ─────────────────────────────────
@@ -2829,9 +2830,10 @@ class TestWorkspaceControlsWiring(unittest.TestCase):
                           f"Rail icon '{name}' MUST have data-rail-icon")
 
     def test_tab_close_carries_data_catalog_id(self):
-        """Tab-close button MUST carry data-catalog-id='tab-close'."""
-        self.assertIn('data-catalog-id="tab-close"', self.html,
-                      "Tab-close button MUST have data-catalog-id='tab-close'")
+        """Tab-close button MUST carry data-tab-close-for for tabs.ts delegation."""
+        tabs_text = (Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src" / "tabs.ts").read_text(encoding="utf-8")
+        self.assertIn('data-tab-close-for', tabs_text,
+                      "Tab-close button MUST have data-tab-close-for")
 
     def test_workspace_chrome_mount_in_inline_script(self):
         """Inline script MUST call workspaceChrome.mount after contextMenu.mount."""
@@ -2855,12 +2857,12 @@ class TestWorkspaceControlsWiring(unittest.TestCase):
                       "panel-collapse handler MUST reference aria-expanded")
 
     def test_tab_close_inline_handler_present(self):
-        """Inline script MUST include a tab-close handler."""
+        """Inline script MUST mount the tabs module; close handling lives in tabs.ts."""
         import re
         scripts = re.findall(r"<script>([\s\S]*?)</script>", self.html)
         inline = scripts[-1] if scripts else ""
-        self.assertIn("tab-close", inline,
-                      "Inline script MUST wire a tab-close handler")
+        self.assertIn("window.brainDsUI.tabs.mount", inline,
+                      "Inline script MUST mount the tabs module")
 
     def test_viewer_bundle_includes_workspace_overflow_management_contract(self):
         """Compiled viewer bundle MUST include workspace overflow manager contract."""

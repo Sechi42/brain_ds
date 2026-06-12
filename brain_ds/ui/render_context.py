@@ -4,8 +4,9 @@ from collections import defaultdict
 from dataclasses import dataclass
 import logging
 from pathlib import Path
+from typing import Any
 
-from brain_ds.ontology import Graph
+from brain_ds.ontology import EntityType, Graph, RelationshipType
 import networkx as nx
 
 from .theme import color_for_type
@@ -52,7 +53,7 @@ _workspace_fallback_warned = False
 
 def build_render_context(graph: Graph, workspace: WorkspaceContext | None = None, *, graph_id: str | None = None) -> dict:
     adjacency: dict[str, set[str]] = defaultdict(set)
-    incident_edges: dict[str, list] = defaultdict(list)
+    incident_edges: dict[str, list[Any]] = defaultdict(list)
     component_ids = _compute_components(graph)
     evidence_records_map = {
         item.id: {
@@ -70,17 +71,18 @@ def build_render_context(graph: Graph, workspace: WorkspaceContext | None = None
     workspace_meta = _compute_workspace_meta(workspace)
     node_evidence_ids = {node.id: (node.evidence_ids or []) for node in graph.nodes if node.id}
 
-    nodes = []
+    nodes: list[dict[str, Any]] = []
     for node in graph.nodes:
         if not node.id:
             continue
-        node_type = node.type.value
+        entity_type = _entity_type(node.type)
+        node_type = entity_type.value
         nodes.append(
             {
                 "id": node.id,
                 "label": node.label or node.id,
                 "type": node_type,
-                "supertype": node.supertype or node.type.supertype,
+                "supertype": node.supertype or entity_type.supertype,
                 "color": {
                     "background": color_for_type(node_type, "dark"),
                     "dark": color_for_type(node_type, "dark"),
@@ -93,10 +95,11 @@ def build_render_context(graph: Graph, workspace: WorkspaceContext | None = None
             }
         )
 
-    edges = []
+    edges: list[dict[str, Any]] = []
     for edge in graph.edges:
         if not edge.source or not edge.target:
             continue
+        relationship_type = _relationship_type(edge.label)
         adjacency[edge.source].add(edge.target)
         adjacency[edge.target].add(edge.source)
         incident_edges[edge.source].append(edge)
@@ -106,14 +109,14 @@ def build_render_context(graph: Graph, workspace: WorkspaceContext | None = None
             {
                 "from": edge.source,
                 "to": edge.target,
-                "label": edge.label.value,
-                "title": _edge_title(edge.label.value, edge.reasons),
+                "label": relationship_type.value,
+                "title": _edge_title(relationship_type.value, edge.reasons),
                 "width": 1.0 + ((edge.weight or 0.0) * 4.0),
                 "score": float(edge.weight or 0.0),
             }
         )
 
-    type_buckets: dict[str, dict[str, dict]] = defaultdict(dict)
+    type_buckets: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
     for item in nodes:
         supertype = item["supertype"]
         node_type = item["type"]
@@ -125,21 +128,22 @@ def build_render_context(graph: Graph, workspace: WorkspaceContext | None = None
             }
         type_buckets[supertype][node_type]["count"] += 1
 
-    type_groups = [
-        {
-            "supertype": supertype,
-            "types": sorted(payload.values(), key=lambda entry: entry["type"].lower()),
-        }
-        for supertype, payload in sorted(type_buckets.items(), key=lambda kv: kv[0].lower())
-    ]
+    type_groups = []
+    for supertype, payload in sorted(type_buckets.items(), key=lambda kv: kv[0].lower()):
+        type_groups.append(
+            {
+                "supertype": supertype,
+                "types": sorted(list(payload.values()), key=_type_bucket_sort_key),
+            }
+        )
 
     detail_index, evidence_records = _build_detail_index(graph)
 
-    for node in nodes:
-        node_id = node["id"]
-        node["score"] = _compute_node_score(node_id, incident_edges)
-        node["updated_at"] = _compute_node_updated_at(node_evidence_ids.get(node_id, []), evidence_records_map, generated_at)
-        node["neighbor_count"] = _compute_neighbor_count(node_id, adjacency)
+    for node_payload in nodes:
+        node_id = str(node_payload["id"])
+        node_payload["score"] = _compute_node_score(node_id, incident_edges)
+        node_payload["updated_at"] = _compute_node_updated_at(node_evidence_ids.get(node_id, []), evidence_records_map, generated_at)
+        node_payload["neighbor_count"] = _compute_neighbor_count(node_id, adjacency)
 
     return {
         "contract_version": CONTRACT_VERSION,
@@ -164,7 +168,7 @@ def build_render_context(graph: Graph, workspace: WorkspaceContext | None = None
     }
 
 
-def _compute_node_score(node_id: str, incident_edges: dict[str, list]) -> float:
+def _compute_node_score(node_id: str, incident_edges: dict[str, list[Any]]) -> float:
     node_incident_edges = incident_edges.get(node_id, [])
     if not node_incident_edges:
         return 0.0
@@ -175,7 +179,7 @@ def _compute_neighbor_count(node_id: str, adjacency: dict[str, set[str]]) -> int
     return len(adjacency.get(node_id, set()))
 
 
-def _compute_node_updated_at(evidence_ids: list[str], evidence_records: dict[str, dict], fallback: str) -> str:
+def _compute_node_updated_at(evidence_ids: list[str], evidence_records: dict[str, dict[str, Any]], fallback: str) -> str:
     incident_timestamps = [
         evidence_records[evidence_id]["timestamp"]
         for evidence_id in evidence_ids
@@ -226,7 +230,7 @@ def _edge_title(label: str, reasons: list[str] | None) -> str:
     return label
 
 
-def _node_title(details: dict, card_sections: list | None) -> str:
+def _node_title(details: dict[str, Any], card_sections: list[Any] | None) -> str:
     if card_sections:
         parts = [
             f"<b>{section.title}</b>: {section.content}"
@@ -241,7 +245,7 @@ def _node_title(details: dict, card_sections: list | None) -> str:
     )
 
 
-def _build_detail_index(graph: Graph) -> tuple[dict[str, dict], dict[str, dict]]:
+def _build_detail_index(graph: Graph) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
     evidence_records = {
         item.id: {
             "id": item.id,
@@ -256,42 +260,50 @@ def _build_detail_index(graph: Graph) -> tuple[dict[str, dict], dict[str, dict]]
     }
 
     node_lookup = {node.id: node for node in graph.nodes if node.id}
-    incoming_by_target: dict[str, list[dict]] = defaultdict(list)
-    outgoing_by_source: dict[str, list[dict]] = defaultdict(list)
+    incoming_by_target: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    outgoing_by_source: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     for edge in graph.edges:
         if not edge.source or not edge.target:
             continue
+        relationship_type = _relationship_type(edge.label)
+        source_node = node_lookup.get(edge.source)
+        target_node = node_lookup.get(edge.target)
         relation = {
-            "edge_label": edge.label.value,
+            "edge_label": relationship_type.value,
             "source_id": edge.source,
-            "source_label": node_lookup.get(edge.source).label if node_lookup.get(edge.source) else edge.source,
+            "source_label": source_node.label if source_node else edge.source,
             "target_id": edge.target,
-            "target_label": node_lookup.get(edge.target).label if node_lookup.get(edge.target) else edge.target,
+            "target_label": target_node.label if target_node else edge.target,
             "reasons": edge.reasons or [],
             "evidence_ids": edge.evidence_ids or [],
         }
         outgoing_by_source[edge.source].append(relation)
         incoming_by_target[edge.target].append(relation)
 
-    detail_index: dict[str, dict] = {}
+    detail_index: dict[str, dict[str, Any]] = {}
     for node in graph.nodes:
         if not node.id:
             continue
+        entity_type = _entity_type(node.type)
 
         detail_index[node.id] = {
             "node": {
                 "id": node.id,
                 "label": node.label or node.id,
-                "type": node.type.value,
-                "supertype": node.supertype or node.type.supertype,
+                "type": entity_type.value,
+                "supertype": node.supertype or entity_type.supertype,
                 "color": {
-                    "background": color_for_type(node.type.value, "dark"),
-                    "dark": color_for_type(node.type.value, "dark"),
-                    "light": color_for_type(node.type.value, "light"),
+                    "background": color_for_type(entity_type.value, "dark"),
+                    "dark": color_for_type(entity_type.value, "dark"),
+                    "light": color_for_type(entity_type.value, "light"),
                 },
             },
-            "sections": _node_sections(node.details or {}, node.card_sections, node.type),
+            "sections": _node_sections(node.details or {}, node.card_sections, entity_type),
+            # Free-form per-node notes stored in details.notes (string).
+            # Exposed here so the reader can render and edit it without a
+            # round-trip — the PATCH /api/nodes endpoint merges details fields.
+            "notes": (node.details or {}).get("notes", "") if node.details else "",
             "evidence": [
                 evidence_records[evidence_id]
                 for evidence_id in (node.evidence_ids or [])
@@ -307,11 +319,11 @@ def _build_detail_index(graph: Graph) -> tuple[dict[str, dict], dict[str, dict]]
     return detail_index, evidence_records
 
 
-def _node_sections(details: dict, card_sections: list | None, entity_type) -> list[dict]:
+def _node_sections(details: dict[str, Any], card_sections: list[Any] | None, entity_type: EntityType) -> list[dict[str, Any]]:
     if card_sections is not None:
         expected = [title.strip().lower() for title in (entity_type.expected_sections or [])]
         present = {section.title.strip().lower(): section for section in (card_sections or [])}
-        sections = []
+        sections: list[dict[str, Any]] = []
         for section in sorted(card_sections, key=lambda item: item.order):
             if not section.content:
                 continue
@@ -368,11 +380,11 @@ def _node_sections(details: dict, card_sections: list | None, entity_type) -> li
         ("Where", "where", 3),
         ("Learned", "learned", 4),
     )
-    sections = []
+    fallback_sections: list[dict[str, Any]] = []
     for title, key, order in fallback_fields:
         value = details.get(key)
         if value:
-            sections.append(
+            fallback_sections.append(
                 {
                     "title": title,
                     "content": value,
@@ -383,7 +395,7 @@ def _node_sections(details: dict, card_sections: list | None, entity_type) -> li
                     "is_gap": False,
                 }
             )
-    return sections
+    return fallback_sections
 
 
 def _compute_components(graph: Graph) -> dict[str, int]:
@@ -392,3 +404,17 @@ def _compute_components(graph: Graph) -> dict[str, int]:
     network.add_edges_from((edge.source, edge.target) for edge in graph.edges if edge.source and edge.target)
     components = sorted(nx.connected_components(network), key=lambda component: (-len(component), min(component)))
     return {node_id: index for index, component in enumerate(components) for node_id in component}
+
+
+def _entity_type(value: EntityType | str) -> EntityType:
+    return value if isinstance(value, EntityType) else EntityType.from_string(value)
+
+
+def _relationship_type(value: RelationshipType | str) -> RelationshipType:
+    return value if isinstance(value, RelationshipType) else RelationshipType.from_string(value)
+
+
+def _type_bucket_sort_key(entry: Any) -> str:
+    if isinstance(entry, dict):
+        return str(entry.get("type", "")).lower()
+    return str(entry).lower()

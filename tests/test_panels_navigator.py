@@ -12,8 +12,8 @@ class TestPR4NavigatorContracts(unittest.TestCase):
 
     def test_navigator_panel_exists_with_heading(self):
         src = TEMPLATE.read_text(encoding="utf-8")
-        self.assertIn('data-accordion-section="navigator"', src)
-        self.assertRegex(src, r">\s*(NAVEGADOR|BROWSER)\s*<")
+        self.assertNotIn('<section class="panel-card" data-accordion-section="navigator"', src)
+        self.assertIn('navigator panel-card removed: see Proyectos section for equivalent functionality', src)
 
     def test_navigator_mount_uses_select_and_reveal(self):
         src = TEMPLATE.read_text(encoding="utf-8")
@@ -51,9 +51,9 @@ class TestPR4NavigatorContracts(unittest.TestCase):
 
     def test_workspace_chrome_includes_navigator_rail_mapping(self):
         src = WORKSPACE_CHROME.read_text(encoding="utf-8")
-        self.assertIn('"navigator"', src)
+        self.assertIn('const RAIL_NAMES = ["file-tree", "search", "filters", "hierarchy", "layout"] as const;', src)
         self.assertIn('"layout": new Set(["layout"])', src)
-        self.assertIn('"navigator": new Set(["navigator"])', src)
+        self.assertNotIn('"navigator": new Set(["navigator"])', src)
 
 
 if __name__ == "__main__":

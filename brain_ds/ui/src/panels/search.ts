@@ -55,22 +55,53 @@ function _addListener(el: EventTarget, type: string, fn: EventListener): void {
 }
 
 /**
- * topMatches — port from template inline script.
- * Returns up to 10 nodes matching query by label or id (case-insensitive).
- * Exact label matches sorted first, then alphabetical.
+ * topMatches — accent-insensitive, ranked node search.
+ * Matching is case- and diacritic-insensitive ("operacion" finds "Operación"),
+ * tolerates word order ("ventas sit" finds "SIT — registro de ventas") and
+ * falls back to an in-order character subsequence for mild typos.
+ * Ranking: exact > prefix > substring > all-tokens > id/type > subsequence.
  */
+const _normCache = new Map<string, string>();
+
+function _normalize(text: string): string {
+  let cached = _normCache.get(text);
+  if (cached === undefined) {
+    cached = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (_normCache.size < 20000) _normCache.set(text, cached);
+  }
+  return cached;
+}
+
+function _isSubsequence(query: string, target: string): boolean {
+  let qi = 0;
+  for (let ti = 0; ti < target.length && qi < query.length; ti++) {
+    if (target[ti] === query[qi]) qi++;
+  }
+  return qi === query.length;
+}
+
+function _scoreNode(query: string, queryTokens: string[], node: SearchNode): number {
+  const label = _normalize(node.label);
+  if (label === query) return 100;
+  if (label.startsWith(query)) return 80;
+  if (label.includes(query)) return 60;
+  if (queryTokens.length > 1 && queryTokens.every((t) => label.includes(t))) return 55;
+  if (_normalize(node.id).includes(query)) return 50;
+  if (_normalize(node.type).includes(query)) return 40;
+  if (query.length >= 3 && _isSubsequence(query, label)) return 25;
+  return 0;
+}
+
 function topMatches(q: string, allNodes: SearchNode[]): SearchNode[] {
   if (!q) return [];
-  const query = q.toLowerCase();
+  const query = _normalize(q);
+  const queryTokens = query.split(/\s+/).filter(Boolean);
   return allNodes
-    .filter((n) => n.label.toLowerCase().includes(query) || n.id.toLowerCase().includes(query))
-    .sort(
-      (a, b) =>
-        Number(!(a.label.toLowerCase() === query)) -
-        Number(!(b.label.toLowerCase() === query)) ||
-        a.label.localeCompare(b.label),
-    )
-    .slice(0, 10);
+    .map((n) => ({ node: n, score: _scoreNode(query, queryTokens, n) }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.node.label.localeCompare(b.node.label))
+    .slice(0, 10)
+    .map((entry) => entry.node);
 }
 
 /**

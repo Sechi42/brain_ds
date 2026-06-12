@@ -7,13 +7,15 @@ This directory contains Playwright specs for validating the brain_ds ecosystem a
 | Spec | What it validates | Requires running server? |
 |------|-------------------|--------------------------|
 | `smoke.spec.ts` | Template HTML structure (static) | No — uses `page.setContent` |
-| `ecosystem.spec.ts` | Live server → browser flow | **Yes** — expects server on port 7777 |
+| `ecosystem.spec.ts` | Live server → browser flow | No for the full suite — `global-setup.ts` starts an isolated server automatically; yes only when you run the spec directly against your own server |
 
 ## Running ecosystem validation
 
 ### Prerequisites
 
-The ecosystem spec expects a brain_ds server running on `http://127.0.0.1:7777`.
+The full Playwright suite now boots its own isolated brain_ds server in `global-setup.ts` and injects the runtime URL through `BRAIN_DS_ECOSYSTEM_URL`.
+
+If you want to run `ecosystem.spec.ts` directly against your own long-lived server, it still falls back to `http://127.0.0.1:7777`.
 
 **Start the server (port 7777):**
 

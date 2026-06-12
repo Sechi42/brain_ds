@@ -12,7 +12,11 @@ CONTRAST_AUDIT_PATH = Path("brain_ds/ui/contrast-audit.json")
 
 def _hex_to_rgb(hex_color: str) -> tuple[float, float, float]:
     value = hex_color.lstrip("#")
-    return tuple(int(value[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
+    return (
+        int(value[0:2], 16) / 255.0,
+        int(value[2:4], 16) / 255.0,
+        int(value[4:6], 16) / 255.0,
+    )
 
 
 def _linearize(channel: float) -> float:

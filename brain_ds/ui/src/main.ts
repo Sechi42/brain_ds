@@ -12,6 +12,8 @@ import * as liveSync from './live/live-sync';
 import { motionEnabled } from './motion/motion';
 import * as workspaceChrome from './workspace-chrome';
 import * as rendererD4 from './renderer-d4';
+import * as tabs from './tabs';
+import * as brdPanel from './panels/brd-panel';
 
 declare global {
   interface Window {
@@ -34,6 +36,8 @@ declare global {
       motion: { motionEnabled: typeof motionEnabled };
       workspaceChrome: typeof workspaceChrome;
       rendererD4: typeof rendererD4;
+      tabs: typeof tabs;
+      brdPanel: typeof brdPanel;
     };
   }
 }
@@ -42,6 +46,7 @@ declare global {
 // can delegate DOM construction to them.
 // PR 3: detailPanel added. PR 4: search added. PR 5: filterPanel, scoreFilter added.
 // PR 6: contextMenu, popover added. PR 7: workspaceChrome added (Slice 1 P0).
+// PR 8: tabs (functional graph tabs) and brdPanel added.
 window.brainDsUI = {
   detailPanel,
   network: null,
@@ -56,6 +61,8 @@ window.brainDsUI = {
   motion: { motionEnabled },
   workspaceChrome,
   rendererD4,
+  tabs,
+  brdPanel,
 };
 
 // Network ownership is template-driven (`graph_viewer.html`) to avoid

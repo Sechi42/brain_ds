@@ -1317,8 +1317,8 @@ console.log(JSON.stringify({searchSelected,fileTreeDeselected,searchTab0,fileTre
             self.assertTrue(out["fileTreeScoreHidden"], "score MUST be hidden when file-tree is active")
             self.assertTrue(out["doubleClickNoOp"], "double setActivePanel on same panel MUST be no-op")
 
-    def test_left_collapse_aria_expanded_and_tab_close(self):
-        """Left panel-collapse aria-expanded round-trip and tab-close hides .tab-item.
+    def test_left_collapse_aria_expanded_and_tabs_mount(self):
+        """Left panel-collapse aria-expanded round-trip and inline script mounts tabs.
 
         Uses the inline-script-only eval pattern: extracts the inline app-script
         portion (starting at 'const RENDER_CONTEXT') so that only the template's
@@ -1383,16 +1383,8 @@ collapseBtn.attrs["aria-expanded"]="true";
 leftShell.appendChild(collapseBtn);
 body.appendChild(leftShell);
 
-// Tab item + close button
-const tabItem=mk("tab-item-wc","div");
-tabItem.className="tab-item";
-tabItem.hidden=false;
-const tabClose=mk("tab-close-wc","button");
-tabClose.className="tab-close";
-tabClose.attrs["data-catalog-id"]="tab-close";
-tabClose.parentNode=tabItem;
-tabItem.appendChild(tabClose);
-body.appendChild(tabItem);
+const graphTabStrip = mk("graph-tab-strip", "div");
+body.appendChild(graphTabStrip);
 
 // Required IDs for inline script
 const ids=["org-name","org-meta","org-ts","network","detail-panel","detail-collapse","detail-close","score-badge","score-threshold-slider","theme-toggle","detail-panel-backdrop","viewer-loading","viewer-empty","empty-reset-filters","viewer-live-region","detail-body","search-results","node-search","type-filters","legend","show-all","hide-all","toggle-hierarchical","toggle-physics","zoom-fit","edit-toggle","export-json","search-group","controls","detail-title","detail-meta","tree-filter-chip","workspace-view-org","workspace-view-nodes","workspace-view-edges","center-split"];
@@ -1408,7 +1400,6 @@ const document={
     if(sel===".controls") return byId.get("controls")||null;
     if(sel===".left-panel-shell") return byId.get("left-panel-shell-wc")||null;
     if(sel===".panel-collapse") return byId.get("panel-collapse-wc")||null;
-    if(sel==='[data-catalog-id="tab-close"]') return byId.get("tab-close-wc")||null;
     if(sel&&sel.startsWith("#")) return byId.get(sel.slice(1))||null;
     return null;
   },
@@ -1416,6 +1407,7 @@ const document={
   addEventListener:()=>{}, removeEventListener:()=>{},
   documentElement:new El("html")
 };
+let tabsMountCalled = false;
 const windowObj={
   document,
   vis:{ DataSet:function(items){ this._items=items||[]; this.update=()=>{}; this.get=()=>this._items||[]; }, Network:function(){ this._h={}; this.on=(ev,fn)=>{this._h[ev]=fn;}; this.once=(ev,fn)=>{this._h[ev]=fn;}; this.fit=()=>{}; this.setOptions=()=>{}; this.redraw=()=>{}; this.canvas={focus:()=>{}}; }},
@@ -1429,6 +1421,7 @@ const windowObj={
     contextMenu:{mount:()=>{}},
     liveSync:{ LiveDataStore:function(){this.getNodes=()=>[];this.getEdges=()=>[];this.dispose=()=>{};this.syncWithServer=()=>{};}, connectWebSocket:()=>{}, connect:()=>{} },
     splitPane:{mount:()=>({unmount:()=>{}})},
+    tabs:{mount:()=>{ tabsMountCalled = true; }},
     workspaceChrome:{mount:()=>{},unmount:()=>{},setActivePanel:()=>{}},
     motion:{motionEnabled:()=>true},
   },
@@ -1450,11 +1443,7 @@ collapseBtn.dispatch("click",{});
 const afterSecond=collapseBtn.getAttribute("aria-expanded");
 const collapsedClassAfterSecond=leftShell.classList.contains("collapsed");
 
-// TEST: tab-close hides .tab-item
-tabClose.dispatch("click",{});
-const tabItemHidden=tabItem.hidden===true||tabItem.classList.contains("hidden");
-
-console.log(JSON.stringify({initialExpanded,afterFirst,afterSecond,collapsedClassAfterFirst,collapsedClassAfterSecond,tabItemHidden}));
+console.log(JSON.stringify({initialExpanded,afterFirst,afterSecond,collapsedClassAfterFirst,collapsedClassAfterSecond,tabsMountCalled}));
 '''
             out = _run_node(code, str(html_path))
             self.assertEqual(out["initialExpanded"], "true",
@@ -1467,11 +1456,11 @@ console.log(JSON.stringify({initialExpanded,afterFirst,afterSecond,collapsedClas
                             "Left shell MUST add .collapsed class when panel is collapsed")
             self.assertFalse(out["collapsedClassAfterSecond"],
                              "Left shell MUST remove .collapsed class when panel re-expands")
-            self.assertTrue(out["tabItemHidden"],
-                            "tab-close click MUST hide the .tab-item")
+            self.assertTrue(out["tabsMountCalled"],
+                            "Inline script MUST mount the tabs module")
 
     def test_slice2_right_collapse_splitpane_overflow_and_single_tab_layout(self):
-        """Slice 2 RED: right collapse, split-pane mount, overflow dismiss, single-tab layout intact."""
+        """Slice 2 runtime: right collapse, split-pane mount, overflow dismiss, tabs mount intact."""
         html = self._render_html()
         with tempfile.TemporaryDirectory() as tmp:
             html_path = Path(tmp) / "wc-slice2-runtime.html"
@@ -1547,12 +1536,14 @@ body.appendChild(hideMarkdown);
 const tabItem=mk("tab-item-wc","div");
 tabItem.className="tab-item";
 const tabClose=mk("tab-close-wc","button");
-tabClose.attrs["data-catalog-id"]="tab-close";
+tabClose.attrs["data-tab-close-for"]="tab-active";
 tabItem.appendChild(tabClose);
 body.appendChild(tabItem);
 const tabNew=mk("tab-new-wc","button");
 tabNew.className="tab-new";
 body.appendChild(tabNew);
+const graphTabStrip = mk("graph-tab-strip", "div");
+body.appendChild(graphTabStrip);
 const workspace=mk("workspace-shell","main");
 workspace.className="workspace-shell";
 body.appendChild(workspace);
@@ -1579,7 +1570,6 @@ const document={
     if(sel===".controls") return byId.get("controls")||null;
     if(sel===".right-panel-shell") return byId.get("right-panel-shell-wc")||null;
     if(sel===".panel-collapse-right") return byId.get("panel-collapse-right-wc")||null;
-    if(sel==='[data-catalog-id="tab-close"]') return byId.get("tab-close-wc")||null;
     if(sel==='[data-catalog-id="overflow"]') return byId.get("overflow-btn-wc")||null;
     if(sel==='[data-rail-side="left"]') return byId.get("left-rail")||null;
     if(sel==='.panel.controls') return byId.get("left-panel")||null;
@@ -1602,6 +1592,7 @@ const splitPane = {
   }
 };
 
+let tabsMountCalled = false;
 const windowObj={
   document,
   vis:{ DataSet:function(items){ this._items=items||[]; this.update=()=>{}; this.get=()=>this._items||[]; }, Network:function(){ this._h={}; this.on=(ev,fn)=>{this._h[ev]=fn;}; this.once=(ev,fn)=>{this._h[ev]=fn;}; this.fit=()=>{}; this.setOptions=()=>{}; this.redraw=()=>{}; this.canvas={focus:()=>{}}; }},
@@ -1611,6 +1602,7 @@ const windowObj={
     popover:{mount:()=>{}}, contextMenu:{mount:()=>{}},
     liveSync:{ LiveDataStore:function(){this.getNodes=()=>[];this.getEdges=()=>[];this.dispose=()=>{};this.syncWithServer=()=>{};}, connectWebSocket:()=>{}, connect:()=>{} },
     splitPane,
+    tabs:{mount:()=>{ tabsMountCalled = true; }},
     workspaceChrome:{mount:()=>{},unmount:()=>{},setActivePanel:()=>{}},
     motion:{motionEnabled:()=>true},
   },
@@ -1646,8 +1638,6 @@ if ((docListeners["pointerdown"]||[]).length) {
 const menuClosedByOutside = !body.children.some((c)=>c.attrs&&c.attrs["role"]==="menu");
 
 const layoutBeforeClose = workspace.className;
-tabClose.dispatch("click",{});
-const tabHidden = tabItem.hidden===true || tabItem.classList.contains("hidden");
 const tabNewStillVisible = !tabNew.hidden;
 const layoutAfterClose = workspace.className;
 
@@ -1655,7 +1645,7 @@ console.log(JSON.stringify({
   rightStart, rightAfterFirst, rightAfterSecond, rightCollapsedClassAfterFirst,
   splitAfterShowMore, splitAfterHide,
   menuOpen, overflowExpandedAfterEsc, escFocusRestored, menuClosedByOutside,
-  tabHidden, tabNewStillVisible, layoutBeforeClose, layoutAfterClose
+  tabsMountCalled, tabNewStillVisible, layoutBeforeClose, layoutAfterClose
 }));
 '''
             out = _run_node(code, str(html_path))
@@ -1669,7 +1659,7 @@ console.log(JSON.stringify({
             self.assertEqual(out["overflowExpandedAfterEsc"], "false")
             self.assertTrue(out["escFocusRestored"])
             self.assertTrue(out["menuClosedByOutside"])
-            self.assertTrue(out["tabHidden"])
+            self.assertTrue(out["tabsMountCalled"])
             self.assertTrue(out["tabNewStillVisible"])
             self.assertEqual(out["layoutBeforeClose"], out["layoutAfterClose"])
 
@@ -2222,11 +2212,14 @@ class TestLiveSyncPhase4Audit(unittest.TestCase):
             "const adjacency = RENDER_CONTEXT.adjacency || {};",
             "RENDER_CONTEXT,",
             "window.brainDsUI.popover.mount({ network, RENDER_CONTEXT });",
+            "const allNodes = (RENDER_CONTEXT && RENDER_CONTEXT.nodes) ? RENDER_CONTEXT.nodes : [];",
+            "const detailIndex = (RENDER_CONTEXT && RENDER_CONTEXT.detail_index) ? RENDER_CONTEXT.detail_index : {};",
+            "const n = (RENDER_CONTEXT.nodes || []).find(",
         ]
         lines_with_context = [
             line.strip() for line in self.template_text.splitlines() if "RENDER_CONTEXT" in line
         ]
-        self.assertEqual(len(lines_with_context), 14)
+        self.assertEqual(len(lines_with_context), 17)
         for line in lines_with_context:
             self.assertTrue(any(token in line for token in allowed_literals), f"Unexpected RENDER_CONTEXT usage: {line}")
 

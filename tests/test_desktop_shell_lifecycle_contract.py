@@ -19,6 +19,7 @@ class DesktopShellLifecycleContractTests(unittest.TestCase):
             re.DOTALL,
         )
         self.assertIsNotNone(launch_match, "launch_with_project_root contract must exist")
+        assert launch_match is not None
         body = launch_match.group("body")
 
         ordered_calls = [
@@ -44,6 +45,7 @@ class DesktopShellLifecycleContractTests(unittest.TestCase):
             re.DOTALL,
         )
         self.assertIsNotNone(spawn_match, "spawn_sidecar contract must exist")
+        assert spawn_match is not None
         body = spawn_match.group("body")
 
         required_args = [

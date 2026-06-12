@@ -183,7 +183,7 @@ def _scan_project_root(project_root: Path, store: GraphStore) -> list[str]:
     known_sources = {
         str(Path(item.imported_from).resolve())
         for item in store.list_graphs()
-        if getattr(item, "imported_from", None)
+        if item.imported_from
     }
 
     candidates = list(root.glob("*.json"))

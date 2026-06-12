@@ -32,6 +32,7 @@
         "supertype": "problem",
         "type": "Problem / Improvement Area"
       },
+      "notes": "",
       "relationships": {
         "incoming": [],
         "outgoing": [
@@ -62,6 +63,7 @@
         "supertype": "problem",
         "type": "Unknown"
       },
+      "notes": "",
       "relationships": {
         "incoming": [
           {
@@ -101,8 +103,8 @@
   },
   "meta": {
     "edge_count": 1,
-    "graph_id": "",
     "generated_at": "2026-05-20T10:00:00Z",
+    "graph_id": "",
     "node_count": 2,
     "org": "Golden Problem",
     "workspace": {

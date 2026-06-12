@@ -99,7 +99,8 @@ class TestCanvasRendererContracts(unittest.TestCase):
         self.assertRegex(self.js_text, r"Math\.sqrt\(")
 
     def test_node_radius_importance_and_edge_rendering_foundation(self):
-        self.assertRegex(self.js_text, r"max\(\s*8\s*,\s*degree\s*\*\s*2\s*\+\s*8\s*\)")
+        self.assertIn("Math.min(30, 8 + Math.sqrt(degree) * 3.5)", self.js_text)
+        self.assertIn("Math.max(12, radiusBase + Math.min(10, Math.max(0, importance)))", self.js_text)
         self.assertIn("arc(", self.js_text)
         self.assertIn("setLineDash", self.js_text)
         self.assertIn("lineDashOffset", self.js_text)

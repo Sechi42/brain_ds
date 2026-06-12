@@ -75,8 +75,12 @@ def _parse_obsidian_tokens(css: str) -> dict:
 class TestObsidianPaletteContrast(unittest.TestCase):
     """R13: WCAG AA/AAA contrast assertions for the Obsidian palette tokens."""
 
+    exists: bool
+    html: str
+    tokens: dict[str, str]
+
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         cls.exists = TEMPLATE_PATH.exists()
         if cls.exists:
             cls.html = TEMPLATE_PATH.read_text(encoding="utf-8")
@@ -85,7 +89,7 @@ class TestObsidianPaletteContrast(unittest.TestCase):
             cls.html = ""
             cls.tokens = {}
 
-    def _require_template(self):
+    def _require_template(self) -> None:
         if not self.exists:
             self.fail(f"canonical tokens.css not found at {TEMPLATE_PATH}")
 

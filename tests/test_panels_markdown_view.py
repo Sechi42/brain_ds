@@ -40,7 +40,7 @@ class TestMarkdownFullPanelReaderPR3(unittest.TestCase):
         self.assertIn("event.key === 'Escape'", self.split_text)
         # Guarded restore: previousLayout must never re-enter 'reader' (back-trap bug).
         self.assertIn(
-            "root.setAttribute('data-layout', previousLayout === 'reader' ? 'collapsed' : previousLayout)",
+            "_root.setAttribute('data-layout', _previousLayout === 'reader' ? 'collapsed' : _previousLayout)",
             self.split_text,
         )
 

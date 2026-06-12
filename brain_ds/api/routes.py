@@ -70,8 +70,16 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
             existing_nodes = store.query_nodes(graph_id)
         except GraphNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        if not any(item.id == node_id for item in existing_nodes):
+        existing = next((item for item in existing_nodes if item.id == node_id), None)
+        if existing is None:
             raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found in graph '{graph_id}'")
+        # If caller sends changes.details as a dict, merge it into the existing
+        # details rather than replacing the whole blob.  This lets the UI save a
+        # single field (e.g. details.notes) without touching other details fields.
+        if "details" in changes and isinstance(changes["details"], dict):
+            existing_details = dict(existing.details or {})
+            existing_details.update(changes["details"])
+            changes = {**changes, "details": existing_details}
         node_payload = {"id": node_id, **changes}
         try:
             store.upsert_node(graph_id, node_payload)

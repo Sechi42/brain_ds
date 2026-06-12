@@ -161,14 +161,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Error: file not found: {json_path}", file=sys.stderr)
         return 2
 
-    output = "-" if args.output == "-" else (Path(args.output).resolve() if args.output else None)
+    output: Path | str | None = "-" if args.output == "-" else (Path(args.output).resolve() if args.output else None)
     if args.open_browser and output == "-":
         print("Error: cannot use --open with --output -", file=sys.stderr)
         return 2
     try:
         output_path = render_graph_file(
             json_path,
-            output_path=output,
+            output_path=output if isinstance(output, Path) else None,
             open_browser=args.open_browser,
             simple=args.simple,
             force=False,

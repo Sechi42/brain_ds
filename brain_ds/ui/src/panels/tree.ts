@@ -78,7 +78,11 @@ export function mount(root: HTMLElement | null, deps: MountDeps): void {
         const typeBtn = document.createElement("button");
         typeBtn.type = "button";
         typeBtn.className = "tree-node";
-        typeBtn.textContent = `${typeName} (${typeNodes.length || Number(typeEntry.count || 0)})`;
+        typeBtn.textContent = typeName;
+        const countPill = document.createElement("span");
+        countPill.className = "tree-node-count";
+        countPill.textContent = String(typeNodes.length || Number(typeEntry.count || 0));
+        typeBtn.appendChild(countPill);
         row.appendChild(typeBtn);
         section.appendChild(row);
 
@@ -89,7 +93,7 @@ export function mount(root: HTMLElement | null, deps: MountDeps): void {
             const nodeBtn = document.createElement("button");
             nodeBtn.type = "button";
             nodeBtn.className = "tree-node";
-            nodeBtn.style.marginLeft = "44px";
+            nodeBtn.style.marginLeft = "28px";
             nodeBtn.textContent = String(node.label || node.id);
             const onClick = () => {
               if (typeof deps.onNodeFocus === "function") deps.onNodeFocus(String(node.id));

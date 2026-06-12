@@ -173,6 +173,7 @@
     if (this.data.edges && this.data.edges._subscribe) this.data.edges._subscribe(rerender);
 
     this.canvas.addEventListener("click", this._onClick.bind(this));
+    this.canvas.addEventListener("dblclick", this._onDoubleClick.bind(this));
     this.canvas.addEventListener("mousemove", this._onMouseMove.bind(this));
     this.canvas.addEventListener("mousedown", this._onMouseDown.bind(this));
     this.canvas.addEventListener("mouseup", this._onMouseUp.bind(this));
@@ -621,12 +622,15 @@
     this._resetViewport();
   };
 
-  // BFS hop distances from the dragged node, cached per drag gesture. Movement
-  // is scaled by hop distance so dragging one node rearranges its neighborhood
-  // (Obsidian-style) instead of stirring the whole graph.
+  // Per-node pull factors from the dragged node, cached per drag gesture.
+  // BFS over the neighborhood (3 hops max) where each step multiplies:
+  //   - the edge's weight (strong relationships drag harder), and
+  //   - the neighbor's anchoring (a node held by many other connections
+  //     resists the pull; a leaf with a single link follows almost 1:1).
+  // Nodes outside the map stay frozen, so dragging never stirs the whole graph.
   Network.prototype._dragFalloffFor = function (state) {
     if (this.dragNodeId === null || this.dragNodeId === undefined) {
-      // Post-drop settle: reuse the gesture's hop map (cleared by _render once
+      // Post-drop settle: reuse the gesture's pull map (cleared by _render once
       // the simulation cools) so the re-layout stays local.
       return this._dragHops || null;
     }
@@ -636,32 +640,48 @@
     state.edges.forEach(function (edge) {
       var from = String(edge.from || edge.source);
       var to = String(edge.to || edge.target);
+      var weight = Number(edge.weight !== undefined ? edge.weight : edge.value);
+      if (!(weight > 0)) weight = 0.5;
+      if (weight > 1) weight = 1;
       if (!adjacency.has(from)) adjacency.set(from, []);
       if (!adjacency.has(to)) adjacency.set(to, []);
-      adjacency.get(from).push(to);
-      adjacency.get(to).push(from);
+      adjacency.get(from).push({ id: to, weight: weight });
+      adjacency.get(to).push({ id: from, weight: weight });
     });
-    var hops = new Map();
-    hops.set(dragId, 0);
+    var degreeById = new Map();
+    state.nodes.forEach(function (n) { degreeById.set(String(n.id), Number(n.degree) || 0); });
+    var pulls = new Map();
+    pulls.set(dragId, 1);
     var frontier = [dragId];
     var depth = 0;
     while (frontier.length > 0 && depth < 3) {
       depth += 1;
+      var hopDecay = depth === 1 ? 1 : 0.55;
       var next = [];
       for (var f = 0; f < frontier.length; f++) {
+        var parentPull = pulls.get(frontier[f]) || 0;
         var neighbors = adjacency.get(frontier[f]) || [];
         for (var n = 0; n < neighbors.length; n++) {
-          if (!hops.has(neighbors[n])) {
-            hops.set(neighbors[n], depth);
-            next.push(neighbors[n]);
+          var entry = neighbors[n];
+          if (entry.id === dragId) continue;
+          // Strong edges (weight→1) keep ~full pull; weak ones (0.35) ~60%.
+          var weightFactor = 0.4 + 0.6 * entry.weight;
+          // Anchoring: every connection beyond the pulling edge holds the node back.
+          var otherLinks = Math.max(0, (degreeById.get(entry.id) || 0) - 1);
+          var anchor = 1 / (1 + 0.3 * otherLinks);
+          var candidate = Math.min(1, parentPull * hopDecay * weightFactor * anchor);
+          var existing = pulls.get(entry.id);
+          if (existing === undefined || candidate > existing) {
+            pulls.set(entry.id, candidate);
+            if (existing === undefined) next.push(entry.id);
           }
         }
       }
       frontier = next;
     }
-    this._dragHops = hops;
+    this._dragHops = pulls;
     this._dragHopsFor = dragId;
-    return hops;
+    return pulls;
   };
 
   Network.prototype._applyForces = function (state, dt) {
@@ -678,10 +698,7 @@
     var cutoffSq = 480 * 480;
     var maxSpeed = 120;
     var damping = 0.9;
-    var dragHops = this._dragFalloffFor(state);
-    // hop 0 = dragged node (pinned below); 1 hop follows fully, then decays.
-    var falloff = [0, 1, 0.45, 0.18];
-    var farFactor = 0.05;
+    var dragPulls = this._dragFalloffFor(state);
 
     var nodesById = new Map();
     var incident = new Map();
@@ -746,9 +763,11 @@
         a.vy = 0;
       }
       var moveScale = 1;
-      if (dragHops) {
-        var hop = dragHops.get(aId);
-        moveScale = hop === undefined ? farFactor : falloff[hop];
+      if (dragPulls) {
+        var pull = dragPulls.get(aId);
+        // Outside the dragged neighborhood: completely frozen. The dragged node
+        // itself (pull = 1) is pinned by the gesture, so scale its neighbors only.
+        moveScale = pull === undefined ? 0 : pull;
       }
       a.x += a.vx * this.temperature * moveScale;
       a.y += a.vy * this.temperature * moveScale;
@@ -844,7 +863,9 @@
       var degree = node.degree || 0;
       var importance = Number(node.importance || node.score || degree || 1);
       var isRoot = !!node.is_root || String(node.supertype || "").toLowerCase().indexOf("org") >= 0;
-      var radiusBase = Math.max(8, degree * 2 + 8);
+      // sqrt growth: connected hubs read bigger without dwarfing the graph
+      // (degree 1 → ~12px, 9 → ~19px, 25 → ~26px, capped at 30px base).
+      var radiusBase = Math.min(30, 8 + Math.sqrt(degree) * 3.5);
       var radius = Math.max(12, radiusBase + Math.min(10, Math.max(0, importance)));
       if (isRoot) radius = radius + 8;
       node.radius = radius;
@@ -1102,6 +1123,23 @@
     this._wake();
   };
 
+  // Double-click on a node: quick path into the markdown reader. Consumers
+  // subscribe via network.on("doubleClick", ...); empty space double-clicks
+  // are ignored so they never disturb the canvas.
+  Network.prototype._onDoubleClick = function (event) {
+    var rect = this.canvas.getBoundingClientRect();
+    var world = this._screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
+    var state = this._state();
+    var node = this._nodeAt(world.x, world.y, state.nodes);
+    if (!node) return;
+    var nodeId = String(node.id);
+    this.selectedNodeIds = new Set([nodeId]);
+    this.selectedNodeId = node.id;
+    this._emit("select-change", { nodes: [nodeId] });
+    this._emit("doubleClick", { nodes: [node.id] });
+    this._wake();
+  };
+
   Network.prototype._onMouseMove = function (event) {
     var rect = this.canvas.getBoundingClientRect();
     var sx = event.clientX - rect.left;
@@ -1173,6 +1211,16 @@
     }
 
     if (this.isDragging && this.dragNodeId !== null) {
+      if (!this._dragMoved && this._pressScreen) {
+        var pressDx = sx - this._pressScreen.x;
+        var pressDy = sy - this._pressScreen.y;
+        if ((pressDx * pressDx + pressDy * pressDy) < 16) {
+          // Sub-4px jitter: still a click, keep the graph perfectly still.
+          this._wake();
+          return;
+        }
+        this._dragMoved = true;
+      }
       var dragged = state.nodes.find(function (n) { return String(n.id) === String(this.dragNodeId); }, this);
       if (dragged) {
         // Slice 1a: use world coords for drag position (not raw screen)
@@ -1199,6 +1247,10 @@
       this.isDragging = true;
       this.dragNodeId = node.id;
       this._mode = "dragging-node";
+      // A plain click must not stir the simulation: the gesture only becomes a
+      // real drag (and reheats physics) after the cursor travels a few pixels.
+      this._pressScreen = { x: sx, y: sy };
+      this._dragMoved = false;
       return;
     }
     // Slice 3a: Shift+empty canvas → marquee (REQ-3.5 / REQ-3.13)

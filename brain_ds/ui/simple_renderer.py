@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, Protocol
 
 from brain_ds.ontology import Graph
 
@@ -15,7 +16,11 @@ def _load_network_class():
     return Network
 
 
-def build_network(graph: Graph | dict, network_cls) -> object:
+class HtmlWritableNetwork(Protocol):
+    def write_html(self, path: str, *, notebook: bool, open_browser: bool) -> None: ...
+
+
+def build_network(graph: Graph | dict, network_cls: type[Any]) -> HtmlWritableNetwork:
     if isinstance(graph, dict):
         graph = Graph.from_v1(graph)
     net = network_cls(
@@ -31,7 +36,8 @@ def build_network(graph: Graph | dict, network_cls) -> object:
     for node in graph.nodes:
         if not node.id:
             continue
-        color = color_for_type(node.type.value)
+        entity_type = node.entity_type
+        color = color_for_type(entity_type.value)
         net.add_node(
             n_id=node.id,
             label=node.label or node.id,
@@ -47,14 +53,15 @@ def build_network(graph: Graph | dict, network_cls) -> object:
                 ],
             ),
             color=color,
-            group=node.type.value,
+            group=entity_type.value,
         )
 
     for edge in graph.edges:
         if not edge.source or not edge.target:
             continue
+        relationship_type = edge.relationship_type
         reasons = "; ".join(edge.reasons or [])
-        edge_title = edge.label.value
+        edge_title = relationship_type.value
         if reasons:
             edge_title = f"{edge_title} — {reasons}"
         width = 1.0 + ((edge.weight or 0.0) * 4.0)
@@ -62,7 +69,7 @@ def build_network(graph: Graph | dict, network_cls) -> object:
             edge.source,
             edge.target,
             title=edge_title,
-            label=edge.label.value,
+            label=relationship_type.value,
             width=width,
         )
 

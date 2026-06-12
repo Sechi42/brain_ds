@@ -32,15 +32,10 @@ class TestNavigatorRefresh(unittest.TestCase):
         cls.template = TEMPLATE.read_text(encoding="utf-8")
 
     def test_navigator_rail_and_title_use_globe_icon(self):
-        # Rail icon for the navigator and the panel-card title both use the globe.
-        self.assertRegex(
-            self.template,
-            r'data-rail-icon="navigator"[\s\S]*?<use href="#icon-globe"',
-        )
-        self.assertRegex(
-            self.template,
-            r'<use href="#icon-globe"/></svg>NAVEGADOR',
-        )
+        # Navigator is intentionally removed; Projects/file-tree absorbs that role.
+        self.assertNotIn('data-rail-icon="navigator"', self.template)
+        self.assertIn('data-rail-icon="file-tree"', self.template)
+        self.assertIn('navigator panel-card removed', self.template)
 
     def test_globe_icon_source_and_sprite_exist(self):
         self.assertTrue((ICONS_DIR / "globe.svg").exists(), "globe.svg source icon must exist")
