@@ -90,6 +90,19 @@ jobs:
           }
           cargo tauri --version
 
+      - name: Install pnpm (exact pinned version)
+        shell: pwsh
+        # Pinned to the version in brain_ds/ui/package.json packageManager.
+        # The build script then runs: frozen-lockfile install (no lifecycle
+        # scripts) + audit gate + bundle build, so the exe always ships a
+        # fresh, clean-tree UI bundle.
+        run: |
+          npm install -g pnpm@11.0.8
+          $pnpmVersion = (pnpm --version).Trim()
+          if ($pnpmVersion -ne "11.0.8") {
+            throw "Expected pnpm 11.0.8 but found $pnpmVersion"
+          }
+
       - name: Build Windows installer
         shell: pwsh
         run: ./scripts/build-windows-exe.ps1
