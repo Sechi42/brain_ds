@@ -57,6 +57,7 @@ Pre-digested rules per skill. Delegators copy matching blocks into sub-agent pro
 - Always persist an ADR on every invocation (`topic_key: architecture/adr/create-brd-{timestamp}`).
 - Persist BRD only when command includes `--save` (`topic_key: org/{slug}/domain/brd/{timestamp}`).
 - If graph is empty, produce a Starter-BRD with all 14 sections and NEEDS DATA markers — never fall back to Engram for org domain data.
+- Every graph entity mention in the BRD markdown MUST be a wikilink `[[<node label>]]` so the UI renders navigable links.
 
 ### map-connections
 - Trigger ONLY on explicit `/map-connections` — never auto-activate from conversational mentions.
@@ -66,6 +67,8 @@ Pre-digested rules per skill. Delegators copy matching blocks into sub-agent pro
 - Never mix multiple graph IDs in one report.
 - If graph returns zero nodes, emit: "No domain knowledge captured yet. Run `/elicit-context` first."
 - Sparse entities (missing `Where`) are flagged with `[sparse: no Where]` — never silently skipped or promoted to strong links.
+- Completeness gate: call `assess_completeness(graph_id)` BEFORE the first `add_edge`; if recommendation is `elicit` (3+ entity types missing), stop and report gaps instead of mapping.
+- Suggestions labeled `review-needed` are NEVER written as edges — they go to the deferred list for user confirmation.
 - Output 7 sections in mandatory order: Entity Table, Information Flows, Overlaps, Broken Links, Missing Knowledge, DS Intervention Opportunities, Provenance Table.
 - Cross-department edges MUST be dashed (`-.->`) in Mermaid output.
 - Use Mermaid shape conventions per entity type (department=rectangle, role=circle, data source=cylinder, etc.).
