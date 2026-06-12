@@ -89,13 +89,17 @@ Forma B contra el project root de la app.
 
 1. Reiniciá tu agente (Claude Code / OpenCode) o corré `/mcp` y reconectá.
 2. Aprobá el server `brain_ds` si te lo pide.
-3. Confirmá **17 tools** en `/mcp`.
+3. Confirmá **20 tools** en `/mcp`.
 4. Smoke del grafo: llamá `list_graphs` y luego `list_nodes`.
 5. Smoke del harness: llamá `run_elicit` — debe devolver `workflow`
    (persistencia dual SQLite+Engram) — y `map_connections` — debe devolver
    `rag_workflow` (flujo `update_node → suggest_connections → add_edge`).
 6. Smoke de workspaces: llamá `list_workspaces` — debe listar esta carpeta
    como `active` y mostrar cualquier otro vault inicializado globalmente.
+7. Paridad del harness: corré `brain_ds check` — los 12 checks deben dar
+   `PASS` (entradas MCP de ambos clientes alineadas, mirror de skills,
+   agentes de Claude, orquestador + sub-agentes globales de OpenCode y
+   comandos globales sin drift).
 
 ## 5. Problemas comunes
 
@@ -104,7 +108,7 @@ Forma B contra el project root de la app.
 | `MCP error -32000: Connection closed` | El proceso MCP corre código viejo | Reconectá el agente (`/mcp`); si usás el exe de escritorio, rebuild (paso 2) |
 | `Error: port 8765 is already in use` | Otra instancia de la UI | `brain_ds ui --project-root . --port 8970` |
 | El agente no encuentra el grafo | Root desalineado entre desktop y agente | Volvé a correr `brain_ds setup` — escribe roots absolutos para ambos |
-| `/mcp` muestra menos de 17 tools | Config vieja o exe congelado | Re-correr setup + reconectar; rebuild del exe si aplica |
+| `/mcp` muestra menos de 20 tools | Config vieja o exe congelado | Re-correr setup + reconectar; rebuild del exe si aplica |
 | El agente ve grafos de OTRA carpeta | Entrada MCP global vieja con `--project-root` clavado | Re-correr `install-opencode.ps1 -Global -Agent` (la entrada nueva resuelve el root por cwd de la sesión) |
 
 ---

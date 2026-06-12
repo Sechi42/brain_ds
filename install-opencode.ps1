@@ -35,6 +35,11 @@ function Insert-BrainDsAgent {
     $cfg | Add-Member -NotePropertyName 'agent' -NotePropertyValue ([pscustomobject]@{})
   }
 
+  $subagentNames = @('brainds-source-explorer', 'brainds-graph-mapper', 'brainds-connection-mapper', 'brainds-brd-writer')
+
+  $taskPermission = [ordered]@{ '*' = 'deny' }
+  foreach ($name in $subagentNames) { $taskPermission[$name] = 'allow' }
+
   $desired = [pscustomobject]@{
     mode = 'primary'
     model = 'opencode-go/deepseek-v4-flash'
@@ -45,6 +50,7 @@ function Insert-BrainDsAgent {
       read = $true
       write = $true
       engram = $true
+      task = $true
     }
     permission = [pscustomobject]@{
       bash = [pscustomobject]@{
@@ -52,6 +58,7 @@ function Insert-BrainDsAgent {
       }
       read = 'allow'
       edit = 'allow'
+      task = [pscustomobject]$taskPermission
     }
   }
 
@@ -62,6 +69,31 @@ function Insert-BrainDsAgent {
   } else {
     $cfg.agent.'brain-ds-orchestrator' = $desired
     $state = 'already exists - updated'
+  }
+
+  foreach ($name in $subagentNames) {
+    $subPromptPath = Join-Path $RootDir "prompts/$name.md"
+    $subDesired = [pscustomobject]@{
+      mode = 'subagent'
+      hidden = $true
+      model = 'opencode-go/deepseek-v4-flash'
+      description = "brain_ds executor sub-agent: $name."
+      prompt = "{file:$subPromptPath}"
+      tools = [pscustomobject]@{
+        read = $true
+        write = $true
+        engram = $true
+      }
+      permission = [pscustomobject]@{
+        read = 'allow'
+        edit = 'allow'
+      }
+    }
+    if ($null -eq $cfg.agent.$name) {
+      $cfg.agent | Add-Member -NotePropertyName $name -NotePropertyValue $subDesired
+    } else {
+      $cfg.agent.$name = $subDesired
+    }
   }
 
   ($cfg | ConvertTo-Json -Depth 20) | Set-Content -LiteralPath $ConfigPath -Encoding UTF8

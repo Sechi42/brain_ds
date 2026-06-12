@@ -89,6 +89,16 @@ def _build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing files")
     setup_parser.add_argument("--force", action="store_true", help="Skip confirmation prompt before writing")
 
+    check_parser = subparsers.add_parser(
+        "check",
+        help="Verify the agent harness is installed and aligned for Claude Code and OpenCode",
+    )
+    check_parser.add_argument(
+        "--project-root",
+        default=".",
+        help="Project root to check (default: .)",
+    )
+
     return parser
 
 
@@ -276,6 +286,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "setup":
         return _run_setup(args)
+
+    if args.command == "check":
+        from brain_ds.harness_check import harness_check_main
+
+        return harness_check_main(Path(args.project_root))
 
     parser.print_help(sys.stderr)
     return 2

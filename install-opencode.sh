@@ -76,15 +76,44 @@ if path.exists() and path.read_text(encoding="utf-8").strip():
 else:
     data = {}
 
+subagent_names = [
+    "brainds-source-explorer",
+    "brainds-graph-mapper",
+    "brainds-connection-mapper",
+    "brainds-brd-writer",
+]
+
+task_permission = {"*": "deny"}
+for name in subagent_names:
+    task_permission[name] = "allow"
+
 agent = data.setdefault("agent", {})
 agent["brain-ds-orchestrator"] = {
     "mode": "primary",
     "model": "opencode-go/deepseek-v4-flash",
     "description": "Enterprise Data & Knowledge Mapper Orchestrator.",
     "prompt": f"{{file:{prompt_path}}}",
-    "tools": {"bash": True, "read": True, "write": True, "engram": True},
-    "permission": {"bash": {"*git*": "allow"}, "read": "allow", "edit": "allow"},
+    "tools": {"bash": True, "read": True, "write": True, "engram": True, "task": True},
+    "permission": {
+        "bash": {"*git*": "allow"},
+        "read": "allow",
+        "edit": "allow",
+        "task": task_permission,
+    },
 }
+
+prompts_dir = prompt_path.parent
+for name in subagent_names:
+    sub_prompt = prompts_dir / f"{name}.md"
+    agent[name] = {
+        "mode": "subagent",
+        "hidden": True,
+        "model": "opencode-go/deepseek-v4-flash",
+        "description": f"brain_ds executor sub-agent: {name}.",
+        "prompt": f"{{file:{sub_prompt}}}",
+        "tools": {"read": True, "write": True, "engram": True},
+        "permission": {"read": "allow", "edit": "allow"},
+    }
 
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PY
