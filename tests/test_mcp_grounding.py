@@ -118,7 +118,7 @@ class TestCat2Accessors(unittest.TestCase):
 class TestComposerReturnShapes(unittest.TestCase):
     """Task 1.5 — composer return-shape tests."""
 
-    def test_elicit_context_has_all_11_keys(self) -> None:
+    def test_elicit_context_has_all_12_keys(self) -> None:
         result = elicit_context()
         expected_keys = {
             "entity_types",
@@ -132,6 +132,7 @@ class TestComposerReturnShapes(unittest.TestCase):
             "node_write_templates",
             "workflow",
             "source_exploration_contract",
+            "delegation_protocol",
         }
         self.assertEqual(set(result.keys()), expected_keys)
 
@@ -150,7 +151,7 @@ class TestComposerReturnShapes(unittest.TestCase):
         self.assertNotIn("topic_key_format", result)
         self.assertNotIn("mem_save_templates", result)
 
-    def test_map_connections_context_has_7_keys(self) -> None:
+    def test_map_connections_context_has_8_keys(self) -> None:
         result = map_connections_context()
         expected_keys = {
             "entity_types",
@@ -160,6 +161,7 @@ class TestComposerReturnShapes(unittest.TestCase):
             "retrieval_contract",
             "rag_workflow",
             "source_exploration_contract",
+            "delegation_protocol",
         }
         self.assertEqual(set(result.keys()), expected_keys)
 
@@ -180,7 +182,7 @@ class TestComposerReturnShapes(unittest.TestCase):
         self.assertIn("Never bulk-read the whole graph", steps)
         self.assertIn("thousands of nodes", cast(str, rag_workflow["scaling_contract"]))
 
-    def test_generate_brd_context_has_5_keys(self) -> None:
+    def test_generate_brd_context_has_7_keys(self) -> None:
         result = generate_brd_context()
         expected_keys = {
             "entity_types",
@@ -188,8 +190,35 @@ class TestComposerReturnShapes(unittest.TestCase):
             "section_rules",
             "completeness_matrix_template",
             "retrieval_contract",
+            "brd_graph_persistence_contract",
+            "delegation_protocol",
         }
         self.assertEqual(set(result.keys()), expected_keys)
+
+    def test_brd_graph_persistence_contract_matches_ui_panel_convention(self) -> None:
+        """The contract must mirror brain_ds/ui/src/panels/brd-panel.ts exactly."""
+        result = generate_brd_context()
+        contract = cast(dict[str, Any], result["brd_graph_persistence_contract"])
+        template = cast(dict[str, Any], contract["update_node_template"])
+        self.assertEqual(template["node_id"], "brd-<org-slug>")
+        self.assertEqual(template["label"], "BRD")
+        self.assertEqual(template["type"], "Unknown")
+        sections = cast(list[dict[str, Any]], template["card_sections"])
+        self.assertEqual(sections[0]["title"], "Contenido")
+        self.assertEqual(sections[0]["order"], 0)
+        self.assertIn("update_node", cast(str, contract["when"]))
+
+    def test_delegation_protocol_present_in_all_composers(self) -> None:
+        for payload in (elicit_context(), map_connections_context(), generate_brd_context()):
+            protocol = cast(dict[str, Any], payload["delegation_protocol"])
+            self.assertIn("sub-agents", cast(str, protocol["role"]))
+            self.assertIn("engram", cast(str, protocol["session_setup"]))
+            self.assertIn(".elicit", cast(str, protocol["session_setup"]))
+            flow = " ".join(cast(list[str], protocol["source_exploration_flow"]))
+            self.assertIn("magnitude scan", flow)
+            self.assertIn("non-overlapping", flow)
+            self.assertIn("update_node", flow)
+            self.assertIn("brain_ds-owned skills", cast(str, protocol["skill_scope"]))
 
     def test_generate_brd_context_retrieval_contract_mentions_seeded_vault_validation(self) -> None:
         result = generate_brd_context()

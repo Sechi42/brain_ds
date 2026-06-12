@@ -546,6 +546,96 @@ SOURCE_EXPLORATION_CONTRACT: dict[str, object] = {
 }
 
 
+# Harness-owned BRD graph persistence contract — mirrors the UI convention in
+# brain_ds/ui/src/panels/brd-panel.ts (BRD node id "brd-{graphId}"). Keep both
+# sides in sync: the panel reads card_sections[0] of that node.
+BRD_GRAPH_PERSISTENCE_CONTRACT: dict[str, object] = {
+    "purpose": (
+        "Make the finished BRD visible in the brain_ds UI BRD panel. The UI reads one graph "
+        "node per organization; persisting only to Engram does NOT surface the BRD in the UI."
+    ),
+    "when": (
+        "On /generate-brd --save — or whenever the user asks to save/persist the BRD or to see "
+        "it in the UI — write the BRD node via update_node IN ADDITION to the Engram mem_save "
+        "mirror. Without this write the BRD exists only in chat/Engram and the UI panel stays empty."
+    ),
+    "update_node_template": {
+        "graph_id": "<org-slug>",
+        "node_id": "brd-<org-slug>",
+        "label": "BRD",
+        "type": "Unknown",
+        "card_sections": [
+            {
+                "title": "Contenido",
+                "content": "<full markdown BRD with 14 sections>",
+                "order": 0,
+                "icon": "",
+            }
+        ],
+    },
+    "rules": [
+        "node_id MUST be exactly 'brd-<graph-id>' — the UI BRD panel looks up that id.",
+        "card_sections[0] MUST keep title 'Contenido' and order 0; the panel reads that section.",
+        "update_node is upsert-safe: re-running --save replaces the previous BRD content.",
+        "The write emits a live node event, so a running UI refreshes without restart.",
+    ],
+}
+
+
+# Harness-owned orchestration protocol — how an orchestrator agent stays thin,
+# delegates context-heavy work to sub-agents, and where artifacts are stored.
+# Mirrored in .claude/agents/brainds-orchestrator.md and prompts/brain-ds-orchestrator.md.
+DELEGATION_PROTOCOL: dict[str, object] = {
+    "role": (
+        "The orchestrator is the MIND: it coordinates phases, interviews the user, and makes "
+        "decisions. It delegates context-heavy work (source exploration, bulk documentation, "
+        "connection mapping, BRD composition) to sub-agents and consumes only their summaries."
+    ),
+    "session_setup": (
+        "At the start of a session that will produce artifacts, ask the user ONCE how to store "
+        "intermediate artifacts: 'engram' (persistent memory), '.elicit' (project-local .elicit/ "
+        "folder), or 'both'. Default to 'engram' when available, otherwise '.elicit'. Cache the "
+        "choice for the whole session — do not ask again."
+    ),
+    "artifact_keys": {
+        "engram_topic_key": "org/<slug>/<phase>/<ISO-date-or-section-slug>",
+        "elicit_file": ".elicit/<phase>-<slug>-<ISO-date>.md",
+        "phases": ["elicit", "source-exploration", "source-docs", "map", "brd"],
+    },
+    "handoff_rule": (
+        "Pass artifact references (topic keys or file paths) to sub-agents, never full content. "
+        "Each sub-agent reads its inputs itself and returns a result contract: status, "
+        "executive_summary, artifacts (keys/paths written), next_recommended, risks."
+    ),
+    "source_exploration_flow": [
+        (
+            "1. SCOPE: delegate a read-only magnitude scan of the data source (containers, "
+            "tables/sheets, row estimates) to size the documentation work."
+        ),
+        (
+            "2. PLAN: split documentation into non-overlapping sections (by table/sheet/endpoint). "
+            "One documenter agent for small sources; several agents with disjoint section "
+            "assignments for large ones so they never overlap."
+        ),
+        (
+            "3. DOCUMENT: each documenter explores ONLY its assigned section and saves structured "
+            "findings (hierarchy_template format) to the configured artifact store."
+        ),
+        (
+            "4. CONSOLIDATE + PUSH: a mapper agent reads every saved finding and persists the "
+            "consolidated documentation to the graph via update_node (card_sections) and add_edge "
+            "so the documented source is visible in the UI."
+        ),
+    ],
+    "skill_scope": (
+        "Use ONLY brain_ds-owned skills and commands (elicit-context, map-connections, "
+        "generate-brd, and project-local helpers shipped with brain_ds). Never invoke skills, "
+        "agents, or commands that belong to other projects installed on the same machine, even "
+        "when they look relevant."
+    ),
+}
+
+
 def build_workspace_context(store: Any) -> dict[str, object]:
     """Live workspace scoping payload attached to every grounding tool response."""
     active_root = workspace_registry.project_root_from_store_path(store.path).resolve()
@@ -572,11 +662,12 @@ def build_workspace_context(store: Any) -> dict[str, object]:
 
 
 def elicit_context() -> dict[str, object]:
-    """Return the 11-key grounding context payload for run_elicit.
+    """Return the 12-key grounding context payload for run_elicit.
 
     Keys: entity_types, supertypes, expected_sections, relationship_types,
           base_weights, question_bank, org_slug_rules, node_id_format,
-          node_write_templates, workflow, source_exploration_contract.
+          node_write_templates, workflow, source_exploration_contract,
+          delegation_protocol.
     """
     return {
         "entity_types": build_entity_types(),
@@ -590,6 +681,7 @@ def elicit_context() -> dict[str, object]:
         "node_write_templates": NODE_WRITE_TEMPLATES,
         "workflow": ELICIT_WORKFLOW,
         "source_exploration_contract": SOURCE_EXPLORATION_CONTRACT,
+        "delegation_protocol": DELEGATION_PROTOCOL,
     }
 
 
@@ -597,7 +689,8 @@ def map_connections_context() -> dict[str, object]:
     """Return the 7-key grounding context payload for map_connections.
 
     Keys: entity_types, connection_rules, relationship_labels, scoring_factors,
-          retrieval_contract, rag_workflow, source_exploration_contract.
+          retrieval_contract, rag_workflow, source_exploration_contract,
+          delegation_protocol.
     scoring_factors comes from ScoringEngine (distinct from connection_rules
     strength heuristics — the skill's own weak/strong labels live in connection_rules).
     """
@@ -609,14 +702,16 @@ def map_connections_context() -> dict[str, object]:
         "retrieval_contract": MAP_RETRIEVAL_CONTRACT,
         "rag_workflow": MAP_RAG_WORKFLOW,
         "source_exploration_contract": SOURCE_EXPLORATION_CONTRACT,
+        "delegation_protocol": DELEGATION_PROTOCOL,
     }
 
 
 def generate_brd_context() -> dict[str, object]:
-    """Return the 5-key grounding context payload for generate_brd.
+    """Return the 7-key grounding context payload for generate_brd.
 
     Keys: entity_types, brd_section_order, section_rules,
-          completeness_matrix_template, retrieval_contract.
+          completeness_matrix_template, retrieval_contract,
+          brd_graph_persistence_contract, delegation_protocol.
     """
     return {
         "entity_types": build_entity_types(),
@@ -624,4 +719,6 @@ def generate_brd_context() -> dict[str, object]:
         "section_rules": SECTION_RULES,
         "completeness_matrix_template": COMPLETENESS_MATRIX_TEMPLATE,
         "retrieval_contract": BRD_RETRIEVAL_CONTRACT,
+        "brd_graph_persistence_contract": BRD_GRAPH_PERSISTENCE_CONTRACT,
+        "delegation_protocol": DELEGATION_PROTOCOL,
     }
