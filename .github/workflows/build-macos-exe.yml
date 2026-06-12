@@ -120,10 +120,9 @@ jobs:
           asset="dist/brain_ds-macos-${arch}-build-${GITHUB_RUN_NUMBER}.dmg"
           cp "$dmg" "$asset"
           tag="macos-exe-build-${GITHUB_RUN_NUMBER}"
+          notes="$(printf 'Commit: %s\nWorkflow run: %s/%s/actions/runs/%s\nUnsigned/non-notarized draft build - Gatekeeper will warn on first open.' "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")"
           gh release create "$tag" "$asset" \
             --draft \
             --title "brain_ds macOS build #${GITHUB_RUN_NUMBER}" \
-            --notes "Commit: ${GITHUB_SHA}
-Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
-Unsigned/non-notarized draft build — Gatekeeper will warn on first open."
+            --notes "$notes"
           echo "Draft release created: $tag (visible solo para colaboradores con write access)"
