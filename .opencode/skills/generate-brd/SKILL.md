@@ -7,7 +7,7 @@ license: MIT
 disable-model-invocation: true
 metadata:
   author: sechi42
-  version: "1.3.1"
+  version: "1.4.0"
 ---
 
 # Generate BRD Skill
@@ -22,7 +22,7 @@ metadata:
 |---|---|---|---|
 | `/generate-brd` | No | Yes (always-on) | Build and show inline 14-section BRD. |
 | `/generate-brd --org <name|slug>` | No | Yes (always-on) | One-run org override; no active-org mutation. |
-| `/generate-brd --save` | Yes (`org/<slug>/domain/brd/{timestamp}`) | Yes (always-on) | Build BRD, show inline, then persist BRD + ADR. |
+| `/generate-brd --save` | Yes — graph node `brd-<slug>` (UI) + Engram `org/<slug>/domain/brd/{timestamp}` | Yes (always-on) | Build BRD, show inline, then persist BRD to the graph AND Engram + ADR. |
 
 ## Retrieval Workflow (Mandatory)
 
@@ -138,7 +138,31 @@ Persist ADR on every invocation with:
 
 ## Optional BRD Save Contract (`--save` only)
 
-Save BRD only for `/generate-brd --save`:
+`/generate-brd --save` persists the BRD to TWO stores. Both writes are mandatory — skipping either is a workflow violation.
+
+### 1. Graph node (UI visibility — PRIMARY)
+
+The brain_ds UI BRD panel reads exactly one node per organization: id `brd-<graph-id>`. Without this write the BRD never appears in the UI. Call `update_node`:
+
+```json
+{
+  "graph_id": "<resolved-org-slug>",
+  "node_id": "brd-<resolved-org-slug>",
+  "label": "BRD",
+  "type": "Unknown",
+  "card_sections": [
+    {"title": "Contenido", "content": "<full markdown BRD with 14 sections>", "order": 0, "icon": ""}
+  ]
+}
+```
+
+Rules:
+- `node_id` MUST be exactly `brd-<graph-id>` — the UI panel looks up that id.
+- `card_sections[0]` MUST keep title `Contenido` and order `0`; the panel reads that section.
+- `update_node` is upsert-safe: re-running `--save` replaces the previous BRD content.
+- The write emits a live node event, so a running UI refreshes without restart.
+
+### 2. Engram mirror (agent memory)
 
 ```json
 {
