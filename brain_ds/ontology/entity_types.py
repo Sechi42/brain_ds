@@ -6,6 +6,10 @@ from enum import Enum
 
 
 class EntityType(Enum):
+    _supertype: str
+    _color: str
+    _expected_sections: tuple[str, ...]
+
     ORGANIZATION = ("Organization", "actor", "#111827", ("Overview", "Mission", "Members"))
     DEPARTMENT = ("Department", "actor", "#2563eb", ("Overview", "Responsibilities"))
     ROLE = ("Role", "actor", "#16a34a", ("Overview", "Responsibilities"))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from typing import Any, cast
 
 from brain_ds.ontology.entity_types import EntityType
 from brain_ds.ontology.relationship_types import RelationshipType
@@ -117,7 +118,7 @@ class TestCat2Accessors(unittest.TestCase):
 class TestComposerReturnShapes(unittest.TestCase):
     """Task 1.5 — composer return-shape tests."""
 
-    def test_elicit_context_has_all_10_keys(self) -> None:
+    def test_elicit_context_has_all_11_keys(self) -> None:
         result = elicit_context()
         expected_keys = {
             "entity_types",
@@ -130,25 +131,26 @@ class TestComposerReturnShapes(unittest.TestCase):
             "node_id_format",
             "node_write_templates",
             "workflow",
+            "source_exploration_contract",
         }
         self.assertEqual(set(result.keys()), expected_keys)
 
     def test_elicit_workflow_mandates_dual_persistence(self) -> None:
         result = elicit_context()
-        workflow = result["workflow"]
-        steps = " ".join(workflow["steps"])
+        workflow = cast(dict[str, Any], result["workflow"])
+        steps = " ".join(cast(list[str], workflow["steps"]))
         self.assertIn("update_node", steps)
         self.assertIn("mem_save", steps)
         self.assertIn("suggest_connections", steps)
-        self.assertIn("single source of truth", workflow["dual_persistence"])
-        self.assertIn("Never represent the org graph in local files", workflow["anti_drift"])
+        self.assertIn("single source of truth", cast(str, workflow["dual_persistence"]))
+        self.assertIn("Never represent the org graph in local files", cast(str, workflow["anti_drift"]))
 
     def test_elicit_context_omits_legacy_engram_keys(self) -> None:
         result = elicit_context()
         self.assertNotIn("topic_key_format", result)
         self.assertNotIn("mem_save_templates", result)
 
-    def test_map_connections_context_has_6_keys(self) -> None:
+    def test_map_connections_context_has_7_keys(self) -> None:
         result = map_connections_context()
         expected_keys = {
             "entity_types",
@@ -157,12 +159,13 @@ class TestComposerReturnShapes(unittest.TestCase):
             "scoring_factors",
             "retrieval_contract",
             "rag_workflow",
+            "source_exploration_contract",
         }
         self.assertEqual(set(result.keys()), expected_keys)
 
     def test_map_connections_context_retrieval_contract_mentions_sqlite_queries(self) -> None:
         result = map_connections_context()
-        retrieval_contract = result["retrieval_contract"]
+        retrieval_contract = cast(str, result["retrieval_contract"])
         self.assertIn("suggest_connections(graph_id=<slug>, node_id=<id>)", retrieval_contract)
         self.assertIn("list_nodes(graph_id=<slug>, type=<EntityType>)", retrieval_contract)
         self.assertIn("search_graph(graph_id=<slug>, query=<text>)", retrieval_contract)
@@ -170,12 +173,12 @@ class TestComposerReturnShapes(unittest.TestCase):
 
     def test_map_rag_workflow_routes_linking_through_suggest_connections(self) -> None:
         result = map_connections_context()
-        rag_workflow = result["rag_workflow"]
-        steps = " ".join(rag_workflow["steps"])
+        rag_workflow = cast(dict[str, Any], result["rag_workflow"])
+        steps = " ".join(cast(list[str], rag_workflow["steps"]))
         self.assertIn("suggest_connections", steps)
         self.assertIn("add_edge", steps)
         self.assertIn("Never bulk-read the whole graph", steps)
-        self.assertIn("thousands of nodes", rag_workflow["scaling_contract"])
+        self.assertIn("thousands of nodes", cast(str, rag_workflow["scaling_contract"]))
 
     def test_generate_brd_context_has_5_keys(self) -> None:
         result = generate_brd_context()
@@ -190,7 +193,7 @@ class TestComposerReturnShapes(unittest.TestCase):
 
     def test_generate_brd_context_retrieval_contract_mentions_seeded_vault_validation(self) -> None:
         result = generate_brd_context()
-        retrieval_contract = result["retrieval_contract"]
+        retrieval_contract = cast(str, result["retrieval_contract"])
         self.assertIn("list_nodes(graph_id=<slug>, type=<EntityType>)", retrieval_contract)
         self.assertIn("search_graph(graph_id=<slug>, query=<text>)", retrieval_contract)
         self.assertIn("validate retrieval changes on a seeded vault", retrieval_contract)

@@ -92,7 +92,7 @@ class TestMigrations(unittest.TestCase):
 
             migrations_module.MIGRATIONS = original
             second = apply_pending(conn)
-            self.assertEqual(second, [3])
+            self.assertEqual(second, [3, 4])
         finally:
             migrations_module.MIGRATIONS = original
 
@@ -102,6 +102,14 @@ class TestMigrations(unittest.TestCase):
             column_names,
             {"id", "event", "graph_id", "payload", "created_at", "published"},
         )
+
+        nodes_fts = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='nodes_fts'"
+        ).fetchone()
+        self.assertIsNotNone(nodes_fts)
+
+        fts_columns = conn.execute("PRAGMA table_info(nodes_fts)").fetchall()
+        self.assertEqual([row[1] for row in fts_columns], ["graph_id", "node_id", "label", "details_text", "sections_text"])
 
 
 if __name__ == "__main__":

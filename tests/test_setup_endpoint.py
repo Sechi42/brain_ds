@@ -23,6 +23,8 @@ def _fake_opencode_config(project_root: Path, absolute: bool = True) -> dict:
 
 
 class SetupMcpEndpointTests(unittest.TestCase):
+    store: GraphStore | None = None
+
     def _client(self, root: Path) -> TestClient:
         store_dir = root / ".brain_ds"
         store_dir.mkdir(parents=True, exist_ok=True)
@@ -31,7 +33,7 @@ class SetupMcpEndpointTests(unittest.TestCase):
         return TestClient(app)
 
     def _close_store(self) -> None:
-        if getattr(self, "store", None) is not None:
+        if self.store is not None:
             self.store.close()
             self.store = None
 

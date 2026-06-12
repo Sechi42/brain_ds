@@ -164,6 +164,8 @@ class GraphStoreTests(unittest.TestCase):
         self.store.conn.commit()
 
         graph = self.store.load_graph("logitrans")
+        self.assertIsNotNone(graph.nodes[0].card_sections)
+        assert graph.nodes[0].card_sections is not None
 
         self.assertEqual(graph.nodes[0].card_sections[0].content, "Legacy")
         self.assertEqual(graph.nodes[0].card_sections[0].icon, "note")

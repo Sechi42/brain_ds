@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import unicodedata
 import uuid
 from pathlib import Path
 from typing import Any
@@ -224,6 +225,37 @@ class GraphStore:
         self._assert_graph_exists(graph_id)
         return self.cluster_repo.query_clusters(graph_id)
 
+    def search_nodes_fts(self, graph_id: str, query: str) -> list[str] | None:
+        """Return node IDs matching query via FTS5, or None if FTS unavailable.
+
+        Returns None when the nodes_fts table doesn't exist (older stores) or
+        when FTS5 is not compiled in. Callers should fall back to Python scan.
+
+        The query is normalised (accent-stripped, lowercased) and each token is
+        wrapped in double-quotes to avoid FTS5 operator injection. Prefix
+        matching is appended (*) so "oper" matches "operacion".
+        """
+        normalized = unicodedata.normalize("NFD", query.lower())
+        normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+
+        tokens = normalized.split()
+        if not tokens:
+            return []
+
+        # Wrap each token in double-quotes for FTS5 (prevents operator injection)
+        # and append * for prefix matching
+        fts_query = " ".join(f'"{t}"*' for t in tokens)
+
+        try:
+            rows = self.conn.execute(
+                "SELECT node_id FROM nodes_fts WHERE graph_id = ? AND nodes_fts MATCH ?",
+                (graph_id, fts_query),
+            ).fetchall()
+            return [row[0] for row in rows]
+        except sqlite3.OperationalError:
+            # FTS table not found or FTS5 not available
+            return None
+
     def search_evidence(self, graph_id: str, *, content_substr: str | None = None) -> list[EvidenceRow]:
         self._assert_graph_exists(graph_id)
         return self.evidence_repo.search_evidence(graph_id, content_substr=content_substr)
@@ -293,10 +325,11 @@ class GraphStore:
         return self.embedding_repo.nearest_embeddings(graph_id, target_id, k=k, model=model)
 
     def _node_to_row_input(self, node: Node) -> dict[str, Any]:
+        entity_type = node.entity_type
         payload = {
             "id": node.id,
             "label": node.label,
-            "type": node.type.value,
+            "type": entity_type.value,
             "details": node.details,
             "supertype": node.supertype,
             "evidence_ids": node.evidence_ids,
@@ -318,10 +351,11 @@ class GraphStore:
         return payload
 
     def _edge_to_row_input(self, edge: Edge) -> dict[str, Any]:
+        relationship_type = edge.relationship_type
         return {
             "source": edge.source,
             "target": edge.target,
-            "label": edge.label.value,
+            "label": relationship_type.value,
             "weight": edge.weight,
             "reasons": edge.reasons,
             "evidence_ids": edge.evidence_ids,

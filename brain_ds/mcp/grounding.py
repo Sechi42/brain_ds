@@ -204,6 +204,55 @@ NODE_WRITE_TEMPLATES: dict[str, object] = {
             "in a 'Columns / Fields' card section: | Column/Field | Type | Meaning | Notes |. "
             "The viewer renders markdown tables in the reader."
         ),
+        "hierarchy_template": """\
+## Data Source Hierarchy Documentation
+
+### db kind (relational-db / nosql / sqlite)
+- **Database**: <name>
+  - **Schema**: <schema name or 'main'>
+    - **Table**: <table name>
+      - purpose: <what this table represents>
+      - owner/who-to-ask: <person or team>
+      - columns:
+        | Column | Type | Meaning | Quality Notes |
+        |--------|------|---------|---------------|
+        | <col>  | <type> | <business meaning> | <nulls?, trust level, known issues> |
+      - refresh cadence: <real-time | daily | weekly | manual | unknown>
+      - known gaps: <missing data, stale fields, unreliable columns>
+
+### sheets kind (Excel / Google Sheets / CSV)
+- **Workbook**: <file name or URL>
+  - **Sheet**: <sheet name>
+    - role: <storage | dashboard | calc>
+    - owner/who-to-ask: <person or team>
+    - columns/ranges:
+      | Column/Range | Type | Meaning | Quality Notes |
+      |-------------|------|---------|---------------|
+      | <col>       | <type> | <business meaning> | <known issues> |
+    - refresh cadence: <cadence>
+    - known gaps: <missing data, unreliable ranges>
+
+### api kind (REST / GraphQL / SaaS webhook)
+- **Base URL / Service**: <URL or product name>
+  - **Endpoint**: <path or operation name>
+    - method: <GET | POST | etc.>
+    - purpose: <what it returns or triggers>
+    - owner/who-to-ask: <person or team>
+    - fields:
+      | Field | Type | Meaning | Quality Notes |
+      |-------|------|---------|---------------|
+      | <field> | <type> | <business meaning> | <optional, versioned, deprecated?> |
+    - rate limits / SLA: <limits or SLA>
+    - known gaps: <undocumented fields, version drift>
+""",
+        "connection_descriptor_note": (
+            "To enable read-only exploration via explore_source / query_source, add a "
+            "'connection' key to this node's details: "
+            "{\"kind\": \"sqlite\"|\"csv\", \"path\": \"<project-relative path>\"}. "
+            "The path must be within the project root (same sandbox as import_graph). "
+            "Google Sheets exploration is delegated to the agent layer via MCP Google "
+            "Drive read tools; export to CSV for CsvConnector support."
+        ),
     },
     "KPI": {
         "details": {
@@ -461,6 +510,42 @@ WORKSPACE_PROTOCOL: dict[str, object] = {
 }
 
 
+# Source exploration contract — workflow prose for data source connectors.
+# Included in elicit_context and map_connections_context payloads.
+SOURCE_EXPLORATION_CONTRACT: dict[str, object] = {
+    "workflow": [
+        (
+            "1. Explore read-only first: call explore_source(graph_id, node_id) to inspect "
+            "containers and tables before documenting structure. Use query_source for targeted "
+            "SELECT-only queries against SQLite sources (capped at 200 rows)."
+        ),
+        (
+            "2. Document hierarchy: for each table/sheet discovered, capture the full column "
+            "list with type, meaning, and quality notes in the Data Source node's card sections "
+            "using the hierarchy_template (db/sheets/api levels as applicable)."
+        ),
+        (
+            "3. Link people: connect Role nodes via owns or accountable edges to the Data Source "
+            "node (add_edge with label='owns' or 'accountable') so ownership is graph-queryable."
+        ),
+        (
+            "4. Record refresh cadence and gaps: persist cadence, known data quality issues, and "
+            "trust level in the node's details.learned field so BRD generation can surface gaps."
+        ),
+    ],
+    "tool_reference": {
+        "list_source_connections": "List which Data Source nodes have explorable connection descriptors",
+        "explore_source": "Dispatch to connector: no args→describe+containers; container→tables; container+table→schema+preview",
+        "query_source": "SQLite SELECT-only queries; cap rows with limit param (max 200)",
+    },
+    "connection_setup": (
+        "A Data Source node becomes explorable when its details dict contains a 'connection' key: "
+        "{kind: 'sqlite'|'csv', path: '<project-relative path>'}. "
+        "Google Sheets: delegate to MCP Google Drive read tools or export to CSV first."
+    ),
+}
+
+
 def build_workspace_context(store: Any) -> dict[str, object]:
     """Live workspace scoping payload attached to every grounding tool response."""
     active_root = workspace_registry.project_root_from_store_path(store.path).resolve()
@@ -487,11 +572,11 @@ def build_workspace_context(store: Any) -> dict[str, object]:
 
 
 def elicit_context() -> dict[str, object]:
-    """Return the 10-key grounding context payload for run_elicit.
+    """Return the 11-key grounding context payload for run_elicit.
 
     Keys: entity_types, supertypes, expected_sections, relationship_types,
           base_weights, question_bank, org_slug_rules, node_id_format,
-          node_write_templates, workflow.
+          node_write_templates, workflow, source_exploration_contract.
     """
     return {
         "entity_types": build_entity_types(),
@@ -504,14 +589,15 @@ def elicit_context() -> dict[str, object]:
         "node_id_format": NODE_ID_FORMAT,
         "node_write_templates": NODE_WRITE_TEMPLATES,
         "workflow": ELICIT_WORKFLOW,
+        "source_exploration_contract": SOURCE_EXPLORATION_CONTRACT,
     }
 
 
 def map_connections_context() -> dict[str, object]:
-    """Return the 6-key grounding context payload for map_connections.
+    """Return the 7-key grounding context payload for map_connections.
 
     Keys: entity_types, connection_rules, relationship_labels, scoring_factors,
-          retrieval_contract, rag_workflow.
+          retrieval_contract, rag_workflow, source_exploration_contract.
     scoring_factors comes from ScoringEngine (distinct from connection_rules
     strength heuristics — the skill's own weak/strong labels live in connection_rules).
     """
@@ -522,6 +608,7 @@ def map_connections_context() -> dict[str, object]:
         "scoring_factors": build_scoring_factors(),
         "retrieval_contract": MAP_RETRIEVAL_CONTRACT,
         "rag_workflow": MAP_RAG_WORKFLOW,
+        "source_exploration_contract": SOURCE_EXPLORATION_CONTRACT,
     }
 
 

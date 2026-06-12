@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, cast
 
 from brain_ds.mcp.tools import list_nodes, search_graph
 from brain_ds.store.graph_store import GraphStore
@@ -105,7 +106,10 @@ class TestSqliteRetrievalSemantics(unittest.TestCase):
                 typed_results = list_nodes(store, {"graph_id": graph_id, "type": "Data Source"})
                 substring_results = search_graph(store, {"graph_id": graph_id, "query": "ETA"})
 
-                self.assertEqual([item["id"] for item in typed_results], ["ds-erp", "ds-eta"])
-                self.assertEqual([item["id"] for item in substring_results], ["ds-eta", "role-ops"])
+                self.assertEqual([item["id"] for item in cast(list[dict[str, Any]], typed_results)], ["ds-erp", "ds-eta"])
+                self.assertEqual(
+                    [item["id"] for item in cast(list[dict[str, Any]], substring_results)],
+                    ["ds-eta", "role-ops"],
+                )
             finally:
                 store.close()

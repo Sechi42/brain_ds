@@ -36,7 +36,7 @@ def _open_session(project_root: Path) -> McpSession:
 
 
 def run_mcp_server(project_root: Path) -> None:
-    _ensure_utf8_stdout()
+    _ensure_utf8_stdio()
     session = _open_session(project_root)
 
     try:
@@ -188,15 +188,18 @@ def _mcp_tools_list() -> list[dict[str, Any]]:
     return tools
 
 
-def _ensure_utf8_stdout() -> None:
-    # Windows consoles default to cp1252; non-Latin payload chars would raise
-    # UnicodeEncodeError at write time and kill the stdio loop.
-    reconfigure = getattr(sys.stdout, "reconfigure", None)
-    if reconfigure is not None:
-        try:
-            reconfigure(encoding="utf-8")
-        except (ValueError, OSError):
-            pass
+def _ensure_utf8_stdio() -> None:
+    # Windows consoles default to cp1252. Without forcing UTF-8 on BOTH ends:
+    # - stdout: non-Latin payload chars raise UnicodeEncodeError and kill the loop.
+    # - stdin: UTF-8 JSON-RPC payloads get mis-decoded (mojibake like
+    #   "actualizaciÃ³n") and the corrupted text is persisted to the store.
+    for stream in (sys.stdin, sys.stdout):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8")
+            except (ValueError, OSError):
+                pass
 
 
 def _write_response(payload: dict[str, Any]) -> None:

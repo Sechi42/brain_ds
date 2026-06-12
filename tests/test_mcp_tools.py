@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import json
 from pathlib import Path
+from typing import Any, cast
 
 from brain_ds.mcp.security import ValidationError, validate_tool_input
 from brain_ds.ontology.entity_types import EntityType
@@ -89,25 +90,33 @@ class MCPToolsTests(unittest.TestCase):
         store = GraphStore(str(store_dir / "store.db"))
         return project_dir, store, Path(project_dir.name)
 
+    def _expect_rows(self, result: list[dict[str, Any]] | dict[str, Any]) -> list[dict[str, Any]]:
+        self.assertIsInstance(result, list)
+        return cast(list[dict[str, Any]], result)
+
+    def _expect_error(self, result: list[dict[str, Any]] | dict[str, Any]) -> dict[str, Any]:
+        self.assertIsInstance(result, dict)
+        return cast(dict[str, Any], result)
+
     def test_list_nodes_filters_and_missing_graph_error(self) -> None:
-        result = list_nodes(self.store, {"graph_id": self.graph_id, "type": "Task"})
+        result = self._expect_rows(list_nodes(self.store, {"graph_id": self.graph_id, "type": "Task"}))
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["id"], "N-1")
 
-        by_supertype = list_nodes(self.store, {"graph_id": self.graph_id, "supertype": "Knowledge"})
+        by_supertype = self._expect_rows(list_nodes(self.store, {"graph_id": self.graph_id, "supertype": "Knowledge"}))
         self.assertEqual(len(by_supertype), 1)
         self.assertEqual(by_supertype[0]["id"], "N-2")
 
-        by_parent = list_nodes(self.store, {"graph_id": self.graph_id, "parent_id": "ROOT"})
+        by_parent = self._expect_rows(list_nodes(self.store, {"graph_id": self.graph_id, "parent_id": "ROOT"}))
         self.assertEqual(len(by_parent), 2)
 
-        by_empty_supertype = list_nodes(self.store, {"graph_id": self.graph_id, "supertype": "  "})
+        by_empty_supertype = self._expect_rows(list_nodes(self.store, {"graph_id": self.graph_id, "supertype": "  "}))
         self.assertEqual(len(by_empty_supertype), 2)
 
-        by_empty_type = list_nodes(self.store, {"graph_id": self.graph_id, "type": ""})
+        by_empty_type = self._expect_rows(list_nodes(self.store, {"graph_id": self.graph_id, "type": ""}))
         self.assertEqual(len(by_empty_type), 2)
 
-        missing_graph = list_nodes(self.store, {"graph_id": "missing"})
+        missing_graph = self._expect_error(list_nodes(self.store, {"graph_id": "missing"}))
         self.assertEqual(missing_graph["code"], -32000)
         self.assertEqual(missing_graph["message"], "Graph 'missing' not found")
 
@@ -120,25 +129,28 @@ class MCPToolsTests(unittest.TestCase):
         self.assertEqual(missing["message"], "Node 'N-404' not found in graph 'graph-tools'")
 
     def test_search_graph_matches_substrings_and_validates_query_type(self) -> None:
-        by_label = search_graph(self.store, {"graph_id": self.graph_id, "query": "alpha"})
+        by_label = self._expect_rows(search_graph(self.store, {"graph_id": self.graph_id, "query": "alpha"}))
         self.assertEqual([item["id"] for item in by_label], ["N-1"])
 
-        by_type = search_graph(self.store, {"graph_id": self.graph_id, "query": "note"})
+        by_type = self._expect_rows(search_graph(self.store, {"graph_id": self.graph_id, "query": "note"}))
         self.assertEqual([item["id"] for item in by_type], ["N-2"])
 
-        by_details = search_graph(self.store, {"graph_id": self.graph_id, "query": "mapping"})
+        by_details = self._expect_rows(search_graph(self.store, {"graph_id": self.graph_id, "query": "mapping"}))
         self.assertEqual([item["id"] for item in by_details], ["N-1"])
 
-        no_match = search_graph(self.store, {"graph_id": self.graph_id, "query": "zzz"})
+        no_match = self._expect_rows(search_graph(self.store, {"graph_id": self.graph_id, "query": "zzz"}))
         self.assertEqual(no_match, [])
 
-        missing_graph = search_graph(self.store, {"graph_id": "missing", "query": "x"})
+        missing_graph = self._expect_error(search_graph(self.store, {"graph_id": "missing", "query": "x"}))
         self.assertEqual(missing_graph["code"], -32000)
         self.assertEqual(missing_graph["message"], "Graph 'missing' not found")
 
-        invalid = search_graph(self.store, {"graph_id": self.graph_id, "query": 42})
+        invalid = self._expect_error(search_graph(self.store, {"graph_id": self.graph_id, "query": 42}))
         self.assertEqual(invalid["code"], -32602)
         self.assertIn("Expected string for query", invalid["message"])
+
+    def test_tool_registry_and_schema_inventory_match_twenty_tools(self) -> None:
+        self.assertEqual(len(TOOL_REGISTRY), 20)
 
     def test_update_node_partial_update_audit_and_read_only_rejection(self) -> None:
         before = self.store.query_nodes(self.graph_id, type="Task")[0]
@@ -549,15 +561,15 @@ class MCPToolsTests(unittest.TestCase):
             },
         )
 
-        result = list_data_sources(self.store, {"graph_id": self.graph_id})
+        result = self._expect_rows(list_data_sources(self.store, {"graph_id": self.graph_id}))
 
         self.assertEqual([item["id"] for item in result], ["DS-1"])
-        typed = list_nodes(self.store, {"graph_id": self.graph_id, "type": "Data Source"})
+        typed = self._expect_rows(list_nodes(self.store, {"graph_id": self.graph_id, "type": "Data Source"}))
         self.assertEqual(result, typed)
 
-    def test_registry_has_seventeen_tools_and_reads_do_not_audit(self) -> None:
+    def test_registry_has_twenty_tools_and_reads_do_not_audit(self) -> None:
         names = sorted(TOOL_REGISTRY.keys())
-        self.assertEqual(len(names), 17)
+        self.assertEqual(len(names), 20)
         self.assertEqual(
             names,
             [
@@ -565,15 +577,18 @@ class MCPToolsTests(unittest.TestCase):
                 "create_graph",
                 "delete_edge",
                 "delete_node",
+                "explore_source",
                 "generate_brd",
                 "get_node",
                 "import_graph",
                 "list_data_sources",
                 "list_graphs",
                 "list_nodes",
+                "list_source_connections",
                 "list_workspaces",
                 "map_connections",
                 "open_workspace",
+                "query_source",
                 "run_elicit",
                 "search_graph",
                 "suggest_connections",

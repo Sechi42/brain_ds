@@ -6,6 +6,8 @@ from enum import Enum
 
 
 class RelationshipType(Enum):
+    _description: str
+
     OWNS = ("owns", "Source owns target")
     USES = ("uses", "Source uses target")
     DEPENDS_ON = ("depends-on", "Source depends on target")

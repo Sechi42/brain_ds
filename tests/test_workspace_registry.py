@@ -7,6 +7,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import patch
 
 import brain_ds.workspaces as workspaces
@@ -214,17 +215,19 @@ class GroundingWorkspaceContextTests(RegistryHomeMixin):
     def test_elicit_workflow_contains_completeness_gate(self) -> None:
         from brain_ds.mcp.grounding import ELICIT_WORKFLOW
 
-        steps = " ".join(ELICIT_WORKFLOW["steps"])
+        workflow = cast(dict[str, Any], ELICIT_WORKFLOW)
+        steps = " ".join(cast(list[str], workflow["steps"]))
         self.assertIn("completeness gate", steps)
         self.assertIn("Never advance", steps)
-        self.assertIn("no gaps", ELICIT_WORKFLOW["completeness_gate"])
+        self.assertIn("no gaps", cast(str, workflow["completeness_gate"]))
 
     def test_workspace_protocol_requires_asking_on_mismatch(self) -> None:
         from brain_ds.mcp.grounding import WORKSPACE_PROTOCOL
 
-        self.assertIn("open_workspace", WORKSPACE_PROTOCOL["mismatch_rule"])
-        self.assertIn("ask the user", WORKSPACE_PROTOCOL["mismatch_rule"])
-        self.assertIn("brain_ds setup", WORKSPACE_PROTOCOL["registration_rule"])
+        protocol = cast(dict[str, str], WORKSPACE_PROTOCOL)
+        self.assertIn("open_workspace", protocol["mismatch_rule"])
+        self.assertIn("ask the user", protocol["mismatch_rule"])
+        self.assertIn("brain_ds setup", protocol["registration_rule"])
 
 
 class SetupRegistersWorkspaceTests(RegistryHomeMixin):
@@ -237,6 +240,7 @@ class SetupRegistersWorkspaceTests(RegistryHomeMixin):
 
             entry = workspaces.find_workspace(root)
             self.assertIsNotNone(entry)
+            assert entry is not None
             self.assertEqual(entry["name"], root.name)
 
 

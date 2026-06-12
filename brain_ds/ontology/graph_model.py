@@ -46,6 +46,10 @@ class Node:
             return
         self.type = EntityType.from_string(self.type)
 
+    @property
+    def entity_type(self) -> EntityType:
+        return self.type if isinstance(self.type, EntityType) else EntityType.from_string(self.type)
+
 
 @dataclass
 class Edge:
@@ -62,6 +66,10 @@ class Edge:
             return
         self.label = RelationshipType.from_string(self.label)
 
+    @property
+    def relationship_type(self) -> RelationshipType:
+        return self.label if isinstance(self.label, RelationshipType) else RelationshipType.from_string(self.label)
+
 
 @dataclass
 class Graph:
@@ -74,12 +82,13 @@ class Graph:
 
     def to_dict(self) -> dict:
         def serialize_node(node: Node) -> dict:
+            entity_type = node.entity_type
             payload = {
                 "id": node.id,
                 "label": node.label,
-                "type": node.type.value,
+                "type": entity_type.value,
                 "details": node.details,
-                "supertype": node.supertype if node.supertype is not None else node.type.supertype,
+                "supertype": node.supertype if node.supertype is not None else entity_type.supertype,
             }
             if node.card_sections is not None:
                 payload["card_sections"] = [
@@ -103,10 +112,11 @@ class Graph:
             return payload
 
         def serialize_edge(edge: Edge) -> dict:
+            relationship_type = edge.relationship_type
             payload = {
                 "source": edge.source,
                 "target": edge.target,
-                "label": edge.label.value,
+                "label": relationship_type.value,
             }
             if edge.weight is not None:
                 payload["weight"] = edge.weight
@@ -119,7 +129,7 @@ class Graph:
             return payload
 
         def serialize_evidence(item: EvidenceRecord) -> dict:
-            payload = {
+            payload: dict[str, object] = {
                 "id": item.id,
                 "type": item.type,
                 "source": item.source,

@@ -18,6 +18,7 @@ harness stays in sync. See the "Harness maintenance" section in ``CLAUDE.md``.
 from __future__ import annotations
 
 import unittest
+from typing import Any, cast
 
 from brain_ds.mcp import grounding
 from brain_ds.ontology.entity_types import EntityType
@@ -65,7 +66,7 @@ class GroundingEntityNameValidityTests(unittest.TestCase):
         )
 
     def test_dataset_fingerprint_order_entries_are_valid_entity_types(self) -> None:
-        fingerprint = grounding.COMPLETENESS_MATRIX_TEMPLATE["dataset_fingerprint_order"]
+        fingerprint = cast(list[str], grounding.COMPLETENESS_MATRIX_TEMPLATE["dataset_fingerprint_order"])
         invalid = set(fingerprint) - _entity_values()
         self.assertEqual(
             invalid,
@@ -133,8 +134,8 @@ class GroundingDataSourceCompletenessTests(unittest.TestCase):
                 self.assertIn(topic, questions)
 
     def test_data_source_write_template_captures_structure(self) -> None:
-        ds_template = grounding.NODE_WRITE_TEMPLATES.get("Data Source", {})
-        learned = ds_template.get("details", {}).get("learned", "")
+        ds_template = cast(dict[str, Any], grounding.NODE_WRITE_TEMPLATES.get("Data Source", {}))
+        learned = cast(dict[str, str], ds_template.get("details", {})).get("learned", "")
         required_fields = [
             "Kind:",
             "System:",

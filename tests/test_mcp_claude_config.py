@@ -5,7 +5,6 @@ import unittest
 import json
 import os
 import io
-import shutil
 import subprocess
 import tempfile
 from contextlib import redirect_stderr, redirect_stdout
@@ -183,7 +182,7 @@ class MCPClaudeConfigTests(unittest.TestCase):
 
                 self.assertEqual(initialize_response["result"]["protocolVersion"], "2024-11-05")
                 tools = tools_response["result"]["tools"]
-                self.assertEqual(len(tools), 17)
+                self.assertEqual(len(tools), 20)
 
     def test_claude_md_contains_required_sections(self) -> None:
         claude_path = Path(__file__).resolve().parents[1] / "CLAUDE.md"

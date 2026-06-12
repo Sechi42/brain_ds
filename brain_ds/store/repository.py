@@ -8,6 +8,7 @@ import json
 from heapq import nlargest
 from math import fsum, sqrt
 from datetime import datetime, timedelta, timezone
+from typing import cast
 
 from .errors import CorruptVectorError, GraphNotFoundError
 from .models import (
@@ -21,10 +22,46 @@ from .models import (
     NodeRow,
 )
 from .serialization import decode_json, decode_vector, encode_json, encode_vector
+from .migrations import _normalize_text, _extract_text_from_json
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _fts_upsert(conn: sqlite3.Connection, graph_id: str, node_id: str, label: str, details_json: str | None, sections_json: str | None) -> None:
+    """Update the nodes_fts index for one node (delete then insert)."""
+    try:
+        conn.execute(
+            "DELETE FROM nodes_fts WHERE graph_id = ? AND node_id = ?",
+            (graph_id, node_id),
+        )
+        conn.execute(
+            "INSERT INTO nodes_fts(graph_id, node_id, label, details_text, sections_text) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                graph_id,
+                node_id,
+                _normalize_text(label or ""),
+                _normalize_text(_extract_text_from_json(details_json)),
+                _normalize_text(_extract_text_from_json(sections_json)),
+            ),
+        )
+    except Exception:
+        # FTS table may not exist (read-only store or very old migration state).
+        # Silently skip — search falls back to Python scan.
+        pass
+
+
+def _fts_delete(conn: sqlite3.Connection, graph_id: str, node_id: str) -> None:
+    """Remove one node from the nodes_fts index."""
+    try:
+        conn.execute(
+            "DELETE FROM nodes_fts WHERE graph_id = ? AND node_id = ?",
+            (graph_id, node_id),
+        )
+    except Exception:
+        pass
 
 
 class GraphMetaRepository:
@@ -162,6 +199,10 @@ class NodeRepository:
                     now,
                 ),
             )
+            # Keep FTS index in sync
+            details_json = encode_json(node.get("details", {}))
+            sections_json = encode_json(node.get("card_sections")) if node.get("card_sections") is not None else None
+            _fts_upsert(self.conn, graph_id, node["id"], node["label"], details_json, sections_json)
         self.conn.commit()
 
     def query_nodes(
@@ -307,10 +348,23 @@ class NodeRepository:
                 now,
             ),
         )
+        # Keep FTS index in sync after upsert
+        _fts_upsert(
+            self.conn,
+            graph_id,
+            node_input["id"],
+            cast(str, payload["label"] or ""),
+            cast(str | None, payload["details"]),
+            cast(str | None, payload["card_sections"]),
+        )
         self.conn.commit()
 
     def delete_nodes(self, graph_id: str) -> None:
         self.conn.execute("DELETE FROM nodes WHERE graph_id = ?", (graph_id,))
+        try:
+            self.conn.execute("DELETE FROM nodes_fts WHERE graph_id = ?", (graph_id,))
+        except Exception:
+            pass
         self.conn.commit()
 
     def delete_node(self, graph_id: str, node_id: str) -> int:
@@ -318,6 +372,7 @@ class NodeRepository:
             "DELETE FROM nodes WHERE graph_id = ? AND id = ?",
             (graph_id, node_id),
         )
+        _fts_delete(self.conn, graph_id, node_id)
         self.conn.commit()
         return int(cur.rowcount or 0)
 

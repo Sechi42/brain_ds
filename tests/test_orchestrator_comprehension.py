@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import os
 from pathlib import Path
+from typing import Any, cast
 
 from brain_ds.mcp.grounding import build_relationship_labels
 from brain_ds.mcp.tools import add_edge, create_graph, list_graphs, search_graph, update_node
@@ -24,40 +25,37 @@ class TestOrchestratorComprehension(unittest.TestCase):
         for run in range(3):
             graph_id = f"graph-{run}"
             node_id = f"node-{run}"
-            results = []
-
-            results.append(list_graphs(self.store, {}))
-            results.append(create_graph(self.store, {"graph_id": graph_id, "name": f"Graph {run}"}))
-            results.append(
-                update_node(
-                    self.store,
-                    {
-                        "graph_id": graph_id,
-                        "node_id": node_id,
-                        "label": f"Node {run}",
-                        "type": EntityType.DEPARTMENT.value,
-                        "card_sections": [{"title": "Overview", "content": "Live", "icon": "", "order": 1}],
-                    },
-                )
+            graphs_result = cast(list[dict[str, Any]], list_graphs(self.store, {}))
+            create_result = create_graph(self.store, {"graph_id": graph_id, "name": f"Graph {run}"})
+            update_result = update_node(
+                self.store,
+                {
+                    "graph_id": graph_id,
+                    "node_id": node_id,
+                    "label": f"Node {run}",
+                    "type": EntityType.DEPARTMENT.value,
+                    "card_sections": [{"title": "Overview", "content": "Live", "icon": "", "order": 1}],
+                },
             )
-            results.append(
-                add_edge(
-                    self.store,
-                    {
-                        "graph_id": graph_id,
-                        "source": node_id,
-                        "target": node_id,
-                        "label": build_relationship_labels()[0],
-                    },
-                )
+            edge_result = add_edge(
+                self.store,
+                {
+                    "graph_id": graph_id,
+                    "source": node_id,
+                    "target": node_id,
+                    "label": build_relationship_labels()[0],
+                },
             )
-            results.append(search_graph(self.store, {"graph_id": graph_id, "query": f"node {run}"}))
+            search_result = cast(
+                list[dict[str, Any]],
+                search_graph(self.store, {"graph_id": graph_id, "query": f"node {run}"}),
+            )
 
-            self.assertEqual(len(results), 5)
-            self.assertNotIn("code", results[1])
-            self.assertEqual(results[2]["card_sections"][0]["content"], "Live")
-            self.assertEqual(results[3]["label"], build_relationship_labels()[0])
-            self.assertEqual(results[4][0]["id"], node_id)
+            self.assertEqual(len((graphs_result, create_result, update_result, edge_result, search_result)), 5)
+            self.assertNotIn("code", create_result)
+            self.assertEqual(cast(list[dict[str, Any]], update_result["card_sections"])[0]["content"], "Live")
+            self.assertEqual(edge_result["label"], build_relationship_labels()[0])
+            self.assertEqual(search_result[0]["id"], node_id)
 
     def test_body_key_regression_names_wrong_key_and_correct_key(self) -> None:
         create_graph(self.store, {"graph_id": "graph-regression", "name": "Regression"})

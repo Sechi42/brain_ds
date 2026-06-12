@@ -20,7 +20,7 @@ def decode_json(value: str | None) -> Any:
 
     if value in (None, ""):
         return None
-    return json.loads(value)
+    return json.loads(str(value))
 
 
 def encode_vector(vector: Sequence[float]) -> bytes:

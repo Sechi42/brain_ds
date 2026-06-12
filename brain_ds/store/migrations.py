@@ -2,12 +2,41 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
+import unicodedata
 from datetime import datetime, timezone
 from typing import Callable, Sequence
 
 from .errors import IncompatibleStoreError, MigrationFailedError
 from .schema import DDL_SCRIPT
+
+
+def _normalize_text(text: str) -> str:
+    """Lowercase + strip accents for accent-insensitive FTS indexing."""
+    nfd = unicodedata.normalize("NFD", text)
+    return "".join(ch for ch in nfd if unicodedata.category(ch) != "Mn").lower()
+
+
+def _extract_text_from_json(json_str: str | None) -> str:
+    """Extract plain text from a JSON string (details or card_sections)."""
+    if not json_str:
+        return ""
+    try:
+        obj = json.loads(json_str)
+    except (json.JSONDecodeError, TypeError):
+        return str(json_str or "")
+    if isinstance(obj, dict):
+        return " ".join(str(v) for v in obj.values() if v is not None)
+    if isinstance(obj, list):
+        parts: list[str] = []
+        for item in obj:
+            if isinstance(item, dict):
+                parts.extend(str(v) for v in item.values() if v is not None)
+            else:
+                parts.append(str(item))
+        return " ".join(parts)
+    return str(obj)
 
 Migration = Callable[[sqlite3.Connection], None]
 
@@ -62,7 +91,56 @@ def v3_event_outbox(conn: sqlite3.Connection) -> None:
     )
 
 
-MIGRATIONS: Sequence[Migration] = (v1_initial_schema, v2_tools_audit, v3_event_outbox)
+def v4_fts5_nodes(conn: sqlite3.Connection) -> None:
+    """Create FTS5 virtual table for accent-insensitive node full-text search.
+
+    The table stores normalised (NFD-stripped, lowercase) versions of:
+      - graph_id  (UNINDEXED — for filtering, not full-text search)
+      - node_id   (UNINDEXED — primary key reference, not searched)
+      - label
+      - details_text  (JSON values flattened to plain text)
+      - sections_text (card_sections JSON values flattened to plain text)
+
+    We use a standard (non-content-less) FTS5 table so that UNINDEXED columns
+    are physically stored and retrievable. The FTS index is maintained manually
+    from NodeRepository upsert/delete paths (delete-then-insert on every write).
+    This migration is idempotent (IF NOT EXISTS) and performs a one-time
+    backfill when the table is empty after creation.
+    """
+    conn.execute(
+        """
+        CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts
+        USING fts5(
+            graph_id UNINDEXED,
+            node_id UNINDEXED,
+            label,
+            details_text,
+            sections_text
+        )
+        """
+    )
+
+    # Check if backfill is needed (table empty after creation)
+    count = conn.execute("SELECT COUNT(*) FROM nodes_fts").fetchone()[0]
+    if count == 0:
+        rows = conn.execute(
+            "SELECT graph_id, id, label, details, card_sections FROM nodes"
+        ).fetchall()
+        for graph_id, node_id, label, details, sections in rows:
+            conn.execute(
+                "INSERT INTO nodes_fts(graph_id, node_id, label, details_text, sections_text) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    graph_id,
+                    node_id,
+                    _normalize_text(label or ""),
+                    _normalize_text(_extract_text_from_json(details)),
+                    _normalize_text(_extract_text_from_json(sections)),
+                ),
+            )
+
+
+MIGRATIONS: Sequence[Migration] = (v1_initial_schema, v2_tools_audit, v3_event_outbox, v4_fts5_nodes)
 
 
 def _current_schema_version(conn: sqlite3.Connection) -> int:

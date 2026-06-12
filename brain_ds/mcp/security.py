@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, ParamSpec, Protocol, TypeVar, cast
 
 from brain_ds.store.errors import StoreError
 
@@ -155,6 +155,37 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         },
         "additionalProperties": False,
     },
+    # Read-only data source exploration tools
+    "list_source_connections": {
+        "type": "object",
+        "required": [],
+        "properties": {
+            "graph_id": {"type": "string"},
+        },
+        "additionalProperties": False,
+    },
+    "explore_source": {
+        "type": "object",
+        "required": ["node_id", "graph_id"],
+        "properties": {
+            "graph_id": {"type": "string"},
+            "node_id": {"type": "string"},
+            "container": {"type": "string"},
+            "table": {"type": "string"},
+        },
+        "additionalProperties": False,
+    },
+    "query_source": {
+        "type": "object",
+        "required": ["node_id", "graph_id", "sql"],
+        "properties": {
+            "graph_id": {"type": "string"},
+            "node_id": {"type": "string"},
+            "sql": {"type": "string"},
+            "limit": {"type": "integer"},
+        },
+        "additionalProperties": False,
+    },
     # B1 context-return tools — zero-param empty-object schemas (matching list_graphs pattern).
     "run_elicit": {
         "type": "object",
@@ -177,6 +208,14 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
 }
 
 _CARD_SECTION_ALLOWED_KEYS = {"title", "content", "icon", "order"}
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+class WrappedHandler(Protocol[P, R]):
+    __wrapped__: Callable[P, R]
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R | dict[str, Any]: ...
 
 
 def resolve_store_path(project_root: str) -> Path:
@@ -286,9 +325,9 @@ def validate_card_sections(items: Any) -> list[dict[str, Any]]:
     return validated
 
 
-def error_boundary(handler: Callable[..., dict[str, Any]]) -> Callable[..., dict[str, Any]]:
+def error_boundary(handler: Callable[P, R]) -> WrappedHandler[P, R]:
     @wraps(handler)
-    def wrapped(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    def wrapped(*args: P.args, **kwargs: P.kwargs) -> R | dict[str, Any]:
         try:
             return handler(*args, **kwargs)
         except ValidationError as exc:
@@ -298,7 +337,7 @@ def error_boundary(handler: Callable[..., dict[str, Any]]) -> Callable[..., dict
         except Exception:
             return {"code": -32000, "message": "Internal error"}
 
-    return wrapped
+    return cast(WrappedHandler[P, R], wrapped)
 
 
 def _matches_type(value: Any, expected: str) -> bool:

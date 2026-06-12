@@ -3,12 +3,14 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import datetime, timezone
 import json
+import unicodedata
 from pathlib import Path
 from typing import Any
 
 import brain_ds.mcp.grounding as grounding
 import brain_ds.scoring.similarity as similarity
 import brain_ds.workspaces as workspace_registry
+from brain_ds.connectors import CsvConnector, SQLiteConnector
 from brain_ds.mcp.security import (
     TOOL_SCHEMAS,
     SecurityError,
@@ -158,22 +160,38 @@ def get_node(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     raise ValidationError(code=-32000, message=f"Node '{node_id}' not found in graph '{graph_id}'")
 
 
+def _normalize_query(text: str) -> str:
+    """Normalize text for accent-insensitive comparison."""
+    nfd = unicodedata.normalize("NFD", text.lower())
+    return "".join(ch for ch in nfd if unicodedata.category(ch) != "Mn")
+
+
 @error_boundary
 def search_graph(store: GraphStore, params: dict[str, Any]) -> list[dict[str, Any]] | dict[str, Any]:
     validated = validate_tool_input("search_graph", params, TOOL_SCHEMAS["search_graph"])
     graph_id = validated["graph_id"]
-    query = validated["query"].strip().lower()
+    raw_query = validated["query"].strip()
 
     try:
         rows = store.query_nodes(graph_id)
     except GraphNotFoundError as exc:
         raise ValidationError(code=-32000, message=str(exc)) from exc
 
+    # Attempt FTS5 search first
+    fts_ids = store.search_nodes_fts(graph_id, raw_query)
+
+    if fts_ids is not None and len(fts_ids) > 0:
+        id_set = set(fts_ids)
+        return [_node_to_dict(row) for row in rows if row.id in id_set]
+
+    # Fallback: Python substring scan (accent-insensitive)
+    query = _normalize_query(raw_query)
+
     def _match(row: Any) -> bool:
         return (
-            query in row.label.lower()
-            or query in row.type.lower()
-            or query in _details_text(row.details)
+            query in _normalize_query(row.label)
+            or query in _normalize_query(row.type)
+            or query in _normalize_query(_details_text(row.details))
         )
 
     return [_node_to_dict(row) for row in rows if _match(row)]
@@ -472,6 +490,169 @@ def generate_brd(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _get_node_connection(store: GraphStore, graph_id: str, node_id: str) -> dict[str, Any]:
+    """Retrieve the 'connection' dict from a Data Source node's details."""
+    try:
+        node = get_node.__wrapped__(store, {"graph_id": graph_id, "node_id": node_id})
+    except ValidationError as exc:
+        raise exc
+
+    details = node.get("details") or {}
+    connection = details.get("connection")
+    if not connection or not isinstance(connection, dict):
+        raise ValidationError(
+            code=-32000,
+            message=(
+                f"Node '{node_id}' has no 'connection' descriptor in details. "
+                "Set details.connection = {{kind: 'sqlite'|'csv', path: '...'}} to enable exploration."
+            ),
+        )
+    return connection
+
+
+def _resolve_connector(connection: dict[str, Any], project_root: Path):
+    """Resolve and validate a connector from a connection descriptor."""
+    kind = connection.get("kind", "").lower()
+    raw_path = connection.get("path", "")
+
+    if not raw_path:
+        raise ValidationError(code=-32000, message="Connection descriptor missing 'path'")
+
+    try:
+        safe_path = validate_path_within_root(raw_path, project_root)
+    except SecurityError as exc:
+        raise ValidationError(code=-32000, message=f"Path sandbox violation: {exc}") from exc
+    except FileNotFoundError as exc:
+        raise ValidationError(code=-32000, message=f"Source file not found: {raw_path}") from exc
+
+    if kind == "sqlite":
+        return SQLiteConnector(safe_path)
+    elif kind in ("csv", "tsv"):
+        return CsvConnector(safe_path)
+    else:
+        raise ValidationError(
+            code=-32000,
+            message=f"Unsupported connection kind: {kind!r}. Supported: sqlite, csv, tsv",
+        )
+
+
+@error_boundary
+def list_source_connections(store: GraphStore, params: dict[str, Any]) -> list[dict[str, Any]] | dict[str, Any]:
+    """List Data Source nodes that have explorable connection descriptors."""
+    validated = validate_tool_input("list_source_connections", params, TOOL_SCHEMAS["list_source_connections"])
+
+    try:
+        all_graphs = [g.id for g in store.list_graphs()]
+        if not all_graphs:
+            return []
+
+        graph_ids = [validated["graph_id"]] if validated.get("graph_id") else all_graphs
+        result: list[dict[str, Any]] = []
+
+        for gid in graph_ids:
+            try:
+                rows = store.query_nodes(gid, type="Data Source")
+            except GraphNotFoundError:
+                continue
+            for row in rows:
+                details = row.details or {}
+                connection = details.get("connection")
+                if connection and isinstance(connection, dict):
+                    result.append({
+                        "graph_id": gid,
+                        "node_id": row.id,
+                        "label": row.label,
+                        "connection": connection,
+                    })
+    except Exception as exc:
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+
+    return result
+
+
+@error_boundary
+def explore_source(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    """Explore a connected data source by dispatching to the right connector.
+
+    - No container/table args: describe + list_containers
+    - container only: list_tables(container)
+    - container + table: schema + 5-row preview
+    """
+    validated = validate_tool_input("explore_source", params, TOOL_SCHEMAS["explore_source"])
+    graph_id = validated["graph_id"]
+    node_id = validated["node_id"]
+    container = validated.get("container")
+    table = validated.get("table")
+
+    connection = _get_node_connection(store, graph_id, node_id)
+    project_root = _project_root_from_store_path(store.path)
+    connector = _resolve_connector(connection, project_root)
+
+    try:
+        if container is None:
+            # Level 0: describe + list containers
+            return {
+                "level": "source",
+                "describe": connector.describe(),
+                "containers": connector.list_containers(),
+            }
+        elif table is None:
+            # Level 1: list tables in container
+            return {
+                "level": "container",
+                "container": container,
+                "tables": connector.list_tables(container),
+            }
+        else:
+            # Level 2: schema + preview
+            schema = connector.get_table_schema(container, table)
+            preview = connector.preview(container, table, limit=5)
+            return {
+                "level": "table",
+                "container": container,
+                "table": table,
+                "schema": schema,
+                "preview": preview,
+            }
+    except (FileNotFoundError, ValueError, Exception) as exc:
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+
+
+@error_boundary
+def query_source(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    """Execute a SELECT-only SQL query against an SQLite data source.
+
+    Only SQLite sources are supported. The SQL must be a single SELECT or
+    WITH...SELECT statement. Results are capped at 200 rows.
+    """
+    validated = validate_tool_input("query_source", params, TOOL_SCHEMAS["query_source"])
+    graph_id = validated["graph_id"]
+    node_id = validated["node_id"]
+    sql = validated["sql"]
+    limit = int(validated.get("limit") or 200)
+
+    connection = _get_node_connection(store, graph_id, node_id)
+    kind = connection.get("kind", "").lower()
+
+    if kind != "sqlite":
+        raise ValidationError(
+            code=-32000,
+            message=f"query_source only supports SQLite sources, got kind={kind!r}. "
+                    "For CSV sources, use explore_source to preview data.",
+        )
+
+    project_root = _project_root_from_store_path(store.path)
+    connector = _resolve_connector(connection, project_root)
+
+    try:
+        result = connector.query(sql, limit=limit)
+        return result
+    except ValueError as exc:
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+    except Exception as exc:
+        raise ValidationError(code=-32000, message=f"Query error: {exc}") from exc
+
+
 def _safe_log_error(store: GraphStore, tool_name: str, payload: dict[str, Any]) -> None:
     try:
         store.log_audit(tool_name, payload, "error")
@@ -596,6 +777,27 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "handler": generate_brd,
         "schema": TOOL_SCHEMAS["generate_brd"],
         "description": "Return brd grounding context",
+        "rw": "read",
+        "requires_ai_agent": False,
+    },
+    "list_source_connections": {
+        "handler": list_source_connections,
+        "schema": TOOL_SCHEMAS["list_source_connections"],
+        "description": "List Data Source nodes that have explorable connection descriptors",
+        "rw": "read",
+        "requires_ai_agent": False,
+    },
+    "explore_source": {
+        "handler": explore_source,
+        "schema": TOOL_SCHEMAS["explore_source"],
+        "description": "Explore a connected data source (describe/containers/tables/schema+preview)",
+        "rw": "read",
+        "requires_ai_agent": False,
+    },
+    "query_source": {
+        "handler": query_source,
+        "schema": TOOL_SCHEMAS["query_source"],
+        "description": "Execute a SELECT-only SQL query against an SQLite data source (capped at 200 rows)",
         "rw": "read",
         "requires_ai_agent": False,
     },
