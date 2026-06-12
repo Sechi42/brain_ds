@@ -16,8 +16,10 @@ interface NodeEntry {
 }
 
 export interface SplitPaneDeps {
-  getMarkdown?: () => string;
-  saveMarkdown?: (markdown: string) => Promise<boolean>;
+  /** Markdown for a node. The reader passes the node it is SHOWING — never
+   *  rely solely on the canvas selection, which can change or clear mid-edit. */
+  getMarkdown?: (nodeId?: string | null) => string;
+  saveMarkdown?: (markdown: string, nodeId?: string | null) => Promise<boolean>;
   hasSelection?: () => boolean;
   onRequireSelection?: () => void;
   /** Returns the currently selected node id */
@@ -283,7 +285,7 @@ function renderPreview(): void {
   _editingNotes = false;
 
   const nodeId = _currentNodeId ?? (typeof _deps.getSelectedNodeId === 'function' ? _deps.getSelectedNodeId() : null);
-  const raw = typeof _deps.getMarkdown === 'function' ? _deps.getMarkdown() : '';
+  const raw = typeof _deps.getMarkdown === 'function' ? _deps.getMarkdown(nodeId) : '';
 
   reader.innerHTML = '';
 
@@ -305,9 +307,10 @@ function renderPreview(): void {
     toolbar.appendChild(backBtn);
   }
 
-  // Edit content button
-  if (typeof _deps.saveMarkdown === 'function' && raw) {
-    toolbar.appendChild(makeButton('reader-edit', 'Editar', () => {
+  // Edit content button — also offered when the node has no content yet, so
+  // the user can create it from scratch ("Agregar contenido").
+  if (typeof _deps.saveMarkdown === 'function' && nodeId) {
+    toolbar.appendChild(makeButton('reader-edit', raw ? 'Editar' : 'Agregar contenido', () => {
       _editing = true;
       renderEditor(raw);
     }));
@@ -343,21 +346,7 @@ function renderPreview(): void {
     notesHeader.appendChild(notesStatus);
     notesSection.appendChild(notesHeader);
 
-    const currentNotes = getNotesForNode(nodeId);
-    const notesView = document.createElement('div');
-    notesView.className = 'reader-notes-view';
-
-    if (currentNotes) {
-      notesView.innerHTML = renderWikilinks(renderMarkdown(currentNotes));
-    } else {
-      notesView.innerHTML = '<p class="reader-notes-empty">Sin notas. Hacé clic para agregar…</p>';
-    }
-
-    // Click on view to enter edit mode
-    notesView.addEventListener('click', () => {
-      showNotesEditor(nodeId, notesSection, notesStatus);
-    });
-    notesSection.appendChild(notesView);
+    appendNotesView(nodeId, notesSection, notesStatus);
     reader.appendChild(notesSection);
   }
 
@@ -425,6 +414,24 @@ function renderPreview(): void {
   }
 }
 
+function appendNotesView(nodeId: string, container: HTMLElement, statusEl: HTMLSpanElement): void {
+  const currentNotes = getNotesForNode(nodeId);
+  const notesView = document.createElement('div');
+  notesView.className = 'reader-notes-view';
+
+  if (currentNotes) {
+    notesView.innerHTML = renderWikilinks(renderMarkdown(currentNotes));
+  } else {
+    notesView.innerHTML = '<p class="reader-notes-empty">Sin notas. Hacé clic para agregar…</p>';
+  }
+
+  // Click on view to enter edit mode
+  notesView.addEventListener('click', () => {
+    showNotesEditor(nodeId, container, statusEl);
+  });
+  container.appendChild(notesView);
+}
+
 function showNotesEditor(nodeId: string, container: HTMLElement, statusEl: HTMLSpanElement): void {
   // Remove the view div, inject textarea
   const existing = container.querySelector('.reader-notes-view, .reader-notes-editor-wrap');
@@ -453,12 +460,29 @@ function showNotesEditor(nodeId: string, container: HTMLElement, statusEl: HTMLS
     } else {
       flashStatus(statusEl, 'Error al guardar', 3000);
     }
+    return ok;
   };
 
-  // Autosave on blur
+  // Swap the editor back to the read view IN PLACE. Never re-render the whole
+  // reader here: blur fires when the user clicks anywhere else (another node,
+  // the canvas), and a full renderPreview() would follow the new selection —
+  // the reader would jump away mid-save and look like the node lost its data.
+  const closeEditor = () => {
+    _editingNotes = false;
+    if (!container.isConnected) return; // reader already re-rendered elsewhere
+    const editorWrap = container.querySelector('.reader-notes-editor-wrap');
+    if (editorWrap) editorWrap.remove();
+    appendNotesView(nodeId, container, statusEl);
+  };
+
+  // Autosave on blur — skip the network round-trip when nothing changed.
   textarea.addEventListener('blur', () => {
     if (_saveTimer) clearTimeout(_saveTimer);
-    doSave().then(() => renderPreview());
+    if (textarea.value === getNotesForNode(nodeId)) {
+      closeEditor();
+      return;
+    }
+    doSave().then(() => closeEditor());
   });
 
   // Ctrl/Cmd+S saves without leaving
@@ -497,12 +521,17 @@ function renderEditor(raw: string): void {
   textarea.setAttribute('aria-label', 'Editor de markdown del nodo');
   textarea.spellcheck = false;
 
+  // Pin the node being edited NOW: the canvas selection can change or clear
+  // while the editor is open, and the save must still target this node.
+  const editingNodeId = _currentNodeId
+    ?? (typeof _deps.getSelectedNodeId === 'function' ? _deps.getSelectedNodeId() : null);
+
   const saveBtn = makeButton('reader-save', 'Guardar', async () => {
     saveBtn.disabled = true;
     flashStatus(status, 'Guardando…', 800);
     let ok = false;
     try {
-      ok = await _deps.saveMarkdown(textarea.value);
+      ok = await _deps.saveMarkdown(textarea.value, editingNodeId);
     } catch (_e) {
       ok = false;
     }

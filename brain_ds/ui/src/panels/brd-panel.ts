@@ -238,24 +238,87 @@ function renderPanel(): void {
     return;
   }
 
-  // Content area
+  // Summary mode — the side panel shows metadata + a short preview only.
+  // The full document opens in the center markdown reader (full width),
+  // where viewing and editing have proper room.
+  const summary = document.createElement('div');
+  summary.className = 'brd-panel-summary';
+
+  const statusMatch = _brdContent.match(/Status:\s*([A-ZÁÉÍÓÚ]+)/i);
+  const orgMatch = _brdContent.match(/Organization:\s*(.+)/i);
+  const sectionCount = (_brdContent.match(/^##\s+/gm) || []).length;
+
+  const metaList = document.createElement('dl');
+  metaList.className = 'brd-summary-meta';
+  const metaPairs: Array<[string, string]> = [];
+  if (statusMatch) metaPairs.push(['Estado', statusMatch[1].toUpperCase()]);
+  if (orgMatch) metaPairs.push(['Organización', orgMatch[1].trim()]);
+  metaPairs.push(['Secciones', String(sectionCount)]);
+  if (_brdModifiedAt) {
+    metaPairs.push(['Actualizado', new Date(_brdModifiedAt).toLocaleString()]);
+  }
+  for (const [k, v] of metaPairs) {
+    const dt = document.createElement('dt');
+    dt.textContent = k;
+    const dd = document.createElement('dd');
+    dd.textContent = v;
+    metaList.appendChild(dt);
+    metaList.appendChild(dd);
+  }
+  summary.appendChild(metaList);
+
   const actions = document.createElement('div');
   actions.className = 'brd-panel-actions';
-  const editBtn = document.createElement('button');
-  editBtn.type = 'button';
-  editBtn.className = 'pill-btn btn-outline';
-  editBtn.innerHTML = '<svg class="card-icon" aria-hidden="true" width="14" height="14"><use href="#icon-edit"/></svg> Editar';
-  editBtn.addEventListener('click', () => renderEditor(_brdContent));
-  actions.appendChild(editBtn);
-  _panelEl.appendChild(actions);
+  const openBtn = document.createElement('button');
+  openBtn.type = 'button';
+  openBtn.className = 'pill-btn btn-outline brd-open-btn';
+  openBtn.innerHTML = '<svg class="card-icon" aria-hidden="true" width="14" height="14"><use href="#icon-maximize"/></svg> Abrir BRD completo';
+  openBtn.title = 'Ver y editar el BRD en el lector central';
+  openBtn.addEventListener('click', () => openFullReader());
+  actions.appendChild(openBtn);
+  summary.appendChild(actions);
 
-  const content = document.createElement('div');
-  content.className = 'brd-panel-content reader-content';
-  content.innerHTML = renderWikilinks(renderMarkdown(_brdContent));
-  _panelEl.appendChild(content);
+  // Short preview: executive summary (or first lines) so the side panel stays a resumen.
+  const previewSource = extractPreview(_brdContent);
+  if (previewSource) {
+    const content = document.createElement('div');
+    content.className = 'brd-panel-content brd-panel-content--preview reader-content';
+    content.innerHTML = renderWikilinks(renderMarkdown(previewSource));
+    summary.appendChild(content);
+  }
+
+  _panelEl.appendChild(summary);
 
   // Wikilink delegation
   _panelEl.addEventListener('click', onBrdPanelClick);
+}
+
+/** First meaningful chunk for the side-panel preview: the Executive Summary
+ *  section when present, otherwise the first ~12 lines of the document. */
+function extractPreview(markdown: string): string {
+  const execMatch = markdown.match(/##\s+Executive Summary\s*\n([\s\S]*?)(?=\n##\s+|$)/i);
+  if (execMatch && execMatch[1].trim()) {
+    return `### Executive Summary\n\n${execMatch[1].trim()}`;
+  }
+  return markdown.split(/\r?\n/).slice(0, 12).join('\n');
+}
+
+/** Open the BRD node in the center markdown reader (full width view + edit).
+ *  Mirrors the wikilink pattern: select the node, then open the reader pane. */
+function openFullReader(): void {
+  if (!_deps) return;
+  try {
+    if (_deps.selectAndReveal) _deps.selectAndReveal(brdNodeId());
+  } catch (_e) {
+    // Node not in the rendered network yet (created after page load without
+    // live sync) — reload keeps things consistent.
+    window.location.reload();
+    return;
+  }
+  const split = document.getElementById('center-split');
+  if (split && split.getAttribute('data-layout') === 'reader') return;
+  const readerBtn = document.getElementById('show-more');
+  if (readerBtn) (readerBtn as HTMLElement).click();
 }
 
 function renderEditor(initial: string): void {
