@@ -13,6 +13,7 @@ function Require-Command([string]$Name) {
 Require-Command "cargo"
 Require-Command "rustc"
 Require-Command "uv"
+Require-Command "pnpm"
 
 cmd /c "cargo tauri --version >nul 2>nul"
 if ($LASTEXITCODE -ne 0) {
@@ -32,6 +33,45 @@ New-Item -ItemType Directory -Force -Path $distStage | Out-Null
 New-Item -ItemType Directory -Force -Path $workPath | Out-Null
 New-Item -ItemType Directory -Force -Path $binariesPath | Out-Null
 New-Item -ItemType Directory -Force -Path $distOut | Out-Null
+
+# Rebuild the UI bundle from source so the exe never ships a stale committed
+# viewer.bundle.js (the bundle is generated, and trusting the repo copy already
+# shipped an outdated UI once). Supply-chain guards:
+#   - frozen lockfile: dependency tree must match pnpm-lock.yaml exactly
+#   - ignore-scripts: package lifecycle scripts never execute (esbuild ships
+#     its binary as an optionalDependency, so the build works without them)
+#   - audit gate: high/critical advisories in the tree fail the build
+$uiPath = Join-Path $repoRoot "brain_ds/ui"
+$bundlePath = Join-Path $uiPath "assets/viewer.bundle.js"
+$uiSourceRoot = Join-Path $uiPath "src"
+Push-Location -LiteralPath $uiPath
+try {
+  $env:PNPM_CONFIG_IGNORE_SCRIPTS = "true"
+  pnpm install --frozen-lockfile
+  if ($LASTEXITCODE -ne 0) { Fail "pnpm install --frozen-lockfile failed with exit code $LASTEXITCODE." }
+  pnpm audit --audit-level high
+  if ($LASTEXITCODE -ne 0) { Fail "pnpm audit found high/critical advisories (exit $LASTEXITCODE). Resolve them before shipping the exe." }
+  pnpm run build
+  if ($LASTEXITCODE -ne 0) { Fail "UI bundle build failed with exit code $LASTEXITCODE." }
+  pnpm run bundle-size
+  if ($LASTEXITCODE -ne 0) { Fail "UI bundle size check failed with exit code $LASTEXITCODE." }
+
+  if (-not (Test-Path -LiteralPath $bundlePath)) {
+    Fail "Expected rebuilt UI bundle at $bundlePath"
+  }
+  $sourceFiles = @(Get-ChildItem -LiteralPath $uiSourceRoot -Recurse -File -Include *.ts)
+  if ($sourceFiles.Count -eq 0) {
+    Fail "No TypeScript sources found under $uiSourceRoot"
+  }
+  $newestSource = ($sourceFiles | Sort-Object LastWriteTimeUtc -Descending)[0]
+  $bundleItem = Get-Item -LiteralPath $bundlePath
+  if ($bundleItem.LastWriteTimeUtc -lt $newestSource.LastWriteTimeUtc) {
+    Fail "viewer.bundle.js is older than TypeScript source '$($newestSource.FullName)'. Rebuild freshness check failed."
+  }
+}
+finally {
+  Pop-Location
+}
 
 if (-not (Test-Path -LiteralPath $venvPython)) {
   uv venv --python 3.13 $venvPath

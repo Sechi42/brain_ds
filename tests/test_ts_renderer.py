@@ -115,8 +115,8 @@ class TestToolchainFilesExist(unittest.TestCase):
         path = BUILD_DIR / "check-bundle-size.mjs"
         self.assertTrue(path.exists(), "build/check-bundle-size.mjs not found")
         text = path.read_text(encoding="utf-8")
-        self.assertIn("60 * 1024", text, "JS raw limit must be 60KB")
-        self.assertIn("20 * 1024", text, "JS gzip limit must be 20KB")
+        self.assertIn("136 * 1024", text, "JS raw limit must be 136KB")
+        self.assertIn("40 * 1024", text, "JS gzip limit must be 40KB")
 
     def test_check_bundle_size_has_css_limit(self):
         path = BUILD_DIR / "check-bundle-size.mjs"

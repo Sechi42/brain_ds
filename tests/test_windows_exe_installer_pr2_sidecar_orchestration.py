@@ -70,11 +70,39 @@ class WindowsExeInstallerPr2SidecarOrchestrationTests(unittest.TestCase):
 
     def test_build_script_enforces_security_constraints_for_package_tools(self) -> None:
         script = ROOT / "scripts" / "build-windows-exe.ps1"
-        content = script.read_text(encoding="utf-8").lower()
+        content = script.read_text(encoding="utf-8")
 
-        self.assertNotIn("npm ", content)
-        self.assertNotIn("pnpm ", content)
+        self.assertIn('Require-Command "pnpm"', content)
+        self.assertIn('$env:PNPM_CONFIG_IGNORE_SCRIPTS = "true"', content)
+        self.assertIn('pnpm install --frozen-lockfile', content)
+        self.assertIn('pnpm audit --audit-level high', content)
+        self.assertIn('pnpm run build', content)
+        self.assertIn('pnpm run bundle-size', content)
         self.assertIn("--locked", content)
+
+    def test_build_script_rebuilds_bundle_before_tauri_and_checks_freshness(self) -> None:
+        script = ROOT / "scripts" / "build-windows-exe.ps1"
+        content = script.read_text(encoding="utf-8")
+
+        self.assertIn('viewer.bundle.js', content)
+        self.assertIn('pnpm run build', content)
+        self.assertIn('pnpm run bundle-size', content)
+        self.assertIn('cargo tauri build --features bundled --bundles nsis', content)
+        self.assertLess(content.index('pnpm run build'), content.index('cargo tauri build --features bundled --bundles nsis'))
+
+    def test_workflow_pins_pnpm_before_running_windows_build(self) -> None:
+        workflow = ROOT / '.github' / 'workflows' / 'build-windows-exe.yml'
+        content = workflow.read_text(encoding='utf-8')
+
+        self.assertIn('Install pnpm (exact pinned version)', content)
+        self.assertIn('npm install -g pnpm@11.0.8', content)
+        self.assertIn('pnpm --version', content)
+
+    def test_ui_package_declares_exact_pnpm_package_manager(self) -> None:
+        package_json = ROOT / 'brain_ds' / 'ui' / 'package.json'
+        content = package_json.read_text(encoding='utf-8')
+
+        self.assertIn('"packageManager": "pnpm@11.0.8"', content)
 
     def test_build_script_pins_uv_python_to_3_13_for_pyinstaller_compatibility(self) -> None:
         script = ROOT / "scripts" / "build-windows-exe.ps1"
