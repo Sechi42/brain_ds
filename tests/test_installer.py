@@ -218,6 +218,43 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(permission.get("read"), "allow")
         self.assertEqual(permission.get("edit"), "allow")
 
+    def test_agent_has_task_allowlist_for_brainds_subagents(self):
+        cfg = seed_global_opencode(self.home)
+        result = self.run_ps1("-Global", "-Agent")
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        data = json.loads(cfg.read_text(encoding="utf-8-sig"))
+        orchestrator = data["agent"]["brain-ds-orchestrator"]
+        self.assertTrue(orchestrator["tools"].get("task"))
+        task_permission = orchestrator["permission"]["task"]
+        self.assertEqual(task_permission["*"], "deny")
+        for name in (
+            "brainds-source-explorer",
+            "brainds-graph-mapper",
+            "brainds-connection-mapper",
+            "brainds-brd-writer",
+        ):
+            self.assertEqual(task_permission[name], "allow")
+
+    def test_subagents_deployed_with_file_prompts(self):
+        cfg = seed_global_opencode(self.home)
+        result = self.run_ps1("-Global", "-Agent")
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        data = json.loads(cfg.read_text(encoding="utf-8-sig"))
+        for name in (
+            "brainds-source-explorer",
+            "brainds-graph-mapper",
+            "brainds-connection-mapper",
+            "brainds-brd-writer",
+        ):
+            sub = data["agent"][name]
+            self.assertEqual(sub["mode"], "subagent", msg=name)
+            self.assertTrue(sub["hidden"], msg=name)
+            prompt = sub.get("prompt", "")
+            self.assertTrue(prompt.startswith("{file:"), msg=name)
+            self.assertIn(f"{name}.md", prompt, msg=name)
+            prompt_source = ROOT / "prompts" / f"{name}.md"
+            self.assertTrue(prompt_source.exists(), msg=f"Missing prompt file {prompt_source}")
+
     def test_commands_deployed(self):
         seed_global_opencode(self.home)
         result = self.run_ps1("-Global", "-Agent")

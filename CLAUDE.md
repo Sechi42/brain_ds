@@ -145,6 +145,23 @@ the same change:
   mirror this prose for non-Claude clients — update both, and keep
   `skills/*/SKILL.md` and `.opencode/skills/*/SKILL.md` consistent.
 
+- **The UI BRD panel convention** (`brain_ds/ui/src/panels/brd-panel.ts` — node id
+  `brd-{graphId}`, card_sections[0] `Contenido`): mirror any change in
+  `BRD_GRAPH_PERSISTENCE_CONTRACT` (`grounding.py`), `skills/generate-brd/SKILL.md`
+  (+ `.opencode` mirror), `.claude/agents/brainds-brd-writer.md`, and
+  `prompts/brainds-brd-writer.md`. Guarded by
+  `tests/test_mcp_grounding.py::test_brd_graph_persistence_contract_matches_ui_panel_convention`.
+- **The delegation model** (orchestrator + sub-agents): `DELEGATION_PROTOCOL` in
+  `grounding.py` is the cross-client source of truth; `.claude/agents/brainds-*.md`
+  and `prompts/brainds-*.md` mirror it. Adding/renaming a sub-agent requires
+  updating both installers (`install-opencode.ps1` / `.sh` task allowlist +
+  subagent insertion), `brain_ds/harness_check.py` (`SUBAGENT_NAMES`,
+  `CLAUDE_AGENT_FILES`), and `AGENT_FLOW.md`.
+
 `tests/test_grounding_drift_guard.py` enforces the EntityType side of this: it
 goes red if the ontology and `grounding.py` drift. Treat a red drift guard as
 "the harness needs updating", not "the test is wrong".
+
+`brain_ds check` verifies the installed harness (both clients, global + project)
+stays aligned with the repo; `tests/test_harness_check.py` runs the repo-side
+parity guards in CI.
