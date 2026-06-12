@@ -2212,8 +2212,8 @@ class TestLiveSyncPhase4Audit(unittest.TestCase):
             "const adjacency = RENDER_CONTEXT.adjacency || {};",
             "RENDER_CONTEXT,",
             "window.brainDsUI.popover.mount({ network, RENDER_CONTEXT });",
-            "const allNodes = (RENDER_CONTEXT && RENDER_CONTEXT.nodes) ? RENDER_CONTEXT.nodes : [];",
-            "const detailIndex = (RENDER_CONTEXT && RENDER_CONTEXT.detail_index) ? RENDER_CONTEXT.detail_index : {};",
+            "const allNodes = live ? live.getNodes() : ((RENDER_CONTEXT && RENDER_CONTEXT.nodes) ? RENDER_CONTEXT.nodes : []);",
+            "const detailIndex = live ? live.getDetailIndex() : ((RENDER_CONTEXT && RENDER_CONTEXT.detail_index) ? RENDER_CONTEXT.detail_index : {});",
             "const n = (RENDER_CONTEXT.nodes || []).find(",
         ]
         lines_with_context = [

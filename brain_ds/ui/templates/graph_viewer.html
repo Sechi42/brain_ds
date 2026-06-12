@@ -1051,8 +1051,23 @@
       #markdown-reader blockquote { border-left: 3px solid var(--accent-mora); margin: 0.75rem 0; padding: 0.25rem 0 0.25rem 0.9rem; color: var(--text-muted); }
       #markdown-reader hr { border: none; border-top: 1px solid var(--border-subtle); margin: 1.25rem 0; }
       #markdown-reader a { color: var(--accent-mora); }
-      .wikilink { color: var(--accent-mora); text-decoration: none; border-bottom: 1px dashed transparent; }
-      .wikilink:hover { border-bottom-color: currentColor; }
+      /* Obsidian-style internal links: always-visible purple underline that
+         strengthens on hover. Unresolved links override below (line ~1380). */
+      .wikilink {
+        color: var(--accent-mora);
+        cursor: pointer;
+        text-decoration: underline;
+        text-decoration-thickness: 1px;
+        text-underline-offset: 2px;
+        text-decoration-color: color-mix(in srgb, var(--accent-mora) 55%, transparent);
+        transition: text-decoration-color 200ms ease, background 200ms ease;
+        border-radius: 2px;
+      }
+      .wikilink:hover {
+        text-decoration-color: currentColor;
+        background: color-mix(in srgb, var(--accent-mora) 12%, transparent);
+      }
+      @media (prefers-reduced-motion: reduce) { .wikilink { transition: none; } }
       #show-more, #hide-markdown { min-width: 44px; min-height: 44px; }
       /* Transient guard-rail toast (e.g. "select a node first"). */
       .ui-toast { position: fixed; bottom: 1.5rem; left: 50%; transform: translate(-50%, 0.75rem); z-index: 80; max-width: min(90vw, 26rem); padding: 0.6rem 1.1rem; border-radius: var(--radius-ui); background: var(--bg-panel); color: var(--text-normal); border: 1px solid var(--border-subtle); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35); font-size: 0.85rem; opacity: 0; pointer-events: none; transition: opacity 180ms ease, transform 180ms ease; }
@@ -4826,7 +4841,10 @@
         const isExpanded = () => rightCollapseBtn.getAttribute('aria-expanded') === 'true';
 
         // BRD panel state — lazily mounted the first time the BRD icon is clicked.
+        // The mount handle is kept so the panel can re-read the BRD node when an
+        // MCP agent pushes it while the page is open (live event or re-reveal).
         let brdMounted = false;
+        let brdPanelHandle = null;
         const brdPanelEl = document.getElementById('brd-panel');
 
         // Panels that live inside the right-shell and must be toggled for BRD vs. inspector.
@@ -4857,23 +4875,45 @@
           if (brdMounted || !brdPanelEl) return;
           if (!window.brainDsUI || !window.brainDsUI.brdPanel) return;
           brdMounted = true;
-          const graphId = (meta && meta.graph_id) ? String(meta.graph_id) : '';
-          const allNodes = (RENDER_CONTEXT && RENDER_CONTEXT.nodes) ? RENDER_CONTEXT.nodes : [];
-          const detailIndex = (RENDER_CONTEXT && RENDER_CONTEXT.detail_index) ? RENDER_CONTEXT.detail_index : {};
-          const resolveWikilink = (target) => {
-            const lower = target.toLowerCase();
-            const n = (RENDER_CONTEXT.nodes || []).find(
-              (nd) => (nd.label && nd.label.toLowerCase() === lower) || (nd.id && nd.id.toLowerCase() === lower)
-            );
-            return n ? n.id : null;
-          };
-          await window.brainDsUI.brdPanel.mount(brdPanelEl, {
-            graphId,
+          const brdGraphId = (meta && meta.graph_id) ? String(meta.graph_id) : '';
+          // Prefer the live store over the page-load snapshot: nodes pushed via
+          // MCP after load (including the BRD itself) only exist in the store.
+          const live = (typeof liveDataStore !== 'undefined' && liveDataStore) ? liveDataStore : null;
+          const allNodes = live ? live.getNodes() : ((RENDER_CONTEXT && RENDER_CONTEXT.nodes) ? RENDER_CONTEXT.nodes : []);
+          const detailIndex = live ? live.getDetailIndex() : ((RENDER_CONTEXT && RENDER_CONTEXT.detail_index) ? RENDER_CONTEXT.detail_index : {});
+          const resolveBrdWikilink = (typeof resolveWikilink === 'function')
+            ? resolveWikilink
+            : (target) => {
+                const lower = target.toLowerCase();
+                const n = (RENDER_CONTEXT.nodes || []).find(
+                  (nd) => (nd.label && nd.label.toLowerCase() === lower) || (nd.id && nd.id.toLowerCase() === lower)
+                );
+                return n ? n.id : null;
+              };
+          brdPanelHandle = await window.brainDsUI.brdPanel.mount(brdPanelEl, {
+            graphId: brdGraphId,
             detailIndex,
             allNodes,
-            resolveWikilink,
+            resolveWikilink: resolveBrdWikilink,
             selectAndReveal: typeof selectAndReveal === 'function' ? selectAndReveal : undefined,
           });
+          // Live refresh: when the agent creates/updates the BRD node through
+          // MCP while the page is open, re-render the side panel immediately.
+          if (live && !live._brdRefreshPatched) {
+            live._brdRefreshPatched = true;
+            const origApplyEvent = live.applyEvent.bind(live);
+            live.applyEvent = (event) => {
+              origApplyEvent(event);
+              try {
+                const name = String((event && event.event) || '');
+                const payload = (event && event.payload) || {};
+                const targetId = String(payload.id || payload.node_id || '');
+                if (targetId === 'brd-' + brdGraphId && /^node\.(created|updated|deleted)$/.test(name) && brdPanelHandle) {
+                  brdPanelHandle.refresh();
+                }
+              } catch (_e) { /* never break the live pipeline over a panel refresh */ }
+            };
+          }
         };
 
         const select = (name) => {
@@ -4901,7 +4941,13 @@
             if (readerBtn) readerBtn.click();
           } else if (name === 'brd') {
             showBrdPanel(true);
-            mountBrdPanel();
+            if (brdMounted && brdPanelHandle) {
+              // Re-revealing the panel re-reads the BRD node from the server so
+              // an MCP push that happened while the panel was hidden shows up.
+              brdPanelHandle.refresh();
+            } else {
+              mountBrdPanel();
+            }
           }
         };
         railRight.addEventListener('click', (event) => {
