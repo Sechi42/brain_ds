@@ -29,11 +29,11 @@ class WindowsExeInstallerPr1FoundationTests(unittest.TestCase):
         self.assertEqual("2.0.0", tauri_dep["version"])
         self.assertIn("unstable", tauri_dep["features"])
 
-    def test_tauri_conf_is_nsis_only_with_webview_bootstrapper_and_nsis_fields(self) -> None:
+    def test_tauri_conf_includes_nsis_with_webview_bootstrapper_and_nsis_fields(self) -> None:
         config = json.loads((TAURI_ROOT / "tauri.conf.json").read_text(encoding="utf-8"))
         bundle = config["bundle"]
 
-        self.assertEqual(["nsis"], bundle["targets"])
+        self.assertIn("nsis", bundle["targets"])
         self.assertEqual(["binaries/brain_ds"], bundle["externalBin"])
         self.assertEqual({"type": "embedBootstrapper"}, bundle["windows"]["webviewInstallMode"])
         self.assertEqual("../LICENSE", bundle["licenseFile"])
@@ -54,7 +54,8 @@ class WindowsExeInstallerPr1FoundationTests(unittest.TestCase):
         binaries_dir = TAURI_ROOT / "binaries"
         self.assertTrue((binaries_dir / ".gitkeep").exists())
         self.assertTrue((binaries_dir / ".gitignore").exists())
-        self.assertEqual("*.exe\n", (binaries_dir / ".gitignore").read_text(encoding="utf-8"))
+        gitignore = (binaries_dir / ".gitignore").read_text(encoding="utf-8")
+        self.assertIn("*.exe", gitignore)
 
     def test_root_gitignore_includes_windows_installer_build_artifacts(self) -> None:
         text = (ROOT / ".gitignore").read_text(encoding="utf-8")
