@@ -35,6 +35,10 @@ phase5_offline_viewer.html
 after-*.png
 live-*.png
 review-*.png
+brd-*.png
+
+# Local backup artifacts
+*.bak
 
 # Temporary test artifacts
 tmp/
