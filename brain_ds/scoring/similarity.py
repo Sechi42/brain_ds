@@ -23,7 +23,7 @@ TYPE_PAIR_SUGGESTIONS: dict[frozenset[str], tuple[str, str, str]] = {
     frozenset({"Department", "Role"}): ("Department", "Role", "owns"),
     frozenset({"Role", "Data Source"}): ("Role", "Data Source", "uses"),
     frozenset({"Department", "Data Source"}): ("Department", "Data Source", "uses"),
-    frozenset({"Heuristic", "Department"}): ("Heuristic", "Department", "shared-with"),
+    frozenset({"Heuristic", "Department"}): ("Department", "Heuristic", "uses"),
     frozenset({"Heuristic", "Role"}): ("Role", "Heuristic", "uses"),
     frozenset({"Tacit Knowledge", "Role"}): ("Tacit Knowledge", "Role", "owned-by"),
     frozenset({"Problem / Improvement Area", "Data Source"}): (
@@ -58,8 +58,15 @@ TYPE_PAIR_SUGGESTIONS: dict[frozenset[str], tuple[str, str, str]] = {
     frozenset({"Decision", "Solution"}): ("Solution", "Decision", "decided-by"),
 }
 
-# Fallback when the pair has no canonical rule but lexical overlap is strong.
-DEFAULT_SUGGESTED_LABEL = "shared-with"
+# There is NO silent fallback label anymore. A pair without canonical rule is
+# flagged for human/agent review instead of being dressed up as "shared-with".
+REVIEW_NEEDED_LABEL = "review-needed"
+
+# "shared-with" is only earned by unmapped pairs with genuinely strong lexical
+# evidence: combined score above this floor AND at least this many meaningful
+# shared tokens (stopwords are already stripped by the tokenizer).
+SHARED_WITH_MIN_SCORE = 0.70
+SHARED_WITH_MIN_TOKENS = 3
 
 TYPE_AFFINITY_MAPPED = 1.0
 TYPE_AFFINITY_UNMAPPED = 0.35
@@ -68,10 +75,24 @@ WEIGHT_TYPE_AFFINITY = 0.45
 WEIGHT_LEXICAL = 0.45
 WEIGHT_NEIGHBORS = 0.10
 
-DEFAULT_THRESHOLD = 0.30
+DEFAULT_THRESHOLD = 0.55
+DEFAULT_MIN_SHARED_TOKENS = 2
 DEFAULT_LIMIT = 10
 MAX_LIMIT = 50
 _SECTION_CONTENT_CAP = 400
+
+# Sparse-node gate: a node without a concrete "where" or still marked
+# Underspecified must be elicited before it earns automatic edges.
+SPARSE_BLOCK_REASON = "blocked: sparse node — fill in 'where' field first"
+
+
+def is_sparse(node: NodeRow) -> bool:
+    """True when the node lacks grounding: empty details.where or a details.learned
+    that still starts with "Underspecified"."""
+    details = node.details or {}
+    where = str(details.get("where") or "").strip()
+    learned = str(details.get("learned") or "").strip()
+    return not where or learned.lower().startswith("underspecified")
 
 
 def node_text_tokens(node: NodeRow) -> set[str]:
@@ -109,7 +130,7 @@ def _suggestion_for_pair(focus: NodeRow, other: NodeRow) -> tuple[str, str, str,
     """Return (source_id, target_id, label, is_mapped) oriented per canonical rule."""
     rule = TYPE_PAIR_SUGGESTIONS.get(frozenset({focus.type, other.type}))
     if rule is None:
-        return focus.id, other.id, DEFAULT_SUGGESTED_LABEL, False
+        return focus.id, other.id, REVIEW_NEEDED_LABEL, False
     source_type, _target_type, label = rule
     if focus.type == source_type:
         return focus.id, other.id, label, True
@@ -123,9 +144,11 @@ def suggest_connections_for_node(
     *,
     threshold: float = DEFAULT_THRESHOLD,
     limit: int = DEFAULT_LIMIT,
+    minimum_shared_tokens: int = DEFAULT_MIN_SHARED_TOKENS,
 ) -> dict[str, Any]:
     limit = max(1, min(int(limit), MAX_LIMIT))
     threshold = min(max(float(threshold), 0.0), 1.0)
+    minimum_shared_tokens = max(0, int(minimum_shared_tokens))
 
     focus = next((node for node in nodes if node.id == node_id), None)
     if focus is None:
@@ -134,8 +157,11 @@ def suggest_connections_for_node(
     neighbors = _adjacency(edges)
     connected = neighbors.get(focus.id, set())
     focus_tokens = node_text_tokens(focus)
+    focus_sparse = is_sparse(focus)
 
     candidates: list[dict[str, Any]] = []
+    review_needed_count = 0
+    blocked_sparse_count = 0
     for other in nodes:
         if other.id == focus.id or other.id in connected:
             continue
@@ -154,15 +180,42 @@ def suggest_connections_for_node(
         if score < threshold:
             continue
 
+        # Unmapped pairs need real lexical evidence: without a canonical type
+        # rule, fewer than minimum_shared_tokens meaningful shared tokens is
+        # noise, no matter how high the composite score climbs.
+        if not is_mapped and len(shared_tokens) < minimum_shared_tokens:
+            continue
+
         reason_parts: list[str] = []
         if is_mapped:
             reason_parts.append(f"type rule: {focus.type} <-> {other.type} ({label})")
+        else:
+            # "shared-with" must be earned; everything else stays review-needed
+            # so the agent cannot silently promote a no-rule pair to an edge.
+            if score > SHARED_WITH_MIN_SCORE and len(shared_tokens) >= SHARED_WITH_MIN_TOKENS:
+                label = "shared-with"
+                reason_parts.append(
+                    f"no canonical type rule for {focus.type} <-> {other.type}; "
+                    f"strong lexical evidence ({len(shared_tokens)} shared tokens)"
+                )
+            else:
+                label = REVIEW_NEEDED_LABEL
+                reason_parts.append(
+                    f"no canonical type rule for {focus.type} <-> {other.type}; "
+                    "lexical evidence too weak to auto-suggest a relationship"
+                )
+                review_needed_count += 1
         if shared_tokens:
             reason_parts.append("shared tokens: " + ", ".join(shared_tokens[:6]))
         if shared_neighbors:
             reason_parts.append(f"{len(shared_neighbors)} shared neighbor(s)")
-        if not reason_parts:
-            reason_parts.append("weak generic compatibility")
+
+        # Sparse gate runs last so the candidate stays visible (the user should
+        # see the node exists) but arrives blocked instead of edge-ready.
+        if focus_sparse or is_sparse(other):
+            label = REVIEW_NEEDED_LABEL
+            reason_parts.insert(0, SPARSE_BLOCK_REASON)
+            blocked_sparse_count += 1
 
         candidates.append(
             {
@@ -185,9 +238,12 @@ def suggest_connections_for_node(
         "node_label": focus.label,
         "node_type": focus.type,
         "threshold": threshold,
+        "minimum_shared_tokens": minimum_shared_tokens,
         "effective_threshold": effective_threshold,
         "candidates_above_threshold": above_threshold,
         "returned": len(returned),
+        "review_needed": review_needed_count,
+        "blocked_sparse": blocked_sparse_count,
         "already_connected": sorted(connected),
         "suggestions": returned,
     }

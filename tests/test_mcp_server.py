@@ -154,7 +154,7 @@ class MCPServerLifecycleTests(unittest.TestCase):
 
             self.assertIn("capabilities", initialize_response["result"])
             tools = tools_response["result"]["tools"]
-            self.assertEqual(len(tools), 20)
+            self.assertEqual(len(tools), 21)
             self.assertTrue(all("inputSchema" in tool for tool in tools))
 
     def test_run_mcp_server_tools_call_dispatches_read_tool(self) -> None:

@@ -7,6 +7,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+import brain_ds.mcp.completeness as completeness
 import brain_ds.mcp.grounding as grounding
 import brain_ds.scoring.similarity as similarity
 import brain_ds.workspaces as workspace_registry
@@ -430,9 +431,24 @@ def suggest_connections(store: GraphStore, params: dict[str, Any]) -> dict[str, 
             node_id,
             threshold=validated.get("threshold", similarity.DEFAULT_THRESHOLD),
             limit=validated.get("limit", similarity.DEFAULT_LIMIT),
+            minimum_shared_tokens=validated.get(
+                "minimum_shared_tokens", similarity.DEFAULT_MIN_SHARED_TOKENS
+            ),
         )
     except KeyError as exc:
         raise ValidationError(code=-32000, message=f"Node '{node_id}' not found in graph '{graph_id}'") from exc
+
+
+@error_boundary
+def assess_completeness(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    validated = validate_tool_input("assess_completeness", params, TOOL_SCHEMAS["assess_completeness"])
+    graph_id = validated["graph_id"]
+    try:
+        nodes = store.query_nodes(graph_id)
+    except GraphNotFoundError as exc:
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+    result = completeness.assess_graph_completeness(nodes)
+    return {"graph_id": graph_id, **result}
 
 
 @error_boundary
@@ -742,6 +758,13 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "handler": suggest_connections,
         "schema": TOOL_SCHEMAS["suggest_connections"],
         "description": "Rank compatible nodes for one node so the agent can decide which edges to add",
+        "rw": "read",
+        "requires_ai_agent": False,
+    },
+    "assess_completeness": {
+        "handler": assess_completeness,
+        "schema": TOOL_SCHEMAS["assess_completeness"],
+        "description": "Report missing/underspecified entity types and a pre-mapping recommendation",
         "rw": "read",
         "requires_ai_agent": False,
     },

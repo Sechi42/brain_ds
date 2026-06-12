@@ -151,11 +151,12 @@ class TestComposerReturnShapes(unittest.TestCase):
         self.assertNotIn("topic_key_format", result)
         self.assertNotIn("mem_save_templates", result)
 
-    def test_map_connections_context_has_8_keys(self) -> None:
+    def test_map_connections_context_has_9_keys(self) -> None:
         result = map_connections_context()
         expected_keys = {
             "entity_types",
             "connection_rules",
+            "completeness_gate",
             "relationship_labels",
             "scoring_factors",
             "retrieval_contract",

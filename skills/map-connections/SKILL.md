@@ -71,16 +71,27 @@ Rules:
 5. If the resolved graph returns zero nodes, emit: `No domain knowledge captured yet in SQLite. Run /elicit-context first to populate the organization graph.`
 6. typed SQL filters are not equivalent to Engram substring search. validate the difference on a seeded vault before assuming parity.
 
+## Completeness Gate (Mandatory)
+
+Before the FIRST `add_edge` of any mapping pass, call `assess_completeness(graph_id=<slug>)` and act on `pre_mapping_recommendation`:
+
+- `elicit` (3+ entity types missing): do NOT map. Show the gap report (missing types, underspecified nodes) and ask the user: elicit first (recommended), or map with what exists accepting a PARTIAL BRD. Proceed only on explicit confirmation.
+- `document`: underspecified nodes (empty `Where`, or `Learned` starting with `Underspecified`) are blocked from automatic edges — the server marks their suggestions `review-needed`. Document them before linking them.
+- `proceed_with_gaps`: map normally.
+
+Every first mapping pass of a session starts with a visible gap report, never with `add_edge`.
+
 ## Connection RAG Workflow (Mandatory)
 
 When new information enters the graph, link it without re-reading the whole graph:
 
 1. Immediately after creating or updating a node via `update_node`, call `suggest_connections(graph_id=<slug>, node_id=<id>)` for that node.
-2. The server ranks compatible nodes (type rules + token overlap + shared neighbors), excludes already-connected nodes, and returns at most `limit` candidates above `threshold` (default 0.3) with a `suggested_edge` (source, target, label).
+2. The server ranks compatible nodes (type rules + token overlap + shared neighbors), excludes already-connected nodes, and returns at most `limit` candidates above `threshold` (default 0.55, with `minimum_shared_tokens` default 2) with a `suggested_edge` (source, target, label).
 3. Evaluate each candidate with your own knowledge of the org: accept, reject, or defer. Suggestions are candidates, not commands.
-4. For accepted candidates call `add_edge` with the returned `suggested_edge`; adjust the label only when you have better evidence.
-5. Use `get_node` only on top candidates that need more detail before deciding. Never bulk-read the whole graph to find link targets.
-6. As the graph grows, raise `threshold` or lower `limit` to keep responses small — this keeps the flow scalable to thousands of nodes.
+4. Candidates labeled `review-needed` are NEVER written as edges: they mark pairs without a canonical type rule, weak lexical evidence, or a sparse node. Surface them to the user; promoting one requires explicit confirmation and a real relationship label.
+5. For accepted candidates call `add_edge` with the returned `suggested_edge`; adjust the label only when you have better evidence.
+6. Use `get_node` only on top candidates that need more detail before deciding. Never bulk-read the whole graph to find link targets.
+7. As the graph grows, raise `threshold` or lower `limit` to keep responses small — this keeps the flow scalable to thousands of nodes.
 
 ## Parsing and Normalization
 

@@ -22,6 +22,8 @@ from typing import Any, cast
 
 from brain_ds.mcp import grounding
 from brain_ds.ontology.entity_types import EntityType
+from brain_ds.scoring import similarity
+from brain_ds.store.models import NodeRow
 
 # EntityTypes that intentionally have NO elicitation question bank entry.
 # Adding a new EntityType that should be elicited means adding it to
@@ -150,6 +152,131 @@ class GroundingDataSourceCompletenessTests(unittest.TestCase):
         for field in required_fields:
             with self.subTest(field=field):
                 self.assertIn(field, learned)
+
+
+def _node(node_id: str, label: str, type_: str, details: dict | None = None) -> NodeRow:
+    return NodeRow(
+        graph_id="g",
+        id=node_id,
+        label=label,
+        type=type_,
+        supertype=None,
+        details=details if details is not None else {"where": "somewhere real", "learned": "ok"},
+        card_sections=None,
+        editable_fields=None,
+        evidence_ids=None,
+        layout_hint=None,
+        parent_id=None,
+        depth=0,
+        created_at="2026-01-01T00:00:00Z",
+        modified_at="2026-01-01T00:00:00Z",
+    )
+
+
+class SuggestConnectionsHardeningTests(unittest.TestCase):
+    """Regression guards for the suggest_connections hardening: Spanish stopwords
+    must never justify an edge, "shared-with" must be earned, and sparse nodes
+    must arrive blocked instead of edge-ready.
+    """
+
+    def test_spanish_stopword_overlap_produces_no_suggestion(self) -> None:
+        # Two unmapped-pair nodes whose only textual overlap is Spanish filler
+        # ("de", "la", "y", "para") plus the accented "también" that used to
+        # leak a garbage "n" token. No suggestion may survive.
+        focus = _node(
+            "R-1",
+            "Coordinación de la operación y para el control",
+            "Role",
+            {"where": "área también de control", "learned": "ok"},
+        )
+        other = _node(
+            "R-2",
+            "Gestión de la calidad y para el área",
+            "Role",
+            {"where": "zona también de calidad", "learned": "ok"},
+        )
+        result = similarity.suggest_connections_for_node([focus, other], [], "R-1")
+        self.assertEqual(result["suggestions"], [])
+
+    def test_default_threshold_is_hardened(self) -> None:
+        self.assertGreaterEqual(similarity.DEFAULT_THRESHOLD, 0.55)
+        self.assertGreaterEqual(similarity.DEFAULT_MIN_SHARED_TOKENS, 2)
+
+    def test_no_type_pair_rule_maps_to_shared_with_unless_symmetric(self) -> None:
+        offenders = [
+            (sorted(pair), label)
+            for pair, (_s, _t, label) in similarity.TYPE_PAIR_SUGGESTIONS.items()
+            if label == "shared-with" and len(pair) > 1
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            f"Asymmetric type pairs must not fall back to shared-with: {offenders}",
+        )
+
+    def test_underspecified_node_is_blocked_as_review_needed(self) -> None:
+        focus = _node(
+            "DS-1",
+            "Contpaq ventas mensuales facturación",
+            "Data Source",
+            {"where": "", "learned": "Underspecified: faltan tablas, columnas clave, dueño"},
+        )
+        other = _node(
+            "ROLE-1",
+            "Analista ventas mensuales facturación Contpaq",
+            "Role",
+            {"where": "ventas mensuales facturación Contpaq", "learned": "ok"},
+        )
+        self.assertTrue(similarity.is_sparse(focus))
+        result = similarity.suggest_connections_for_node([focus, other], [], "DS-1")
+        self.assertEqual(result["suggestions"][0]["suggested_edge"]["label"], "review-needed")
+        self.assertIn("sparse", result["suggestions"][0]["reason"])
+        self.assertEqual(result["blocked_sparse"], 1)
+
+    def test_completeness_gate_is_in_map_connections_payload(self) -> None:
+        payload = grounding.map_connections_context()
+        gate = payload.get("completeness_gate")
+        self.assertIsInstance(gate, dict)
+        self.assertEqual(gate["tool"], "assess_completeness")
+
+
+class AssessCompletenessTests(unittest.TestCase):
+    """The pre-mapping gate must recommend elicitation for hollow graphs and
+    flag underspecified nodes for documentation."""
+
+    def test_hollow_graph_recommends_elicit(self) -> None:
+        from brain_ds.mcp.completeness import assess_graph_completeness
+
+        nodes = [
+            _node("ORG-1", "Grupo Topete", "Organization"),
+            _node("R-1", "Director", "Role"),
+        ]
+        result = assess_graph_completeness(nodes)
+        self.assertEqual(result["pre_mapping_recommendation"], "elicit")
+        self.assertGreaterEqual(result["missing_count"], 3)
+        self.assertIn("Department", result["missing_for_brd"])
+
+    def test_underspecified_nodes_recommend_document(self) -> None:
+        from brain_ds.mcp.completeness import assess_graph_completeness
+        from brain_ds.ontology.entity_types import EntityType as ET
+
+        nodes = [_node(f"N-{i}", f"Node {i}", e.value) for i, e in enumerate(ET) if e is not ET.UNKNOWN]
+        nodes.append(
+            _node("DS-X", "Contpaq", "Data Source", {"where": "", "learned": "Underspecified: faltan tablas"})
+        )
+        result = assess_graph_completeness(nodes)
+        self.assertEqual(result["pre_mapping_recommendation"], "document")
+        self.assertIn("DS-X", result["underspecified_nodes"])
+        self.assertEqual(result["completeness_matrix"]["Data Source"], "sparse")
+
+    def test_grounded_graph_proceeds(self) -> None:
+        from brain_ds.mcp.completeness import assess_graph_completeness
+        from brain_ds.ontology.entity_types import EntityType as ET
+
+        nodes = [_node(f"N-{i}", f"Node {i}", e.value) for i, e in enumerate(ET) if e is not ET.UNKNOWN]
+        result = assess_graph_completeness(nodes)
+        self.assertEqual(result["pre_mapping_recommendation"], "proceed_with_gaps")
+        self.assertEqual(result["missing_for_brd"], [])
 
 
 if __name__ == "__main__":

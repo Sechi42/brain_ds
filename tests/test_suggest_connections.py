@@ -28,10 +28,12 @@ class SuggestConnectionsToolTests(unittest.TestCase):
             imported_from=None,
             generated_at="",
         )
-        self._add_node("kpi-ventas", "Ventas Mensuales", "KPI", "metric", {"learned": "Data Source: CRM Salesforce ventas"})
-        self._add_node("ds-crm", "CRM Salesforce", "Data Source", "data", {"what": "CRM Salesforce con tabla ventas"})
+        # Every fixture node carries a non-empty "where": the sparse gate marks
+        # where-less nodes as review-needed, which is covered separately below.
+        self._add_node("kpi-ventas", "Ventas Mensuales", "KPI", "metric", {"where": "Dashboard comercial", "learned": "Data Source: CRM Salesforce ventas"})
+        self._add_node("ds-crm", "CRM Salesforce", "Data Source", "data", {"where": "Salesforce cloud", "what": "CRM Salesforce con tabla ventas"})
         self._add_node("role-analista", "Analista Ventas", "Role", "actor", {"where": "Equipo comercial ventas"})
-        self._add_node("risk-legal", "Riesgo Regulatorio", "Risk", "risk", {"what": "Cambios normativos"})
+        self._add_node("risk-legal", "Riesgo Regulatorio", "Risk", "risk", {"where": "Legal", "what": "Cambios normativos"})
         # KPI already accountable to the Role — must be excluded from suggestions.
         self.store.upsert_edge(self.graph_id, {"source": "role-analista", "target": "kpi-ventas", "label": "accountable"})
 
@@ -82,7 +84,7 @@ class SuggestConnectionsToolTests(unittest.TestCase):
 
     def test_limit_caps_results_and_reports_effective_threshold(self) -> None:
         for index in range(15):
-            self._add_node(f"ds-extra-{index}", f"Fuente ventas {index}", "Data Source", "data", {"what": "ventas"})
+            self._add_node(f"ds-extra-{index}", f"Fuente ventas {index}", "Data Source", "data", {"where": "Almacén ventas", "what": "ventas"})
 
         result = suggest_connections(
             self.store,
@@ -103,6 +105,22 @@ class SuggestConnectionsToolTests(unittest.TestCase):
         result = suggest_connections(self.store, {"graph_id": "ghost", "node_id": "kpi-ventas"})
 
         self.assertEqual(result["code"], -32000)
+
+    def test_sparse_node_candidates_are_blocked_as_review_needed(self) -> None:
+        self._add_node(
+            "ds-sparse",
+            "Fuente ventas mensuales dashboard comercial",
+            "Data Source",
+            "data",
+            {"where": "", "learned": "Underspecified: faltan tablas"},
+        )
+
+        result = suggest_connections(self.store, {"graph_id": self.graph_id, "node_id": "kpi-ventas"})
+
+        sparse = next((item for item in result["suggestions"] if item["node_id"] == "ds-sparse"), None)
+        if sparse is not None:
+            self.assertEqual(sparse["suggested_edge"]["label"], "review-needed")
+            self.assertIn("sparse", sparse["reason"])
 
 
 class SimilarityAlgorithmTests(unittest.TestCase):

@@ -390,6 +390,32 @@ CONNECTION_RULES: dict[str, object] = {
     },
 }
 
+# Pre-mapping completeness gate — the mapping agent MUST run this before any
+# add_edge. Mirrored as "Completeness Gate (Mandatory)" in
+# skills/map-connections/SKILL.md (+ .opencode mirror) — keep in sync.
+COMPLETENESS_GATE: dict[str, object] = {
+    "tool": "assess_completeness",
+    "when": "BEFORE the first add_edge of any mapping pass (once per graph per session)",
+    "rules": [
+        (
+            "If pre_mapping_recommendation is 'elicit' (3+ entity types missing): do NOT map. "
+            "Return the gap report to the orchestrator/user and wait for an explicit decision "
+            "('elicit first' vs 'map with what we have, accepting a PARTIAL BRD')."
+        ),
+        (
+            "If pre_mapping_recommendation is 'document': underspecified nodes (empty 'where' or "
+            "learned starting with 'Underspecified') are blocked from automatic edges — "
+            "suggest_connections marks them 'review-needed'. Document them before mapping them."
+        ),
+        (
+            "Suggestions labeled 'review-needed' are NEVER written as edges. They exist so the "
+            "human can see the candidate; promoting one requires explicit user confirmation and "
+            "a real relationship label."
+        ),
+        "Start every first mapping pass of a session with a visible gap report, not with add_edge.",
+    ],
+}
+
 # Source: skills/generate-brd/SKILL.md "Retrieval Workflow (Mandatory)" — keep in sync.
 BRD_RETRIEVAL_CONTRACT: str = (
     "Use list_nodes(graph_id=<slug>, type=<EntityType>) to assemble deterministic typed datasets and "
@@ -578,6 +604,12 @@ BRD_GRAPH_PERSISTENCE_CONTRACT: dict[str, object] = {
         "card_sections[0] MUST keep title 'Contenido' and order 0; the panel reads that section.",
         "update_node is upsert-safe: re-running --save replaces the previous BRD content.",
         "The write emits a live node event, so a running UI refreshes without restart.",
+        (
+            "Every mention of a graph entity in the BRD markdown MUST be written as a wikilink "
+            "[[<node label>]] (or [[<node label>|<display text>]] for inline phrasing). The UI "
+            "renders these as Obsidian-style navigable links to the node; plain-text mentions "
+            "leave the BRD disconnected from the graph."
+        ),
     ],
 }
 
@@ -688,15 +720,16 @@ def elicit_context() -> dict[str, object]:
 def map_connections_context() -> dict[str, object]:
     """Return the 7-key grounding context payload for map_connections.
 
-    Keys: entity_types, connection_rules, relationship_labels, scoring_factors,
-          retrieval_contract, rag_workflow, source_exploration_contract,
-          delegation_protocol.
+    Keys: entity_types, connection_rules, completeness_gate, relationship_labels,
+          scoring_factors, retrieval_contract, rag_workflow,
+          source_exploration_contract, delegation_protocol.
     scoring_factors comes from ScoringEngine (distinct from connection_rules
     strength heuristics — the skill's own weak/strong labels live in connection_rules).
     """
     return {
         "entity_types": build_entity_types(),
         "connection_rules": CONNECTION_RULES,
+        "completeness_gate": COMPLETENESS_GATE,
         "relationship_labels": build_relationship_labels(),
         "scoring_factors": build_scoring_factors(),
         "retrieval_contract": MAP_RETRIEVAL_CONTRACT,

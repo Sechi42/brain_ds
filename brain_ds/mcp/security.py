@@ -138,6 +138,15 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "node_id": {"type": "string"},
             "threshold": {"type": "number"},
             "limit": {"type": "integer"},
+            "minimum_shared_tokens": {"type": "integer"},
+        },
+        "additionalProperties": False,
+    },
+    "assess_completeness": {
+        "type": "object",
+        "required": ["graph_id"],
+        "properties": {
+            "graph_id": {"type": "string"},
         },
         "additionalProperties": False,
     },

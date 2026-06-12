@@ -20,6 +20,7 @@
 | `delete_node` | data | Delete one node by id |
 | `delete_edge` | data | Delete edges between source and target |
 | `suggest_connections` | data | Rank compatible nodes for one node (connection RAG) |
+| `assess_completeness` | data | Pre-mapping gate: missing/underspecified entity types + recommendation |
 | `list_source_connections` | connector | List Data Source nodes with explorable connection descriptors |
 | `explore_source` | connector | Read-only exploration of a connected data source (describe/containers/tables/schema+preview) |
 | `query_source` | connector | Execute a SELECT-only SQL query against an SQLite data source (capped at 200 rows) |
@@ -57,7 +58,7 @@ brain_ds setup --project-root . --agent both
    - restart your agent client
    - approve `brain_ds` if prompted
 
-3. In Claude Code, run `/mcp` and confirm `brain_ds` is connected with **20 tools**.
+3. In Claude Code, run `/mcp` and confirm `brain_ds` is connected with **21 tools**.
 
 ### What `brain_ds setup` guarantees
 
@@ -105,7 +106,7 @@ Example Claude output shape:
 1. Run `brain_ds setup --project-root . --agent both`.
 2. Open Claude Code at the project root.
 3. Run `/mcp` and confirm `brain_ds` is connected.
-4. Verify 20 tools appear.
+4. Verify 21 tools appear.
 5. Call `list_nodes` as a smoke check.
 6. Live updates flow through the shared SQLite outbox path; MCP writes should reach the running UI without a manual config rewrite.
 

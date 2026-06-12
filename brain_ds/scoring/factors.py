@@ -3,29 +3,24 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
 
 from brain_ds.ontology.relationship_types import BASE_WEIGHTS, RelationshipType
+from brain_ds.scoring.stopwords import ALL_STOPWORDS as STOPWORDS
 
-STOPWORDS = {
-    "a",
-    "an",
-    "and",
-    "or",
-    "the",
-    "for",
-    "to",
-    "of",
-    "in",
-    "on",
-    "by",
-    "with",
-}
+
+def _fold_accents(text: str) -> str:
+    # "también" must tokenize as "tambien", not split into "tambi" + "n":
+    # the ASCII-only regex below otherwise breaks words at accented chars and
+    # leaks single-letter garbage tokens into the overlap scoring.
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
 
 def _tokens(text: str) -> set[str]:
-    parts = re.findall(r"[a-z0-9]+", (text or "").lower())
-    return {token for token in parts if token not in STOPWORDS}
+    parts = re.findall(r"[a-z0-9]+", _fold_accents(text or "").lower())
+    return {token for token in parts if len(token) > 1 and token not in STOPWORDS}
 
 
 def token_overlap(source_label: str, target_label: str) -> tuple[float, str]:

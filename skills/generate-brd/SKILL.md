@@ -161,6 +161,7 @@ Rules:
 - `card_sections[0]` MUST keep title `Contenido` and order `0`; the panel reads that section.
 - `update_node` is upsert-safe: re-running `--save` replaces the previous BRD content.
 - The write emits a live node event, so a running UI refreshes without restart.
+- Every mention of a graph entity in the BRD markdown MUST be a wikilink `[[<node label>]]` (or `[[<node label>|<display text>]]` for inline phrasing). The UI renders these as Obsidian-style navigable links to the node; plain-text mentions leave the BRD disconnected from the graph.
 
 ### 2. Engram mirror (agent memory)
 
