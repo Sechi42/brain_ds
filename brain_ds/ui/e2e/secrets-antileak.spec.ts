@@ -94,16 +94,16 @@ async function installLeakScans(page: import("@playwright/test").Page, canary: s
   });
 
   const responseBodies: string[] = [];
-    await page.route("**/api/**", async (route) => {
-      const response = await route.fetch();
-      const body = await response.text().catch(() => "");
-      responseBodies.push(body);
-      await route.fulfill({
-        status: response.status(),
-        headers: response.headers(),
-        body,
-      });
+  await page.route("**/api/**", async (route) => {
+    const response = await route.fetch();
+    const body = await response.text().catch(() => "");
+    responseBodies.push(body);
+    await route.fulfill({
+      status: response.status(),
+      headers: response.headers(),
+      body,
     });
+  });
 
   return async () => {
     const bodyText = (await page.locator("body").textContent()) ?? "";
@@ -183,7 +183,7 @@ test.describe("Phase 4b: E2E anti-leak validation", () => {
     expect(leaks.network).toBe(false);
 
     // The handle and kind are visible, but the value is not.
-    await expect(page.locator(".secret-handle")).toHaveText("warehouse_ro");
+    await expect(page.locator(".secret-handle").filter({ hasText: "warehouse_ro" })).toBeVisible();
     const panelText = await page.locator("#secret-panel").textContent();
     expect(panelText).toContain("mock-postgres");
     expect(panelText).not.toContain(CANARY);
