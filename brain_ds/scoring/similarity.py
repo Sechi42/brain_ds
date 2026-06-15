@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from brain_ds.scoring.factors import _tokens
+from brain_ds.scoring.factors import _tokens, evidence_count, explicit_reference
 from brain_ds.store.models import EdgeRow, NodeRow
 
 # Canonical directed suggestion per entity-type pair, derived from the
@@ -56,6 +56,19 @@ TYPE_PAIR_SUGGESTIONS: dict[frozenset[str], tuple[str, str, str]] = {
     ),
     frozenset({"Decision", "KPI"}): ("Decision", "KPI", "targets"),
     frozenset({"Decision", "Solution"}): ("Solution", "Decision", "decided-by"),
+    # Coverage expansion: the most common real-domain pairs used to fall into
+    # the shared-with fallback. Each now has a canonical directed rule.
+    frozenset({"Organization", "Role"}): ("Organization", "Role", "owns"),
+    frozenset({"Organization", "Data Source"}): ("Organization", "Data Source", "owns"),
+    frozenset({"Organization", "Project"}): ("Organization", "Project", "owns"),
+    frozenset({"Organization", "KPI"}): ("Organization", "KPI", "owns"),
+    frozenset({"Risk", "Data Source"}): ("Risk", "Data Source", "creates-risk"),
+    frozenset({"Project", "Solution"}): ("Solution", "Project", "decided-by"),
+    frozenset({"Heuristic", "Data Source"}): ("Heuristic", "Data Source", "uses"),
+    frozenset({"Tacit Knowledge", "Data Source"}): ("Tacit Knowledge", "Data Source", "uses"),
+    # Genuinely symmetric pairs: lineage between sources, peers sharing artifacts.
+    frozenset({"Data Source"}): ("Data Source", "Data Source", "depends-on"),
+    frozenset({"Role"}): ("Role", "Role", "shared-with"),
 }
 
 # There is NO silent fallback label anymore. A pair without canonical rule is
@@ -71,9 +84,20 @@ SHARED_WITH_MIN_TOKENS = 3
 TYPE_AFFINITY_MAPPED = 1.0
 TYPE_AFFINITY_UNMAPPED = 0.35
 
-WEIGHT_TYPE_AFFINITY = 0.45
-WEIGHT_LEXICAL = 0.45
+WEIGHT_TYPE_AFFINITY = 0.40
 WEIGHT_NEIGHBORS = 0.10
+
+# Evidence-aware lexical/evidence split: high-impact relationships must be
+# backed by captured evidence, not token overlap — a label like "owns" with a
+# great lexical score and zero evidence stays below the default threshold.
+# Weak/descriptive labels keep lexical as the dominant signal.
+HIGH_IMPACT_LABELS = frozenset(
+    {"owns", "owned-by", "creates-risk", "blocked-by", "decided-by", "degraded-by", "resolves"}
+)
+WEIGHT_LEXICAL_DEFAULT = 0.40
+WEIGHT_EVIDENCE_DEFAULT = 0.10
+WEIGHT_LEXICAL_HIGH_IMPACT = 0.10
+WEIGHT_EVIDENCE_HIGH_IMPACT = 0.40
 
 DEFAULT_THRESHOLD = 0.55
 DEFAULT_MIN_SHARED_TOKENS = 2
@@ -84,6 +108,7 @@ _SECTION_CONTENT_CAP = 400
 # Sparse-node gate: a node without a concrete "where" or still marked
 # Underspecified must be elicited before it earns automatic edges.
 SPARSE_BLOCK_REASON = "blocked: sparse node — fill in 'where' field first"
+LOW_SIGNAL_DETAIL_VALUES = frozenset({"ok", "n/a", "na", "none", "unknown"})
 
 
 def is_sparse(node: NodeRow) -> bool:
@@ -98,7 +123,10 @@ def is_sparse(node: NodeRow) -> bool:
 def node_text_tokens(node: NodeRow) -> set[str]:
     parts: list[str] = [node.label or "", node.type or ""]
     for value in (node.details or {}).values():
-        parts.append(str(value))
+        text = str(value or "").strip()
+        if text.lower() in LOW_SIGNAL_DETAIL_VALUES:
+            continue
+        parts.append(text)
     for section in node.card_sections or []:
         if isinstance(section, dict):
             parts.append(str(section.get("title", "")))
@@ -126,6 +154,37 @@ def _adjacency(edges: list[EdgeRow]) -> dict[str, set[str]]:
     return neighbors
 
 
+def _pair_evidence(
+    focus: NodeRow, other: NodeRow, evidence_by_id: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Evidence items referenced by either node of the candidate pair."""
+    ids: list[str] = []
+    for node in (focus, other):
+        for evidence_id in node.evidence_ids or []:
+            ids.append(str(evidence_id))
+    seen: set[str] = set()
+    items: list[dict[str, Any]] = []
+    for evidence_id in ids:
+        if evidence_id in seen:
+            continue
+        seen.add(evidence_id)
+        item = evidence_by_id.get(evidence_id)
+        if item is not None:
+            items.append(item)
+    return items
+
+
+def _evidence_score(
+    focus: NodeRow, other: NodeRow, pair_items: list[dict[str, Any]]
+) -> tuple[float, int]:
+    """Strongest evidence signal for the pair: explicit mention beats raw count."""
+    if not pair_items:
+        return 0.0, 0
+    count_score, _ = evidence_count(pair_items)
+    ref_score, _ = explicit_reference((focus.label or "", other.label or ""), pair_items)
+    return max(count_score, ref_score), len(pair_items)
+
+
 def _suggestion_for_pair(focus: NodeRow, other: NodeRow) -> tuple[str, str, str, bool]:
     """Return (source_id, target_id, label, is_mapped) oriented per canonical rule."""
     rule = TYPE_PAIR_SUGGESTIONS.get(frozenset({focus.type, other.type}))
@@ -145,10 +204,16 @@ def suggest_connections_for_node(
     threshold: float = DEFAULT_THRESHOLD,
     limit: int = DEFAULT_LIMIT,
     minimum_shared_tokens: int = DEFAULT_MIN_SHARED_TOKENS,
+    evidence_items: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     limit = max(1, min(int(limit), MAX_LIMIT))
     threshold = min(max(float(threshold), 0.0), 1.0)
     minimum_shared_tokens = max(0, int(minimum_shared_tokens))
+    evidence_by_id: dict[str, dict[str, Any]] = {
+        str(item.get("id") or item.get("evidence_id")): item
+        for item in (evidence_items or [])
+        if item.get("id") or item.get("evidence_id")
+    }
 
     focus = next((node for node in nodes if node.id == node_id), None)
     if focus is None:
@@ -171,12 +236,27 @@ def suggest_connections_for_node(
         lexical, shared_tokens = _lexical_similarity(focus_tokens, node_text_tokens(other))
         shared_neighbors = connected & neighbors.get(other.id, set())
         neighbor_score = min(len(shared_neighbors) / 3.0, 1.0)
+        evidence_score, evidence_n = _evidence_score(
+            focus, other, _pair_evidence(focus, other, evidence_by_id)
+        )
+
+        if label in HIGH_IMPACT_LABELS:
+            lexical_weight, evidence_weight = WEIGHT_LEXICAL_HIGH_IMPACT, WEIGHT_EVIDENCE_HIGH_IMPACT
+        else:
+            lexical_weight, evidence_weight = WEIGHT_LEXICAL_DEFAULT, WEIGHT_EVIDENCE_DEFAULT
 
         score = (
             WEIGHT_TYPE_AFFINITY * type_affinity
-            + WEIGHT_LEXICAL * lexical
+            + lexical_weight * lexical
+            + evidence_weight * evidence_score
             + WEIGHT_NEIGHBORS * neighbor_score
         )
+
+        if label == "shared-with" and (
+            score < SHARED_WITH_MIN_SCORE or len(shared_tokens) < SHARED_WITH_MIN_TOKENS
+        ):
+            continue
+
         if score < threshold:
             continue
 
@@ -207,6 +287,10 @@ def suggest_connections_for_node(
                 review_needed_count += 1
         if shared_tokens:
             reason_parts.append("shared tokens: " + ", ".join(shared_tokens[:6]))
+        if evidence_n:
+            reason_parts.append(f"{evidence_n} evidence item(s), evidence score {evidence_score:.2f}")
+        elif label in HIGH_IMPACT_LABELS:
+            reason_parts.append("no evidence captured — high-impact label needs evidence before acceptance")
         if shared_neighbors:
             reason_parts.append(f"{len(shared_neighbors)} shared neighbor(s)")
 

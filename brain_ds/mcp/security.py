@@ -80,7 +80,9 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "target": {"type": "string"},
             "label": {"type": "string"},
             "weight": {"type": "number"},
+            "confidence": {"type": "number"},
             "reasons": {"type": "array"},
+            "evidence": {"type": "array"},
         },
         "additionalProperties": False,
     },
@@ -147,6 +149,15 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "required": ["graph_id"],
         "properties": {
             "graph_id": {"type": "string"},
+        },
+        "additionalProperties": False,
+    },
+    "get_weak_edges": {
+        "type": "object",
+        "required": ["graph_id"],
+        "properties": {
+            "graph_id": {"type": "string"},
+            "max_confidence": {"type": "number"},
         },
         "additionalProperties": False,
     },

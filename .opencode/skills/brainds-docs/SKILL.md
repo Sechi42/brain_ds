@@ -65,6 +65,7 @@ For entity types not in this table, use: `Overview`, then `Details`, then any do
 Rules:
 - `order` must be monotonically increasing starting at 1.
 - `icon` values: `info`, `database`, `table`, `target`, `user`, `clock`, `lightbulb`, `alert`, `map-pin`, `link`.
+- BRD nodes (`node_id` starting with `brd-`, `type = "Unknown"`) are the ONLY carve-out: defer to `BRD_GRAPH_PERSISTENCE_CONTRACT`, so `card_sections[0]` uses `order: 0` and `icon: ""`.
 - `content` is plain Markdown — tables, bullets, and wikilinks are all valid.
 - Never put raw HTML inside `content`.
 

@@ -2,7 +2,7 @@
 
 _Auto-generated. Regenerate with `/share-brainds` after any skill change._
 
-**Last updated**: 2026-06-11
+**Last updated**: 2026-06-14
 
 ---
 
@@ -35,7 +35,7 @@ This skill encodes the brain_ds harness-maintenance contract from CLAUDE.md. For
 **Outputs**: domain entities persisted to SQLite via brain_ds MCP (`create_graph` → `update_node` → `add_edge`); active org state saved to engram at `session/active-org`.
 **MCP tools**: `create_graph`, `update_node`, `add_edge`, `suggest_connections`.
 
-This skill runs a completeness-gated domain knowledge interview for Data Science discovery. It resolves the active organization, asks one question at a time, evaluates coverage across all 10 entity types (Organization, Data Source, Department, Role, Heuristic, Tacit Knowledge, Problem / Improvement Area, KPI, Solution, Decision), and shows a Remaining Gaps checklist before any persistence. Data Source nodes require concrete identifiers (system name, table/sheet name, column table, owner) before they can be marked complete.
+This skill runs a completeness-gated domain knowledge interview for Data Science discovery. It resolves the active organization, asks one question at a time, evaluates coverage across all 10 entity types (Organization, Data Source, Department, Role, Heuristic, Tacit Knowledge, Problem / Improvement Area, KPI, Solution, Decision), and shows a Remaining Gaps checklist before any persistence. Data Source nodes require concrete identifiers (system name, table/sheet name, column table, owner) before they can be marked complete. This skill runs during the **`intake`** stage of the six-stage pipeline (`setup → intake → map → brd → verify → archive`), specifically on the `human_org` path of `intake_paths`; the `datasource` path delegates to `brainds-source-explorer` instead.
 
 ---
 

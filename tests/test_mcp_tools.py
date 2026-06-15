@@ -149,8 +149,8 @@ class MCPToolsTests(unittest.TestCase):
         self.assertEqual(invalid["code"], -32602)
         self.assertIn("Expected string for query", invalid["message"])
 
-    def test_tool_registry_and_schema_inventory_match_twenty_one_tools(self) -> None:
-        self.assertEqual(len(TOOL_REGISTRY), 21)
+    def test_tool_registry_and_schema_inventory_match_twenty_two_tools(self) -> None:
+        self.assertEqual(len(TOOL_REGISTRY), 22)
 
     def test_update_node_partial_update_audit_and_read_only_rejection(self) -> None:
         before = self.store.query_nodes(self.graph_id, type="Task")[0]
@@ -567,9 +567,9 @@ class MCPToolsTests(unittest.TestCase):
         typed = self._expect_rows(list_nodes(self.store, {"graph_id": self.graph_id, "type": "Data Source"}))
         self.assertEqual(result, typed)
 
-    def test_registry_has_twenty_one_tools_and_reads_do_not_audit(self) -> None:
+    def test_registry_has_twenty_two_tools_and_reads_do_not_audit(self) -> None:
         names = sorted(TOOL_REGISTRY.keys())
-        self.assertEqual(len(names), 21)
+        self.assertEqual(len(names), 22)
         self.assertEqual(
             names,
             [
@@ -581,6 +581,7 @@ class MCPToolsTests(unittest.TestCase):
                 "explore_source",
                 "generate_brd",
                 "get_node",
+                "get_weak_edges",
                 "import_graph",
                 "list_data_sources",
                 "list_graphs",

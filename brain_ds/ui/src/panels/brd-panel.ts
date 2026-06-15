@@ -127,14 +127,16 @@ async function createBrdNode(markdown: string): Promise<boolean> {
 // ── Wikilink rendering (mirrors split-pane.ts) ─────────────────────────────────
 
 function renderWikilinks(html: string): string {
-  return html.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, target, alias) => {
-    const display = alias ? alias.trim() : target.trim();
+  const buildLink = (target: string, displayOverride?: string) => {
+    const display = displayOverride ? displayOverride.trim() : target.trim();
     const resolvedId = _deps?.resolveWikilink ? _deps.resolveWikilink(target.trim()) : null;
     if (resolvedId) {
-      return `<a class="wikilink" data-wikilink-target="${encodeURIComponent(resolvedId)}" href="#" aria-label="Navegar a ${display}">${display}</a>`;
+      return `<a class="wikilink" data-wikilink-target="${encodeURIComponent(resolvedId)}" href="#${encodeURIComponent(resolvedId)}" aria-label="Navegar a ${display}">${display}</a>`;
     }
     return `<span class="wikilink wikilink--unresolved" title="Nodo no encontrado: ${target.trim()}">${display}</span>`;
-  });
+  };
+  const withRawWikilinks = html.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, target, alias) => buildLink(target, alias));
+  return withRawWikilinks.replace(/<a class="wikilink" data-node-label="([^"]+)">([^<]+)<\/a>/g, (_, target, display) => buildLink(target, display));
 }
 
 function onBrdPanelClick(e: MouseEvent): void {
@@ -251,17 +253,33 @@ function renderPanel(): void {
   const metaList = document.createElement('dl');
   metaList.className = 'brd-summary-meta';
   const metaPairs: Array<[string, string]> = [];
+  const { fresh, changedCount } = computeFreshness();
   if (statusMatch) metaPairs.push(['Estado', statusMatch[1].toUpperCase()]);
   if (orgMatch) metaPairs.push(['Organización', orgMatch[1].trim()]);
   metaPairs.push(['Secciones', String(sectionCount)]);
   if (_brdModifiedAt) {
-    metaPairs.push(['Actualizado', new Date(_brdModifiedAt).toLocaleString()]);
+    const updatedLabel = new Date(_brdModifiedAt).toLocaleString();
+    metaPairs.push(['Actualizado', updatedLabel]);
+    metaPairs.push([
+      'Frescura',
+      fresh
+        ? `Actualizado · ${updatedLabel}`
+        : `Posiblemente desactualizado · ${updatedLabel} · ${changedCount} nodo${changedCount !== 1 ? 's' : ''} cambiaron después`,
+    ]);
   }
   for (const [k, v] of metaPairs) {
     const dt = document.createElement('dt');
     dt.textContent = k;
     const dd = document.createElement('dd');
-    dd.textContent = v;
+    if (k === 'Frescura') {
+      const chip = document.createElement('span');
+      chip.className = `brd-freshness-chip ${fresh ? 'brd-freshness-chip--fresh' : 'brd-freshness-chip--stale'}`;
+      chip.setAttribute('aria-live', 'polite');
+      chip.textContent = v;
+      dd.appendChild(chip);
+    } else {
+      dd.textContent = v;
+    }
     metaList.appendChild(dt);
     metaList.appendChild(dd);
   }
@@ -276,6 +294,13 @@ function renderPanel(): void {
   openBtn.title = 'Ver y editar el BRD en el lector central';
   openBtn.addEventListener('click', () => openFullReader());
   actions.appendChild(openBtn);
+  const editBtn = document.createElement('button');
+  editBtn.type = 'button';
+  editBtn.className = 'pill-btn btn-outline brd-edit-btn';
+  editBtn.innerHTML = '<svg class="card-icon" aria-hidden="true" width="14" height="14"><use href="#icon-edit-3"/></svg> Editar';
+  editBtn.title = 'Editar el BRD desde este panel';
+  editBtn.addEventListener('click', () => renderEditor(_brdContent));
+  actions.appendChild(editBtn);
   summary.appendChild(actions);
 
   // Short preview: executive summary (or first lines) so the side panel stays a resumen.

@@ -288,8 +288,14 @@ def add_edge(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
         }
         if "weight" in validated:
             edge_input["weight"] = validated["weight"]
+        # "confidence" is the agent-facing alias (suggest_connections score is
+        # the natural seed); it lands in the same weight column.
+        elif "confidence" in validated:
+            edge_input["weight"] = validated["confidence"]
         if "reasons" in validated:
             edge_input["reasons"] = validated["reasons"]
+        if "evidence" in validated:
+            edge_input["evidence_ids"] = [str(item) for item in validated["evidence"]]
 
         store.upsert_edge(graph_id, edge_input)
         edge = store.query_edges(graph_id, source=validated["source"], target=validated["target"])[-1]
@@ -421,8 +427,11 @@ def suggest_connections(store: GraphStore, params: dict[str, Any]) -> dict[str, 
     try:
         nodes = store.query_nodes(graph_id)
         edges = store.query_edges(graph_id)
+        evidence_rows = store.search_evidence(graph_id)
     except GraphNotFoundError as exc:
         raise ValidationError(code=-32000, message=str(exc)) from exc
+
+    evidence_items = [{"id": row.id, "text": row.content} for row in evidence_rows]
 
     try:
         return similarity.suggest_connections_for_node(
@@ -434,9 +443,42 @@ def suggest_connections(store: GraphStore, params: dict[str, Any]) -> dict[str, 
             minimum_shared_tokens=validated.get(
                 "minimum_shared_tokens", similarity.DEFAULT_MIN_SHARED_TOKENS
             ),
+            evidence_items=evidence_items,
         )
     except KeyError as exc:
         raise ValidationError(code=-32000, message=f"Node '{node_id}' not found in graph '{graph_id}'") from exc
+
+
+@error_boundary
+def get_weak_edges(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    validated = validate_tool_input("get_weak_edges", params, TOOL_SCHEMAS["get_weak_edges"])
+    graph_id = validated["graph_id"]
+    max_confidence = float(validated.get("max_confidence", 0.4))
+    try:
+        edges = store.query_edges(graph_id)
+    except GraphNotFoundError as exc:
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+
+    weak = [
+        {
+            "edge_id": edge.edge_id,
+            "source": edge.source,
+            "target": edge.target,
+            "label": edge.label,
+            "confidence": edge.weight,
+            "reasons": edge.reasons or [],
+            "evidence_ids": edge.evidence_ids or [],
+        }
+        for edge in edges
+        if edge.weight is None or float(edge.weight) < max_confidence
+    ]
+    weak.sort(key=lambda item: (item["confidence"] is not None, item["confidence"] or 0.0))
+    return {
+        "graph_id": graph_id,
+        "max_confidence": max_confidence,
+        "total_edges": len(edges),
+        "weak_edges": weak,
+    }
 
 
 @error_boundary
@@ -542,7 +584,7 @@ def _resolve_connector(connection: dict[str, Any], project_root: Path):
         raise ValidationError(code=-32000, message=f"Source file not found: {raw_path}") from exc
 
     if kind == "sqlite":
-        return SQLiteConnector(safe_path)
+        return SQLiteConnector(safe_path, connection_descriptor=connection)
     elif kind in ("csv", "tsv"):
         return CsvConnector(safe_path)
     else:
@@ -765,6 +807,13 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "handler": assess_completeness,
         "schema": TOOL_SCHEMAS["assess_completeness"],
         "description": "Report missing/underspecified entity types and a pre-mapping recommendation",
+        "rw": "read",
+        "requires_ai_agent": False,
+    },
+    "get_weak_edges": {
+        "handler": get_weak_edges,
+        "schema": TOOL_SCHEMAS["get_weak_edges"],
+        "description": "List edges with confidence below max_confidence (default 0.4) for periodic audit",
         "rw": "read",
         "requires_ai_agent": False,
     },

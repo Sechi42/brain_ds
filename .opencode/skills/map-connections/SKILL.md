@@ -81,6 +81,17 @@ Before the FIRST `add_edge` of any mapping pass, call `assess_completeness(graph
 
 Every first mapping pass of a session starts with a visible gap report, never with `add_edge`.
 
+## Two-Phase Mapping (Mandatory)
+
+The domain graph has a natural hierarchy and cross-cutting semantics — scoring both in one pass is what produces noise. Map in two separate passes and never mix them:
+
+- **Phase 1 — Structural** (auto-executable): `Organization → Department → Role → Data Source` with `owns`/`uses`/`depends-on` labels. Accept an edge only when the parent exists or is derivable.
+- **Phase 2 — Cross-cutting** (requires prior elicitation or explicit user confirmation): `Heuristic`, `Tacit Knowledge`, `Problem / Improvement Area`, `Project`, `Risk`, `Decision`, `KPI`, `Solution` pairs (KPI↔Role↔Data Source, Solution↔Problem, Decision↔Project↔Risk, …). Run only after Phase 1 completes.
+
+The mapping report MUST show `structural_edges` and `cross_cutting_edges` as separate sections.
+
+Evidence rule: high-impact labels (`owns`, `owned-by`, `creates-risk`, `blocked-by`, `decided-by`, `degraded-by`, `resolves`) are scored with evidence weight 0.40 / lexical 0.10 — without captured evidence they rarely clear the threshold, by design. Weak labels invert the weights.
+
 ## Connection RAG Workflow (Mandatory)
 
 When new information enters the graph, link it without re-reading the whole graph:
@@ -129,6 +140,13 @@ Tokenize to lowercase terms, remove punctuation and obvious stopwords, then scor
 | Solution ↔ Problem / Improvement Area | Solution resolves linked problems or improvement areas (`resolves`) |
 | Decision ↔ KPI | Decision rationale references KPI (`targets`) |
 | Decision ↔ Solution | Solution links to decision context (`decided-by`) |
+| Organization ↔ Role/Data Source/Project/KPI | Organization owns its top-level entities (`owns`) |
+| Data Source ↔ Data Source | Lineage/pipeline overlap between sources (`depends-on`) |
+| Risk ↔ Data Source | Risk references the data source it threatens (`creates-risk`) |
+| Project ↔ Solution | Solution emerges from project decision context (`decided-by`) |
+| Heuristic ↔ Data Source | Heuristic inputs reference the data source (`uses`) |
+| Tacit Knowledge ↔ Data Source | Tacit knowledge references the data source (`uses`) |
+| Role ↔ Role | Same `Where` plus >=3 meaningful shared tokens (`shared-with`) |
 
 Strength labels:
 - `weak`: <=1 shared token

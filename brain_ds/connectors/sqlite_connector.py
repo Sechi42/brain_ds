@@ -9,6 +9,7 @@ validate_path_within_root before constructing this connector.
 """
 from __future__ import annotations
 
+import os
 import re
 import sqlite3
 from pathlib import Path
@@ -74,13 +75,28 @@ class SQLiteConnector(ReadOnlyConnector):
     use CsvConnector, or delegate to MCP Google Drive read tools.
     """
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(
+        self,
+        path: str | Path,
+        connection_descriptor: dict[str, Any] | None = None,
+    ) -> None:
         self._path = Path(path).resolve()
+        self._connection_descriptor = connection_descriptor or {}
         if not self._path.exists():
             raise FileNotFoundError(f"SQLite database not found: {self._path}")
 
+    def _resolve_secret_ref(self) -> str | None:
+        secret_ref = self._connection_descriptor.get("secret_ref")
+        if not secret_ref:
+            return None
+        try:
+            return os.environ[secret_ref]
+        except KeyError as exc:
+            raise KeyError(f"Missing required secret_ref environment variable: {secret_ref}") from exc
+
     def _open(self) -> sqlite3.Connection:
         """Open a read-only connection. Caller is responsible for closing it."""
+        _resolved_secret = self._resolve_secret_ref()
         uri = f"file:{self._path.as_posix()}?mode=ro&immutable=1"
         try:
             conn = sqlite3.connect(uri, uri=True)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from typing import Any, cast
 
 from brain_ds.ontology.entity_types import EntityType
@@ -17,6 +18,7 @@ from brain_ds.mcp.grounding import (
     BRD_SECTION_ORDER,
     SECTION_RULES,
     COMPLETENESS_MATRIX_TEMPLATE,
+    ARTIFACT_CONTRACT,
     build_entity_types,
     build_supertypes,
     build_expected_sections,
@@ -118,7 +120,7 @@ class TestCat2Accessors(unittest.TestCase):
 class TestComposerReturnShapes(unittest.TestCase):
     """Task 1.5 — composer return-shape tests."""
 
-    def test_elicit_context_has_all_12_keys(self) -> None:
+    def test_elicit_context_has_all_15_keys_legacy(self) -> None:
         result = elicit_context()
         expected_keys = {
             "entity_types",
@@ -133,6 +135,9 @@ class TestComposerReturnShapes(unittest.TestCase):
             "workflow",
             "source_exploration_contract",
             "delegation_protocol",
+            "pipeline_stages",
+            "intake_paths",
+            "artifact_contract",
         }
         self.assertEqual(set(result.keys()), expected_keys)
 
@@ -151,18 +156,22 @@ class TestComposerReturnShapes(unittest.TestCase):
         self.assertNotIn("topic_key_format", result)
         self.assertNotIn("mem_save_templates", result)
 
-    def test_map_connections_context_has_9_keys(self) -> None:
+    def test_map_connections_context_has_13_keys_legacy(self) -> None:
         result = map_connections_context()
         expected_keys = {
             "entity_types",
             "connection_rules",
             "completeness_gate",
+            "two_phase_mapping",
             "relationship_labels",
             "scoring_factors",
             "retrieval_contract",
             "rag_workflow",
             "source_exploration_contract",
             "delegation_protocol",
+            "pipeline_stages",
+            "intake_paths",
+            "artifact_contract",
         }
         self.assertEqual(set(result.keys()), expected_keys)
 
@@ -183,7 +192,7 @@ class TestComposerReturnShapes(unittest.TestCase):
         self.assertIn("Never bulk-read the whole graph", steps)
         self.assertIn("thousands of nodes", cast(str, rag_workflow["scaling_contract"]))
 
-    def test_generate_brd_context_has_7_keys(self) -> None:
+    def test_generate_brd_context_has_11_keys_legacy(self) -> None:
         result = generate_brd_context()
         expected_keys = {
             "entity_types",
@@ -192,7 +201,11 @@ class TestComposerReturnShapes(unittest.TestCase):
             "completeness_matrix_template",
             "retrieval_contract",
             "brd_graph_persistence_contract",
+            "strict_mode",
             "delegation_protocol",
+            "pipeline_stages",
+            "intake_paths",
+            "artifact_contract",
         }
         self.assertEqual(set(result.keys()), expected_keys)
 
@@ -208,6 +221,27 @@ class TestComposerReturnShapes(unittest.TestCase):
         self.assertEqual(sections[0]["title"], "Contenido")
         self.assertEqual(sections[0]["order"], 0)
         self.assertIn("update_node", cast(str, contract["when"]))
+
+    def test_brainds_docs_brd_carveout_matches_contract(self) -> None:
+        result = generate_brd_context()
+        contract = cast(dict[str, Any], result["brd_graph_persistence_contract"])
+        template = cast(dict[str, Any], contract["update_node_template"])
+        sections = cast(list[dict[str, Any]], template["card_sections"])
+        main_section = sections[0]
+        self.assertEqual(main_section["order"], 0)
+        self.assertEqual(main_section["icon"], "")
+
+        repo_root = Path(__file__).resolve().parents[1]
+        skill_paths = [
+            repo_root / "skills" / "brainds-docs" / "SKILL.md",
+            repo_root / ".opencode" / "skills" / "brainds-docs" / "SKILL.md",
+        ]
+        for skill_path in skill_paths:
+            with self.subTest(skill_path=str(skill_path)):
+                content = skill_path.read_text(encoding="utf-8")
+                self.assertIn("order: 0", content)
+                self.assertIn('icon: ""', content)
+                self.assertIn("BRD_GRAPH_PERSISTENCE_CONTRACT", content)
 
     def test_delegation_protocol_present_in_all_composers(self) -> None:
         for payload in (elicit_context(), map_connections_context(), generate_brd_context()):
@@ -227,6 +261,62 @@ class TestComposerReturnShapes(unittest.TestCase):
         self.assertIn("list_nodes(graph_id=<slug>, type=<EntityType>)", retrieval_contract)
         self.assertIn("search_graph(graph_id=<slug>, query=<text>)", retrieval_contract)
         self.assertIn("validate retrieval changes on a seeded vault", retrieval_contract)
+
+    # T1-3/T1-4: bump key counts 14→15, 12→13, 10→11 (artifact_contract injected)
+    def test_elicit_context_has_all_15_keys(self) -> None:
+        result = elicit_context()
+        self.assertIn("artifact_contract", result)
+        self.assertEqual(len(result), 15)
+
+    def test_map_connections_context_has_13_keys(self) -> None:
+        result = map_connections_context()
+        self.assertIn("artifact_contract", result)
+        self.assertEqual(len(result), 13)
+
+    def test_generate_brd_context_has_11_keys(self) -> None:
+        result = generate_brd_context()
+        self.assertIn("artifact_contract", result)
+        self.assertEqual(len(result), 11)
+
+
+class TestArtifactContract(unittest.TestCase):
+    """T1-1/T1-2: ARTIFACT_CONTRACT constant shape."""
+
+    def test_artifact_contract_has_four_phase_keys(self) -> None:
+        self.assertIsInstance(ARTIFACT_CONTRACT, dict)
+        for key in ("source-docs", "map", "brd", "verify"):
+            self.assertIn(key, ARTIFACT_CONTRACT, f"ARTIFACT_CONTRACT missing key '{key}'")
+
+    def test_artifact_contract_each_phase_entry_has_required_keys(self) -> None:
+        phase_keys = ("source-docs", "map", "brd", "verify")
+        for phase in phase_keys:
+            entry = ARTIFACT_CONTRACT[phase]
+            with self.subTest(phase=phase):
+                self.assertIn("required_keys", entry, f"{phase} missing 'required_keys'")
+                self.assertIn("validator", entry, f"{phase} missing 'validator'")
+
+    def test_artifact_contract_required_keys_include_artifact_type(self) -> None:
+        phase_keys = ("source-docs", "map", "brd", "verify")
+        for phase in phase_keys:
+            entry = ARTIFACT_CONTRACT[phase]
+            with self.subTest(phase=phase):
+                self.assertIn(
+                    "artifact_type",
+                    entry["required_keys"],
+                    f"{phase}.required_keys must include 'artifact_type'",
+                )
+
+    def test_artifact_contract_map_has_completeness_gate_key(self) -> None:
+        map_entry = ARTIFACT_CONTRACT["map"]
+        self.assertIn("completeness_gate", map_entry["required_keys"])
+
+    def test_artifact_contract_verify_has_gate_key(self) -> None:
+        verify_entry = ARTIFACT_CONTRACT["verify"]
+        self.assertIn("gate", verify_entry["required_keys"])
+
+    def test_artifact_contract_brd_has_brd_node_key(self) -> None:
+        brd_entry = ARTIFACT_CONTRACT["brd"]
+        self.assertIn("brd_node", brd_entry["required_keys"])
 
 
 if __name__ == "__main__":

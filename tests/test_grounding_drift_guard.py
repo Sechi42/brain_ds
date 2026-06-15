@@ -17,6 +17,9 @@ harness stays in sync. See the "Harness maintenance" section in ``CLAUDE.md``.
 
 from __future__ import annotations
 
+import ast
+import inspect
+import re
 import unittest
 from typing import Any, cast
 
@@ -40,6 +43,73 @@ ELICIT_EXEMPT_TYPES: frozenset[str] = frozenset(
 
 def _entity_values() -> set[str]:
     return {e.value for e in EntityType}
+
+
+def _discover_category2_constants() -> set[str]:
+    tree = ast.parse(inspect.getsource(grounding))
+    discovered: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            targets = [target.id for target in node.targets if isinstance(target, ast.Name)]
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            targets = [node.target.id]
+        else:
+            continue
+        for target in targets:
+            if re.match(r"^[A-Z][A-Z0-9_]+$", target):
+                value = getattr(grounding, target, None)
+                if isinstance(value, (dict, list)):
+                    discovered.add(target)
+    return discovered
+
+
+CATEGORY2_EXEMPT: frozenset[str] = frozenset(
+    {
+        "BRD_SECTION_ORDER",  # Section labels only, no entity-type references.
+        "BRD_STRICT_MODE",  # Strict-mode flow prose, not entity taxonomy.
+        "COMPLETENESS_GATE",  # Gate behavior prose, no literal EntityType values.
+        "DELEGATION_PROTOCOL",  # Orchestration contract, not graph entity naming.
+        "ELICIT_WORKFLOW",  # Interview workflow prose, no entity-name payload.
+        "MAP_RAG_WORKFLOW",  # Retrieval workflow prose, no entity-name payload.
+        "ORG_SLUG_RULES",  # Slug normalization rules only.
+        "WORKSPACE_PROTOCOL",  # Workspace scoping contract, not ontology names.
+    }
+)
+
+
+def _iter_string_entries(value: Any, path: str = "$") -> list[tuple[str, str]]:
+    entries: list[tuple[str, str]] = []
+    if isinstance(value, str):
+        entries.append((path, value))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            entries.extend(_iter_string_entries(item, f"{path}[{index}]"))
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            entries.extend(_iter_string_entries(item, f"{path}.{key}"))
+    return entries
+
+
+SAFE_ENTITYISH_TOKENS: frozenset[str] = frozenset(
+    {
+        "CsvConnector",
+        "EntityType",
+        "GraphQL",
+        "NoSQL",
+        "Obsidian",
+        "RelationshipType",
+    }
+)
+
+
+def _sweep_constant(name: str, value: Any) -> list[dict[str, str]]:
+    real_entity_values = _entity_values()
+    drift: list[dict[str, str]] = []
+    for path, text in _iter_string_entries(value):
+        for token in sorted(set(re.findall(r"\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b", text))):
+            if token not in real_entity_values and token not in SAFE_ENTITYISH_TOKENS:
+                drift.append({"constant": name, "path": path, "token": token})
+    return drift
 
 
 class GroundingEntityNameValidityTests(unittest.TestCase):
@@ -115,6 +185,54 @@ class GroundingEntityCoverageTests(unittest.TestCase):
             f"Types are both exempt and in QUESTION_BANK: {sorted(contradictory)}",
         )
 
+    def test_every_category2_constant_is_classified(self) -> None:
+        discovered = _discover_category2_constants()
+        swept = {name for name in discovered if name not in CATEGORY2_EXEMPT}
+        missing = discovered - swept - set(CATEGORY2_EXEMPT)
+        self.assertEqual(
+            missing,
+            set(),
+            (
+                "Unclassified Category-2 constants: "
+                f"{sorted(missing)}. Add each constant to the reflection sweep or to "
+                "CATEGORY2_EXEMPT with a rationale."
+            ),
+        )
+
+    def test_swept_category2_constants_have_no_drift_tokens(self) -> None:
+        drift: list[dict[str, str]] = []
+        for name in sorted(_discover_category2_constants() - set(CATEGORY2_EXEMPT)):
+            drift.extend(_sweep_constant(name, getattr(grounding, name)))
+        self.assertEqual(drift, [], f"Category-2 drift detected: {drift}")
+
+    # T1a-10: PIPELINE_STAGES is discovered by drift guard and NOT exempt
+    def test_pipeline_stages_discovered_and_not_exempt(self) -> None:
+        discovered = _discover_category2_constants()
+        self.assertIn(
+            "PIPELINE_STAGES",
+            discovered,
+            "PIPELINE_STAGES must be auto-discovered by the drift guard sweep",
+        )
+        self.assertNotIn(
+            "PIPELINE_STAGES",
+            CATEGORY2_EXEMPT,
+            "PIPELINE_STAGES must NOT be in CATEGORY2_EXEMPT — it must sweep clean",
+        )
+
+    # T1-5/T1-6: ARTIFACT_CONTRACT is discovered by drift guard and NOT exempt
+    def test_artifact_contract_discovered_and_not_exempt(self) -> None:
+        discovered = _discover_category2_constants()
+        self.assertIn(
+            "ARTIFACT_CONTRACT",
+            discovered,
+            "ARTIFACT_CONTRACT must be auto-discovered by the drift guard sweep",
+        )
+        self.assertNotIn(
+            "ARTIFACT_CONTRACT",
+            CATEGORY2_EXEMPT,
+            "ARTIFACT_CONTRACT must NOT be in CATEGORY2_EXEMPT — it must sweep clean",
+        )
+
 
 class GroundingDataSourceCompletenessTests(unittest.TestCase):
     """Data Source question bank and write template must cover concrete structure
@@ -152,6 +270,15 @@ class GroundingDataSourceCompletenessTests(unittest.TestCase):
         for field in required_fields:
             with self.subTest(field=field):
                 self.assertIn(field, learned)
+
+
+class GroundingCategory2SweepTests(unittest.TestCase):
+    def test_sweep_catches_stale_entity_name(self) -> None:
+        drift = _sweep_constant("TEST_CONSTANT", {"nested": ["StaleEntity"]})
+        self.assertEqual(
+            drift,
+            [{"constant": "TEST_CONSTANT", "path": "$.nested[0]", "token": "StaleEntity"}],
+        )
 
 
 def _node(node_id: str, label: str, type_: str, details: dict | None = None) -> NodeRow:

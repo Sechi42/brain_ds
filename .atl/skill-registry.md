@@ -222,7 +222,7 @@ Pre-digested rules per skill. Delegators copy matching blocks into sub-agent pro
 - Columns/Fields MUST be a markdown table with columns: Column/Field | Type | Meaning | Notes.
 - Mark vague columns with `[needs clarification]` in Notes — never omit them.
 - Wikilinks use `[[node-id|Label]]` syntax — node-id must be an existing node in the same graph.
-- card_sections `order` is monotonically increasing from 1; icon values from: info, database, table, target, user, clock, lightbulb, alert, map-pin, link.
+- card_sections `order` is monotonically increasing from 1 and icon values come from: info, database, table, target, user, clock, lightbulb, alert, map-pin, link (except BRD `brd-*` / `Unknown`, which defers to `BRD_GRAPH_PERSISTENCE_CONTRACT` with `order: 0`, `icon: ""`).
 - Lead with answer: Overview is always one-sentence fact first; context comes after.
 - Never put raw HTML inside card_sections `content`.
 
@@ -242,6 +242,9 @@ Pre-digested rules per skill. Delegators copy matching blocks into sub-agent pro
 |---|---|---|---|
 | `brainds-query-consultant` | sonnet | Read-only graph Q&A (list_graphs, list_nodes, search_graph, suggest_connections, get_node only) | `.claude/agents/brainds-query-consultant.md` |
 | `brainds-source-explorer` | sonnet | Read-only external source exploration; outputs card_sections-ready findings | `.claude/agents/brainds-source-explorer.md` |
+| `brainds-graph-mapper` | sonnet | Consolidates source-documentation artifacts and pushes graph updates so documented sources become visible in the UI | `.claude/agents/brainds-graph-mapper.md` |
+| `brainds-connection-mapper` | sonnet | Runs the connection-mapping pass, writes strong edges, and defers weak candidates for review | `.claude/agents/brainds-connection-mapper.md` |
+| `brainds-brd-writer` | sonnet | Builds the deterministic BRD and persists it to the graph, Engram, and optional `.elicit/` artifacts | `.claude/agents/brainds-brd-writer.md` |
 | `brainds-orchestrator` | opus | Coordinates elicit → map → BRD; delegates deep dives to sub-agents | `.claude/agents/brainds-orchestrator.md` |
 
 ## Project Conventions

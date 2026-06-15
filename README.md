@@ -10,7 +10,7 @@
 
 1. Install dependencies: `uv sync`
 2. Configure the MCP server: `brain_ds setup --project-root . --agent both`
-3. Open your agent client in this repo and verify `/mcp` shows **21 tools**
+3. Open your agent client in this repo and verify `/mcp` shows **22 tools**
 4. Run one of the workflow commands below
 
 ## What ships today
@@ -149,7 +149,7 @@ Preferred path:
 brain_ds setup --project-root . --agent both
 ```
 
-Then open your client in this repo and confirm `/mcp` shows `brain_ds` connected with **21 tools**.
+Then open your client in this repo and confirm `/mcp` shows `brain_ds` connected with **22 tools**.
 
 ## Graph viewer quick start
 

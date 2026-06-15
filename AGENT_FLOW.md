@@ -27,10 +27,19 @@ ejecutar; el payload lleva los contratos (`delegation_protocol`,
 ```
 Usuario ──► Orquestador (la MENTE: pregunta, decide, coordina)
                │  pasa: graph id + artifact store + REFERENCIAS (nunca contenido)
+               │
+               │  [setup]   resolver grafo + workspace + artifact store
+               │  [intake]  rama intake_paths:
+               │              datasource → brainds-source-explorer → brainds-graph-mapper
+               │              human_org  → entrevista propia + brainds-graph-mapper
                ├──► brainds-source-explorer   (scan de magnitud / documentación seccionada)
                ├──► brainds-graph-mapper      (consolida artefactos → update_node/add_edge → UI)
+               │  [map]     brainds-connection-mapper (estructural + cross-cutting)
                ├──► brainds-connection-mapper (suggest_connections → add_edge / diferidos)
+               │  [brd]     brainds-brd-writer (BRD 14 secciones)
                ├──► brainds-brd-writer        (BRD 14 secciones → nodo brd-<slug> + Engram)
+               │  [verify]  compliance gate → verify-<slug>-<fecha>.md
+               │  [archive] mover artefactos si verify pasó
                └──► brainds-query-consultant  (preguntas sobre el grafo)
                ▲
                └── cada sub-agente devuelve: status, executive_summary,
@@ -45,6 +54,29 @@ Reglas duras:
 - Skills: SOLO las de brain_ds. Prohibido invocar skills/agentes de otros
   proyectos instalados en la máquina (`sdd-*`, `gentle-*`, etc.).
 
+## Pipeline lineal (`pipeline_stages`)
+
+El flujo sigue **6 etapas ordenadas** definidas en `DELEGATION_PROTOCOL.pipeline_stages`
+(fuente de verdad: `grounding.py`):
+
+| Etapa | Agente(s) | Descripción |
+|---|---|---|
+| `setup` | `brainds-orchestrator` | Resolver grafo org, artifact store, workspace. |
+| `intake` | `brainds-source-explorer`, `brainds-graph-mapper` | Ingestar/documentar fuentes de datos. Rama según `intake_paths`. |
+| `map` | `brainds-connection-mapper` | Mapeo estructural + cross-cutting de conexiones. |
+| `brd` | `brainds-brd-writer` | BRD 14 secciones → nodo `brd-<slug>` + Engram. |
+| `verify` | `brainds-orchestrator` | Compliance gate; escribe `verify-<slug>-<fecha>.md`. |
+| `archive` | `brainds-orchestrator` | Mueve artefactos a `.elicit/changes/<change>/` solo si `verify` pasó. |
+
+### Ramificación del intake (`intake_paths`)
+
+`DELEGATION_PROTOCOL.intake_paths` define dos caminos para la etapa `intake`:
+
+- **`datasource`** — existe un nodo Data Source con fuente explorable:
+  `brainds-source-explorer` (SCOPE + DOCUMENT) → `brainds-graph-mapper` (CONSOLIDATE + PUSH).
+- **`human_org`** — el conocimiento viene del usuario, no de una fuente explorable:
+  `brainds-orchestrator` (entrevista elicit) → `brainds-graph-mapper` (push al grafo).
+
 ## Configuración de sesión (artifact store)
 
 El orquestador pregunta UNA vez por sesión dónde guardar artefactos intermedios:
@@ -55,7 +87,7 @@ El orquestador pregunta UNA vez por sesión dónde guardar artefactos intermedio
 | `.elicit` | archivos `.elicit/<fase>-<slug>-<fecha>.md` en el proyecto | sin Engram, o para commitear artefactos |
 | `both` | ambos | recuperación cross-sesión + trazabilidad local |
 
-Fases con artefactos: `elicit`, `source-exploration`, `source-docs`, `map`, `brd`.
+Fases con artefactos: `elicit`, `source-exploration`, `source-docs`, `map`, `brd`, `verify`, `archive`.
 
 ## Flujo de exploración de data sources (por etapas)
 
@@ -99,9 +131,23 @@ wikilinks, edición inline, autosave (`PATCH /api/nodes/:id` →
   presentes, orquestador/sub-agentes/comandos globales sin drift. Exit 1 si
   algo falla. Guard de CI: `tests/test_harness_check.py`.
 
+## Contrato de artefactos `.elicit` (canonical dual-contract)
+
+Cada archivo `.elicit/<fase>-<slug>-<fecha>.md` sigue el **dual-contract**:
+- Prosa markdown legible por humanos.
+- UN bloque JSON canónico (`\`\`\`json ... \`\`\``) al FINAL del archivo (el
+  verificador selecciona el ÚLTIMO bloque; bloques de ejemplo anteriores son
+  ignorados). El bloque puede estar precedido por `<!-- canonical-payload -->`.
+- El payload incluye `artifact_type` (string con el nombre de la fase) como clave
+  de nivel superior.
+
+El contrato por fase vive en `ARTIFACT_CONTRACT` (`grounding.py`) y se entrega en
+los 3 payloads de grounding (`artifact_contract`). `brainds-connection-mapper`
+tiene `Write` en su lista de tools para poder escribir `.elicit/map-*.md`.
+
 ## Pendientes conocidos
 
 - [ ] OpenCode: agregar `brainds-query-consultant` como sub-agente global.
 - [ ] `brain_ds setup` podría desplegar también `.claude/agents/` en workspaces
       ajenos al repo (hoy los agentes de Claude solo existen dentro del repo).
-- [ ] Convención de limpieza para `.elicit/` (retención de artefactos).
+- [x] Convención de limpieza para `.elicit/` (retención de artefactos) — resuelta en `.elicit/README.md` con naming activo y archivo bajo `.elicit/changes/<change-name>/`.

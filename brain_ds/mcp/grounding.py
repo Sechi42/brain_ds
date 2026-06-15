@@ -383,12 +383,60 @@ CONNECTION_RULES: dict[str, object] = {
         {"connection": "Solution ↔ Problem / Improvement Area", "rule": "Solution resolves linked problems or improvement areas (resolves)"},
         {"connection": "Decision ↔ KPI", "rule": "Decision rationale references KPI (targets)"},
         {"connection": "Decision ↔ Solution", "rule": "Solution links to decision context (decided-by)"},
+        {"connection": "Organization ↔ Role/Data Source/Project/KPI", "rule": "Organization owns its top-level entities (owns)"},
+        {"connection": "Data Source ↔ Data Source", "rule": "Lineage/pipeline overlap between sources (depends-on)"},
+        {"connection": "Risk ↔ Data Source", "rule": "Risk references the data source it threatens (creates-risk)"},
+        {"connection": "Project ↔ Solution", "rule": "Solution emerges from project decision context (decided-by)"},
+        {"connection": "Heuristic ↔ Data Source", "rule": "Heuristic inputs reference the data source (uses)"},
+        {"connection": "Tacit Knowledge ↔ Data Source", "rule": "Tacit knowledge references the data source (uses)"},
+        {"connection": "Role ↔ Role", "rule": "Same Where plus >=3 meaningful shared tokens (shared-with)"},
     ],
     "strength_labels": {
         "weak": "<=1 shared token",
         "strong": ">=3 shared tokens",
     },
 }
+
+# Two-phase mapping — structural skeleton first, cross-cutting semantics second.
+# Mirrored as "Two-Phase Mapping (Mandatory)" in skills/map-connections/SKILL.md
+# (+ .opencode mirror) — keep in sync.
+TWO_PHASE_MAPPING: dict[str, object] = {
+    "why": (
+        "The domain graph has a natural hierarchy (Organization -> Department -> Role -> "
+        "Data Source) and cross-cutting semantics (KPI/Problem/Solution/Decision/Risk). "
+        "Scoring both in one pass is what produces noise edges."
+    ),
+    "phase_1_structural": {
+        "types": ["Organization", "Department", "Role", "Data Source"],
+        "labels": ["owns", "uses", "depends-on"],
+        "rule": (
+            "Auto-executable: accept owns/uses edges between structural types when the "
+            "parent exists or is derivable. Run this pass first and report it separately."
+        ),
+    },
+    "phase_2_cross_cutting": {
+        "types": [
+            "Heuristic",
+            "Tacit Knowledge",
+            "Problem / Improvement Area",
+            "Project",
+            "Risk",
+            "Decision",
+            "KPI",
+            "Solution",
+        ],
+        "rule": (
+            "Requires prior elicitation or explicit user confirmation: KPI<->Role<->Data "
+            "Source, Solution<->Problem, Decision<->Project<->Risk and similar pairs are "
+            "only mapped after Phase 1 completes, never mixed into the same pass."
+        ),
+    },
+    "report_rule": (
+        "The mapping report MUST list structural_edges and cross_cutting_edges as separate "
+        "sections — never merge the two phases into one edge list."
+    ),
+}
+
 
 # Pre-mapping completeness gate — the mapping agent MUST run this before any
 # add_edge. Mirrored as "Completeness Gate (Mandatory)" in
@@ -566,7 +614,11 @@ SOURCE_EXPLORATION_CONTRACT: dict[str, object] = {
     },
     "connection_setup": (
         "A Data Source node becomes explorable when its details dict contains a 'connection' key: "
-        "{kind: 'sqlite'|'csv', path: '<project-relative path>'}. "
+        "{kind: 'sqlite'|'csv', path: '<project-relative path>', secret_ref?: '<ENV_VAR_NAME>'}. "
+        "If secret_ref is present, the connector resolves it from os.environ only at open time; "
+        "store the reference name, never the credential value. The resolved secret is never stored "
+        "in graph nodes, card_sections, or .elicit artifacts. Missing secret_ref values fail closed "
+        "with a clear error naming the missing environment variable. "
         "Google Sheets: delegate to MCP Google Drive read tools or export to CSV first."
     ),
 }
@@ -614,6 +666,71 @@ BRD_GRAPH_PERSISTENCE_CONTRACT: dict[str, object] = {
 }
 
 
+# BRD strict mode — mirrored as "Strict Mode (--strict)" in
+# skills/generate-brd/SKILL.md (+ .opencode mirror) — keep in sync.
+BRD_STRICT_MODE: dict[str, object] = {
+    "flag": "--strict",
+    "gate_tool": "assess_completeness",
+    "rules": [
+        (
+            "ALWAYS (strict or not): before composing, call assess_completeness(graph_id) and "
+            "show a 'Gaps Detectados' section first — entity counts per type, missing types, "
+            "and the [NEEDS DATA] sections the BRD will contain."
+        ),
+        (
+            "--strict: if the completeness matrix is not COMPLETE (any missing type or "
+            "underspecified node), REFUSE to generate/persist the BRD. Return an actionable "
+            "error listing each gap and the elicitation prompt that closes it."
+        ),
+        (
+            "--save without --strict stays permissive (current behavior): persist the PARTIAL "
+            "BRD with explicit NEEDS DATA markers. '--strict --save' demands COMPLETE."
+        ),
+    ],
+}
+
+
+# Source: skills/elicit-context/SKILL.md "Pipeline Stages (Mandatory)" — keep in sync.
+# Flat ordered list of pipeline stages for the full agentic brain_ds cycle.
+# intake carries nested intake_paths describing how each input path is handled.
+PIPELINE_STAGES: list[dict[str, object]] = [
+    {
+        "stage": "setup",
+        "description": "resolve the org graph, choose the artifact store, and confirm workspace",
+        "agents": ["brainds-orchestrator"],
+    },
+    {
+        "stage": "intake",
+        "description": "ingest and document all data sources feeding the workflow",
+        "agents": ["brainds-source-explorer", "brainds-graph-mapper"],
+        "intake_paths": {
+            "datasource": ["brainds-source-explorer", "brainds-graph-mapper"],
+            "human_org": ["brainds-orchestrator", "brainds-graph-mapper"],
+        },
+    },
+    {
+        "stage": "map",
+        "description": "map connections between nodes using the two-phase structural and cross-cutting workflow",
+        "agents": ["brainds-connection-mapper"],
+    },
+    {
+        "stage": "brd",
+        "description": "compose and persist the business requirements document from the org graph",
+        "agents": ["brainds-brd-writer"],
+    },
+    {
+        "stage": "verify",
+        "description": "run the compliance gate on all elicit artifacts and write the verify report",
+        "agents": ["brainds-orchestrator"],
+    },
+    {
+        "stage": "archive",
+        "description": "move completed cycle artifacts to the archive folder if the verify gate passes",
+        "agents": ["brainds-orchestrator"],
+    },
+]
+
+
 # Harness-owned orchestration protocol — how an orchestrator agent stays thin,
 # delegates context-heavy work to sub-agents, and where artifacts are stored.
 # Mirrored in .claude/agents/brainds-orchestrator.md and prompts/brain-ds-orchestrator.md.
@@ -632,8 +749,10 @@ DELEGATION_PROTOCOL: dict[str, object] = {
     "artifact_keys": {
         "engram_topic_key": "org/<slug>/<phase>/<ISO-date-or-section-slug>",
         "elicit_file": ".elicit/<phase>-<slug>-<ISO-date>.md",
-        "phases": ["elicit", "source-exploration", "source-docs", "map", "brd"],
+        "phases": ["elicit", "source-exploration", "source-docs", "map", "brd", "verify", "archive"],
     },
+    "pipeline_stages": PIPELINE_STAGES,
+    "intake_paths": PIPELINE_STAGES[1]["intake_paths"],
     "handoff_rule": (
         "Pass artifact references (topic keys or file paths) to sub-agents, never full content. "
         "Each sub-agent reads its inputs itself and returns a result contract: status, "
@@ -668,6 +787,72 @@ DELEGATION_PROTOCOL: dict[str, object] = {
 }
 
 
+# Source: .elicit artifact canonical contract — human markdown + ONE canonical
+# fenced JSON block per .elicit artifact. Injected into all 3 grounding composers
+# under key "artifact_contract" so every MCP client receives the same contract.
+# Guarded by the drift sweep (no CamelCase-compound entity tokens in values).
+ARTIFACT_CONTRACT: dict[str, dict[str, object]] = {
+    "source-docs": {
+        "artifact_type": "source-docs",
+        "required_keys": ("artifact_type", "graph_id", "documented_nodes"),
+        "validator": "check_documented_nodes",
+        "schema_notes": (
+            "documented_nodes is a list of node objects each with node_id, label, type, "
+            "card_sections. Non-BRD nodes: order >= 1, non-empty icon. "
+            "BRD carve-out (type=='Unknown' and node_id starts 'brd-'): order=0, icon=''."
+        ),
+    },
+    "map": {
+        "artifact_type": "map",
+        "required_keys": ("artifact_type", "graph_id", "documented_nodes", "edges", "completeness_gate"),
+        "validator": "check_documented_nodes",
+        "schema_notes": (
+            "Same documented_nodes rules as source-docs. "
+            "completeness_gate from assess_completeness (pre_mapping_recommendation required). "
+            "map is the canonical completeness_gate owner."
+        ),
+    },
+    "brd": {
+        "artifact_type": "brd",
+        "required_keys": ("artifact_type", "graph_id", "markdown", "brd_node"),
+        "validator": "check_brd_payload",
+        "schema_notes": (
+            "brd_node: node_id='brd-<graph_id>', label='BRD', type='Unknown', "
+            "card_sections[0]: title='Contenido', order=0, icon=''. "
+            "markdown must contain wikilinks ([[...]])."
+        ),
+    },
+    "verify": {
+        "artifact_type": "verify",
+        "required_keys": (
+            "artifact_type",
+            "graph_id",
+            "stage",
+            "status",
+            "critical_count",
+            "findings",
+            "gate",
+        ),
+        "validator": "check_verify_payload",
+        "schema_notes": (
+            "gate must be 'PASS' (zero findings) for archive to be allowed. "
+            "gate='BLOCKED' or non-empty findings raises CRITICAL in compliance check."
+        ),
+    },
+    "dual_contract_rule": (
+        "Every .elicit artifact is human-readable markdown PLUS exactly ONE canonical "
+        "fenced JSON block. The verifier selects the LAST ```json...``` block in the file "
+        "(positional selection; earlier example blocks are ignored). "
+        "A <!-- canonical-payload --> comment above the block is advisory, not required."
+    ),
+    "canonical_sentinel": "<!-- canonical-payload -->",
+    "selection_rule": (
+        "LAST fenced JSON block wins. Place the canonical payload at the end of the file, "
+        "after any human-readable sections or example blocks."
+    ),
+}
+
+
 def build_workspace_context(store: Any) -> dict[str, object]:
     """Live workspace scoping payload attached to every grounding tool response."""
     active_root = workspace_registry.project_root_from_store_path(store.path).resolve()
@@ -694,12 +879,12 @@ def build_workspace_context(store: Any) -> dict[str, object]:
 
 
 def elicit_context() -> dict[str, object]:
-    """Return the 12-key grounding context payload for run_elicit.
+    """Return the 14-key grounding context payload for run_elicit.
 
     Keys: entity_types, supertypes, expected_sections, relationship_types,
           base_weights, question_bank, org_slug_rules, node_id_format,
           node_write_templates, workflow, source_exploration_contract,
-          delegation_protocol.
+          delegation_protocol, pipeline_stages, intake_paths.
     """
     return {
         "entity_types": build_entity_types(),
@@ -714,15 +899,19 @@ def elicit_context() -> dict[str, object]:
         "workflow": ELICIT_WORKFLOW,
         "source_exploration_contract": SOURCE_EXPLORATION_CONTRACT,
         "delegation_protocol": DELEGATION_PROTOCOL,
+        "pipeline_stages": PIPELINE_STAGES,
+        "intake_paths": PIPELINE_STAGES[1]["intake_paths"],
+        "artifact_contract": ARTIFACT_CONTRACT,
     }
 
 
 def map_connections_context() -> dict[str, object]:
-    """Return the 7-key grounding context payload for map_connections.
+    """Return the 12-key grounding context payload for map_connections.
 
-    Keys: entity_types, connection_rules, completeness_gate, relationship_labels,
-          scoring_factors, retrieval_contract, rag_workflow,
-          source_exploration_contract, delegation_protocol.
+    Keys: entity_types, connection_rules, completeness_gate, two_phase_mapping,
+          relationship_labels, scoring_factors, retrieval_contract, rag_workflow,
+          source_exploration_contract, delegation_protocol, pipeline_stages,
+          intake_paths.
     scoring_factors comes from ScoringEngine (distinct from connection_rules
     strength heuristics — the skill's own weak/strong labels live in connection_rules).
     """
@@ -730,21 +919,26 @@ def map_connections_context() -> dict[str, object]:
         "entity_types": build_entity_types(),
         "connection_rules": CONNECTION_RULES,
         "completeness_gate": COMPLETENESS_GATE,
+        "two_phase_mapping": TWO_PHASE_MAPPING,
         "relationship_labels": build_relationship_labels(),
         "scoring_factors": build_scoring_factors(),
         "retrieval_contract": MAP_RETRIEVAL_CONTRACT,
         "rag_workflow": MAP_RAG_WORKFLOW,
         "source_exploration_contract": SOURCE_EXPLORATION_CONTRACT,
         "delegation_protocol": DELEGATION_PROTOCOL,
+        "pipeline_stages": PIPELINE_STAGES,
+        "intake_paths": PIPELINE_STAGES[1]["intake_paths"],
+        "artifact_contract": ARTIFACT_CONTRACT,
     }
 
 
 def generate_brd_context() -> dict[str, object]:
-    """Return the 7-key grounding context payload for generate_brd.
+    """Return the 10-key grounding context payload for generate_brd.
 
     Keys: entity_types, brd_section_order, section_rules,
           completeness_matrix_template, retrieval_contract,
-          brd_graph_persistence_contract, delegation_protocol.
+          brd_graph_persistence_contract, strict_mode, delegation_protocol,
+          pipeline_stages, intake_paths.
     """
     return {
         "entity_types": build_entity_types(),
@@ -753,5 +947,9 @@ def generate_brd_context() -> dict[str, object]:
         "completeness_matrix_template": COMPLETENESS_MATRIX_TEMPLATE,
         "retrieval_contract": BRD_RETRIEVAL_CONTRACT,
         "brd_graph_persistence_contract": BRD_GRAPH_PERSISTENCE_CONTRACT,
+        "strict_mode": BRD_STRICT_MODE,
         "delegation_protocol": DELEGATION_PROTOCOL,
+        "pipeline_stages": PIPELINE_STAGES,
+        "intake_paths": PIPELINE_STAGES[1]["intake_paths"],
+        "artifact_contract": ARTIFACT_CONTRACT,
     }

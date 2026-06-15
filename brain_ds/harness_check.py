@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -108,3 +109,33 @@ def check_skills_mirror(project_root: Path) -> list[CheckResult]:
             )
         ]
     return [CheckResult("skills-mirror-parity", "PASS", "skills/ == .opencode/skills/ (byte-identical)")]
+
+
+def _run_all_checks(project_root: Path) -> list[CheckResult]:
+    results: list[CheckResult] = []
+    for check in (check_project_mcp_entries, check_skills_mirror):
+        results.extend(check(project_root))
+    return results
+
+
+def _summarize_statuses(results: Iterable[CheckResult]) -> tuple[int, int, int]:
+    passed = failed = skipped = 0
+    for result in results:
+        if result.status == "PASS":
+            passed += 1
+        elif result.status == "FAIL":
+            failed += 1
+        else:
+            skipped += 1
+    return passed, failed, skipped
+
+
+def harness_check_main(project_root: Path) -> int:
+    root = project_root.resolve()
+    results = _run_all_checks(root)
+    for result in results:
+        print(f"[{result.status}] {result.name}: {result.detail}")
+
+    passed, failed, skipped = _summarize_statuses(results)
+    print(f"Summary: {passed} PASS, {failed} FAIL, {skipped} SKIP")
+    return 1 if failed else 0

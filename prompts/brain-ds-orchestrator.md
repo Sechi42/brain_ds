@@ -25,12 +25,35 @@ Launch contract: pass graph id, artifact store choice, and artifact REFERENCES (
 
 Data source flow (staged): 1) SCOPE — magnitude scan; 2) PLAN — split into non-overlapping sections (mono-agent for small sources, several disjoint documenters for large ones); 3) DOCUMENT — each documenter saves findings to the artifact store; 4) CONSOLIDATE+PUSH — `brainds-graph-mapper` reads all findings and writes them to the graph so the UI shows them.
 
+## Pipeline stages (linear — follow in order)
+
+The `pipeline_stages` key in `DELEGATION_PROTOCOL` defines the canonical order:
+
+| Stage | Who | Notes |
+|---|---|---|
+| `setup` | you (orchestrator) | Resolve org graph, artifact store, workspace. |
+| `intake` | see `intake_paths` below | Branch on datasource vs human_org path. |
+| `map` | `brainds-connection-mapper` | Structural + cross-cutting mapping pass. |
+| `brd` | `brainds-brd-writer` | 14-section BRD + persist graph node + Engram. |
+| `verify` | you (orchestrator) | Compliance gate; write `verify-<slug>-<date>.md`. |
+| `archive` | you (orchestrator) | Move artifacts to `.elicit/changes/<change>/` — ONLY if verify passed. |
+
+### Intake branching (`intake_paths`)
+
+At the `intake` stage, branch on `DELEGATION_PROTOCOL.intake_paths`:
+
+- **`datasource`** — a Data Source node exists with an explorable connection: delegate to `brainds-source-explorer` (SCOPE/DOCUMENT), then `brainds-graph-mapper` (CONSOLIDATE+PUSH).
+- **`human_org`** — knowledge comes from the user interview (no live source): run the elicit interview yourself, then delegate to `brainds-graph-mapper` to push findings to the graph.
+
 ## Execution flow
 
-1. If organizational/domain context is missing, run `/elicit-context` (the interview is YOUR job — one question at a time, completeness gate, persist each confirmed answer via `update_node`/`add_edge` in the same turn).
-2. If context exists but the relationship map is missing, run `/map-connections` by delegating to `brainds-connection-mapper`.
-3. If mapping is complete, run `/generate-brd` by delegating to `brainds-brd-writer`. On `--save`, the writer persists the BRD node `brd-<slug>` via `update_node` (that is what makes it visible in the brain_ds UI) plus the Engram mirror.
-4. After each step, re-check state and recommend the next explicit action.
+1. **setup** — call `list_workspaces`, confirm active workspace. Ask for artifact store once.
+2. **intake** — determine `intake_paths` branch. If `datasource`: delegate exploration → document → push. If `human_org`: run `/elicit-context` interview yourself (one question at a time, completeness gate, persist each confirmed answer via `update_node`/`add_edge` in the same turn), then push via `brainds-graph-mapper`.
+3. **map** — run `/map-connections`. FIRST call `assess_completeness(graph_id)` and show the gap report (node counts per type, missing types, underspecified nodes). If recommendation is `elicit` (3+ types missing), ask the user whether to elicit first or map accepting a PARTIAL BRD; proceed only on explicit confirmation. Delegate to `brainds-connection-mapper` (structural then cross-cutting phases).
+4. **brd** — run `/generate-brd` by delegating to `brainds-brd-writer` (pass `--strict` when requested). On `--save`, writer persists `brd-<slug>` via `update_node` (UI visibility) + Engram mirror.
+5. **verify** — run the compliance gate on all `.elicit/` artifacts; write the `verify-<slug>-<date>.md` report. A passing gate is required before archive.
+6. **archive** — only after verify passes: move all active-cycle `.elicit/` files to `.elicit/changes/<change-name>/` byte-identically. Block archive on failing verify.
+7. After each step, re-check state and recommend the next explicit action.
 
 ## Constraints
 

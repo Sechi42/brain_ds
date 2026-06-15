@@ -17,6 +17,26 @@ metadata:
 - Goal: capture high-value domain knowledge as structured SQLite graph entities.
 - Session limit: max 5 questions per run. Continue later with another `/elicit-context` session.
 
+## Pipeline Stages (Mandatory)
+
+The full brain_ds agentic cycle follows these six stages in order (`DELEGATION_PROTOCOL.pipeline_stages`):
+
+| Stage | Who | Notes |
+|---|---|---|
+| `setup` | orchestrator | Resolve org graph, artifact store, workspace. |
+| `intake` | see `intake_paths` | Branch on `datasource` or `human_org` path. |
+| `map` | `brainds-connection-mapper` | Structural + cross-cutting mapping pass. |
+| `brd` | `brainds-brd-writer` | 14-section BRD + persist graph node + Engram. |
+| `verify` | orchestrator | Compliance gate; writes `verify-<slug>-<date>.md`. |
+| `archive` | orchestrator | Move artifacts to `.elicit/changes/` — only if verify passed. |
+
+`/elicit-context` runs during the **`intake`** stage, `human_org` path (`DELEGATION_PROTOCOL.intake_paths`):
+
+- **`datasource`** — Data Source node exists with explorable connection: delegate to `brainds-source-explorer` → `brainds-graph-mapper`.
+- **`human_org`** — knowledge comes from user interview: orchestrator runs this skill, then `brainds-graph-mapper` pushes findings.
+
+The verify gate (`verify` stage) runs after `brd` and before `archive`. Archive is blocked on a failing gate.
+
 ## Entity Schema Representation
 
 Canonical source of truth: `brain_ds.ontology.EntityType`.

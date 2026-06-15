@@ -23,6 +23,13 @@ metadata:
 | `/generate-brd` | No | Yes (always-on) | Build and show inline 14-section BRD. |
 | `/generate-brd --org <name|slug>` | No | Yes (always-on) | One-run org override; no active-org mutation. |
 | `/generate-brd --save` | Yes — graph node `brd-<slug>` (UI) + Engram `org/<slug>/domain/brd/{timestamp}` | Yes (always-on) | Build BRD, show inline, then persist BRD to the graph AND Engram + ADR. |
+| `/generate-brd --strict [--save]` | Only if COMPLETE | Yes (always-on) | Gate on `assess_completeness`: if the matrix is not COMPLETE, refuse with an actionable gap list instead of generating. |
+
+## Strict Mode (`--strict`)
+
+- ALWAYS (strict or not): before composing, call `assess_completeness(graph_id)` and open the output with a **Gaps Detectados** section — entity counts per type, missing types, and which BRD sections will carry `[NEEDS DATA]`.
+- With `--strict`: if the completeness matrix is not COMPLETE (any missing entity type or underspecified node), **refuse** to generate/persist. Return an actionable error listing each gap and the elicitation prompt that closes it.
+- `--save` without `--strict` stays permissive: persist the PARTIAL BRD with explicit `[NEEDS DATA]` markers. `--strict --save` demands COMPLETE.
 
 ## Retrieval Workflow (Mandatory)
 
