@@ -131,7 +131,13 @@ def _check_verify_payload(path: Path, payload: dict) -> list[Finding]:
 
 def check_elicit_compliance(elicit_dir: Path) -> list[Finding]:
     findings: list[Finding] = []
-    artifact_paths = sorted(path for path in elicit_dir.glob("*.md") if path.is_file())
+    # Additive two-pass glob: flat level + one subdir level, deduplicated and sorted.
+    # PHASE_PATTERN.match(path.name) provides subdir scoping for free at both levels.
+    artifact_paths = sorted(
+        set(elicit_dir.glob("*.md")) | set(elicit_dir.glob("*/*.md")),
+        key=lambda p: str(p),
+    )
+    artifact_paths = [p for p in artifact_paths if p.is_file()]
     completeness_recorded = False
     has_non_verify_artifacts = False
 

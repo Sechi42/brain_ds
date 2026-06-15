@@ -2,9 +2,37 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
+
+
+# ---------------------------------------------------------------------------
+# R1 — Agent-definition constants
+# ---------------------------------------------------------------------------
+
+SUBAGENT_NAMES: tuple[str, ...] = (
+    "brainds-source-explorer",
+    "brainds-graph-mapper",
+    "brainds-connection-mapper",
+    "brainds-brd-writer",
+)
+
+CLAUDE_AGENT_FILES: dict[str, str] = {
+    slug: f"{slug}.md" for slug in SUBAGENT_NAMES
+}
+
+# Required tool grants per agent.
+# graph-mapper intentionally has NO Write (encoded by absence — no negative assertion).
+REQUIRED_AGENT_GRANTS: dict[str, set[str]] = {
+    "brainds-connection-mapper": {"Write"},
+    "brainds-brd-writer": {"Write", "mcp__brain_ds__generate_brd"},
+    "brainds-source-explorer": {"Write", "mcp__brain_ds__explore_source"},
+    "brainds-graph-mapper": {"mcp__brain_ds__update_node", "mcp__brain_ds__add_edge"},
+}
+
+_FRONTMATTER_NAME_RE = re.compile(r"^\s*name\s*:\s*(.+?)\s*$", re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -111,9 +139,140 @@ def check_skills_mirror(project_root: Path) -> list[CheckResult]:
     return [CheckResult("skills-mirror-parity", "PASS", "skills/ == .opencode/skills/ (byte-identical)")]
 
 
+def _parse_agent_frontmatter(path: Path) -> dict[str, object]:
+    """Parse YAML-ish frontmatter from a Claude agent .md file.
+
+    Handles UTF-8 BOM and CRLF/CR line endings robustly.
+    Returns dict with keys ``name`` (str | None) and ``tools`` (list[str]).
+    """
+    raw = path.read_text(encoding="utf-8-sig")
+    # Normalise line endings so split on "\\n" works regardless of CRLF/CR
+    text = raw.replace("\r\n", "\n").replace("\r", "\n")
+    parts = text.split("---")
+    # Frontmatter is between the first and second "---" delimiters
+    if len(parts) < 3:
+        return {"name": None, "tools": []}
+    frontmatter = parts[1]
+
+    # Extract name:
+    name_match = _FRONTMATTER_NAME_RE.search(frontmatter)
+    name: str | None = name_match.group(1).strip() if name_match else None
+
+    # Extract tools — handle both block list and inline list formats
+    tools: list[str] = []
+    in_tools = False
+    for line in frontmatter.splitlines():
+        stripped = line.strip()
+        if re.match(r"^tools\s*:", stripped):
+            # Could be inline "tools: [A, B]" or start of block list
+            inline = re.match(r"^tools\s*:\s*\[(.+)\]", stripped)
+            if inline:
+                tools = [t.strip() for t in inline.group(1).split(",") if t.strip()]
+                in_tools = False
+            else:
+                in_tools = True
+            continue
+        if in_tools:
+            if stripped.startswith("- "):
+                tools.append(stripped[2:].strip())
+            elif stripped and not stripped.startswith("#"):
+                # New top-level key encountered — end of tools block
+                in_tools = False
+
+    return {"name": name, "tools": tools}
+
+
+def check_agent_files(project_root: Path) -> list[CheckResult]:
+    """Check each sub-agent .md file exists, name matches slug, and has required tool grants.
+
+    Yields one CheckResult per check type per agent:
+    - ``agent-file-{slug}``  — file exists
+    - ``agent-name-{slug}``  — name: frontmatter matches slug
+    - ``agent-tools-{slug}`` — all REQUIRED_AGENT_GRANTS present
+
+    query-consultant prompt mirror → always SKIP (never FAIL for absence).
+    """
+    results: list[CheckResult] = []
+    agent_dir = project_root / ".claude" / "agents"
+
+    for slug in SUBAGENT_NAMES:
+        filename = CLAUDE_AGENT_FILES[slug]
+        agent_path = agent_dir / filename
+
+        # --- file presence ---
+        if not agent_path.is_file():
+            results.append(
+                CheckResult(
+                    f"agent-file-{slug}",
+                    "FAIL",
+                    f"{agent_path} not found — run install-opencode or restore the file",
+                )
+            )
+            # Skip further checks for this agent — nothing to parse
+            results.append(CheckResult(f"agent-name-{slug}", "SKIP", "file missing"))
+            results.append(CheckResult(f"agent-tools-{slug}", "SKIP", "file missing"))
+            continue
+
+        results.append(CheckResult(f"agent-file-{slug}", "PASS", str(agent_path)))
+
+        # --- parse frontmatter ---
+        fm = _parse_agent_frontmatter(agent_path)
+        agent_name = fm["name"]
+        agent_tools: set[str] = set(fm["tools"])  # type: ignore[arg-type]
+
+        # --- name check ---
+        if agent_name == slug:
+            results.append(CheckResult(f"agent-name-{slug}", "PASS", f"name: {agent_name}"))
+        else:
+            results.append(
+                CheckResult(
+                    f"agent-name-{slug}",
+                    "FAIL",
+                    f"name: '{agent_name}' does not match expected slug '{slug}'",
+                )
+            )
+
+        # --- tool grants check ---
+        required = REQUIRED_AGENT_GRANTS.get(slug, set())
+        missing = required - agent_tools
+        if not missing:
+            results.append(
+                CheckResult(f"agent-tools-{slug}", "PASS", f"all required grants present: {sorted(required)}")
+            )
+        else:
+            results.append(
+                CheckResult(
+                    f"agent-tools-{slug}",
+                    "FAIL",
+                    f"missing required tool grant(s): {sorted(missing)}",
+                )
+            )
+
+    # query-consultant prompt mirror → always SKIP
+    query_consultant_mirror = project_root / "prompts" / "brainds-query-consultant.md"
+    if query_consultant_mirror.is_file():
+        results.append(
+            CheckResult(
+                "agent-prompt-mirror-brainds-query-consultant",
+                "SKIP",
+                "query-consultant has no mirror (by design) — present but not verified",
+            )
+        )
+    else:
+        results.append(
+            CheckResult(
+                "agent-prompt-mirror-brainds-query-consultant",
+                "SKIP",
+                "prompts/brainds-query-consultant.md absent — SKIP (by design, not a failure)",
+            )
+        )
+
+    return results
+
+
 def _run_all_checks(project_root: Path) -> list[CheckResult]:
     results: list[CheckResult] = []
-    for check in (check_project_mcp_entries, check_skills_mirror):
+    for check in (check_project_mcp_entries, check_skills_mirror, check_agent_files):
         results.extend(check(project_root))
     return results
 

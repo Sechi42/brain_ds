@@ -68,6 +68,27 @@ class MCPToolsTests(unittest.TestCase):
                 "details": {"summary": "Secondary"},
             },
         )
+        # B-1: bystander node N-3 + edge N-2→N-3 seeded for isolation regression tests
+        self.store.upsert_node(
+            self.graph_id,
+            {
+                "id": "N-3",
+                "label": "Gamma Ref",
+                "type": "Reference",
+                "supertype": "Knowledge",
+                "parent_id": "ROOT",
+                "details": {"summary": "Bystander target"},
+            },
+        )
+        self.store.upsert_edge(
+            self.graph_id,
+            {
+                "source": "N-2",
+                "target": "N-3",
+                "label": "references",
+                "weight": 0.9,
+            },
+        )
 
     def tearDown(self) -> None:
         self.store.close()
@@ -98,23 +119,56 @@ class MCPToolsTests(unittest.TestCase):
         self.assertIsInstance(result, dict)
         return cast(dict[str, Any], result)
 
+    # B-1: bystander-preservation regression — update_node on N-1 must not mutate N-2 or the N-2→N-3 edge
+    def test_update_node_preserves_unrelated_node_and_edge(self) -> None:
+        update_node(
+            self.store,
+            {"graph_id": self.graph_id, "node_id": "N-1", "label": "Alpha-v2"},
+        )
+        # N-2 fields must be unchanged
+        bystander = get_node(self.store, {"graph_id": self.graph_id, "node_id": "N-2"})
+        self.assertEqual(bystander["label"], "Beta Note")
+        self.assertEqual(bystander["type"], "Note")
+        self.assertEqual(bystander["details"]["summary"], "Secondary")
+        # Edge N-2→N-3 must still exist with original weight
+        edge_rows = self.store.conn.execute(
+            "SELECT weight, label FROM edges WHERE graph_id=? AND source=? AND target=?",
+            (self.graph_id, "N-2", "N-3"),
+        ).fetchall()
+        self.assertEqual(len(edge_rows), 1)
+        self.assertAlmostEqual(edge_rows[0][0], 0.9, places=4)
+        self.assertEqual(edge_rows[0][1], "references")
+        # Total node count must be 3 (N-1, N-2, N-3)
+        node_count = self.store.conn.execute(
+            "SELECT COUNT(*) FROM nodes WHERE graph_id=?", (self.graph_id,)
+        ).fetchone()[0]
+        self.assertEqual(node_count, 3)
+
+    # B-2: updated node reflects new values
+    def test_update_node_write_takes_effect(self) -> None:
+        update_node(
+            self.store,
+            {"graph_id": self.graph_id, "node_id": "N-1", "label": "Alpha-v2"},
+        )
+        refreshed = get_node(self.store, {"graph_id": self.graph_id, "node_id": "N-1"})
+        self.assertEqual(refreshed["label"], "Alpha-v2")
+
     def test_list_nodes_filters_and_missing_graph_error(self) -> None:
         result = self._expect_rows(list_nodes(self.store, {"graph_id": self.graph_id, "type": "Task"}))
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["id"], "N-1")
 
         by_supertype = self._expect_rows(list_nodes(self.store, {"graph_id": self.graph_id, "supertype": "Knowledge"}))
-        self.assertEqual(len(by_supertype), 1)
-        self.assertEqual(by_supertype[0]["id"], "N-2")
+        self.assertEqual(len(by_supertype), 2)  # N-2 (Beta Note) + N-3 (Gamma Ref) both Knowledge
 
         by_parent = self._expect_rows(list_nodes(self.store, {"graph_id": self.graph_id, "parent_id": "ROOT"}))
-        self.assertEqual(len(by_parent), 2)
+        self.assertEqual(len(by_parent), 3)  # N-1, N-2, N-3 all under ROOT
 
         by_empty_supertype = self._expect_rows(list_nodes(self.store, {"graph_id": self.graph_id, "supertype": "  "}))
-        self.assertEqual(len(by_empty_supertype), 2)
+        self.assertEqual(len(by_empty_supertype), 3)  # N-1, N-2, N-3
 
         by_empty_type = self._expect_rows(list_nodes(self.store, {"graph_id": self.graph_id, "type": ""}))
-        self.assertEqual(len(by_empty_type), 2)
+        self.assertEqual(len(by_empty_type), 3)  # N-1, N-2, N-3
 
         missing_graph = self._expect_error(list_nodes(self.store, {"graph_id": "missing"}))
         self.assertEqual(missing_graph["code"], -32000)
@@ -182,19 +236,19 @@ class MCPToolsTests(unittest.TestCase):
             self.store,
             {
                 "graph_id": self.graph_id,
-                "node_id": "N-3",
+                "node_id": "N-new",
                 "label": "Gamma",
                 "type": "Task",
                 "supertype": "Work",
                 "details": {"summary": "new"},
             },
         )
-        self.assertEqual(created["id"], "N-3")
+        self.assertEqual(created["id"], "N-new")
 
         event, graph_id, payload = self._last_outbox_event()
         self.assertEqual(event, "node.created")
         self.assertEqual(graph_id, self.graph_id)
-        self.assertEqual(json.loads(payload)["id"], "N-3")
+        self.assertEqual(json.loads(payload)["id"], "N-new")
 
     def test_update_node_enqueues_node_updated(self) -> None:
         updated = update_node(self.store, {"graph_id": self.graph_id, "node_id": "N-1", "label": "Renamed"})
