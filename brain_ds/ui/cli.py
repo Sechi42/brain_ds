@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import socket
 import sys
 from pathlib import Path
 from typing import Sequence
@@ -11,9 +12,10 @@ from brain_ds.connectors.secrets import (
     SecretCatalog,
     SecretEntry,
     SecretManifestError,
+    get_provider_adapter,
 )
 from brain_ds.mcp.config import generate_claude_config, generate_opencode_config
-from brain_ds.mcp.security import SecurityError
+from brain_ds.mcp.security import SecurityError, ValidationError
 from brain_ds.mcp.server import run_mcp_server
 from brain_ds.validation import validate_graph
 
@@ -134,6 +136,29 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     value_group.add_argument(
         "--value-file", help="Path to a file containing the raw secret value"
+    )
+
+    secret_remove_parser = secret_sub.add_parser("remove", help="Remove a secret handle")
+    secret_remove_parser.add_argument("--project-root", default=".", help="Project root (default: .)")
+    secret_remove_parser.add_argument("--handle", required=True, help="Handle to remove")
+
+    secret_validate_parser = secret_sub.add_parser(
+        "validate", help="Validate all secret handles against their provider schema"
+    )
+    secret_validate_parser.add_argument(
+        "--project-root", default=".", help="Project root (default: .)"
+    )
+    mode_group = secret_validate_parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=True,
+        help="Validate metadata only (default)",
+    )
+    mode_group.add_argument(
+        "--probe",
+        action="store_true",
+        help="Also attempt real provider connectivity (explicit opt-in)",
     )
 
     return parser, secret_parser
@@ -324,6 +349,48 @@ def _run_secret_add(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_secret_remove(args: argparse.Namespace) -> int:
+    try:
+        catalog = _load_catalog(_resolve_ui_project_root(args.project_root))
+    except SecretManifestError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    catalog.remove(args.handle)
+    print(f"Removed secret handle {args.handle}")
+    return 0
+
+
+def _run_secret_validate(args: argparse.Namespace) -> int:
+    try:
+        catalog = _load_catalog(_resolve_ui_project_root(args.project_root))
+    except SecretManifestError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    errors: list[str] = catalog.validate_all()
+
+    for entry in catalog.list_handles():
+        try:
+            adapter = get_provider_adapter(entry.kind)
+            adapter.validate(entry.metadata)
+            if args.probe:
+                adapter.probe(entry.handle, entry.metadata)
+        except ValidationError as exc:
+            errors.append(f"{entry.handle}: {exc}")
+
+    if errors:
+        for error in errors:
+            print(error, file=sys.stderr)
+        return 1
+
+    if args.probe:
+        print("All secret handles are valid and reachable.")
+    else:
+        print("All secret handles are valid (dry-run).")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser, secret_parser = _build_parser()
     args = parser.parse_args(argv)
@@ -404,6 +471,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_secret_list(args)
         if args.secret_command == "add":
             return _run_secret_add(args)
+        if args.secret_command == "remove":
+            return _run_secret_remove(args)
+        if args.secret_command == "validate":
+            return _run_secret_validate(args)
         secret_parser.print_help(sys.stderr)
         return 2
 
