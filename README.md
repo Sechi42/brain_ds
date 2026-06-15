@@ -10,7 +10,7 @@
 
 1. Install dependencies: `uv sync`
 2. Configure the MCP server: `brain_ds setup --project-root . --agent both`
-3. Open your agent client in this repo and verify `/mcp` shows **22 tools**
+3. Open your agent client in this repo and verify `/mcp` shows **24 tools**
 4. Run one of the workflow commands below
 
 ## What ships today
@@ -47,12 +47,13 @@ Write access to external data sources is intentionally blocked at three layers:
 | MCP validation | exploration/query tools reject write-like modes and non-SELECT SQLite queries |
 | Agent prompt | `brainds-source-explorer` explicitly forbids mutations |
 
-## MCP tools (20)
+## MCP tools (24)
 
 | Category | Tools |
-|---|---|
+|---|---|---|
 | Graph data | `list_graphs`, `create_graph`, `import_graph`, `list_nodes`, `list_data_sources`, `get_node`, `search_graph`, `update_node`, `add_edge`, `delete_node`, `delete_edge`, `suggest_connections` |
 | Data source exploration | `list_source_connections`, `explore_source`, `query_source` |
+| Workspace secrets | `list_secret_handles`, `validate_secret_handle` |
 | Workspace | `list_workspaces`, `open_workspace` |
 | Grounding workflows | `run_elicit`, `map_connections`, `generate_brd` |
 
@@ -149,7 +150,7 @@ Preferred path:
 brain_ds setup --project-root . --agent both
 ```
 
-Then open your client in this repo and confirm `/mcp` shows `brain_ds` connected with **22 tools**.
+Then open your client in this repo and confirm `/mcp` shows `brain_ds` connected with **24 tools**.
 
 ## Graph viewer quick start
 
