@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
 import re
+import tempfile
 import unittest
 from pathlib import Path
+
+from brain_ds.verify.elicit_compliance import PHASE_PATTERN, check_elicit_compliance
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -35,9 +39,8 @@ REQUIRED_PROTOCOL_KEYS = (
     "intake_paths",
 )
 REQUIRED_AGENTS = tuple(KNOWN_AGENTS)
-ELICIT_NAME_PATTERN = re.compile(
-    r"^(elicit|source-exploration|source-docs|map|brd|setup|intake|verify|archive)-[a-z0-9_-]+-\d{4}-\d{2}-\d{2}\.md$"
-)
+# C-6: canonical PHASE_PATTERN imported from brain_ds.verify.elicit_compliance above
+ELICIT_NAME_PATTERN = PHASE_PATTERN  # alias — same object, no local duplicate
 
 
 class TestElicitLifecycle(unittest.TestCase):
@@ -199,6 +202,97 @@ class TestElicitLifecycle(unittest.TestCase):
         content = prompt_file.read_text(encoding="utf-8")
         self.assertIn(".elicit", content, "brainds-connection-mapper prompt must mention .elicit")
         self.assertIn("map-", content, "brainds-connection-mapper prompt must mention map- artifact")
+
+    # C-1: artifact in subdir is discovered
+    def test_subdir_artifact_is_discovered(self) -> None:
+        """Phase-named .md in elicit_dir/<subdir>/ must be found by check_elicit_compliance."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            subdir = tmp_path / "my-change"
+            subdir.mkdir(parents=True)
+            brd_file = subdir / "brd-my-change-2026-06-14.md"
+            graph_id = "my-change"
+            payload = {
+                "artifact_type": "brd",
+                "graph_id": graph_id,
+                "brd_node": {
+                    "node_id": f"brd-{graph_id}",
+                    "label": "BRD",
+                    "type": "Unknown",
+                    "card_sections": [
+                        {"title": "Contenido", "content": "some content", "icon": "", "order": 0}
+                    ],
+                },
+                "markdown": "Content with [[wikilink]]",
+                "completeness_gate": {"pre_mapping_recommendation": "proceed_with_gaps"},
+            }
+            brd_file.write_text(
+                f"# BRD\n\n```json\n{json.dumps(payload, indent=2)}\n```\n",
+                encoding="utf-8",
+            )
+            findings = check_elicit_compliance(tmp_path)
+            critical = [f for f in findings if f.severity == "CRITICAL"]
+            self.assertEqual(
+                critical,
+                [],
+                f"Subdir artifact should be discovered with no CRITICAL; got: {critical}",
+            )
+
+    # C-2: README in subdir is silently ignored
+    def test_readme_in_subdir_is_ignored(self) -> None:
+        """README.md in a subdir must produce zero findings."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            subdir = tmp_path / "my-change"
+            subdir.mkdir(parents=True)
+            readme = subdir / "README.md"
+            readme.write_text("# Lifecycle docs\n\nNo JSON payload here.", encoding="utf-8")
+            findings = check_elicit_compliance(tmp_path)
+            readme_findings = [f for f in findings if f.file.name == "README.md"]
+            self.assertEqual(
+                readme_findings,
+                [],
+                "README.md in subdir must be silently ignored",
+            )
+
+    # C-3: phase-named but broken artifact in subdir → CRITICAL
+    def test_broken_subdir_artifact_raises_critical(self) -> None:
+        """Phase-named file in subdir with no JSON payload must raise CRITICAL."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            subdir = tmp_path / "my-change"
+            subdir.mkdir(parents=True)
+            broken = subdir / "map-my-change-2026-06-14.md"
+            broken.write_text("# Map\n\nSome prose but no JSON payload.", encoding="utf-8")
+            findings = check_elicit_compliance(tmp_path)
+            critical = [f for f in findings if f.severity == "CRITICAL" and f.file == broken]
+            self.assertGreater(
+                len(critical),
+                0,
+                "phase-named file in subdir with missing payload must raise CRITICAL",
+            )
+
+    # C-4: flat artifacts still discovered (backward compat)
+    def test_flat_artifact_backward_compat(self) -> None:
+        """Flat .elicit/*.md artifacts must still be discovered after the glob change."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            flat = tmp_path / "elicit-my-project-2026-06-14.md"
+            payload = {
+                "artifact_type": "elicit",
+                "completeness_gate": {"pre_mapping_recommendation": "proceed_with_gaps"},
+            }
+            flat.write_text(
+                f"# Elicit\n\n```json\n{json.dumps(payload, indent=2)}\n```\n",
+                encoding="utf-8",
+            )
+            findings = check_elicit_compliance(tmp_path)
+            critical = [f for f in findings if f.severity == "CRITICAL"]
+            self.assertEqual(
+                critical,
+                [],
+                f"Flat artifact must still be found and valid; got CRITICAL: {critical}",
+            )
 
     def test_verify_artifact_blocked_gate_raises_critical(self) -> None:
         import tempfile

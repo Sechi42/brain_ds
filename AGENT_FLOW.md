@@ -126,9 +126,9 @@ wikilinks, edición inline, autosave (`PATCH /api/nodes/:id` →
 - `install-opencode.ps1 -Global -Agent` / `install-opencode.sh --global --agent` —
   despliega skills, comandos, orquestador + 4 sub-agentes con allowlist en el
   config global de OpenCode.
-- **`brain_ds check`** — checker de paridad (12 checks): entradas MCP de ambos
+- **`brain_ds check`** — checker de paridad (17 checks): entradas MCP de ambos
   clientes alineadas, mirror de skills byte-idéntico, agentes de Claude
-  presentes, orquestador/sub-agentes/comandos globales sin drift. Exit 1 si
+  presentes con grants correctos, orquestador/sub-agentes/comandos globales sin drift. Exit 1 si
   algo falla. Guard de CI: `tests/test_harness_check.py`.
 
 ## Contrato de artefactos `.elicit` (canonical dual-contract)

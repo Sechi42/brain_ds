@@ -7,12 +7,7 @@ from pathlib import Path
 from typing import cast
 
 from brain_ds.store.graph_store import GraphStore
-from brain_ds.verify.elicit_compliance import check_elicit_compliance
-
-
-PHASE_PATTERN = re.compile(
-    r"^(elicit|source-exploration|source-docs|map|brd|setup|intake|verify|archive)-[a-z0-9_-]+-\d{4}-\d{2}-\d{2}\.md$"
-)
+from brain_ds.verify.elicit_compliance import PHASE_PATTERN, check_elicit_compliance
 
 
 def _artifact_payload(path: Path) -> dict:
