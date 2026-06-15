@@ -12,11 +12,14 @@ import brain_ds.mcp.grounding as grounding
 import brain_ds.scoring.similarity as similarity
 import brain_ds.workspaces as workspace_registry
 from brain_ds.connectors import CsvConnector, SQLiteConnector
+from brain_ds.connectors.secrets import SecretCatalog, SecretManifestError
+from brain_ds.connectors.secrets.redaction import redact_secrets
 from brain_ds.mcp.security import (
     TOOL_SCHEMAS,
     SecurityError,
     ValidationError,
     error_boundary,
+    is_workspace_admin,
     validate_card_sections,
     validate_path_within_root,
     validate_tool_input,
@@ -82,6 +85,78 @@ def list_graphs(store: GraphStore, params: dict[str, Any]) -> list[dict[str, Any
     validate_tool_input("list_graphs", params, TOOL_SCHEMAS["list_graphs"])
     rows = store.list_graphs()
     return [asdict(row) for row in rows]
+
+
+def _load_secret_catalog(store: GraphStore) -> SecretCatalog:
+    """Load the workspace secret catalog, failing closed on schema violations."""
+    project_root = _project_root_from_store_path(store.path)
+    catalog = SecretCatalog(project_root)
+    try:
+        catalog.load()
+    except SecretManifestError as exc:
+        raise ValidationError(code=-32000, message=f"Secret manifest error: {exc}") from exc
+    return catalog
+
+
+@error_boundary
+def list_secret_handles(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    """List workspace secret handles and redacted metadata (admin only)."""
+    validate_tool_input("list_secret_handles", params, TOOL_SCHEMAS["list_secret_handles"])
+    try:
+        is_workspace_admin(params)
+    except SecurityError:
+        store.log_audit("list_secret_handles", params, "error")
+        raise
+    catalog = _load_secret_catalog(store)
+
+    handles = []
+    for entry in catalog.list_handles():
+        handles.append(
+            {
+                "handle": entry.handle,
+                "kind": entry.kind,
+                "created_at": entry.created_at,
+                "metadata": redact_secrets(entry.metadata),
+            }
+        )
+
+    store.log_audit("list_secret_handles", params, "ok")
+    return {"handles": handles}
+
+
+@error_boundary
+def validate_secret_handle(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    """Validate a single secret handle. Dry-run by default; probe is opt-in."""
+    validated = validate_tool_input(
+        "validate_secret_handle", params, TOOL_SCHEMAS["validate_secret_handle"]
+    )
+    try:
+        is_workspace_admin(params)
+    except SecurityError:
+        store.log_audit("validate_secret_handle", validated, "error")
+        raise
+    catalog = _load_secret_catalog(store)
+
+    handle = validated["handle"]
+    entry = catalog.get(handle)
+    if entry is None:
+        store.log_audit("validate_secret_handle", validated, "error")
+        return {"valid": False, "reason": f"Handle '{handle}' not found"}
+
+    try:
+        from brain_ds.connectors.secrets.providers import get_provider_adapter
+
+        adapter = get_provider_adapter(entry.kind)
+        adapter.validate(entry.metadata)
+        if validated.get("probe"):
+            adapter.probe(entry.handle, entry.metadata)
+    except ValidationError as exc:
+        store.log_audit("validate_secret_handle", validated, "error")
+        return {"valid": False, "reason": f"{entry.handle}: {exc}"}
+
+    reason = f"{entry.handle} is valid and reachable" if validated.get("probe") else f"{entry.handle} is valid (dry-run)"
+    store.log_audit("validate_secret_handle", validated, "ok")
+    return {"valid": True, "reason": reason}
 
 
 @error_boundary
@@ -620,7 +695,7 @@ def list_source_connections(store: GraphStore, params: dict[str, Any]) -> list[d
                         "graph_id": gid,
                         "node_id": row.id,
                         "label": row.label,
-                        "connection": connection,
+                        "connection": redact_secrets(connection),
                     })
     except Exception as exc:
         raise ValidationError(code=-32000, message=str(exc)) from exc
@@ -642,21 +717,21 @@ def explore_source(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     container = validated.get("container")
     table = validated.get("table")
 
-    connection = _get_node_connection(store, graph_id, node_id)
+    connection = redact_secrets(_get_node_connection(store, graph_id, node_id))
     project_root = _project_root_from_store_path(store.path)
     connector = _resolve_connector(connection, project_root)
 
     try:
         if container is None:
             # Level 0: describe + list containers
-            return {
+            result: dict[str, Any] = {
                 "level": "source",
                 "describe": connector.describe(),
                 "containers": connector.list_containers(),
             }
         elif table is None:
             # Level 1: list tables in container
-            return {
+            result = {
                 "level": "container",
                 "container": container,
                 "tables": connector.list_tables(container),
@@ -665,7 +740,7 @@ def explore_source(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
             # Level 2: schema + preview
             schema = connector.get_table_schema(container, table)
             preview = connector.preview(container, table, limit=5)
-            return {
+            result = {
                 "level": "table",
                 "container": container,
                 "table": table,
@@ -674,6 +749,8 @@ def explore_source(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
             }
     except (FileNotFoundError, ValueError, Exception) as exc:
         raise ValidationError(code=-32000, message=str(exc)) from exc
+
+    return redact_secrets(result)
 
 
 @error_boundary
@@ -870,6 +947,20 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "handler": query_source,
         "schema": TOOL_SCHEMAS["query_source"],
         "description": "Execute a SELECT-only SQL query against an SQLite data source (capped at 200 rows)",
+        "rw": "read",
+        "requires_ai_agent": False,
+    },
+    "list_secret_handles": {
+        "handler": list_secret_handles,
+        "schema": TOOL_SCHEMAS["list_secret_handles"],
+        "description": "List workspace secret handles and redacted metadata (admin only)",
+        "rw": "read",
+        "requires_ai_agent": False,
+    },
+    "validate_secret_handle": {
+        "handler": validate_secret_handle,
+        "schema": TOOL_SCHEMAS["validate_secret_handle"],
+        "description": "Validate a workspace secret handle (dry-run by default; probe opt-in)",
         "rw": "read",
         "requires_ai_agent": False,
     },

@@ -206,6 +206,25 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         },
         "additionalProperties": False,
     },
+    # Secret handle surface — admin-only; never returns raw values.
+    "list_secret_handles": {
+        "type": "object",
+        "required": [],
+        "properties": {
+            "agent_scope": {"type": "string"},
+        },
+        "additionalProperties": False,
+    },
+    "validate_secret_handle": {
+        "type": "object",
+        "required": ["handle"],
+        "properties": {
+            "handle": {"type": "string"},
+            "agent_scope": {"type": "string"},
+            "probe": {"type": "boolean"},
+        },
+        "additionalProperties": False,
+    },
     # B1 context-return tools — zero-param empty-object schemas (matching list_graphs pattern).
     "run_elicit": {
         "type": "object",
@@ -345,11 +364,25 @@ def validate_card_sections(items: Any) -> list[dict[str, Any]]:
     return validated
 
 
+def is_workspace_admin(params: dict[str, Any]) -> None:
+    """Fail-closed scope guard for secret-mutating MCP tools.
+
+    The caller passes its claimed scope via ``agent_scope``; only
+    ``workspace_admin`` is allowed. Scope failures raise ``SecurityError``
+    (code -32001) to distinguish them from schema validation errors.
+    """
+    scope = params.get("agent_scope")
+    if scope != "workspace_admin":
+        raise SecurityError("requires workspace_admin")
+
+
 def error_boundary(handler: Callable[P, R]) -> WrappedHandler[P, R]:
     @wraps(handler)
     def wrapped(*args: P.args, **kwargs: P.kwargs) -> R | dict[str, Any]:
         try:
             return handler(*args, **kwargs)
+        except SecurityError as exc:
+            return {"code": -32001, "message": str(exc)}
         except ValidationError as exc:
             return {"code": exc.code, "message": exc.message}
         except StoreError:
