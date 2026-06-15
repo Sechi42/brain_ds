@@ -14,7 +14,7 @@ class PostgresAdapter(SecretProviderAdapter):
     """Resolve a Postgres handle to connection parameters via env-var password."""
 
     kind = "postgres"
-    _REQUIRED = {"host", "port", "database", "username", "sslmode"}
+    _REQUIRED = {"host", "port", "database", "username", "sslmode", "secret_ref"}
 
     def validate(self, metadata: dict[str, Any]) -> None:
         if not isinstance(metadata, dict):

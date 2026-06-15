@@ -169,6 +169,78 @@ class TestAddSecret:
             store.close()
 
 
+class TestAddSecretValidation:
+    """POST /api/secrets rejects invalid payloads before persistence."""
+
+    def _valid_postgres_payload(self, **overrides):
+        payload = {
+            "handle": "sales_q3",
+            "kind": "google-sheets-json",
+            "metadata": {
+                "spreadsheet_id": "abc123",
+                "sheet_range": "A1:C10",
+                "service_account_ref": "BRAINDS_GSA",
+            },
+            "raw_value": '{"private_key":"GS_PRIVATE_KEY_VALUE"}',
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_unknown_kind_returns_422(self, tmp_path: Path) -> None:
+        store = _store_with_graph(tmp_path)
+        try:
+            client = _api_client(store, tmp_path)
+            response = client.post(
+                "/api/secrets?graph_id=graph-secrets",
+                json=self._valid_postgres_payload(kind="unknown-provider"),
+            )
+            assert response.status_code == 422
+        finally:
+            store.close()
+
+    def test_missing_required_metadata_returns_422(self, tmp_path: Path) -> None:
+        store = _store_with_graph(tmp_path)
+        try:
+            client = _api_client(store, tmp_path)
+            response = client.post(
+                "/api/secrets?graph_id=graph-secrets",
+                json=self._valid_postgres_payload(
+                    kind="postgres",
+                    metadata={"host": "db.local"},
+                    raw_value="super-secret",
+                ),
+            )
+            assert response.status_code == 422
+        finally:
+            store.close()
+
+    def test_missing_raw_value_returns_422(self, tmp_path: Path) -> None:
+        store = _store_with_graph(tmp_path)
+        try:
+            client = _api_client(store, tmp_path)
+            payload = self._valid_postgres_payload()
+            payload.pop("raw_value")
+            response = client.post(
+                "/api/secrets?graph_id=graph-secrets",
+                json=payload,
+            )
+            assert response.status_code == 422
+        finally:
+            store.close()
+
+    def test_empty_raw_value_returns_422(self, tmp_path: Path) -> None:
+        store = _store_with_graph(tmp_path)
+        try:
+            client = _api_client(store, tmp_path)
+            response = client.post(
+                "/api/secrets?graph_id=graph-secrets",
+                json=self._valid_postgres_payload(raw_value=""),
+            )
+            assert response.status_code == 422
+        finally:
+            store.close()
+
+
 class TestRemoveSecret:
     """DELETE /api/secrets/{handle} removes the entry and its raw value."""
 

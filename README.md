@@ -51,7 +51,7 @@ Write access to external data sources is intentionally blocked at three layers:
 
 | Category | Tools |
 |---|---|---|
-| Graph data | `list_graphs`, `create_graph`, `import_graph`, `list_nodes`, `list_data_sources`, `get_node`, `search_graph`, `update_node`, `add_edge`, `delete_node`, `delete_edge`, `suggest_connections` |
+| Graph data | `list_graphs`, `create_graph`, `import_graph`, `list_nodes`, `list_data_sources`, `get_node`, `search_graph`, `update_node`, `add_edge`, `delete_node`, `delete_edge`, `suggest_connections`, `assess_completeness`, `get_weak_edges` |
 | Data source exploration | `list_source_connections`, `explore_source`, `query_source` |
 | Workspace secrets | `list_secret_handles`, `validate_secret_handle` |
 | Workspace | `list_workspaces`, `open_workspace` |

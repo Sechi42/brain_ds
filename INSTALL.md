@@ -121,7 +121,7 @@ logs MCP.
 | Archivo | Qué guarda | Permisos |
 |---|---|---|
 | `.brain_ds/secrets.json` | Handles, `kind` y metadata redactada (host, puerto, región, etc.) | Normal |
-| `.brain_ds/secrets.values.json` | Valores crudos: passwords, tokens, private keys | `0600` |
+| `.brain_ds/secrets.values.json` | Valores crudos: passwords, tokens, private keys | `0600` en POSIX; en Windows hereda la ACL por defecto del usuario |
 
 > **Regla de oro**: `secrets.json` nunca contiene valores crudos. Si lo editás
 > a mano y rompés el schema, la superficie de secretos del workspace cierra
@@ -133,8 +133,8 @@ logs MCP.
 | Kind | Para qué | Metadata típica |
 |---|---|---|
 | `sqlite` | Bases SQLite locales | `path` |
-| `postgres` | PostgreSQL | `host`, `port`, `database`, `username`, `sslmode` |
-| `sqlserver` | SQL Server | `host`, `port`, `database`, `username` |
+| `postgres` | PostgreSQL | `host`, `port`, `database`, `username`, `sslmode`, `secret_ref` |
+| `sqlserver` | SQL Server | `host`, `port`, `database`, `username`, `sslmode`, `secret_ref` |
 | `aws-secrets` | AWS Secrets Manager | `region`, `secret_id` |
 | `iam-role` | Rol AWS asumible | `role_arn` |
 | `iam-credential` | Credencial AWS explícita | `access_key_id`, `session_token_ref` |
@@ -149,7 +149,8 @@ brain_ds secret list --project-root .
 
 # 2. Agregar un secret de Postgres leyendo el valor desde stdin
 echo "super-secret-password" | brain_ds secret add --kind postgres --handle warehouse_ro `
-  --metadata '{"host":"db.acme.com","port":5432,"database":"warehouse","username":"etl"}' `
+  --metadata-json '{"host":"db.acme.com","port":5432,"database":"warehouse","username":"etl","sslmode":"require","secret_ref":"BRAINDS_WH_PWD"}' `
+  --value-stdin `
   --project-root .
 
 # 3. Validar metadata sin tocar la red (dry-run por defecto)
@@ -162,8 +163,8 @@ brain_ds secret validate --probe --project-root .
 brain_ds secret remove --handle warehouse_ro --project-root .
 ```
 
-- `add` acepta el valor por **stdin**, **env var** (`--env-var`) o **file**
-  (`--file`).
+- `add` acepta el valor por **stdin** (`--value-stdin`), **env var** (`--value-env`) o **file**
+  (`--value-file`).
 - `validate` sin flags solo revisa schema + que el valor resuelva desde la
   variable de entorno o archivo; **no** abre sockets.
 - `--probe` es la única forma de intentar conexión real; usalo solo cuando

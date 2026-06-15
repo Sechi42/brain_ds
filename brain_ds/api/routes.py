@@ -8,8 +8,9 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Response, WebSocket, WebSocketDisconnect
 
 from brain_ds.api.events import EventBus
-from brain_ds.connectors.secrets import SecretCatalog, SecretEntry, SecretManifestError
+from brain_ds.connectors.secrets import SecretCatalog, SecretEntry, SecretManifestError, get_provider_adapter
 from brain_ds.connectors.secrets.redaction import redact_secrets
+from brain_ds.mcp.security import ValidationError
 from brain_ds.store.errors import GraphNotFoundError
 from brain_ds.store.graph_store import GraphStore
 
@@ -187,15 +188,37 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except SecretManifestError as exc:
             raise HTTPException(status_code=400, detail=f"Secret manifest error: {exc}") from exc
-        for field in ("handle", "kind", "metadata"):
+        for field in ("handle", "kind", "metadata", "raw_value"):
             if field not in payload:
                 raise HTTPException(status_code=422, detail=f"Missing required field: {field}")
+        handle_value = payload["handle"]
+        if not isinstance(handle_value, str) or not handle_value.strip():
+            raise HTTPException(status_code=422, detail="Field 'handle' must be a non-empty string")
+        kind_value = payload["kind"]
+        if not isinstance(kind_value, str) or not kind_value.strip():
+            raise HTTPException(status_code=422, detail="Field 'kind' must be a non-empty string")
+        metadata_value = payload["metadata"]
+        if not isinstance(metadata_value, dict):
+            raise HTTPException(status_code=422, detail="Field 'metadata' must be an object")
+        raw_value = payload.get("raw_value")
+        if not isinstance(raw_value, str) or not raw_value:
+            raise HTTPException(status_code=422, detail="Field 'raw_value' must be a non-empty string")
+        # Fail fast on unknown kinds and invalid metadata so the manifest is never
+        # persisted in an inconsistent state. Adapters own the per-kind contract.
+        try:
+            adapter = get_provider_adapter(kind_value)
+            adapter.validate(metadata_value)
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid secret payload: {exc}") from exc
         entry = SecretEntry(
-            handle=str(payload["handle"]),
-            kind=str(payload["kind"]),
-            metadata=dict(payload["metadata"]),
+            handle=handle_value.strip(),
+            kind=kind_value,
+            metadata=dict(metadata_value),
         )
-        catalog.add(entry, raw_value=payload.get("raw_value"))
+        try:
+            catalog.add(entry, raw_value=raw_value)
+        except (SecretManifestError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid secret payload: {exc}") from exc
         return {"graph_id": graph_id, "handle": entry.handle, "created_at": entry.created_at}
 
     @router.delete("/secrets/{handle}")

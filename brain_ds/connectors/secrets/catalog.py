@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import tempfile
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,13 +30,60 @@ class SecretEntry:
     created_at: str | None = None
 
 
+def _is_windows() -> bool:
+    return sys.platform == "win32"
+
+
+def _atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> None:
+    """Write ``text`` to ``path`` atomically using a temp file + os.replace.
+
+    On platforms where ``os.replace`` is atomic (POSIX, modern Windows), the
+    destination file is either fully replaced or untouched on failure.
+    Older Windows releases (pre-Vista) may not be fully atomic; the documented
+    supported platforms are the same as the rest of the project (Windows
+    10+/macOS/Linux) so this is safe for the workspace secret surface.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Use a sibling temp file so os.replace is an atomic rename on the same fs.
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=path.name + ".",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding=encoding, newline="") as handle:
+            handle.write(text)
+            handle.flush()
+            try:
+                os.fdatasync(handle.fileno())
+            except (AttributeError, OSError):
+                # os.fdatasync is Unix-only; fall back to fsync on platforms that have it.
+                try:
+                    os.fsync(handle.fileno())
+                except OSError:
+                    pass
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 class SecretCatalog:
     """Load, persist, and validate a workspace's secret manifest.
 
     The manifest (``.brain_ds/secrets.json``) stores handles, kinds, and
-    redacted metadata. Raw values live in ``.brain_ds/secrets.values.json``
-    with ``0o600`` permissions. A schema violation on load fails closed with
-    ``SecretManifestError``.
+    redacted metadata. Raw values live in ``.brain_ds/secrets.values.json``.
+    A schema violation on load fails closed with ``SecretManifestError``.
+
+    Permission guarantee: on POSIX systems the values file is chmod-ed to
+    ``0o600`` (owner read/write only). On Windows the project relies on the
+    user's NTFS ACL: the file is created with the default inherited ACL and
+    the project does not attempt to lock it down further. Operators who need
+    a tighter ACL on Windows should apply it via the host OS (icacls / PowerShell
+    Set-Acl); the catalog does not provide a portable cross-OS guarantee.
     """
 
     _SCHEMA_PACKAGE = "brain_ds.connectors.secrets"
@@ -120,15 +169,22 @@ class SecretCatalog:
         return payload.get("values", {})
 
     def save(self) -> None:
-        """Persist the manifest and raw-value store to disk."""
+        """Persist the manifest and raw-value store to disk atomically.
+
+        Each file is written via a sibling temp file + ``os.replace`` so a
+        crash mid-write leaves the existing file intact. Manifest and values
+        are written in a single ``save()`` call; if the second write fails the
+        first is already durable and the operator can re-run ``save()`` (the
+        catalog reloads state from disk on the next call).
+        """
         self.brain_ds_dir.mkdir(parents=True, exist_ok=True)
         manifest = {
             "schema_version": self.schema["schema_version"],
             "entries": [asdict(entry) for entry in self._entries],
         }
-        self.manifest_path.write_text(
+        _atomic_write_text(
+            self.manifest_path,
             json.dumps(manifest, indent=2, ensure_ascii=False),
-            encoding="utf-8",
         )
         self._write_values()
 
@@ -137,14 +193,25 @@ class SecretCatalog:
             "schema_version": self.schema["schema_version"],
             "values": self._values,
         }
-        self.values_path.write_text(
+        _atomic_write_text(
+            self.values_path,
             json.dumps(values_payload, indent=2, ensure_ascii=False),
-            encoding="utf-8",
         )
+        self._apply_values_permissions()
+
+    def _apply_values_permissions(self) -> None:
+        """Best-effort permission tightening. See class docstring for cross-OS contract."""
+        if _is_windows():
+            # Windows does not support Unix mode bits; the file inherits the
+            # user's default ACL. The catalog deliberately does not call
+            # win32security.SetSecurityInfo here to stay portable; operators
+            # who need a tighter ACL must apply it via the host OS.
+            return
         try:
             os.chmod(self.values_path, self._VALUES_MODE)
         except OSError:
-            # Windows does not support Unix permission bits; the file still exists.
+            # POSIX chmod failed (e.g. mounted fs without mode support); the
+            # file is still created and readable by the owner.
             pass
 
     def list_handles(self) -> list[SecretEntry]:
@@ -163,10 +230,19 @@ class SecretCatalog:
         return self._values.get(handle)
 
     def add(self, entry: SecretEntry, raw_value: str | None = None) -> None:
-        """Add or update an entry and optionally store its raw value."""
+        """Add or update an entry and optionally store its raw value.
+
+        Validates the entry kind and metadata against the schema before
+        persisting. Raises ``SecretManifestError`` on an unknown kind or a
+        missing required field, so callers do not need to pre-validate to
+        keep the manifest consistent. A non-string or empty ``raw_value``
+        is rejected because the values file is meant to carry credential
+        strings only.
+        """
         if not entry.created_at:
             entry.created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
+        self._validate_new_entry(entry, raw_value)
         self._entries = [e for e in self._entries if e.handle != entry.handle]
         self._entries.append(entry)
 
@@ -174,6 +250,35 @@ class SecretCatalog:
             self._values[entry.handle] = raw_value
 
         self.save()
+
+    def _validate_new_entry(self, entry: SecretEntry, raw_value: str | None) -> None:
+        """Reject unknown kinds, missing required fields, and bad raw_value.
+
+        Keeps the manifest fail-closed: callers that bypass the API
+        validation (CLI, MCP write path, etc.) still cannot persist an
+        invalid entry. The errors here are intentionally specific so the
+        upstream 422 response can name the bad field.
+        """
+        valid_kinds = self.schema["provider_kinds"]
+        if entry.kind not in valid_kinds:
+            raise SecretManifestError(f"unknown kind: {entry.kind!r}")
+        if not isinstance(entry.metadata, dict):
+            raise SecretManifestError("metadata must be an object")
+        if raw_value is not None and (not isinstance(raw_value, str) or not raw_value):
+            raise SecretManifestError("raw_value must be a non-empty string when provided")
+        kind_schema = valid_kinds[entry.kind]
+        for field in kind_schema.get("required", []):
+            if field not in entry.metadata:
+                raise SecretManifestError(
+                    f"missing required field {field!r} for kind {entry.kind!r}"
+                )
+        for field, expected_type in kind_schema.get("types", {}).items():
+            if field in entry.metadata and not self._matches_type(
+                entry.metadata[field], expected_type
+            ):
+                raise SecretManifestError(
+                    f"field {field!r} must be of type {expected_type} for kind {entry.kind!r}"
+                )
 
     def remove(self, handle: str) -> None:
         """Remove an entry and its raw value from the catalog."""
@@ -215,3 +320,4 @@ class SecretCatalog:
         if expected_type == "boolean":
             return isinstance(value, bool)
         return True
+

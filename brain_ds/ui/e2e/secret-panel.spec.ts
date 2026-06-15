@@ -22,7 +22,7 @@ async function mountSecretPanel(
   await page.setContent('<section id="secret-panel"></section>', { waitUntil: "domcontentloaded" });
   await page.addScriptTag({ path: bundlePath });
   await page.evaluate(
-    ({ handles, canary }) => {
+    async ({ handles, canary }) => {
       const schema = {
         schema_version: "1.0",
         provider_kinds: {
@@ -32,6 +32,7 @@ async function mountSecretPanel(
       };
 
       let stored = [...handles];
+      (window as typeof window & { __secretHandles?: typeof stored }).__secretHandles = stored;
       const calls: Array<{ url: string; method?: string; body?: Record<string, unknown> }> = [];
       (window as typeof window & { __secretApiCalls?: typeof calls }).__secretApiCalls = calls;
 
@@ -65,9 +66,11 @@ async function mountSecretPanel(
         return new Response(JSON.stringify({ handles: stored }), { status: 200, headers: { "Content-Type": "application/json" } });
       };
 
-      return window.brainDsUI!.secretPanel.mount(document.getElementById("secret-panel") as HTMLElement, {
+      const handle = await window.brainDsUI!.secretPanel.mount(document.getElementById("secret-panel") as HTMLElement, {
         graphId: "demo-graph",
       });
+      (window as typeof window & { __secretPanelHandle?: typeof handle }).__secretPanelHandle = handle;
+      return handle;
     },
     { handles, canary: CANARY },
   );
@@ -150,4 +153,29 @@ test("interactive controls have accessible labels", async ({ page }) => {
   await expect(page.locator('label[for="secret-new-handle"]')).toHaveText("Handle");
   await expect(page.locator(".secret-remove-btn")).toHaveAttribute("aria-label", /Remove secret warehouse_ro/);
   await expect(page.locator(".secret-list")).toHaveAttribute("role", "listbox");
+});
+
+test("refresh handle re-fetches the handle list", async ({ page }) => {
+  await mountSecretPanel(page, []);
+
+  await expect(page.locator(".secret-handle")).toHaveCount(0);
+
+  // Simulate an external change (CLI/MCP) by injecting a handle into the mock fetch store,
+  // then invoke the panel's public refresh handle.
+  await page.evaluate(() => {
+    const stored = (window as typeof window & { __secretHandles?: unknown[] }).__secretHandles;
+    if (stored) {
+      stored.push({
+        handle: "refreshed_pg",
+        kind: "postgres",
+        created_at: "2026-06-15T13:00:00Z",
+        metadata: { host: "db.refreshed.local" },
+      });
+    }
+    const handle = (window as typeof window & { __secretPanelHandle?: { refresh?: () => Promise<void> } }).__secretPanelHandle;
+    return handle?.refresh?.();
+  });
+
+  await expect(page.locator(".secret-handle")).toHaveCount(1);
+  await expect(page.locator(".secret-handle")).toHaveText("refreshed_pg");
 });

@@ -21,6 +21,11 @@ class ProjectDocsCoverageTests(unittest.TestCase):
         self.assertIn("24 tools", readme)
         self.assertNotIn("22 tools", readme)
 
+    def test_readme_mcp_table_includes_all_graph_tools(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        for tool in ("assess_completeness", "get_weak_edges"):
+            self.assertIn(tool, readme)
+
     def test_install_mentions_twenty_four_tools(self) -> None:
         install = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
         self.assertIn("24 tools", install)
@@ -34,6 +39,15 @@ class ProjectDocsCoverageTests(unittest.TestCase):
         self.assertIn("secret remove", install)
         self.assertIn("secret validate", install)
 
+    def test_install_uses_correct_secret_add_flags(self) -> None:
+        install = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
+        self.assertIn("--value-env", install)
+        self.assertIn("--value-file", install)
+        self.assertIn("--value-stdin", install)
+        self.assertIn("--metadata-json", install)
+        self.assertNotIn("--env-var", install)
+        self.assertNotIn("--file", install)
+
     def test_install_covers_manual_manifest_edit(self) -> None:
         install = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
         self.assertIn(".brain_ds/secrets.json", install)
@@ -44,6 +58,13 @@ class ProjectDocsCoverageTests(unittest.TestCase):
         install = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
         for kind in ("postgres", "sqlserver", "aws-secrets", "google-sheets-json"):
             self.assertIn(kind, install)
+
+    def test_install_covers_secret_ref_for_database_kinds(self) -> None:
+        install = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
+        self.assertIn("secret_ref", install)
+        # Both postgres and sqlserver metadata rows should mention secret_ref.
+        lines = [line for line in install.splitlines() if "secret_ref" in line]
+        self.assertGreaterEqual(len(lines), 2)
 
     def test_install_covers_probe_opt_in(self) -> None:
         install = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
@@ -60,6 +81,13 @@ class ProjectDocsCoverageTests(unittest.TestCase):
         self.assertIn("redact", install)
         self.assertIn("crudos", install)
         self.assertIn("0600", install)
+
+    def test_install_values_permission_does_not_overclaim_windows(self) -> None:
+        install = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
+        # The doc must mention the POSIX 0600 guarantee and the Windows default-ACL caveat.
+        self.assertIn("0600", install)
+        self.assertIn("Windows", install)
+        self.assertIn("ACL", install)
 
 
 if __name__ == "__main__":

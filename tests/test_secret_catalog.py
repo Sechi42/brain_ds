@@ -34,6 +34,7 @@ def _postgres_entry(handle: str = "warehouse_ro") -> SecretEntry:
             "database": "warehouse",
             "username": "etl",
             "sslmode": "require",
+            "secret_ref": "BRAINDS_TEST_PWD",
         },
     )
 
@@ -76,6 +77,7 @@ class TestCatalogCrud:
                     "database": "d",
                     "username": "u",
                     "sslmode": "disable",
+                    "secret_ref": "BRAINDS_PG_TEST",
                 },
             ),
             raw_value="v1",
@@ -123,6 +125,7 @@ class TestCatalogCrud:
                     "database": "warehouse2",
                     "username": "etl2",
                     "sslmode": "require",
+                    "secret_ref": "BRAINDS_PG_TEST",
                 },
             ),
             raw_value="new",
@@ -179,10 +182,26 @@ class TestCatalogSchemaValidation:
             SecretEntry(
                 handle="pg",
                 kind="postgres",
-                metadata={"host": "h", "port": 5432, "database": "d", "username": "u"},
+                metadata={
+                    "host": "h",
+                    "port": 5432,
+                    "database": "d",
+                    "username": "u",
+                    "sslmode": "require",
+                    "secret_ref": "BRAINDS_PG_TEST",
+                },
             ),
             raw_value="p",
         )
+
+        # Break the manifest directly to test validate_all: the catalog now
+        # refuses to add an invalid entry, so we simulate a manual edit.
+        manifest_path = _manifest_path(tmp_path)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["entries"][0]["metadata"].pop("sslmode")
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        catalog = SecretCatalog(tmp_path)
+        catalog.load()
 
         errors = catalog.validate_all()
         assert any("sslmode" in error for error in errors)

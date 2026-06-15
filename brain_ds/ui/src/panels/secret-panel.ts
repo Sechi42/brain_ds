@@ -81,7 +81,7 @@ async function _loadSchema(): Promise<SecretSchema | null> {
   if (!_deps) return null;
   const url = `${_apiUrl('/secrets/schema')}?graph_id=${encodeURIComponent(_deps.graphId)}`;
   try {
-    const res = await fetch(url, { signal: _abort?.signal });
+    const res = await fetch(url, { signal: _abort?.signal ?? null });
     if (!res.ok) return null;
     return (await res.json()) as SecretSchema;
   } catch (_e) {
@@ -93,7 +93,7 @@ async function _loadHandles(): Promise<SecretHandle[]> {
   if (!_deps) return [];
   const url = `${_apiUrl('/secrets')}?graph_id=${encodeURIComponent(_deps.graphId)}`;
   try {
-    const res = await fetch(url, { signal: _abort?.signal });
+    const res = await fetch(url, { signal: _abort?.signal ?? null });
     if (!res.ok) return [];
     const data = (await res.json()) as { handles?: SecretHandle[] };
     return data.handles ?? [];
@@ -110,7 +110,7 @@ async function _addSecret(payload: Record<string, unknown>): Promise<boolean> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-      signal: _abort?.signal,
+      signal: _abort?.signal ?? null,
     });
     return res.ok;
   } catch (_e) {
@@ -122,7 +122,7 @@ async function _removeSecret(handle: string): Promise<boolean> {
   if (!_deps) return false;
   const url = `${_apiUrl('/secrets')}/${encodeURIComponent(handle)}?graph_id=${encodeURIComponent(_deps.graphId)}`;
   try {
-    const res = await fetch(url, { method: 'DELETE', signal: _abort?.signal });
+    const res = await fetch(url, { method: 'DELETE', signal: _abort?.signal ?? null });
     return res.ok;
   } catch (_e) {
     return false;
@@ -329,8 +329,8 @@ function _renderPanel(): void {
 
 // ── Public lifecycle ───────────────────────────────────────────────────────
 
-export async function mount(panelEl: HTMLElement, deps: SecretPanelDeps): Promise<{ unmount: () => void }> {
-  if (!panelEl) return { unmount: () => {} };
+export async function mount(panelEl: HTMLElement, deps: SecretPanelDeps): Promise<{ refresh: () => Promise<void>; unmount: () => void }> {
+  if (!panelEl) return { refresh: async () => {}, unmount: () => {} };
 
   _panelEl = panelEl;
   _deps = deps;
@@ -344,6 +344,9 @@ export async function mount(panelEl: HTMLElement, deps: SecretPanelDeps): Promis
   _renderPanel();
 
   return {
+    refresh: async () => {
+      await _refreshPanel();
+    },
     unmount: () => {
       _abort?.abort();
       _listeners.forEach(({ target, type, handler }) => {

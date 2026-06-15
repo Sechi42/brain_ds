@@ -5162,9 +5162,9 @@
           } else if (name === 'settings') {
             showBrdPanel(false);
             showSecretPanel(true);
-            if (secretMounted && secretPanelHandle) {
+            if (secretMounted && secretPanelHandle && typeof secretPanelHandle.refresh === 'function') {
               // Re-revealing refreshes the list in case CLI/MCP changes happened while hidden.
-              // The panel exposes no refresh handle, so re-mount is a cheap no-op if already mounted.
+              secretPanelHandle.refresh();
             } else {
               mountSecretPanel();
             }

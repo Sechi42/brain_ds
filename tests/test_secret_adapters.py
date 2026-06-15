@@ -9,10 +9,13 @@ import pytest
 from brain_ds.connectors.secrets.providers import (
     AwsSecretsAdapter,
     GoogleSheetsJsonAdapter,
+    IamCredentialAdapter,
+    IamRoleAdapter,
     MockGoogleSheetsJsonAdapter,
     MockPostgresAdapter,
     PostgresAdapter,
     SqlServerAdapter,
+    SqliteAdapter,
     get_provider_adapter,
 )
 from brain_ds.mcp.security import ValidationError
@@ -183,6 +186,64 @@ class TestMockGoogleSheetsAdapter:
         adapter.probe("mock_gs", metadata)
 
 
+class TestSqliteAdapter:
+    """SQLite adapter validates path metadata."""
+
+    def test_validate_rejects_missing_path(self) -> None:
+        adapter = SqliteAdapter()
+        with pytest.raises(ValidationError) as excinfo:
+            adapter.validate({})
+        assert "path" in str(excinfo.value)
+
+    def test_validate_accepts_path(self) -> None:
+        adapter = SqliteAdapter()
+        adapter.validate({"path": "/tmp/warehouse.sqlite"})
+
+    def test_resolve_returns_path(self) -> None:
+        adapter = SqliteAdapter()
+        result = adapter.resolve("local_db", {"path": "/tmp/warehouse.sqlite"})
+        assert result["path"] == "/tmp/warehouse.sqlite"
+
+
+class TestIamRoleAdapter:
+    """IAM role adapter validates role_arn."""
+
+    def test_validate_rejects_missing_role_arn(self) -> None:
+        adapter = IamRoleAdapter()
+        with pytest.raises(ValidationError) as excinfo:
+            adapter.validate({})
+        assert "role_arn" in str(excinfo.value)
+
+    def test_validate_rejects_malformed_role_arn(self) -> None:
+        adapter = IamRoleAdapter()
+        with pytest.raises(ValidationError) as excinfo:
+            adapter.validate({"role_arn": "not-an-arn"})
+        assert "arn:" in str(excinfo.value)
+
+    def test_probe_requires_env_var(self) -> None:
+        adapter = IamRoleAdapter()
+        with pytest.raises(ValidationError):
+            adapter.probe("iam_role", {"role_arn": "arn:aws:iam::123:role/Admin"})
+
+
+class TestIamCredentialAdapter:
+    """IAM credential adapter validates access_key_id + session_token_ref."""
+
+    def test_validate_rejects_missing_fields(self) -> None:
+        adapter = IamCredentialAdapter()
+        with pytest.raises(ValidationError) as excinfo:
+            adapter.validate({"access_key_id": "AKIA"})
+        assert "session_token_ref" in str(excinfo.value)
+
+    def test_probe_requires_env_vars(self) -> None:
+        adapter = IamCredentialAdapter()
+        with pytest.raises(ValidationError):
+            adapter.probe(
+                "iam_creds",
+                {"access_key_id": "AKIA", "session_token_ref": "BRAINDS_TOKEN"},
+            )
+
+
 class TestProviderRegistry:
     """Adapter registry resolves kind to implementation."""
 
@@ -197,6 +258,15 @@ class TestProviderRegistry:
 
     def test_get_provider_adapter_returns_google(self) -> None:
         assert isinstance(get_provider_adapter("google-sheets-json"), GoogleSheetsJsonAdapter)
+
+    def test_get_provider_adapter_returns_sqlite(self) -> None:
+        assert isinstance(get_provider_adapter("sqlite"), SqliteAdapter)
+
+    def test_get_provider_adapter_returns_iam_role(self) -> None:
+        assert isinstance(get_provider_adapter("iam-role"), IamRoleAdapter)
+
+    def test_get_provider_adapter_returns_iam_credential(self) -> None:
+        assert isinstance(get_provider_adapter("iam-credential"), IamCredentialAdapter)
 
     def test_get_provider_adapter_returns_mock_postgres(self) -> None:
         assert isinstance(get_provider_adapter("mock-postgres"), MockPostgresAdapter)

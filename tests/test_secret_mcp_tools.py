@@ -169,10 +169,25 @@ class TestValidateSecretHandle:
                 SecretEntry(
                     handle="broken_pg",
                     kind="postgres",
-                    metadata={"host": "db.local", "port": 5432, "database": "d", "username": "u"},
+                    metadata={
+                        "host": "db.local",
+                        "port": 5432,
+                        "database": "d",
+                        "username": "u",
+                        "sslmode": "require",
+                        "secret_ref": "BRAINDS_TEST_PWD",
+                    },
                 ),
                 raw_value="x",
             )
+
+            # Simulate a manual edit that strips a required field so we can
+            # exercise the validate path; the catalog now rejects such edits
+            # via add(), so we go through the manifest file directly.
+            manifest_path = _project_root(store) / ".brain_ds" / "secrets.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["entries"][0]["metadata"].pop("sslmode")
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
             result = validate_secret_handle(
                 store, {"handle": "broken_pg", "agent_scope": "workspace_admin"}

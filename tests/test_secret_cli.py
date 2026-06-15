@@ -152,6 +152,9 @@ class TestSecretValidate:
         self, tmp_path: Path, capsys, monkeypatch
     ) -> None:
         monkeypatch.setenv("BRAINDS_BROKEN_AWS", "unused")
+        # Add a valid entry first; the catalog now refuses to add invalid
+        # metadata so we simulate the broken manifest via a direct edit before
+        # running validate.
         main(
             [
                 "secret",
@@ -163,11 +166,16 @@ class TestSecretValidate:
                 "--handle",
                 "broken_aws",
                 "--metadata-json",
-                _aws_metadata_missing_region(),
+                json.dumps({"region": "us-east-1", "secret_id": "prod/db/password"}),
                 "--value-env",
                 "BRAINDS_BROKEN_AWS",
             ]
         )
+
+        manifest_path = tmp_path / ".brain_ds" / "secrets.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["entries"][0]["metadata"].pop("region")
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
         rc = main(["secret", "validate", "--project-root", str(tmp_path)])
         captured = capsys.readouterr()

@@ -14,7 +14,7 @@ class SqlServerAdapter(SecretProviderAdapter):
     """Resolve a SQL Server handle to connection parameters via env-var password."""
 
     kind = "sqlserver"
-    _REQUIRED = {"host", "port", "database", "username", "sslmode"}
+    _REQUIRED = {"host", "port", "database", "username", "sslmode", "secret_ref"}
 
     def validate(self, metadata: dict[str, Any]) -> None:
         if not isinstance(metadata, dict):
