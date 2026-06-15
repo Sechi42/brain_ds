@@ -787,6 +787,43 @@ DELEGATION_PROTOCOL: dict[str, object] = {
 }
 
 
+# Source: workspace secret catalog contract — provider kinds, manifest paths, and
+# redaction rules for the secret handle surface. Kept lowercase to stay clean
+# under the Category-2 drift sweep.
+SECRET_CATALOG_CONTRACT: dict[str, object] = {
+    "manifest_path": ".brain_ds/secrets.json",
+    "values_path": ".brain_ds/secrets.values.json",
+    "schema_version": "1.0",
+    "provider_kinds": [
+        "sqlite",
+        "postgres",
+        "sqlserver",
+        "aws-secrets",
+        "iam-role",
+        "iam-credential",
+        "google-sheets-json",
+    ],
+    "security_invariants": [
+        "raw secret values never appear in the manifest, MCP responses, UI views, or logs",
+        "manual manifest edits are schema-validated; failure closes the secret surface",
+        "raw values are stored in .brain_ds/secrets.values.json with 0o600 permissions",
+        "agents receive only handles, kinds, and redacted metadata",
+    ],
+}
+
+# Source: SI-6 redaction pattern — case-insensitive substring match against keys.
+SECRET_REDACTION_TOKENS: list[str] = [
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "api_key",
+    "access_key",
+    "private_key",
+    "client_secret",
+    "service_account.private_key",
+]
+
 # Source: .elicit artifact canonical contract — human markdown + ONE canonical
 # fenced JSON block per .elicit artifact. Injected into all 3 grounding composers
 # under key "artifact_contract" so every MCP client receives the same contract.

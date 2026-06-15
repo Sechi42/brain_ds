@@ -35,6 +35,9 @@ include = ["brain_ds*"]
   "assets/icons/*.svg",
   "static/*.css",
 ]
+"brain_ds.connectors.secrets" = [
+  "schema.json",
+]
 
 [dependency-groups]
 dev = [
