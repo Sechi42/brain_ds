@@ -3,11 +3,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import socket
 import sys
 from pathlib import Path
 from typing import Sequence
 
+from brain_ds.connectors.secrets import (
+    SecretCatalog,
+    SecretEntry,
+    SecretManifestError,
+)
 from brain_ds.mcp.config import generate_claude_config, generate_opencode_config
 from brain_ds.mcp.security import SecurityError
 from brain_ds.mcp.server import run_mcp_server
@@ -99,7 +103,40 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Project root to check (default: .)",
     )
 
-    return parser
+    secret_parser = subparsers.add_parser(
+        "secret",
+        help="Manage workspace-scoped secret handles",
+    )
+    secret_sub = secret_parser.add_subparsers(dest="secret_command")
+
+    secret_list_parser = secret_sub.add_parser("list", help="List secret handles")
+    secret_list_parser.add_argument(
+        "--project-root",
+        default=".",
+        help="Project root containing .brain_ds/secrets.json (default: .)",
+    )
+
+    secret_add_parser = secret_sub.add_parser("add", help="Add or update a secret handle")
+    secret_add_parser.add_argument("--project-root", default=".", help="Project root (default: .)")
+    secret_add_parser.add_argument("--kind", required=True, help="Provider kind")
+    secret_add_parser.add_argument("--handle", required=True, help="Unique handle name")
+    secret_add_parser.add_argument(
+        "--metadata-json",
+        required=True,
+        help="JSON object with provider metadata (never the raw secret value)",
+    )
+    value_group = secret_add_parser.add_mutually_exclusive_group(required=True)
+    value_group.add_argument(
+        "--value-stdin", action="store_true", help="Read the raw secret value from stdin"
+    )
+    value_group.add_argument(
+        "--value-env", help="Name of the environment variable holding the raw secret value"
+    )
+    value_group.add_argument(
+        "--value-file", help="Path to a file containing the raw secret value"
+    )
+
+    return parser, secret_parser
 
 
 def _run_setup(args: argparse.Namespace) -> int:
@@ -217,8 +254,78 @@ def _run_validate(graph_json: str, *, fix: bool) -> int:
     return 0
 
 
+def _load_catalog(project_root: Path) -> SecretCatalog:
+    catalog = SecretCatalog(project_root)
+    catalog.load()
+    return catalog
+
+
+def _read_raw_value(args: argparse.Namespace) -> str:
+    if args.value_stdin:
+        return sys.stdin.read().rstrip("\r\n")
+    if args.value_env:
+        try:
+            return os.environ[args.value_env]
+        except KeyError as exc:
+            raise ValueError(f"environment variable {args.value_env!r} is not set") from exc
+    if args.value_file:
+        path = Path(args.value_file).resolve()
+        return path.read_text(encoding="utf-8")
+    raise ValueError("no value source specified")
+
+
+def _run_secret_list(args: argparse.Namespace) -> int:
+    try:
+        catalog = _load_catalog(_resolve_ui_project_root(args.project_root))
+    except SecretManifestError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    entries = catalog.list_handles()
+    if not entries:
+        print("No secret handles found.")
+        return 0
+
+    print(f"{'handle':<20} {'kind':<20} {'created_at'}")
+    for entry in entries:
+        created_at = entry.created_at or ""
+        print(f"{entry.handle:<20} {entry.kind:<20} {created_at}")
+    return 0
+
+
+def _run_secret_add(args: argparse.Namespace) -> int:
+    try:
+        metadata = json.loads(args.metadata_json)
+    except json.JSONDecodeError as exc:
+        print(f"Error: invalid metadata JSON - {exc}", file=sys.stderr)
+        return 2
+
+    if not isinstance(metadata, dict):
+        print("Error: metadata JSON must be an object", file=sys.stderr)
+        return 2
+
+    try:
+        raw_value = _read_raw_value(args)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+
+    project_root = _resolve_ui_project_root(args.project_root)
+    catalog = SecretCatalog(project_root)
+    try:
+        catalog.load()
+    except SecretManifestError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    entry = SecretEntry(handle=args.handle, kind=args.kind, metadata=metadata)
+    catalog.add(entry, raw_value=raw_value)
+    print(f"Added secret handle {args.handle} ({args.kind})")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = _build_parser()
+    parser, secret_parser = _build_parser()
     args = parser.parse_args(argv)
 
     if args.command is None:
@@ -291,6 +398,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         from brain_ds.harness_check import harness_check_main
 
         return harness_check_main(Path(args.project_root))
+
+    if args.command == "secret":
+        if args.secret_command == "list":
+            return _run_secret_list(args)
+        if args.secret_command == "add":
+            return _run_secret_add(args)
+        secret_parser.print_help(sys.stderr)
+        return 2
 
     parser.print_help(sys.stderr)
     return 2
