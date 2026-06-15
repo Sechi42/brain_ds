@@ -1644,6 +1644,161 @@
       @keyframes detail-panel-enter { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
       @keyframes inspectorEnter { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }
 
+      /* ── Secret settings panel (secret-panel.ts) ─────────────────────────── */
+      .secret-panel {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        overflow: hidden;
+        background: var(--bg-panel);
+      }
+      .secret-panel-header {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.6rem 0.75rem 0.5rem;
+        border-bottom: 1px solid var(--border-subtle);
+        background: var(--bg-panel);
+      }
+      .secret-panel-title {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin: 0;
+        font-size: 0.82rem;
+        font-weight: 650;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-muted);
+      }
+      .secret-panel-title svg { fill: none; stroke: currentColor; stroke-width: 2; }
+      .secret-panel-empty {
+        flex: 0 0 auto;
+        padding: 1.5rem 0.75rem;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+        text-align: center;
+      }
+      .secret-list {
+        list-style: none;
+        margin: 0;
+        padding: 0.5rem 0.75rem;
+        overflow-y: auto;
+        flex: 1 1 auto;
+        display: grid;
+        gap: 0.5rem;
+      }
+      .secret-item {
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-ui);
+        background: var(--bg-main);
+        padding: 0.5rem 0.65rem;
+        display: grid;
+        gap: 0.35rem;
+      }
+      .secret-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+      }
+      .secret-handle {
+        font-weight: 600;
+        color: var(--text-bright);
+        font-size: 0.85rem;
+      }
+      .secret-kind {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .secret-detail { margin-top: 0.2rem; }
+      .secret-summary {
+        min-height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        cursor: pointer;
+        color: var(--text-normal);
+        font-size: 0.8rem;
+        list-style: none;
+      }
+      .secret-summary::-webkit-details-marker { display: none; }
+      .secret-chevron { display: inline-block; transition: transform var(--duration-fast) var(--ease-standard); }
+      .secret-detail[open] .secret-chevron { transform: rotate(90deg); }
+      .secret-detail-body { padding-top: 0.4rem; }
+      .secret-meta-list {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 0.25rem 0.6rem;
+        margin: 0;
+        font-size: 0.78rem;
+      }
+      .secret-meta-list dt { color: var(--text-muted); }
+      .secret-meta-list dd { margin: 0; color: var(--text-normal); }
+      .secret-empty-meta { margin: 0; color: var(--text-muted); font-size: 0.78rem; }
+      .secret-remove-btn {
+        justify-self: start;
+        min-height: 36px;
+        padding: 0.25rem 0.6rem;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-ui);
+        background: transparent;
+        color: var(--text-muted);
+        font-size: 0.8rem;
+        cursor: pointer;
+      }
+      .secret-remove-btn:hover { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
+      .secret-remove-btn:focus-visible { outline: 2px solid var(--accent-mora); outline-offset: 2px; }
+      .secret-form {
+        flex: 0 0 auto;
+        border-top: 1px solid var(--border-subtle);
+        padding: 0.65rem 0.75rem 0.9rem;
+        display: grid;
+        gap: 0.5rem;
+        background: var(--bg-panel);
+      }
+      .secret-form-title {
+        margin: 0;
+        font-size: 0.78rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-muted);
+      }
+      .secret-field-row {
+        display: grid;
+        gap: 0.25rem;
+      }
+      .secret-field-row label {
+        font-size: 0.78rem;
+        color: var(--text-muted);
+      }
+      .secret-input {
+        width: 100%;
+        min-height: 36px;
+        padding: 0.35rem 0.5rem;
+        background: var(--bg-input);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-ui);
+        color: var(--text-normal);
+        font-family: inherit;
+        font-size: 0.85rem;
+      }
+      .secret-input:hover { border-color: var(--border-strong); }
+      .secret-input:focus-visible { outline: 2px solid var(--accent-mora); outline-offset: 2px; border-color: var(--border-focus); }
+      .secret-kind-fields { display: grid; gap: 0.5rem; }
+      .secret-add-btn { justify-self: start; }
+      .secret-status { font-size: 0.8rem; }
+      .secret-status--ok { color: var(--status-active, #059669); }
+      .secret-status--error { color: var(--danger); }
+      @media (prefers-reduced-motion: reduce) {
+        .secret-chevron { transition: none; }
+      }
+
       /* === Responsive ===
          The max-width:1100px breakpoint is KEPT for mobile/narrow viewports.
          The flat 3-column workspace requires the detail panel to fly in as an overlay
@@ -2621,6 +2776,8 @@
         </div>
         <!-- BRD panel — mounted by brdPanel.mount() at runtime; hidden until BRD rail icon activated -->
         <section id="brd-panel" class="brd-panel" aria-label="BRD — Business Requirements Document" hidden></section>
+        <!-- Secret settings panel — mounted by secretPanel.mount() at runtime; hidden until settings rail icon activated -->
+        <section id="secret-panel" class="secret-panel" aria-label="Secret settings" hidden></section>
       </aside>
       <!-- Right rail — functional panel routing: each icon expands the inspector
            shell (collapsed by default) and reveals its section; re-clicking the
@@ -2654,6 +2811,13 @@
               <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
               <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
               <path d="M12 11h4M12 16h4M8 11h.01M8 16h.01"/>
+            </svg>
+          </button>
+          <!-- Settings/Secrets rail icon — Lucide gear — inline — decorative -->
+          <button class="rail-icon" role="tab" aria-selected="false" aria-label="Abrir configuración de secretos" title="Secret settings" data-rail-icon="settings" tabindex="-1">
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7Z"/>
+              <path d="M19.4 15a1.7 1.7 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.82-.33 1.7 1.7 0 0 0-1 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.56 1.7 1.7 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .33-1.82 1.7 1.7 0 0 0-1.56-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1 1.7 1.7 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.82.33h.01a1.7 1.7 0 0 0 1-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.56h.01a1.7 1.7 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.33 1.82v.01a1.7 1.7 0 0 0 1.56 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1Z"/>
             </svg>
           </button>
         </div>
@@ -4847,11 +5011,20 @@
         let brdPanelHandle = null;
         const brdPanelEl = document.getElementById('brd-panel');
 
-        // Panels that live inside the right-shell and must be toggled for BRD vs. inspector.
+        // Secret settings panel state — lazily mounted the first time the settings icon is clicked.
+        let secretMounted = false;
+        let secretPanelHandle = null;
+        const secretPanelEl = document.getElementById('secret-panel');
+
+        // Panels that live inside the right-shell and must be toggled for BRD / secrets vs. inspector.
         const showBrdPanel = (show) => {
           if (!brdPanelEl) return;
           brdPanelEl.hidden = !show;
           brdPanelEl.setAttribute('aria-hidden', String(!show));
+          if (secretPanelEl) {
+            secretPanelEl.hidden = show;
+            secretPanelEl.setAttribute('aria-hidden', String(show));
+          }
           // The inspector stub scroll and the detail panel must actually hide
           // (not just aria-hidden) so the BRD panel gets the FULL shell height
           // instead of sharing it with the inspector sections.
@@ -4868,6 +5041,30 @@
           const detailHeader = rightShell && rightShell.querySelector('.panel-header[data-panel-side="right"]');
           if (detailHeader) {
             detailHeader.querySelector('strong').textContent = show ? 'BRD' : 'Inspector';
+          }
+        };
+
+        const showSecretPanel = (show) => {
+          if (!secretPanelEl) return;
+          secretPanelEl.hidden = !show;
+          secretPanelEl.setAttribute('aria-hidden', String(!show));
+          if (brdPanelEl) {
+            brdPanelEl.hidden = show;
+            brdPanelEl.setAttribute('aria-hidden', String(show));
+          }
+          const stub = rightShell && rightShell.querySelector('.inspector-stub-scroll');
+          if (stub) {
+            stub.setAttribute('aria-hidden', String(show));
+            stub.hidden = show;
+          }
+          const detailPanel = document.getElementById('detail-panel');
+          if (detailPanel) {
+            detailPanel.setAttribute('aria-hidden', String(show));
+            detailPanel.hidden = show;
+          }
+          const detailHeader = rightShell && rightShell.querySelector('.panel-header[data-panel-side="right"]');
+          if (detailHeader) {
+            detailHeader.querySelector('strong').textContent = show ? 'Secret settings' : 'Inspector';
           }
         };
 
@@ -4916,6 +5113,16 @@
           }
         };
 
+        const mountSecretPanel = async () => {
+          if (secretMounted || !secretPanelEl) return;
+          if (!window.brainDsUI || !window.brainDsUI.secretPanel) return;
+          secretMounted = true;
+          const secretGraphId = (meta && meta.graph_id) ? String(meta.graph_id) : '';
+          secretPanelHandle = await window.brainDsUI.secretPanel.mount(secretPanelEl, {
+            graphId: secretGraphId,
+          });
+        };
+
         const select = (name) => {
           icons.forEach((btn, idx) => {
             const active = Boolean(name) && btn.getAttribute('data-rail-icon') === name;
@@ -4926,10 +5133,12 @@
         const reveal = (name) => {
           if (name === 'inspector') {
             showBrdPanel(false);
+            showSecretPanel(false);
             const panel = document.getElementById('detail-panel');
             if (panel && typeof panel.scrollIntoView === 'function') panel.scrollIntoView({ block: 'nearest' });
           } else if (name === 'ai-actions') {
             showBrdPanel(false);
+            showSecretPanel(false);
             const acc = document.querySelector('details[data-accordion-section="ai-actions"]');
             if (acc) {
               acc.open = true;
@@ -4937,16 +5146,27 @@
             }
           } else if (name === 'reader') {
             showBrdPanel(false);
+            showSecretPanel(false);
             const readerBtn = document.getElementById('show-more');
             if (readerBtn) readerBtn.click();
           } else if (name === 'brd') {
             showBrdPanel(true);
+            showSecretPanel(false);
             if (brdMounted && brdPanelHandle) {
               // Re-revealing the panel re-reads the BRD node from the server so
               // an MCP push that happened while the panel was hidden shows up.
               brdPanelHandle.refresh();
             } else {
               mountBrdPanel();
+            }
+          } else if (name === 'settings') {
+            showBrdPanel(false);
+            showSecretPanel(true);
+            if (secretMounted && secretPanelHandle) {
+              // Re-revealing refreshes the list in case CLI/MCP changes happened while hidden.
+              // The panel exposes no refresh handle, so re-mount is a cheap no-op if already mounted.
+            } else {
+              mountSecretPanel();
             }
           }
         };
@@ -4961,6 +5181,7 @@
             rightCollapseBtn.click();
             select(null);
             if (name === 'brd') showBrdPanel(false);
+            if (name === 'settings') showSecretPanel(false);
             return;
           }
           if (!isExpanded()) rightCollapseBtn.click();
@@ -4972,6 +5193,7 @@
           if (!isExpanded()) {
             select(null);
             showBrdPanel(false);
+            showSecretPanel(false);
           }
         });
         // Keep the reader rail icon lit while the center pane is in reader mode
