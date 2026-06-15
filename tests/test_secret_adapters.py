@@ -9,6 +9,8 @@ import pytest
 from brain_ds.connectors.secrets.providers import (
     AwsSecretsAdapter,
     GoogleSheetsJsonAdapter,
+    MockGoogleSheetsJsonAdapter,
+    MockPostgresAdapter,
     PostgresAdapter,
     SqlServerAdapter,
     get_provider_adapter,
@@ -146,6 +148,41 @@ class TestGoogleSheetsAdapter:
         assert "private_key" in result["service_account_json"]
 
 
+class TestMockPostgresAdapter:
+    """TEST-SEC-01: fixture adapter for deterministic E2E probes."""
+
+    def test_validate_rejects_missing_fields(self) -> None:
+        adapter = MockPostgresAdapter()
+        with pytest.raises(ValidationError) as excinfo:
+            adapter.validate({"host": "127.0.0.1"})
+        assert "port" in str(excinfo.value)
+
+    def test_resolve_returns_redacted_descriptor(self) -> None:
+        adapter = MockPostgresAdapter()
+        metadata = _complete_pg_metadata(secret_ref=None)
+        result = adapter.resolve("mock_wh", metadata)
+        assert result["host"] == "db.local"
+        assert "password" not in result
+
+    def test_probe_is_a_safe_no_op(self) -> None:
+        adapter = MockPostgresAdapter()
+        metadata = _complete_pg_metadata(secret_ref=None)
+        adapter.probe("mock_wh", metadata)
+
+
+class TestMockGoogleSheetsAdapter:
+    """TEST-SEC-01: fixture adapter for deterministic E2E probes."""
+
+    def test_probe_is_a_safe_no_op(self) -> None:
+        adapter = MockGoogleSheetsJsonAdapter()
+        metadata = {
+            "spreadsheet_id": "abc123",
+            "sheet_range": "A1:C10",
+            "service_account_ref": "BRAINDS_GSA_MOCK",
+        }
+        adapter.probe("mock_gs", metadata)
+
+
 class TestProviderRegistry:
     """Adapter registry resolves kind to implementation."""
 
@@ -160,6 +197,12 @@ class TestProviderRegistry:
 
     def test_get_provider_adapter_returns_google(self) -> None:
         assert isinstance(get_provider_adapter("google-sheets-json"), GoogleSheetsJsonAdapter)
+
+    def test_get_provider_adapter_returns_mock_postgres(self) -> None:
+        assert isinstance(get_provider_adapter("mock-postgres"), MockPostgresAdapter)
+
+    def test_get_provider_adapter_returns_mock_google(self) -> None:
+        assert isinstance(get_provider_adapter("mock-google-sheets-json"), MockGoogleSheetsJsonAdapter)
 
     def test_get_provider_adapter_rejects_unknown_kind(self) -> None:
         with pytest.raises(ValidationError):

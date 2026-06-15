@@ -75,6 +75,7 @@ export default async function globalSetup(): Promise<void> {
   process.env.BRAIN_DS_E2E_BASE_URL = baseUrl;
   process.env.BRAIN_DS_ECOSYSTEM_URL = baseUrl;
   process.env.BRAIN_DS_E2E_MCP_BRIDGE_URL = mcpBridgeUrl;
+  process.env.BRAIN_DS_E2E_SANDBOX_ROOT = sandboxRoot;
   process.env.BRAIN_DS_E2E_STATE_FILE = STATE_FILE;
 }
 

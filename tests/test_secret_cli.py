@@ -302,3 +302,74 @@ class TestSecretRedaction:
         combined = captured.out + captured.err
         assert "PRIVATE_KEY_VALUE" not in combined
         assert "CLIENT_SECRET_VALUE" not in combined
+
+
+class TestMockProviderCli:
+    """TEST-SEC-01/03: fixture adapters keep validate deterministic and offline."""
+
+    def _mock_pg_metadata(self) -> str:
+        return json.dumps(
+            {
+                "host": "127.0.0.1",
+                "port": 5432,
+                "database": "warehouse",
+                "username": "etl",
+                "sslmode": "require",
+            }
+        )
+
+    def test_validate_dry_run_does_not_call_mock_probe(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        from brain_ds.connectors.secrets.providers.mock_postgres import MockPostgresAdapter
+
+        monkeypatch.setattr("sys.stdin", io.StringIO("raw-mock-value\n"))
+        main(
+            [
+                "secret",
+                "add",
+                "--project-root",
+                str(tmp_path),
+                "--kind",
+                "mock-postgres",
+                "--handle",
+                "mock_wh",
+                "--metadata-json",
+                self._mock_pg_metadata(),
+                "--value-stdin",
+            ]
+        )
+
+        calls: list[str] = []
+        monkeypatch.setattr(
+            MockPostgresAdapter,
+            "probe",
+            lambda self, handle, metadata: calls.append(handle) or None,
+        )
+
+        rc = main(["secret", "validate", "--project-root", str(tmp_path)])
+        assert rc == 0
+        assert calls == []
+
+    def test_validate_probe_succeeds_with_mock_provider(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.setattr("sys.stdin", io.StringIO("raw-mock-value\n"))
+        main(
+            [
+                "secret",
+                "add",
+                "--project-root",
+                str(tmp_path),
+                "--kind",
+                "mock-postgres",
+                "--handle",
+                "mock_wh",
+                "--metadata-json",
+                self._mock_pg_metadata(),
+                "--value-stdin",
+            ]
+        )
+
+        rc = main(["secret", "validate", "--project-root", str(tmp_path), "--probe"])
+        assert rc == 0
