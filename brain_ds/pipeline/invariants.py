@@ -203,6 +203,78 @@ check_plan_completeness = evaluate_plan_completeness
 check_consolidation_completeness = evaluate_consolidation_completeness
 
 
+def _snapshot_column_counts(snapshot: object) -> dict[str, int]:
+    """Map table -> column count from a canonical schema snapshot. None-safe."""
+    if not isinstance(snapshot, dict):
+        return {}
+    tables = snapshot.get("tables")
+    if not isinstance(tables, dict):
+        return {}
+    counts: dict[str, int] = {}
+    for name, body in tables.items():
+        columns = body.get("columns") if isinstance(body, dict) else None
+        counts[str(name)] = len(columns) if isinstance(columns, list) else 0
+    return counts
+
+
+def assert_doc_matches_baseline(
+    baseline: dict[str, object] | None,
+    live_schema: dict[str, object] | None,
+    *,
+    threshold: int | None = None,
+) -> dict[str, object]:
+    """Verify-rubric helper: compare a documented baseline against the live schema.
+
+    Compares per-table column counts between the stored
+    ``documented_schema_snapshot`` and the current live schema.
+
+    Severity policy (E-REQ-10):
+      - No drift -> severity None.
+      - Any drift with ``threshold is None`` -> WARNING (the default).
+      - Drift only escalates to CRITICAL when an explicit ``threshold`` is
+        configured AND the maximum per-table column-count delta exceeds it.
+
+    None-safe: a missing baseline or snapshot yields no findings (nothing to
+    compare against), never a crash.
+
+    Returns ``{"severity": None | "WARNING" | "CRITICAL", "findings": [str, ...]}``.
+    """
+    snapshot = (baseline or {}).get("documented_schema_snapshot") if isinstance(baseline, dict) else None
+    documented = _snapshot_column_counts(snapshot)
+    live = _snapshot_column_counts(live_schema)
+
+    # No baseline snapshot to compare against -> nothing to verify (None-safe).
+    if not documented:
+        return {"severity": None, "findings": []}
+
+    findings: list[str] = []
+    max_delta = 0
+
+    for table in sorted(set(documented) | set(live)):
+        doc_n = documented.get(table)
+        live_n = live.get(table)
+        if doc_n is None:
+            findings.append(f"Table '{table}' is present live but absent from the documented baseline")
+            max_delta = max(max_delta, live_n or 0)
+        elif live_n is None:
+            findings.append(f"Table '{table}' is documented but absent from the live source")
+            max_delta = max(max_delta, doc_n)
+        elif doc_n != live_n:
+            findings.append(
+                f"Table '{table}' schema drift: documented {doc_n} columns, live has {live_n}"
+            )
+            max_delta = max(max_delta, abs(doc_n - live_n))
+
+    if not findings:
+        return {"severity": None, "findings": []}
+
+    if threshold is not None and max_delta > threshold:
+        severity = "CRITICAL"
+    else:
+        severity = "WARNING"
+    return {"severity": severity, "findings": findings}
+
+
 def assert_no_graph_writes(actions: Iterable[object], *, label: str) -> None:
     """Assert that a recon/dry-run trace contains no graph write actions."""
 

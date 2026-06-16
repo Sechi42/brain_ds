@@ -83,6 +83,19 @@ When writing a Data Source node, the `Columns / Fields` section MUST use this ex
 
 Mark vague columns with `[needs clarification]` in the Notes cell — never omit them.
 
+## Change Detection (re-documentation decision)
+
+At `level==table`, `explore_source` returns a `change_detection` block with a `verdict`. Use it to decide HOW to document a Data Source — never blindly rewrite:
+
+| Verdict | Action |
+|---|---|
+| `unchanged` | Skip — report a no-op; do NOT re-document. |
+| `changed` | Delta mode — re-document only what `change_detection.delta` lists (added/removed/altered columns, added/removed tables) as a Reflexion-style critique, not a full rewrite. |
+| `new` | Full first-time documentation pass. |
+| `unknown-baseline` | Full pass to re-establish the baseline (node predates this feature). |
+
+After documenting a `new`/`unknown-baseline`/`changed` table, write the baseline back via `update_node` under `details.schema_baseline` (`schema_hash`, `documented_schema_snapshot`, `last_documented_at`). The baseline is a **graph write only** — change detection never writes to the source. Canonicalization means column reorder, varchar widening, and type synonyms never trigger a false `changed`.
+
 ## Wikilink Syntax
 
 Use `[[node-id|Display Label]]` to reference related nodes so the graph UI renders clickable cards.

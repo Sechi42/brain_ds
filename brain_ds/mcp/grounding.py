@@ -609,9 +609,21 @@ SOURCE_EXPLORATION_CONTRACT: dict[str, object] = {
             "trust level in the node's details.learned field so BRD generation can surface gaps."
         ),
     ],
+    "change_detection_step": (
+        "Before documenting a table/sheet, read the change_detection block returned by "
+        "explore_source at level==table: if verdict is 'unchanged', stop and report a no-op "
+        "(do not re-document); if 'changed', switch to delta mode and re-document only what the "
+        "delta lists; if 'new' or 'unknown-baseline', run a full documentation pass. After "
+        "persisting the documentation, write the schema baseline back via update_node "
+        "(details.schema_baseline) so the next exploration gets a real verdict. The baseline is a "
+        "graph write only — never a write to the source. See change_detection_contract."
+    ),
     "tool_reference": {
         "list_source_connections": "List which Data Source nodes have explorable connection descriptors",
-        "explore_source": "Dispatch to connector: no args→describe+containers; container→tables; container+table→schema+preview",
+        "explore_source": (
+            "Dispatch to connector: no args→describe+containers; container→tables; "
+            "container+table→schema+preview, plus a change_detection verdict block at table level"
+        ),
         "query_source": "SQLite SELECT-only queries; cap rows with limit param (max 200)",
     },
     "connection_setup": (
@@ -622,6 +634,56 @@ SOURCE_EXPLORATION_CONTRACT: dict[str, object] = {
         "in graph nodes, card_sections, or .elicit artifacts. Missing secret_ref values fail closed "
         "with a clear error naming the missing environment variable. "
         "Google Sheets: delegate to MCP Google Drive read tools or export to CSV first."
+    ),
+}
+
+
+# Data Source schema change-detection contract — documents the auditable verdict
+# surface explore_source emits at level==table. Mirrors the pure helper in
+# brain_ds/connectors/change_detection.py and the documenter decision branch in
+# the brainds-source-explorer agent prompt + skill prose. Category-2 (must sweep
+# clean — references only the literal entity value "Data Source").
+SOURCE_CHANGE_DETECTION_CONTRACT: dict[str, object] = {
+    "purpose": (
+        "Decide whether a Data Source needs (re-)documentation by comparing a freshly computed "
+        "canonical schema hash against the baseline stored on the node. Change detection is an "
+        "auditable transactional decision, never a silent overwrite."
+    ),
+    "emitted_at": "explore_source level==table only (never at the source or container levels)",
+    "verdicts": {
+        "new": "No baseline and no prior documentation — run a full first-time documentation pass.",
+        "unchanged": "Baseline hash equals the live hash — skip re-documentation; report a no-op.",
+        "changed": "Baseline existed and hashes differ — re-document using the returned delta only.",
+        "unknown-baseline": (
+            "Prior documentation exists but no baseline (node predates this feature) — run a full "
+            "pass, then write the baseline. Self-healing; no migration script."
+        ),
+    },
+    "baseline_fields": {
+        "schema_hash": "hex sha256 over the canonical schema (columns sorted, types normalized).",
+        "documented_schema_snapshot": "the canonical schema object the hash was computed from.",
+        "last_documented_at": "ISO8601 UTC timestamp, distinct from the node-level modified_at.",
+    },
+    "baseline_location": (
+        "Stored on the Data Source node's details.schema_baseline via update_node. This is a graph "
+        "write only — the change-detection path never writes to the external source."
+    ),
+    "canonicalization": (
+        "Column order, name whitespace/case, varchar widening, and type synonyms are normalized "
+        "away so they never produce a false 'changed'. Added/removed columns, type-class changes, "
+        "and added/removed tables DO produce 'changed'."
+    ),
+    "delta_shape": {
+        "added_columns": "[{table, name, type}] — present only when verdict==changed.",
+        "removed_columns": "[{table, name, type}]",
+        "altered_columns": "[{table, name, from_type, to_type}]",
+        "added_tables": "[table_name]",
+        "removed_tables": "[table_name]",
+    },
+    "governance": (
+        "The delta is the Reflexion-style critique surface: the documenter emits incremental "
+        "re-documentation from it rather than blindly rewriting. The verdict and baseline make the "
+        "decision auditable in the graph."
     ),
 }
 

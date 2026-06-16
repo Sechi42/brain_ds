@@ -223,6 +223,41 @@ class GroundingEntityCoverageTests(unittest.TestCase):
             "PIPELINE_STAGES must NOT be in CATEGORY2_EXEMPT — it must sweep clean",
         )
 
+    # E-T9: SOURCE_CHANGE_DETECTION_CONTRACT is discovered, NOT exempt, sweeps clean.
+    def test_source_change_detection_contract_discovered_and_not_exempt(self) -> None:
+        discovered = _discover_category2_constants()
+        self.assertIn(
+            "SOURCE_CHANGE_DETECTION_CONTRACT",
+            discovered,
+            "SOURCE_CHANGE_DETECTION_CONTRACT must be auto-discovered by the drift guard sweep",
+        )
+        self.assertNotIn(
+            "SOURCE_CHANGE_DETECTION_CONTRACT",
+            CATEGORY2_EXEMPT,
+            "SOURCE_CHANGE_DETECTION_CONTRACT must NOT be in CATEGORY2_EXEMPT — it must sweep clean",
+        )
+
+    def test_source_change_detection_contract_sweeps_clean(self) -> None:
+        drift = _sweep_constant(
+            "SOURCE_CHANGE_DETECTION_CONTRACT",
+            grounding.SOURCE_CHANGE_DETECTION_CONTRACT,
+        )
+        self.assertEqual(drift, [], f"SOURCE_CHANGE_DETECTION_CONTRACT drift: {drift}")
+
+    def test_source_change_detection_contract_documents_verdicts_and_baseline(self) -> None:
+        contract = grounding.SOURCE_CHANGE_DETECTION_CONTRACT
+        verdicts = contract["verdicts"]
+        for v in ("new", "unchanged", "changed", "unknown-baseline"):
+            self.assertIn(v, verdicts)
+        baseline_fields = contract["baseline_fields"]
+        for f in ("schema_hash", "documented_schema_snapshot", "last_documented_at"):
+            self.assertIn(f, baseline_fields)
+        delta_shape = contract["delta_shape"]
+        for k in ("added_columns", "removed_columns", "altered_columns", "added_tables", "removed_tables"):
+            self.assertIn(k, delta_shape)
+        # governance stance present (auditable decision, never silent overwrite)
+        self.assertIn("governance", contract)
+
     # T1-5/T1-6: ARTIFACT_CONTRACT is discovered by drift guard and NOT exempt
     def test_artifact_contract_discovered_and_not_exempt(self) -> None:
         discovered = _discover_category2_constants()
