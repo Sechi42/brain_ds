@@ -143,6 +143,67 @@ class ExploreSourceChangeDetectionTests(unittest.TestCase):
         second = self._explore_table()
         self.assertEqual(second["change_detection"]["verdict"], "unchanged")
 
+    # --- Multi-table sources (real-world shape: one baseline entry per table) ---
+
+    def _build_multitable_source(self) -> None:
+        if self.source_path.exists():
+            self.source_path.unlink()
+        conn = sqlite3.connect(self.source_path)
+        try:
+            conn.execute("CREATE TABLE customers (id INTEGER, name TEXT)")
+            conn.execute("CREATE TABLE orders (id INTEGER, customer_id INTEGER, total REAL)")
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _explore(self, table: str) -> dict:
+        return explore_source(
+            self.store,
+            {"graph_id": self.graph_id, "node_id": "DS-1", "container": "main", "table": table},
+        )
+
+    def _write_per_table_baseline(self, tables: tuple[str, ...]) -> None:
+        # Mirror how the documenter persists a multi-table Data Source: a map of
+        # {table_name: build_baseline(single_table_schema)} under schema_baseline.
+        from brain_ds.connectors.change_detection import build_baseline
+
+        node = get_node(self.store, {"graph_id": self.graph_id, "node_id": "DS-1"})
+        details = dict(node.get("details") or {})
+        per_table: dict[str, dict] = {}
+        for table in tables:
+            res = self._explore(table)
+            live_schema = {"tables": {table: {"columns": res["schema"].get("columns", [])}}}
+            per_table[table] = build_baseline(live_schema, last_documented_at="2026-06-16T00:00:00Z")
+        details["schema_baseline"] = per_table
+        update_node(
+            self.store,
+            {"graph_id": self.graph_id, "node_id": "DS-1", "details": details},
+        )
+
+    def test_multitable_per_table_baseline_is_unchanged(self) -> None:
+        self._build_multitable_source()
+        self._write_per_table_baseline(("customers", "orders"))
+        self.assertEqual(self._explore("customers")["change_detection"]["verdict"], "unchanged")
+        self.assertEqual(self._explore("orders")["change_detection"]["verdict"], "unchanged")
+
+    def test_multitable_mutated_table_is_changed_others_unchanged(self) -> None:
+        self._build_multitable_source()
+        self._write_per_table_baseline(("customers", "orders"))
+        # Mutate only `orders`: add a column.
+        conn = sqlite3.connect(self.source_path)
+        try:
+            conn.execute("ALTER TABLE orders ADD COLUMN status TEXT")
+            conn.commit()
+        finally:
+            conn.close()
+        cd = self._explore("orders")["change_detection"]
+        self.assertEqual(cd["verdict"], "changed")
+        self.assertIsNotNone(cd["delta"])
+        added = [(c["table"], c["name"]) for c in cd["delta"]["added_columns"]]
+        self.assertIn(("orders", "status"), added)
+        # `customers` was untouched -> still unchanged.
+        self.assertEqual(self._explore("customers")["change_detection"]["verdict"], "unchanged")
+
     def test_prior_doc_no_baseline_is_unknown_baseline(self) -> None:
         # Node has card_sections (prior doc) but no schema_baseline key.
         update_node(

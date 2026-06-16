@@ -33,8 +33,10 @@ __all__ = [
     "compute_schema_hash",
     "compute_schema_delta",
     "resolve_verdict",
+    "scope_baseline_for_table",
     "build_change_detection",
     "should_emit_change_detection",
+    "build_baseline",
     "VERDICTS",
 ]
 
@@ -121,11 +123,19 @@ def canonicalize_schema(schema: dict[str, Any]) -> dict[str, Any]:
     canon_tables: dict[str, Any] = {}
     for table_name in raw_tables.keys():
         cols = raw_tables[table_name]
-        canon_cols = [
-            {"name": _normalize_name(c.get("name")), "type": normalize_type(c.get("type"))}
-            for c in cols
-            if isinstance(c, dict)
-        ]
+        canon_cols: list[dict[str, str]] = []
+        for c in cols:
+            if isinstance(c, dict):
+                name, raw_type = c.get("name"), c.get("type")
+            elif isinstance(c, str):
+                # Tolerate raw "name TYPE" column strings (e.g. "id INTEGER")
+                # a documenter may have hand-persisted in a snapshot.
+                parts = c.strip().split(None, 1)
+                name = parts[0] if parts else ""
+                raw_type = parts[1] if len(parts) > 1 else ""
+            else:
+                continue
+            canon_cols.append({"name": _normalize_name(name), "type": normalize_type(raw_type)})
         canon_cols.sort(key=lambda c: c["name"])
         # Table names keep their original spelling (stripped) for readable
         # deltas/snapshots, but are ordered case-insensitively for hash stability.
@@ -216,9 +226,63 @@ def resolve_verdict(
     return "new"
 
 
+def scope_baseline_for_table(
+    baseline: dict[str, Any] | None, table: str
+) -> dict[str, Any] | None:
+    """Select the baseline entry that applies to ``table``.
+
+    ``details.schema_baseline`` is stored in one of two shapes:
+
+      - flat single-table:  ``{schema_hash, documented_schema_snapshot,
+        last_documented_at}`` — legacy / one-table nodes.
+      - per-table map:       ``{table_name: {schema_hash, ...}, ...}`` — the
+        real-world shape the documenter writes for a multi-table source, since
+        ``explore_source`` is called per table and each table hashes on its own.
+
+    The flat shape is returned as-is (back-compat). For the per-table map, the
+    entry whose key matches ``table`` (case-insensitively, to tolerate
+    table-name spelling drift) is returned, or ``None`` when the table has no
+    baseline yet. None-safe.
+    """
+    if not isinstance(baseline, dict):
+        return None
+    # Flat single-table baseline: a real hash lives at the top level.
+    if "schema_hash" in baseline:
+        return baseline
+    # Per-table map: exact key first, then case-insensitive match.
+    entry = baseline.get(table)
+    if isinstance(entry, dict):
+        return entry
+    target = str(table).strip().lower()
+    for key, value in baseline.items():
+        if isinstance(value, dict) and str(key).strip().lower() == target:
+            return value
+    return None
+
+
 def should_emit_change_detection(*, level: str) -> bool:
     """Change detection is emitted ONLY at level == "table" (E-T2 guard)."""
     return level == "table"
+
+
+def _align_baseline_snapshot(
+    snapshot: dict[str, Any] | None, live_canonical: dict[str, Any]
+) -> dict[str, Any]:
+    """Canonicalize a stored baseline snapshot and align it to the live schema.
+
+    The snapshot may have been persisted non-canonically (flat ``{columns:[...]}``
+    with raw ``"name TYPE"`` strings) — ``canonicalize_schema`` handles that and a
+    flat snapshot collapses to the implicit table name ``"data"``. When both the
+    baseline and the live schema describe a single table (the per-table scoped
+    case), align the names so the delta compares COLUMNS instead of reporting a
+    whole-table swap. None-safe.
+    """
+    canon = canonicalize_schema(snapshot or {"tables": {}})
+    base_tables = list((canon.get("tables") or {}).keys())
+    live_tables = list((live_canonical.get("tables") or {}).keys())
+    if len(base_tables) == 1 and len(live_tables) == 1 and base_tables[0] != live_tables[0]:
+        canon = {"tables": {live_tables[0]: canon["tables"][base_tables[0]]}}
+    return canon
 
 
 def build_change_detection(
@@ -239,8 +303,9 @@ def build_change_detection(
 
     delta: dict[str, list[Any]] | None = None
     if verdict == "changed":
-        snapshot = (baseline or {}).get("documented_schema_snapshot") or {"tables": {}}
-        delta = compute_schema_delta(snapshot, live_canonical)
+        snapshot = (baseline or {}).get("documented_schema_snapshot")
+        base_canonical = _align_baseline_snapshot(snapshot, live_canonical)
+        delta = compute_schema_delta(base_canonical, live_canonical)
 
     return {
         "verdict": verdict,

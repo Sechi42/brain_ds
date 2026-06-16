@@ -226,5 +226,44 @@ class SchemaDeltaTests(unittest.TestCase):
         self.assertIsNone(block["delta"])
 
 
+# ---------------------------------------------------------------------------
+# Delta robustness — a documenter may persist documented_schema_snapshot in a
+# NON-canonical shape (flat {columns:[...]}, raw "name TYPE" strings, no table
+# name). The delta must still diff columns correctly, not report the whole
+# table as added. (Found in live validation of andes-blind-e.)
+# ---------------------------------------------------------------------------
+class DeltaRobustnessTests(unittest.TestCase):
+    def test_canonicalize_parses_raw_string_columns(self) -> None:
+        canon = canonicalize_schema({"columns": ["id INTEGER", "nombre TEXT"]})
+        cols = canon["tables"]["data"]["columns"]
+        self.assertEqual(cols, [{"name": "id", "type": "int"}, {"name": "nombre", "type": "text"}])
+
+    def test_delta_robust_to_flat_rawstring_snapshot_single_table(self) -> None:
+        # Mirrors the real andes-blind baseline: flat {columns:[raw strings]},
+        # no `tables` key — and live is a single scoped table with one new column.
+        live = _schema({"clientes": [
+            {"name": "id", "type": "INTEGER"},
+            {"name": "nombre", "type": "TEXT"},
+            {"name": "email", "type": "TEXT"},
+            {"name": "ciudad", "type": "TEXT"},
+            {"name": "telefono", "type": "TEXT"},
+        ]})
+        baseline = {
+            "schema_hash": "deadbeef",  # differs from live -> changed
+            "documented_schema_snapshot": {
+                "columns": ["id INTEGER", "nombre TEXT", "email TEXT", "ciudad TEXT"]
+            },
+            "last_documented_at": "2026-06-16",
+        }
+        block = build_change_detection(live_schema=live, baseline=baseline, has_prior_doc=True)
+        self.assertEqual(block["verdict"], "changed")
+        self.assertEqual(
+            [(c["table"], c["name"]) for c in block["delta"]["added_columns"]],
+            [("clientes", "telefono")],
+        )
+        self.assertEqual(block["delta"]["added_tables"], [])
+        self.assertEqual(block["delta"]["removed_tables"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

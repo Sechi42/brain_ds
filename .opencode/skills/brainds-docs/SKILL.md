@@ -94,7 +94,7 @@ At `level==table`, `explore_source` returns a `change_detection` block with a `v
 | `new` | Full first-time documentation pass. |
 | `unknown-baseline` | Full pass to re-establish the baseline (node predates this feature). |
 
-After documenting a `new`/`unknown-baseline`/`changed` table, write the baseline back via `update_node` under `details.schema_baseline` (`schema_hash`, `documented_schema_snapshot`, `last_documented_at`). The baseline is a **graph write only** — change detection never writes to the source. Canonicalization means column reorder, varchar widening, and type synonyms never trigger a false `changed`.
+After documenting a `new`/`unknown-baseline`/`changed` table, write the baseline back via `update_node` under `details.schema_baseline` (`schema_hash`, `documented_schema_snapshot`, `last_documented_at`). Because `explore_source` hashes **one table at a time**, a multi-table source stores `schema_baseline` as a **per-table map** — `{<table_name>: {schema_hash, documented_schema_snapshot, last_documented_at}, ...}` — so write/refresh ONLY the entry for each table you (re-)documented and preserve the others (a single-table source may use the flat shape directly; the reader accepts both). The baseline is a **graph write only** — change detection never writes to the source. Canonicalization means column reorder, varchar widening, and type synonyms never trigger a false `changed`.
 
 ## Wikilink Syntax
 

@@ -14,6 +14,7 @@ import brain_ds.workspaces as workspace_registry
 from brain_ds.connectors import CsvConnector, SQLiteConnector
 from brain_ds.connectors.change_detection import (
     build_change_detection,
+    scope_baseline_for_table,
     should_emit_change_detection,
 )
 from brain_ds.connectors.secrets import SecretCatalog, SecretManifestError
@@ -781,12 +782,16 @@ def explore_source(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
                 baseline, has_prior_doc = _get_node_change_detection_state(
                     store, graph_id, node_id
                 )
+                # A multi-table source stores schema_baseline as a per-table map;
+                # select the entry for THIS table (flat single-table baselines
+                # pass through unchanged) so the verdict/delta compare like to like.
+                scoped_baseline = scope_baseline_for_table(baseline, table)
                 # Connector schema is single-table ({"columns": [...]}); scope it
                 # under the real table name so the verdict/delta carries it.
                 live_schema = {"tables": {table: {"columns": schema.get("columns", [])}}}
                 result["change_detection"] = build_change_detection(
                     live_schema=live_schema,
-                    baseline=baseline,
+                    baseline=scoped_baseline,
                     has_prior_doc=has_prior_doc,
                 )
     except (FileNotFoundError, ValueError, Exception) as exc:

@@ -664,6 +664,15 @@ SOURCE_CHANGE_DETECTION_CONTRACT: dict[str, object] = {
         "documented_schema_snapshot": "the canonical schema object the hash was computed from.",
         "last_documented_at": "ISO8601 UTC timestamp, distinct from the node-level modified_at.",
     },
+    "baseline_shape": (
+        "explore_source hashes ONE table at a time, so a multi-table source stores schema_baseline "
+        "as a per-table map: {<table_name>: {schema_hash, documented_schema_snapshot, "
+        "last_documented_at}, ...} — one entry per documented table. A single-table source may use "
+        "the flat shape {schema_hash, documented_schema_snapshot, last_documented_at} directly; the "
+        "reader accepts both (flat passes through, per-table is keyed by the explored table name, "
+        "case-insensitive). When documenting a multi-table source, write/refresh ONLY the entry for "
+        "each table you (re-)documented and preserve the others."
+    ),
     "baseline_location": (
         "Stored on the Data Source node's details.schema_baseline via update_node. This is a graph "
         "write only — the change-detection path never writes to the external source."
