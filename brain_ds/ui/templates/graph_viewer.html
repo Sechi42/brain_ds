@@ -2304,6 +2304,110 @@
         flex-direction: column;
         gap: 0.35rem;
       }
+      #ai-actions-receipts .pipeline-panel-shell {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        background: transparent;
+      }
+      #ai-actions-receipts .pipeline-panel {
+        isolation: isolate;
+        contain: layout;
+        display: flex;
+        flex-direction: column;
+        gap: 0.55rem;
+        margin: 0;
+        padding: 0.75rem;
+        border: 1px solid var(--border-subtle);
+        border-radius: 12px;
+        background: var(--bg-panel);
+      }
+      #ai-actions-receipts .pipeline-panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+      }
+      #ai-actions-receipts .pipeline-panel-title {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin: 0;
+        font-size: 0.82rem;
+        font-weight: 650;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-muted);
+      }
+      #ai-actions-receipts .pipeline-panel-title svg { fill: none; stroke: currentColor; stroke-width: 2; }
+      #ai-actions-receipts .pipeline-panel-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.15rem 0.5rem;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--accent-mora) 12%, transparent);
+        color: var(--accent-mora);
+        font-size: 0.72rem;
+        font-weight: 600;
+      }
+      #ai-actions-receipts .pipeline-stage-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 0.35rem;
+      }
+      #ai-actions-receipts li.pipeline-stage {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.35rem 0.5rem;
+        align-items: center;
+        padding: 0.45rem 0.5rem;
+        border: 1px solid var(--border-subtle);
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--bg-main) 88%, transparent);
+      }
+      #ai-actions-receipts li.pipeline-stage .pipeline-stage-name {
+        color: var(--text-bright);
+        font-size: 0.84rem;
+        font-weight: 600;
+        text-transform: capitalize;
+      }
+      #ai-actions-receipts li.pipeline-stage .pipeline-stage-meta {
+        color: var(--text-muted);
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      #ai-actions-receipts .pipeline-stage-chip {
+        grid-column: 2;
+        justify-self: end;
+        display: inline-flex;
+        align-items: center;
+        padding: 0.12rem 0.45rem;
+        border-radius: 999px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      #ai-actions-receipts .pipeline-stage-chip--pending {
+        background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+        color: var(--text-muted);
+      }
+      #ai-actions-receipts .pipeline-stage-chip--running {
+        background: color-mix(in srgb, var(--status-active) 16%, transparent);
+        color: var(--status-active);
+      }
+      #ai-actions-receipts .pipeline-stage-chip--done {
+        background: color-mix(in srgb, var(--status-active) 14%, transparent);
+        color: var(--status-active);
+      }
+      #ai-actions-receipts .pipeline-stage-chip--blocked,
+      #ai-actions-receipts .pipeline-stage-chip--error {
+        background: color-mix(in srgb, var(--status-danger) 14%, transparent);
+        color: var(--status-danger);
+      }
       #ai-actions-receipts li {
         border: 1px solid var(--border-subtle);
         border-radius: 8px;
@@ -2814,6 +2918,15 @@
             <!-- Lucide zap — inline (not in sprite) — decorative -->
             <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+          </button>
+          <button class="rail-icon" role="tab" aria-selected="false" aria-label="Abrir panel de pipeline" title="Pipeline" data-rail-icon="pipeline" tabindex="-1">
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="5" height="5" rx="1"/>
+              <rect x="16" y="4" width="5" height="5" rx="1"/>
+              <rect x="10" y="15" width="5" height="5" rx="1"/>
+              <path d="M8 6h8"/>
+              <path d="M12 9v6"/>
             </svg>
           </button>
           <button class="rail-icon" role="tab" aria-selected="false" aria-label="Abrir lector de markdown" title="Lector markdown" data-rail-icon="reader" tabindex="-1">
@@ -5038,10 +5151,15 @@
         let secretPanelHandle = null;
         const secretPanelEl = document.getElementById('secret-panel');
 
+        // Pipeline panel state — lazily mounted on the AI actions stub.
+        let pipelineMounted = false;
+        let pipelinePanelHandle = null;
+        const pipelinePanelEl = document.getElementById('ai-actions-receipts');
+
         // Panels that live inside the right-shell and must be toggled for BRD / secrets vs. inspector.
         const setActiveRightPanel = (name) => {
-          const active = (name === 'brd' || name === 'settings') ? name : null;
-          const showManagedPanel = active !== null;
+          const active = (name === 'brd' || name === 'settings' || name === 'pipeline') ? name : null;
+          const showDetailPanel = active === null;
           if (brdPanelEl) {
             brdPanelEl.hidden = active !== 'brd';
             brdPanelEl.setAttribute('aria-hidden', String(active !== 'brd'));
@@ -5052,13 +5170,14 @@
           }
           const stub = rightShell && rightShell.querySelector('.inspector-stub-scroll');
           if (stub) {
-            stub.setAttribute('aria-hidden', String(showManagedPanel));
-            stub.hidden = showManagedPanel;
+            const showStub = active !== 'brd' && active !== 'settings';
+            stub.setAttribute('aria-hidden', String(!showStub));
+            stub.hidden = !showStub;
           }
           const detailPanel = document.getElementById('detail-panel');
           if (detailPanel) {
-            detailPanel.setAttribute('aria-hidden', String(showManagedPanel));
-            detailPanel.hidden = showManagedPanel;
+            detailPanel.setAttribute('aria-hidden', String(!showDetailPanel));
+            detailPanel.hidden = !showDetailPanel;
           }
           const detailHeader = rightShell && rightShell.querySelector('.panel-header[data-panel-side="right"]');
           if (detailHeader) {
@@ -5066,6 +5185,8 @@
               ? 'BRD'
               : active === 'settings'
                 ? 'Secret settings'
+                : active === 'pipeline'
+                  ? 'Pipeline'
                 : 'Inspector';
           }
         };
@@ -5076,6 +5197,10 @@
 
         const showSecretPanel = (show) => {
           setActiveRightPanel(show ? 'settings' : null);
+        };
+
+        const showPipelinePanel = (show) => {
+          setActiveRightPanel(show ? 'pipeline' : null);
         };
 
         const mountBrdPanel = async () => {
@@ -5133,6 +5258,16 @@
           });
         };
 
+        const mountPipelinePanel = async () => {
+          if (pipelineMounted || !pipelinePanelEl) return;
+          if (!window.brainDsUI || !window.brainDsUI.pipelinePanel) return;
+          pipelineMounted = true;
+          const pipelineGraphId = (meta && meta.graph_id) ? String(meta.graph_id) : '';
+          pipelinePanelHandle = await window.brainDsUI.pipelinePanel.mount(pipelinePanelEl, {
+            graphId: pipelineGraphId,
+          });
+        };
+
         const select = (name) => {
           icons.forEach((btn, idx) => {
             const active = Boolean(name) && btn.getAttribute('data-rail-icon') === name;
@@ -5173,6 +5308,18 @@
             } else {
               mountSecretPanel();
             }
+          } else if (name === 'pipeline') {
+            setActiveRightPanel('pipeline');
+            const acc = document.querySelector('details[data-accordion-section="ai-actions"]');
+            if (acc) {
+              acc.open = true;
+              if (typeof acc.scrollIntoView === 'function') acc.scrollIntoView({ block: 'nearest' });
+            }
+            if (pipelineMounted && pipelinePanelHandle && typeof pipelinePanelHandle.refresh === 'function') {
+              pipelinePanelHandle.refresh();
+            } else {
+              mountPipelinePanel();
+            }
           }
         };
         railRight.addEventListener('click', (event) => {
@@ -5185,7 +5332,7 @@
           if (wasActive && isExpanded()) {
             rightCollapseBtn.click();
             select(null);
-            if (name === 'brd' || name === 'settings') setActiveRightPanel(null);
+            if (name === 'brd' || name === 'settings' || name === 'pipeline') setActiveRightPanel(null);
             return;
           }
           if (!isExpanded()) rightCollapseBtn.click();

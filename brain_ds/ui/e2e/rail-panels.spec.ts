@@ -25,11 +25,11 @@ function renderInteractiveHtml(context: Record<string, unknown>): string {
   };
 
   return template
-    .replace("__BRAIN_DS_TOKENS_CSS__", tokensCss)
-    .replace("__BRAIN_DS_RENDER_CONTEXT__", JSON.stringify({ ...context, meta }))
-    .replace("__VIS_NETWORK_CSS__", viewerCss)
-    .replace("__VIS_NETWORK_JS__", viewerJs)
-    .replace("__BRAIN_DS_ICON_SPRITE__", iconSprite);
+    .split("__BRAIN_DS_TOKENS_CSS__").join(tokensCss)
+    .split("__BRAIN_DS_RENDER_CONTEXT__").join(JSON.stringify({ ...context, meta }))
+    .split("__VIS_NETWORK_CSS__").join(viewerCss)
+    .split("__VIS_NETWORK_JS__").join(viewerJs)
+    .split("__BRAIN_DS_ICON_SPRITE__").join(iconSprite);
 }
 
 async function mountCheckpoint(page: import("@playwright/test").Page): Promise<void> {

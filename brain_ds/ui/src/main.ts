@@ -15,6 +15,7 @@ import * as rendererD4 from './renderer-d4';
 import * as tabs from './tabs';
 import * as brdPanel from './panels/brd-panel';
 import * as secretPanel from './panels/secret-panel';
+import * as pipelinePanel from './panels/pipeline-panel';
 
 declare global {
   interface Window {
@@ -37,9 +38,10 @@ declare global {
       motion: { motionEnabled: typeof motionEnabled };
       workspaceChrome: typeof workspaceChrome;
       rendererD4: typeof rendererD4;
-    tabs: typeof tabs;
-    brdPanel: typeof brdPanel;
-    secretPanel: typeof secretPanel;
+      tabs: typeof tabs;
+      brdPanel: typeof brdPanel;
+      secretPanel: typeof secretPanel;
+      pipelinePanel: typeof pipelinePanel;
   };
   }
 }
@@ -66,6 +68,7 @@ window.brainDsUI = {
   tabs,
   brdPanel,
   secretPanel,
+  pipelinePanel,
 };
 
 // Network ownership is template-driven (`graph_viewer.html`) to avoid
