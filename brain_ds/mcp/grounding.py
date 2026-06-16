@@ -596,7 +596,9 @@ SOURCE_EXPLORATION_CONTRACT: dict[str, object] = {
         (
             "2. Document hierarchy: for each table/sheet discovered, capture the full column "
             "list with type, meaning, and quality notes in the Data Source node's card sections "
-            "using the hierarchy_template (db/sheets/api levels as applicable)."
+            "using the hierarchy_template (db/sheets/api levels as applicable). For pipeline "
+            "artifacts, use plain canonical headings only — no numbering/prefixes, no extra H2 "
+            "sections; put extra material inside the existing five sections or fenced JSON blocks."
         ),
         (
             "3. Link people: connect Role nodes via owns or accountable edges to the Data Source "
@@ -622,6 +624,14 @@ SOURCE_EXPLORATION_CONTRACT: dict[str, object] = {
         "Google Sheets: delegate to MCP Google Drive read tools or export to CSV first."
     ),
 }
+
+
+# Source-type classification for recon / source-docs pipeline slices.
+RECON_SOURCE_TYPES: dict[str, tuple[str, ...]] = {
+    "supported": ("sqlite", "postgres", "sqlserver", "csv", "google-sheets"),
+    "unsupported": ("unsupported-json-api", "unsupported-unstructured", "unsupported-other"),
+}
+UNSUPPORTED_RECOMMENDED_NEXT: str = "manual contract required"
 
 
 # Harness-owned BRD graph persistence contract — mirrors the UI convention in
@@ -749,7 +759,17 @@ DELEGATION_PROTOCOL: dict[str, object] = {
     "artifact_keys": {
         "engram_topic_key": "org/<slug>/<phase>/<ISO-date-or-section-slug>",
         "elicit_file": ".elicit/<phase>-<slug>-<ISO-date>.md",
-        "phases": ["elicit", "source-exploration", "source-docs", "map", "brd", "verify", "archive"],
+        "phases": [
+            "elicit",
+            "recon",
+            "plan",
+            "source-exploration",
+            "source-docs",
+            "map",
+            "brd",
+            "verify",
+            "archive",
+        ],
     },
     "pipeline_stages": PIPELINE_STAGES,
     "intake_paths": PIPELINE_STAGES[1]["intake_paths"],
@@ -760,24 +780,48 @@ DELEGATION_PROTOCOL: dict[str, object] = {
     ),
     "source_exploration_flow": [
         (
-            "1. SCOPE: delegate a read-only magnitude scan of the data source (containers, "
-            "tables/sheets, row estimates) to size the documentation work."
+            "1. recon: delegate a read-only magnitude scan of the data source (containers, "
+            "tables/sheets, row estimates) to size the documentation work. unsupported objects "
+            "carry recommended_next='manual contract required'. no graph writes."
         ),
         (
-            "2. PLAN: split documentation into non-overlapping sections (by table/sheet/endpoint). "
-            "One documenter agent for small sources; several agents with disjoint section "
-            "assignments for large ones so they never overlap."
+            "2. plan: split documentation into non-overlapping slices (by table/sheet/endpoint). "
+            "one documenter agent for small sources; several agents with disjoint slice "
+            "assignments for large ones so they never overlap. unsupported items are recorded as "
+            "skip — unsupported source type."
         ),
         (
-            "3. DOCUMENT: each documenter explores ONLY its assigned section and saves structured "
+            "3. document: each documenter explores ONLY its assigned slice and saves structured "
             "findings (hierarchy_template format) to the configured artifact store."
         ),
         (
-            "4. CONSOLIDATE + PUSH: a mapper agent reads every saved finding and persists the "
+            "4. consolidate + push: a mapper agent reads every saved finding and persists the "
             "consolidated documentation to the graph via update_node (card_sections) and add_edge "
-            "so the documented source is visible in the UI."
+            "so the documented source is visible in the ui. Pipeline artifacts must already satisfy "
+            "assert_deliverable_shape because the mapper actually ran the helper against the artifact "
+            "text or file; eyeballing prose is not enough. unsupported-* counts as skipped-by-design, "
+            "not a gap."
         ),
     ],
+    "dry_run": {
+        "trigger_phrase": "dry-run the source intake",
+        "steps": [
+            "run brainds-source-explorer mode a (recon) — no graph writes",
+            "produce plan artifact: slice→agent assignment",
+            "verify completeness invariant: union(plan slices) == recon inventory",
+            "optionally run one documentation slice if user requests a sample",
+            "surface invariant result and sample deliverable to user for review",
+        ],
+        "no_graph_writes_guard": "suppress all update_node and add_edge calls during dry-run",
+        "persistence_responsibility": (
+            "brainds-graph-mapper has no Write tool, so it cannot materialize the consolidation "
+            "report to .elicit by itself. In dry-run the orchestrator MUST re-delegate writing the "
+            "consolidation/dry-run report to an agent that has Write (brainds-source-explorer), or "
+            "fail. Never report a .elicit artifact as written unless a Write call actually produced "
+            "the file. This is a persistence-responsibility guard, not a domain check: the "
+            "substantive pass can succeed while the artifact trail stays incomplete."
+        ),
+    },
     "skill_scope": (
         "Use ONLY brain_ds-owned skills and commands (elicit-context, map-connections, "
         "generate-brd, and project-local helpers shipped with brain_ds). Never invoke skills, "
@@ -828,15 +872,61 @@ SECRET_REDACTION_TOKENS: list[str] = [
 # fenced JSON block per .elicit artifact. Injected into all 3 grounding composers
 # under key "artifact_contract" so every MCP client receives the same contract.
 # Guarded by the drift sweep (no CamelCase-compound entity tokens in values).
+DELIVERABLE_CONTRACT: dict[str, object] = {
+    "sections": (
+        "outcome_title",
+        "quick_path",
+        "details_table",
+        "checklist",
+        "next_step",
+    ),
+    "rules": (
+        "lead-with-outcome",
+        "progressive-disclosure",
+        "chunking",
+        "signposting",
+        "recognition-over-recall",
+    ),
+    "applies_to": ("recon", "plan", "source-docs", "consolidation", "dry-run"),
+}
+
+CONTRACT_APPLICABILITY: dict[str, str] = {
+    "recon": "deliverable_contract",
+    "plan": "deliverable_contract",
+    "source-docs": "deliverable_contract",
+    "consolidation": "deliverable_contract",
+    "dry-run": "deliverable_contract",
+    "brd": "brd_section_order",
+    "map": "map_retrieval_contract",
+    "query": "query_consultant_contract",
+}
+
 ARTIFACT_CONTRACT: dict[str, dict[str, object]] = {
     "source-docs": {
         "artifact_type": "source-docs",
-        "required_keys": ("artifact_type", "graph_id", "documented_nodes"),
+        "required_keys": (
+            "artifact_type",
+            "graph_id",
+            "documented_nodes",
+            "slice_id",
+            "assigned_objects",
+        ),
         "validator": "check_documented_nodes",
         "schema_notes": (
             "documented_nodes is a list of node objects each with node_id, label, type, "
-            "card_sections. Non-BRD nodes: order >= 1, non-empty icon. "
+            "card_sections. slice_id and assigned_objects echo the plan assignment. "
+            "coverage_status_values=('documented', 'skipped') and source_type_values include "
+            "supported + unsupported markers. Non-BRD nodes: order >= 1, non-empty icon. "
             "BRD carve-out (type=='Unknown' and node_id starts 'brd-'): order=0, icon=''."
+        ),
+        "coverage_status_values": ("documented", "skipped"),
+        "source_type_values": RECON_SOURCE_TYPES["supported"] + RECON_SOURCE_TYPES["unsupported"],
+        "type_fields_notes": (
+            "SQL type_fields cover schema, columns, keys, and sample rows; sheet/CSV type_fields "
+            "cover tabs, headers, row_count_estimate, and inferred_types."
+        ),
+        "skip_reason_notes": (
+            "When coverage_status is skipped, skip_reason must be a non-empty string explaining the gap."
         ),
     },
     "map": {
@@ -916,12 +1006,13 @@ def build_workspace_context(store: Any) -> dict[str, object]:
 
 
 def elicit_context() -> dict[str, object]:
-    """Return the 14-key grounding context payload for run_elicit.
+    """Return the 16-key grounding context payload for run_elicit.
 
     Keys: entity_types, supertypes, expected_sections, relationship_types,
           base_weights, question_bank, org_slug_rules, node_id_format,
           node_write_templates, workflow, source_exploration_contract,
-          delegation_protocol, pipeline_stages, intake_paths.
+          delegation_protocol, pipeline_stages, intake_paths, artifact_contract,
+          deliverable_contract.
     """
     return {
         "entity_types": build_entity_types(),
@@ -939,6 +1030,7 @@ def elicit_context() -> dict[str, object]:
         "pipeline_stages": PIPELINE_STAGES,
         "intake_paths": PIPELINE_STAGES[1]["intake_paths"],
         "artifact_contract": ARTIFACT_CONTRACT,
+        "deliverable_contract": DELIVERABLE_CONTRACT,
     }
 
 

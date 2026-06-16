@@ -21,12 +21,16 @@ import ast
 import inspect
 import re
 import unittest
+from pathlib import Path
 from typing import Any, cast
 
 from brain_ds.mcp import grounding
 from brain_ds.ontology.entity_types import EntityType
 from brain_ds.scoring import similarity
 from brain_ds.store.models import NodeRow
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # EntityTypes that intentionally have NO elicitation question bank entry.
 # Adding a new EntityType that should be elicited means adding it to
@@ -279,6 +283,233 @@ class GroundingCategory2SweepTests(unittest.TestCase):
             drift,
             [{"constant": "TEST_CONSTANT", "path": "$.nested[0]", "token": "StaleEntity"}],
         )
+
+
+class GroundingPipelineContractTests(unittest.TestCase):
+    def test_deliverable_contract_sections_fixed_and_ordered(self) -> None:
+        contract = grounding.DELIVERABLE_CONTRACT
+        self.assertEqual(
+            contract["sections"],
+            (
+                "outcome_title",
+                "quick_path",
+                "details_table",
+                "checklist",
+                "next_step",
+            ),
+        )
+
+    def test_deliverable_contract_scoped_to_pipeline_artifacts(self) -> None:
+        contract = grounding.DELIVERABLE_CONTRACT
+        self.assertEqual(
+            contract["applies_to"],
+            ("recon", "plan", "source-docs", "consolidation", "dry-run"),
+        )
+        self.assertNotIn("brd", contract["applies_to"])
+        self.assertNotIn("map", contract["applies_to"])
+
+    def test_deliverable_contract_injected_only_into_pipeline_composers(self) -> None:
+        elicit_ctx = grounding.elicit_context()
+        self.assertIn("deliverable_contract", elicit_ctx)
+        self.assertEqual(elicit_ctx["deliverable_contract"], grounding.DELIVERABLE_CONTRACT)
+
+        brd_ctx = grounding.generate_brd_context()
+        self.assertNotIn("deliverable_contract", brd_ctx)
+
+        map_ctx = grounding.map_connections_context()
+        self.assertNotIn("deliverable_contract", map_ctx)
+
+    def test_brd_and_map_contracts_untouched(self) -> None:
+        self.assertEqual(len(grounding.BRD_SECTION_ORDER), 14)
+        self.assertEqual(
+            grounding.BRD_GRAPH_PERSISTENCE_CONTRACT["update_node_template"]["card_sections"][0]["title"],
+            "Contenido",
+        )
+        self.assertGreaterEqual(len(grounding.CONNECTION_RULES["rules"]), 7)
+
+    def test_handoff_summary_is_optional_and_additive(self) -> None:
+        self.assertNotIn("handoff_summary", grounding.ARTIFACT_CONTRACT["source-docs"]["required_keys"])
+        self.assertNotIn("handoff_summary", grounding.ARTIFACT_CONTRACT["map"]["required_keys"])
+        self.assertNotIn("handoff_summary", grounding.ARTIFACT_CONTRACT["brd"]["required_keys"])
+
+    def test_deliverable_contract_sweeps_clean(self) -> None:
+        self.assertNotIn("DELIVERABLE_CONTRACT", CATEGORY2_EXEMPT)
+        drift = _sweep_constant("DELIVERABLE_CONTRACT", grounding.DELIVERABLE_CONTRACT)
+        self.assertEqual(drift, [])
+
+    def test_delegation_protocol_has_dry_run(self) -> None:
+        protocol = grounding.DELEGATION_PROTOCOL
+        self.assertIn("dry_run", protocol)
+        dry_run = protocol["dry_run"]
+        self.assertIn("trigger_phrase", dry_run)
+        self.assertIn("steps", dry_run)
+        self.assertIn("no_graph_writes_guard", dry_run)
+
+    def test_source_docs_artifact_contract_has_slice_fields(self) -> None:
+        source_docs = grounding.ARTIFACT_CONTRACT["source-docs"]
+        self.assertIn("slice_id", source_docs["required_keys"])
+        self.assertIn("assigned_objects", source_docs["required_keys"])
+
+    def test_source_docs_artifact_contract_has_coverage_status(self) -> None:
+        source_docs = grounding.ARTIFACT_CONTRACT["source-docs"]
+        self.assertEqual(source_docs["coverage_status_values"], ("documented", "skipped"))
+        self.assertIn("type_fields_notes", source_docs)
+        self.assertIn("skip_reason_notes", source_docs)
+
+    def test_source_docs_artifact_contract_lists_source_types(self) -> None:
+        source_docs = grounding.ARTIFACT_CONTRACT["source-docs"]
+        self.assertEqual(
+            source_docs["source_type_values"],
+            grounding.RECON_SOURCE_TYPES["supported"] + grounding.RECON_SOURCE_TYPES["unsupported"],
+        )
+
+    def test_source_docs_artifact_contract_sweeps_clean(self) -> None:
+        self.assertNotIn("ARTIFACT_CONTRACT", CATEGORY2_EXEMPT)
+        drift = _sweep_constant("ARTIFACT_CONTRACT", grounding.ARTIFACT_CONTRACT)
+        self.assertEqual(drift, [])
+
+    def test_recon_source_types_cover_supported_and_unsupported(self) -> None:
+        source_types = grounding.RECON_SOURCE_TYPES
+        self.assertIn("sqlite", source_types["supported"])
+        self.assertIn("google-sheets", source_types["supported"])
+        self.assertIn("unsupported-json-api", source_types["unsupported"])
+        self.assertIn("unsupported-unstructured", source_types["unsupported"])
+
+    def test_unsupported_source_requires_recommended_next(self) -> None:
+        self.assertEqual(grounding.UNSUPPORTED_RECOMMENDED_NEXT, "manual contract required")
+
+    def test_recon_source_types_sweep_clean(self) -> None:
+        drift = _sweep_constant("RECON_SOURCE_TYPES", grounding.RECON_SOURCE_TYPES)
+        self.assertEqual(drift, [])
+
+    def test_source_exploration_flow_has_four_substeps(self) -> None:
+        steps = grounding.DELEGATION_PROTOCOL["source_exploration_flow"]
+        self.assertEqual(len(steps), 4)
+        joined = " ".join(steps)
+        for token in ("recon", "plan", "document", "consolidate"):
+            self.assertIn(token, joined)
+
+    def test_artifact_phases_include_recon_and_plan(self) -> None:
+        phases = grounding.DELEGATION_PROTOCOL["artifact_keys"]["phases"]
+        self.assertIn("recon", phases)
+        self.assertIn("plan", phases)
+
+    def test_unsupported_objects_in_plan_as_skip(self) -> None:
+        joined = " ".join(grounding.DELEGATION_PROTOCOL["source_exploration_flow"])
+        self.assertIn("unsupported", joined)
+        self.assertIn("skip", joined)
+
+
+class GroundingPipelineMirrorParityTests(unittest.TestCase):
+    def _read(self, relative_path: str) -> str:
+        return (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+
+    def _assert_tokens(self, content: str, *, must_have: tuple[str, ...], must_not_have: tuple[str, ...] = ()) -> None:
+        for token in must_have:
+            with self.subTest(token=token):
+                self.assertIn(token, content)
+        for token in must_not_have:
+            with self.subTest(forbidden=token):
+                self.assertNotIn(token, content)
+
+    def test_source_explorer_agent_and_prompt_reference_pipeline_deliverable_contract(self) -> None:
+        must_have = (
+            "DELIVERABLE_CONTRACT",
+            "Outcome title",
+            "Quick path / summary",
+            "Details table",
+            "Coverage checklist",
+            "Next step",
+            "plain canonical headings only",
+            "no numbering",
+            "no extra H2 sections",
+            "canonical-payload",
+            "artifact_type",
+            "source-docs",
+            "recon",
+            "plan",
+            "dry-run",
+        )
+        for relative_path in (
+            ".claude/agents/brainds-source-explorer.md",
+            "prompts/brainds-source-explorer.md",
+        ):
+            with self.subTest(path=relative_path):
+                self._assert_tokens(self._read(relative_path), must_have=must_have)
+
+    def test_graph_mapper_agent_and_prompt_reference_pipeline_deliverable_contract(self) -> None:
+        must_have = (
+            "DELIVERABLE_CONTRACT",
+            "Outcome title",
+            "Quick path / summary",
+            "Details table",
+            "Coverage checklist",
+            "Next step",
+            "canonical-payload",
+            "artifact_type",
+            "source-docs",
+            "assert_deliverable_shape",
+            "real validator",
+            "artifact text or file",
+        )
+        for relative_path in (
+            ".claude/agents/brainds-graph-mapper.md",
+            "prompts/brainds-graph-mapper.md",
+        ):
+            with self.subTest(path=relative_path):
+                self._assert_tokens(self._read(relative_path), must_have=must_have)
+
+    def test_connection_mapper_and_brd_writer_only_add_optional_handoff_summary(self) -> None:
+        for relative_path in (
+            ".claude/agents/brainds-connection-mapper.md",
+            "prompts/brainds-connection-mapper.md",
+            ".claude/agents/brainds-brd-writer.md",
+            "prompts/brainds-brd-writer.md",
+        ):
+            with self.subTest(path=relative_path):
+                content = self._read(relative_path)
+                self._assert_tokens(content, must_have=("handoff_summary", "optional", "additive"), must_not_have=("DELIVERABLE_CONTRACT",))
+
+    def test_orchestrator_agent_and_prompt_reference_dry_run_recipe(self) -> None:
+        must_have = (
+            "dry_run",
+            "no_graph_writes_guard",
+            "assess_completeness",
+            "skip — unsupported source type",
+            "union(plan slices) == recon inventory",
+            "source-docs/{source-id}/recon",
+            "source-docs/{source-id}/plan",
+            "source-docs/{source-id}/dry-run",
+        )
+        for relative_path in (
+            ".claude/agents/brainds-orchestrator.md",
+            "prompts/brain-ds-orchestrator.md",
+        ):
+            with self.subTest(path=relative_path):
+                self._assert_tokens(self._read(relative_path), must_have=must_have)
+
+    def test_skill_mirror_is_byte_identical_when_present(self) -> None:
+        canonical_root = REPO_ROOT / "skills"
+        mirror_root = REPO_ROOT / ".opencode" / "skills"
+        if not canonical_root.is_dir() or not mirror_root.is_dir():
+            self.skipTest("skills mirror not present in this workspace")
+
+        canonical_files = sorted(canonical_root.glob("*/SKILL.md"))
+        mirror_files = sorted(mirror_root.glob("*/SKILL.md"))
+        self.assertEqual(
+            [path.parent.name for path in canonical_files],
+            [path.parent.name for path in mirror_files],
+            "skills/ and .opencode/skills/ must expose the same skill set",
+        )
+        for canonical_file in canonical_files:
+            mirror_file = mirror_root / canonical_file.parent.name / "SKILL.md"
+            with self.subTest(skill=canonical_file.parent.name):
+                self.assertTrue(mirror_file.is_file(), f"Missing mirror for {canonical_file.parent.name}")
+                self.assertEqual(
+                    canonical_file.read_bytes(),
+                    mirror_file.read_bytes(),
+                    f"{canonical_file.parent.name} SKILL.md must be byte-identical in .opencode/skills/",
+                )
 
 
 def _node(node_id: str, label: str, type_: str, details: dict | None = None) -> NodeRow:

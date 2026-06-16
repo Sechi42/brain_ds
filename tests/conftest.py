@@ -57,6 +57,35 @@ def _artifact_body(title: str, payload: dict) -> str:
     )
 
 
+def _source_docs_body(payload: dict) -> str:
+    import json
+
+    sentinel = ARTIFACT_CONTRACT["canonical_sentinel"]
+    return (
+        "# Source Documentation\n\n"
+        "## Outcome title\n"
+        "Synthetic source-docs slice for the Acme dry-run fixture.\n\n"
+        "## Quick path / summary\n"
+        "| object name | type | status | reason-if-skipped |\n"
+        "|---|---|---|---|\n"
+        "| customers | table | documented | |\n"
+        "| orders | table | documented | |\n\n"
+        "## Details table\n"
+        "| object name | source_type | schema | columns | primary keys | foreign keys | sample row count | type_fields |\n"
+        "|---|---|---|---|---|---|---|---|\n"
+        "| customers | sqlite | main | customer_id:int, name:text, segment:text, region:text | customer_id | (none) | 5 | schema, columns, primary keys, foreign keys, sample row count |\n"
+        "| orders | sqlite | main | order_id:int, customer_id:int, order_total:real, status:text, created_at:text | order_id | customer_id -> customers.customer_id | 5 | schema, columns, primary keys, foreign keys, sample row count |\n\n"
+        "## Coverage checklist\n"
+        "- [x] documented customers\n"
+        "- [x] documented orders\n"
+        "- [ ] skipped unsupported-json-api (manual contract required)\n\n"
+        "## Next step\n"
+        "Consolidate these slices and keep the unsupported object as skip-by-design.\n\n"
+        f"{sentinel}\n"
+        f"```json\n{json.dumps(payload, indent=2)}\n```\n"
+    )
+
+
 @pytest.fixture
 def dry_run_elicit_output(tmp_path: Path, synthetic_source_path: Path) -> dict[str, object]:
     org_slug = "acme"
@@ -76,7 +105,8 @@ def dry_run_elicit_output(tmp_path: Path, synthetic_source_path: Path) -> dict[s
         # Inject artifact_type at top level for all phase-named artifacts so the
         # canonical dual-contract format is upheld without modifying callers.
         full_payload = {"artifact_type": phase, **payload}
-        path.write_text(_artifact_body(phase.replace("-", " ").title(), full_payload), encoding="utf-8")
+        body = _source_docs_body(full_payload) if phase == "source-docs" else _artifact_body(phase.replace("-", " ").title(), full_payload)
+        path.write_text(body, encoding="utf-8")
         written_files.append(str(path))
         return path
 
@@ -204,6 +234,8 @@ def dry_run_elicit_output(tmp_path: Path, synthetic_source_path: Path) -> dict[s
             "source-docs",
             {
                 "graph_id": org_slug,
+                "slice_id": "slice-001",
+                "assigned_objects": ["customers", "orders"],
                 "documented_nodes": [
                     {
                         "node_id": f"{org_slug}-source-synthetic-warehouse",

@@ -7,6 +7,7 @@ Project: **brain_ds** — Enterprise Data & Knowledge Mapper.
 | Command | Purpose |
 |---|---|
 | `/elicit-context` | Capture and structure missing organizational context |
+| `source-docs dry-run` | Run the recon/plan dry-run recipe without graph writes |
 | `/map-connections` | Build a cross-entity map from stored knowledge |
 | `/generate-brd` | Generate a BRD from mapped organizational knowledge |
 | `/share-brainds` | Regenerate `skills/SHARED_CONTEXT.md` skill index |
@@ -35,8 +36,11 @@ See `skills/SHARED_CONTEXT.md` for one-paragraph summaries of every skill.
 | Agent | Model | Purpose | Path |
 |---|---|---|---|
 | `brainds-query-consultant` | sonnet | Read-only graph Q&A — answers questions about nodes, data sources, owners | [.claude/agents/brainds-query-consultant.md](.claude/agents/brainds-query-consultant.md) |
-| `brainds-source-explorer` | sonnet | Read-only external source exploration (Google Sheets, CSV, SQLite) | [.claude/agents/brainds-source-explorer.md](.claude/agents/brainds-source-explorer.md) |
-| `brainds-orchestrator` | opus | Coordinates full elicit → map → BRD workflow; delegates to sub-agents | [.claude/agents/brainds-orchestrator.md](.claude/agents/brainds-orchestrator.md) |
+| `brainds-source-explorer` | sonnet | Read-only source recon and sectioned documentation; emits the scoped 5-section pipeline artifact contract | [.claude/agents/brainds-source-explorer.md](.claude/agents/brainds-source-explorer.md) |
+| `brainds-graph-mapper` | sonnet | Consolidates pipeline artifacts and pushes the documented source into the graph | [.claude/agents/brainds-graph-mapper.md](.claude/agents/brainds-graph-mapper.md) |
+| `brainds-connection-mapper` | sonnet | Runs the connection-mapping pass with completeness gating and deferred weak links | [.claude/agents/brainds-connection-mapper.md](.claude/agents/brainds-connection-mapper.md) |
+| `brainds-brd-writer` | sonnet | Builds the deterministic BRD and persists it to the graph and Engram | [.claude/agents/brainds-brd-writer.md](.claude/agents/brainds-brd-writer.md) |
+| `brainds-orchestrator` | opus | Coordinates elicit → source-docs → map → BRD and owns the dry-run recipe | [.claude/agents/brainds-orchestrator.md](.claude/agents/brainds-orchestrator.md) |
 
 ## Harness maintenance
 
@@ -45,5 +49,7 @@ ontology and skills. When you add/rename an `EntityType`, `RelationshipType`,
 scoring factor, MCP tool, or skill prose, update the harness in the same change.
 `tests/test_grounding_drift_guard.py` enforces the EntityType side. See the
 "Harness maintenance" section in `CLAUDE.md` for the full checklist.
+
+Source-documentation pipeline artifacts use the scoped 5-section DELIVERABLE_CONTRACT, but BRD and map canonical outputs keep their own contracts.
 
 Run `/brainds-registry` after any such change to get a targeted checklist of files to update.

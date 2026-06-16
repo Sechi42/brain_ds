@@ -120,7 +120,7 @@ class TestCat2Accessors(unittest.TestCase):
 class TestComposerReturnShapes(unittest.TestCase):
     """Task 1.5 — composer return-shape tests."""
 
-    def test_elicit_context_has_all_15_keys_legacy(self) -> None:
+    def test_elicit_context_has_all_16_keys_legacy(self) -> None:
         result = elicit_context()
         expected_keys = {
             "entity_types",
@@ -138,6 +138,7 @@ class TestComposerReturnShapes(unittest.TestCase):
             "pipeline_stages",
             "intake_paths",
             "artifact_contract",
+            "deliverable_contract",
         }
         self.assertEqual(set(result.keys()), expected_keys)
 
@@ -262,11 +263,12 @@ class TestComposerReturnShapes(unittest.TestCase):
         self.assertIn("search_graph(graph_id=<slug>, query=<text>)", retrieval_contract)
         self.assertIn("validate retrieval changes on a seeded vault", retrieval_contract)
 
-    # T1-3/T1-4: bump key counts 14→15, 12→13, 10→11 (artifact_contract injected)
-    def test_elicit_context_has_all_15_keys(self) -> None:
+    # T1-3/T1-4/T1-8: bump key counts 14→16, 12→13, 10→11 (artifact_contract + deliverable_contract injected)
+    def test_elicit_context_has_all_16_keys(self) -> None:
         result = elicit_context()
         self.assertIn("artifact_contract", result)
-        self.assertEqual(len(result), 15)
+        self.assertIn("deliverable_contract", result)
+        self.assertEqual(len(result), 16)
 
     def test_map_connections_context_has_13_keys(self) -> None:
         result = map_connections_context()

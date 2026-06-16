@@ -236,6 +236,12 @@ Pre-digested rules per skill. Delegators copy matching blocks into sub-agent pro
 - Same-change rule: harness updates go in the SAME commit as the triggering change — never deferred.
 - `skills/*/SKILL.md` and `.opencode/skills/*/SKILL.md` must be byte-identical at all times.
 
+### source-docs dry-run
+- Trigger: `source-docs dry-run`.
+- Purpose: run the recon → plan source-documentation recipe without graph writes; optional sample slice is allowed but still read-only to the graph.
+- Topic keys: `source-docs/{source-id}/recon`, `source-docs/{source-id}/plan`, `source-docs/{source-id}/docs/{slice-id}`, `source-docs/{source-id}/dry-run`.
+- Guard: `no_graph_writes_guard` suppresses `update_node` and `add_edge` during dry-run.
+
 ## Agent Definitions
 
 | Agent | Model | Purpose | Path |

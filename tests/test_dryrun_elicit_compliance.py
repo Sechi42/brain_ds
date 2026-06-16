@@ -17,6 +17,63 @@ def _artifact_payload(path: Path) -> dict:
     return json.loads(match.group(1))
 
 
+def _pipeline_body(details_table: str, *, extra_heading: str = "") -> str:
+    extra = f"\n## {extra_heading}\nExtra section.\n" if extra_heading else ""
+    return f"""# Source docs
+
+## Outcome title
+Source docs slice for acme — source-docs artifact
+
+## Quick path / summary
+| object name | type | status | reason-if-skipped |
+|---|---|---|---|
+| orders | table | documented | |
+| audit_log | table | skipped | access denied |
+
+## Details table
+{details_table}
+
+## Coverage checklist
+- [x] documented orders
+- [ ] skipped audit_log (access denied)
+
+## Next step
+Consolidate these slices.
+
+```json
+{{"artifact_type": "source-docs", "graph_id": "acme"}}
+```
+{extra}"""
+
+
+def _source_docs_payload() -> dict[str, object]:
+    return {
+        "artifact_type": "source-docs",
+        "graph_id": "acme",
+        "slice_id": "slice-001",
+        "assigned_objects": ["orders"],
+        "documented_nodes": [
+            {
+                "node_id": "acme-source-orders",
+                "label": "Orders",
+                "type": "Data Source",
+                "card_sections": [
+                    {"title": "Overview", "content": "Orders table.", "icon": "info", "order": 1},
+                    {"title": "Structure", "content": "SQLite table main.orders.", "icon": "database", "order": 2},
+                    {
+                        "title": "Columns / Fields",
+                        "content": "| Column | Type | Meaning | Notes |\n|---|---|---|---|\n| order_id | INTEGER | PK | clean |",
+                        "icon": "table",
+                        "order": 3,
+                    },
+                    {"title": "Coverage", "content": "All assigned columns documented.", "icon": "check", "order": 4},
+                ],
+            }
+        ],
+        "completeness_gate": {"pre_mapping_recommendation": "document"},
+    }
+
+
 def test_synthetic_source_builder_creates_expected_schema(synthetic_source_path: Path) -> None:
     with sqlite3.connect(synthetic_source_path) as conn:
         tables = {
@@ -245,6 +302,47 @@ def test_source_docs_artifact_has_artifact_type_in_payload(dry_run_elicit_output
     payload = _artifact_payload(source_docs)
     assert "artifact_type" in payload, "source-docs payload must include artifact_type"
     assert payload["artifact_type"] == "source-docs"
+
+
+def test_source_docs_pipeline_shape_is_enforced_for_numbered_headings(tmp_path: Path) -> None:
+    source_docs = tmp_path / "source-docs-acme-2026-06-14.md"
+    payload = _source_docs_payload()
+    source_docs.write_text(
+        _pipeline_body(
+            """| object name | source_type | schema | columns | primary keys | foreign keys | sample row count | type_fields |
+|---|---|---|---|---|---|---|---|
+| orders | sqlite | main | order_id:int, customer_id:int | order_id | customer_id -> customers.id | 12 | schema, columns, primary keys, foreign keys, sample row count |""",
+        ).replace("## Outcome title", "## 1. Outcome Title").replace(
+            '```json\n{"artifact_type": "source-docs", "graph_id": "acme"}\n```',
+            f'```json\n{json.dumps(payload, indent=2)}\n```',
+        ),
+        encoding="utf-8",
+    )
+
+    findings = check_elicit_compliance(tmp_path)
+    critical = [f for f in findings if f.severity == "CRITICAL" and f.file == source_docs]
+    assert critical, "numbered pipeline headings must be rejected by compliance"
+
+
+def test_source_docs_pipeline_shape_is_enforced_for_extra_h2_sections(tmp_path: Path) -> None:
+    source_docs = tmp_path / "source-docs-acme-2026-06-14.md"
+    payload = _source_docs_payload()
+    source_docs.write_text(
+        _pipeline_body(
+            """| object name | source_type | schema | columns | primary keys | foreign keys | sample row count | type_fields |
+|---|---|---|---|---|---|---|---|
+| orders | sqlite | main | order_id:int, customer_id:int | order_id | customer_id -> customers.id | 12 | schema, columns, primary keys, foreign keys, sample row count |""",
+            extra_heading="Suggested brain_ds card_sections",
+        ).replace(
+            '```json\n{"artifact_type": "source-docs", "graph_id": "acme"}\n```',
+            f'```json\n{json.dumps(payload, indent=2)}\n```',
+        ),
+        encoding="utf-8",
+    )
+
+    findings = check_elicit_compliance(tmp_path)
+    critical = [f for f in findings if f.severity == "CRITICAL" and f.file == source_docs]
+    assert critical, "extra pipeline headings must be rejected by compliance"
 
 
 def test_map_artifact_has_artifact_type_in_payload(dry_run_elicit_output: dict) -> None:

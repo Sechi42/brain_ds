@@ -5,9 +5,11 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from brain_ds.pipeline import PIPELINE_ARTIFACT_TYPES, assert_pipeline_artifact_trail_shape
+
 
 PHASE_PATTERN = re.compile(
-    r"^(elicit|source-exploration|source-docs|map|brd|setup|intake|verify|archive)-[a-z0-9_-]+-\d{4}-\d{2}-\d{2}\.md$"
+    r"^(elicit|recon|plan|source-exploration|source-docs|consolidation|dry-run|map|brd|setup|intake|verify|archive)-[a-z0-9_-]+-\d{4}-\d{2}-\d{2}\.md$"
 )
 PAYLOAD_PATTERN = re.compile(r"```json\n(.*?)\n```", re.DOTALL)
 ALLOWED_RECOMMENDATIONS = {"elicit", "document", "proceed_with_gaps"}
@@ -152,6 +154,14 @@ def check_elicit_compliance(elicit_dir: Path) -> list[Finding]:
             findings.append(error)
             continue
         assert payload is not None
+
+        artifact_type = str(payload.get("artifact_type", ""))
+        if artifact_type in PIPELINE_ARTIFACT_TYPES:
+            try:
+                assert_pipeline_artifact_trail_shape([path])
+            except AssertionError as exc:
+                findings.append(_critical(f"{path.name} fails pipeline deliverable shape: {exc}", path))
+                continue
 
         if path.name.startswith("verify-"):
             findings.extend(_check_verify_payload(path, payload))
