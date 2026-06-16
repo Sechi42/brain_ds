@@ -12,6 +12,10 @@ import brain_ds.mcp.grounding as grounding
 import brain_ds.scoring.similarity as similarity
 import brain_ds.workspaces as workspace_registry
 from brain_ds.connectors import CsvConnector, SQLiteConnector
+from brain_ds.connectors.change_detection import (
+    build_change_detection,
+    should_emit_change_detection,
+)
 from brain_ds.connectors.secrets import SecretCatalog, SecretManifestError
 from brain_ds.connectors.secrets.redaction import redact_secrets
 from brain_ds.mcp.security import (
@@ -643,6 +647,29 @@ def _get_node_connection(store: GraphStore, graph_id: str, node_id: str) -> dict
     return connection
 
 
+def _get_node_change_detection_state(
+    store: GraphStore, graph_id: str, node_id: str
+) -> tuple[dict[str, Any] | None, bool]:
+    """Return (baseline, has_prior_doc) for a Data Source node.
+
+    None-safe per E-REQ-11: a missing schema_baseline key never raises. The
+    baseline lives in the node's details dict; prior documentation is inferred
+    from the presence of card_sections.
+    """
+    try:
+        node = get_node.__wrapped__(store, {"graph_id": graph_id, "node_id": node_id})
+    except ValidationError:
+        return None, False
+
+    details = node.get("details") or {}
+    baseline = details.get("schema_baseline")
+    if not isinstance(baseline, dict):
+        baseline = None
+    card_sections = node.get("card_sections")
+    has_prior_doc = bool(card_sections)
+    return baseline, has_prior_doc
+
+
 def _resolve_connector(connection: dict[str, Any], project_root: Path):
     """Resolve and validate a connector from a connection descriptor."""
     kind = connection.get("kind", "").lower()
@@ -747,6 +774,21 @@ def explore_source(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
                 "schema": schema,
                 "preview": preview,
             }
+            # E (change detection): emit ONLY at level==table. Read-only — the
+            # baseline is persisted to the graph by the documenter via
+            # update_node, never to the source here.
+            if should_emit_change_detection(level="table"):
+                baseline, has_prior_doc = _get_node_change_detection_state(
+                    store, graph_id, node_id
+                )
+                # Connector schema is single-table ({"columns": [...]}); scope it
+                # under the real table name so the verdict/delta carries it.
+                live_schema = {"tables": {table: {"columns": schema.get("columns", [])}}}
+                result["change_detection"] = build_change_detection(
+                    live_schema=live_schema,
+                    baseline=baseline,
+                    has_prior_doc=has_prior_doc,
+                )
     except (FileNotFoundError, ValueError, Exception) as exc:
         raise ValidationError(code=-32000, message=str(exc)) from exc
 
