@@ -26,14 +26,32 @@ def render_vault_picker_html(graphs: list[dict]) -> str:
     template = templates_root.joinpath("vault_picker.html").read_text(encoding="utf-8")
     tokens_css = static_root.joinpath("tokens.css").read_text(encoding="utf-8")
 
-    # Build server-rendered org rows (R8: keyboard-focusable via <a href>)
-    rows_html = "\n".join(
-        f'      <li>'
-        f'<a class="org-row" href="/?graph_id={g["id"]}">'
-        f'{_escape_html(g["label"])}'
-        f'</a></li>'
-        for g in graphs
-    )
+    # Build server-rendered workspace rows (R8 + B safe-confirm actions).
+    rows: list[str] = []
+    for index, g in enumerate(graphs, start=1):
+        workspace_path = _escape_html(str(g["id"]))
+        workspace_name = _escape_html(str(g["label"]))
+        confirm_id = f"workspace-delete-confirm-{index}"
+        rows.append(
+            "      <li class=\"workspace-card\" "
+            f'data-workspace-path="{workspace_path}" data-workspace-name="{workspace_name}">'
+            f'<a class="org-row" href="/?graph_id={workspace_path}">{workspace_name}</a>'
+            "<div class=\"workspace-actions\">"
+            f'<button type="button" class="workspace-action-btn workspace-action-btn--primary" '
+            f'data-workspace-remove data-workspace-path="{workspace_path}">Remove from list</button>'
+            "<details class=\"workspace-danger-zone\">"
+            "<summary class=\"workspace-action-btn workspace-action-btn--danger\">Delete all data</summary>"
+            f'<form class="workspace-danger-form" data-workspace-path="{workspace_path}" data-workspace-name="{workspace_name}">'
+            "<p class=\"workspace-danger-copy\">Irreversible. Type the workspace name or path to confirm.</p>"
+            f'<label for="{confirm_id}" class="visually-hidden">Type {workspace_name} or path to confirm</label>'
+            f'<input id="{confirm_id}" class="workspace-confirm-input" name="typed_confirm" type="text" '
+            f'placeholder="Type {workspace_name} or path" autocomplete="off" required />'
+            '<button type="submit" class="workspace-action-btn workspace-action-btn--danger" disabled>'
+            "Delete all data</button>"
+            '<p class="workspace-action-status" role="status" aria-live="polite"></p>'
+            "</form></details></div></li>"
+        )
+    rows_html = "\n".join(rows)
 
     return (
         template

@@ -89,6 +89,112 @@
       border-color: var(--accent-mora, #a78bfa);
     }
 
+    .workspace-card {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      margin-bottom: 0.35rem;
+    }
+
+    .workspace-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: flex-start;
+      padding-left: 0.2rem;
+    }
+
+    .workspace-action-btn {
+      min-height: 44px;
+      padding: 0.6rem 0.9rem;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s, border-color 0.15s, background 0.15s, color 0.15s;
+      line-height: 1;
+    }
+
+    .workspace-action-btn--primary {
+      background: var(--accent-mora, #a78bfa);
+      color: #09090b;
+    }
+
+    .workspace-action-btn--danger {
+      background: transparent;
+      color: var(--danger, #f87171);
+      border-color: var(--danger-border, rgba(239, 68, 68, 0.3));
+    }
+
+    .workspace-action-btn--danger:hover,
+    .workspace-action-btn--danger:focus {
+      background: var(--danger-soft, rgba(239, 68, 68, 0.1));
+      border-color: var(--danger, #f87171);
+    }
+
+    .workspace-action-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .workspace-danger-zone {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      flex: 1 1 100%;
+      padding: 0.15rem 0;
+    }
+
+    .workspace-danger-zone > summary {
+      list-style: none;
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .workspace-danger-zone > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .workspace-danger-form {
+      display: grid;
+      gap: 0.5rem;
+      max-width: 100%;
+      padding: 0.75rem;
+      border: 1px solid var(--danger-border, rgba(239, 68, 68, 0.3));
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--danger-soft, rgba(239, 68, 68, 0.1)) 55%, var(--bg-panel, #121214));
+    }
+
+    .workspace-danger-copy {
+      font-size: 0.8125rem;
+      line-height: 1.35;
+      color: var(--text-muted, #71717a);
+    }
+
+    .workspace-confirm-input {
+      width: 100%;
+      min-height: 44px;
+      padding: 0.6rem 0.75rem;
+      border-radius: 6px;
+      border: 1px solid var(--border-subtle, rgba(63,63,70,0.4));
+      background: var(--bg-panel, #121214);
+      color: var(--text-normal, #f4f4f5);
+      font-size: 0.875rem;
+    }
+
+    .workspace-confirm-input:focus {
+      outline: 2px solid var(--danger, #f87171);
+      outline-offset: 2px;
+      border-color: var(--danger, #f87171);
+    }
+
+    .workspace-action-status {
+      min-height: 1rem;
+      font-size: 0.8125rem;
+      color: var(--danger, #f87171);
+    }
+
     /* --- Divider --- */
     .picker-divider {
       border: none;
@@ -159,7 +265,7 @@
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .org-row, .create-btn { transition: none; }
+      .org-row, .create-btn, .workspace-action-btn { transition: none; }
     }
   </style>
 </head>
@@ -255,6 +361,87 @@
             errEl.style.display = "block";
             btn.disabled = false;
           });
+      });
+    })();
+
+    (function () {
+      function deleteWorkspace(path, options) {
+        var deleteStore = options && options.deleteStore;
+        var body = options && options.body ? options.body : null;
+        return fetch("/api/workspaces/" + encodeURIComponent(path) + (deleteStore ? "?delete_store=true" : ""), {
+          method: "DELETE",
+          headers: body ? { "Content-Type": "application/json" } : {},
+          body: body ? JSON.stringify(body) : null,
+        }).then(function (response) {
+          return response.json().catch(function () { return {}; }).then(function (payload) {
+            return { ok: response.ok, status: response.status, payload: payload };
+          });
+        });
+      }
+
+      function setStatus(statusEl, message, isError) {
+        if (!statusEl) return;
+        statusEl.textContent = message || "";
+        statusEl.style.color = isError ? "var(--danger, #f87171)" : "var(--text-normal, #f4f4f5)";
+      }
+
+      document.querySelectorAll("[data-workspace-remove]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          var path = button.getAttribute("data-workspace-path") || "";
+          if (!path) return;
+          button.disabled = true;
+          deleteWorkspace(path, { deleteStore: false }).then(function (result) {
+            if (result.ok) {
+              window.location.reload();
+            } else {
+              button.disabled = false;
+            }
+          }).catch(function () {
+            button.disabled = false;
+          });
+        });
+      });
+
+      document.querySelectorAll(".workspace-danger-form").forEach(function (form) {
+        var input = form.querySelector("input[name='typed_confirm']");
+        var submit = form.querySelector("button[type='submit']");
+        var statusEl = form.querySelector(".workspace-action-status");
+        var path = form.getAttribute("data-workspace-path") || "";
+        var name = form.getAttribute("data-workspace-name") || "";
+
+        function sync() {
+          var value = (input && input.value || "").trim();
+          if (submit) {
+            submit.disabled = !(value === path || value === name);
+          }
+          setStatus(statusEl, value && value !== path && value !== name ? "Type the exact workspace name or path to confirm." : "", true);
+        }
+
+        if (input) {
+          input.addEventListener("input", sync);
+          sync();
+        }
+
+        form.addEventListener("submit", function (event) {
+          event.preventDefault();
+          var value = (input && input.value || "").trim();
+          if (!(value === path || value === name)) {
+            setStatus(statusEl, "Confirmation text does not match.", true);
+            return;
+          }
+          if (submit) submit.disabled = true;
+          deleteWorkspace(path, { deleteStore: true, body: { typed_confirm: value } }).then(function (result) {
+            if (result.ok) {
+              window.location.reload();
+              return;
+            }
+            setStatus(statusEl, (result.payload && result.payload.detail) || "Unable to delete workspace.", true);
+            if (submit) submit.disabled = false;
+          }).catch(function () {
+            setStatus(statusEl, "Network error while deleting workspace.", true);
+            if (submit) submit.disabled = false;
+          });
+        });
       });
     })();
 

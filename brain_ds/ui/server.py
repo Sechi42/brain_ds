@@ -16,7 +16,7 @@ from brain_ds.api.server import create_app
 from brain_ds.ontology import Graph
 from brain_ds.store.errors import GraphNotFoundError
 from brain_ds.store.graph_store import GraphStore
-from brain_ds.workspaces import register_workspace
+from brain_ds.workspaces import delete_workspace_store, register_workspace, unregister_workspace
 
 from .render_context import WorkspaceContext, build_render_context
 from .template_renderer import render_interactive_html, render_vault_picker_html
@@ -24,6 +24,14 @@ from .template_renderer import render_interactive_html, render_vault_picker_html
 
 def _empty_graph() -> Graph:
     return Graph.from_v1({"nodes": [], "edges": []})
+
+
+def _workspace_confirm_matches(workspace_root: Path, typed_confirm: str) -> bool:
+    candidate = typed_confirm.strip()
+    if not candidate:
+        return False
+    resolved = workspace_root.resolve()
+    return candidate in {resolved.name, str(resolved)} or Path(candidate).resolve() == resolved
 
 
 class ServerRuntime:
@@ -135,6 +143,26 @@ def build_ui_app(*, project_root: Path, store: GraphStore) -> FastAPI:
         """R8/R9: list all orgs as focusable rows + always-present create-org form."""
         graphs = runtime._graphs_payload()
         return HTMLResponse(render_vault_picker_html(graphs))
+
+    @app.delete("/api/workspaces/{path:path}")
+    def delete_workspace(path: str, delete_store: bool = False, body: dict = Body(default={})) -> JSONResponse:
+        workspace_root = Path(path)
+        typed_confirm = str(body.get("typed_confirm", "")).strip() if isinstance(body, dict) else ""
+
+        if delete_store:
+            if not typed_confirm:
+                return JSONResponse(status_code=422, content={"detail": "typed_confirm is required when delete_store=true"})
+            if not _workspace_confirm_matches(workspace_root, typed_confirm):
+                return JSONResponse(status_code=422, content={"detail": "typed_confirm must match the workspace name or path"})
+            try:
+                if workspace_root.resolve() == runtime.project_root.resolve():
+                    runtime.store.close()
+                delete_workspace_store(workspace_root, confirm_token=typed_confirm)
+            except ValueError as exc:
+                return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+        unregister_workspace(workspace_root)
+        return JSONResponse(content={"path": str(workspace_root), "deleted_store": bool(delete_store)})
 
     @app.post("/api/setup-mcp")
     def setup_mcp(body: dict = Body(default={})) -> JSONResponse:

@@ -73,6 +73,26 @@ def _save_registry(payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def _workspace_store_path(root: str | Path) -> Path:
+    return Path(root).resolve() / ".brain_ds" / "store.db"
+
+
+def _confirm_token_matches(root: Path, confirm_token: str | None) -> bool:
+    if confirm_token is None:
+        return False
+    candidate = confirm_token.strip()
+    if not candidate:
+        return False
+
+    resolved = root.resolve()
+    if candidate == resolved.name or candidate == str(resolved):
+        return True
+    try:
+        return Path(candidate).resolve() == resolved
+    except OSError:
+        return False
+
+
 def register_workspace(root: str | Path, *, name: str | None = None) -> dict[str, Any]:
     """Upsert a workspace by canonical path; bumps last_opened_at on re-register."""
     resolved = Path(root).resolve()
@@ -97,6 +117,43 @@ def register_workspace(root: str | Path, *, name: str | None = None) -> dict[str
     payload["workspaces"].append(entry)
     _save_registry(payload)
     return dict(entry)
+
+
+def unregister_workspace(root: str | Path) -> dict[str, Any] | None:
+    """Remove a workspace from the registry without touching its store.db."""
+    resolved = Path(root).resolve()
+    key = normalize_root(resolved)
+    payload = _load_registry()
+    workspaces = payload["workspaces"]
+
+    removed: dict[str, Any] | None = None
+    kept: list[dict[str, Any]] = []
+    for entry in workspaces:
+        if normalize_root(entry.get("path", "")) == key:
+            if removed is None:
+                removed = dict(entry)
+            continue
+        kept.append(entry)
+
+    if len(kept) != len(workspaces):
+        payload["workspaces"] = kept
+        _save_registry(payload)
+
+    return removed
+
+
+def delete_workspace_store(root: str | Path, *, confirm_token: str | None) -> None:
+    """Delete the workspace store.db after validating the typed confirmation token."""
+    resolved = Path(root).resolve()
+    if not _confirm_token_matches(resolved, confirm_token):
+        raise ValueError("typed confirmation token must match the workspace name or path")
+
+    store_path = _workspace_store_path(resolved)
+    for target in (store_path, Path(f"{store_path}-wal"), Path(f"{store_path}-shm")):
+        try:
+            target.unlink()
+        except FileNotFoundError:
+            continue
 
 
 def list_workspaces() -> list[dict[str, Any]]:
