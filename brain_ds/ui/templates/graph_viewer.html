@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>brain_ds Graph Viewer</title>
+    <title>BrainDS Graph Viewer</title>
     <script>
       (function () {
         var key = "brain_ds.theme";
@@ -559,8 +559,13 @@
         display: flex;
         flex-direction: column;
       }
+      .right-panel-shell #brd-panel[hidden],
+      .right-panel-shell #secret-panel[hidden],
+      .right-panel-shell .inspector-stub-scroll[hidden] { display: none !important; }
       /* Static inspector accordion stub (AI actions section — MCP bridge not wired) */
       .inspector-stub-scroll {
+        isolation: isolate;
+        contain: layout;
         min-height: 0;
         overflow: auto;
         flex: 1 1 0;
@@ -1126,6 +1131,8 @@
 
       /* ── BRD panel (brd-panel.ts) ── */
       #brd-panel {
+        isolation: isolate;
+        contain: layout;
         display: flex;
         flex-direction: column;
         height: 100%;
@@ -1645,12 +1652,27 @@
       @keyframes inspectorEnter { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }
 
       /* ── Secret settings panel (secret-panel.ts) ─────────────────────────── */
+      #secret-panel {
+        isolation: isolate;
+        contain: layout;
+        display: flex;
+        flex-direction: column;
+        height: auto;
+        max-height: calc(100% - 1.5rem);
+        width: min(100%, 360px);
+        max-width: 360px;
+        align-self: flex-end;
+        margin: 0.75rem;
+        overflow: hidden;
+        background: var(--bg-panel);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-lg, 0 24px 48px rgba(0, 0, 0, 0.35));
+      }
       .secret-panel {
         display: flex;
         flex-direction: column;
-        height: 100%;
-        overflow: hidden;
-        background: var(--bg-panel);
+        height: auto;
       }
       .secret-panel-header {
         flex: 0 0 auto;
@@ -5017,55 +5039,43 @@
         const secretPanelEl = document.getElementById('secret-panel');
 
         // Panels that live inside the right-shell and must be toggled for BRD / secrets vs. inspector.
-        const showBrdPanel = (show) => {
-          if (!brdPanelEl) return;
-          brdPanelEl.hidden = !show;
-          brdPanelEl.setAttribute('aria-hidden', String(!show));
-          if (secretPanelEl) {
-            secretPanelEl.hidden = show;
-            secretPanelEl.setAttribute('aria-hidden', String(show));
+        const setActiveRightPanel = (name) => {
+          const active = (name === 'brd' || name === 'settings') ? name : null;
+          const showManagedPanel = active !== null;
+          if (brdPanelEl) {
+            brdPanelEl.hidden = active !== 'brd';
+            brdPanelEl.setAttribute('aria-hidden', String(active !== 'brd'));
           }
-          // The inspector stub scroll and the detail panel must actually hide
-          // (not just aria-hidden) so the BRD panel gets the FULL shell height
-          // instead of sharing it with the inspector sections.
+          if (secretPanelEl) {
+            secretPanelEl.hidden = active !== 'settings';
+            secretPanelEl.setAttribute('aria-hidden', String(active !== 'settings'));
+          }
           const stub = rightShell && rightShell.querySelector('.inspector-stub-scroll');
           if (stub) {
-            stub.setAttribute('aria-hidden', String(show));
-            stub.hidden = show;
+            stub.setAttribute('aria-hidden', String(showManagedPanel));
+            stub.hidden = showManagedPanel;
           }
           const detailPanel = document.getElementById('detail-panel');
           if (detailPanel) {
-            detailPanel.setAttribute('aria-hidden', String(show));
-            detailPanel.hidden = show;
+            detailPanel.setAttribute('aria-hidden', String(showManagedPanel));
+            detailPanel.hidden = showManagedPanel;
           }
           const detailHeader = rightShell && rightShell.querySelector('.panel-header[data-panel-side="right"]');
           if (detailHeader) {
-            detailHeader.querySelector('strong').textContent = show ? 'BRD' : 'Inspector';
+            detailHeader.querySelector('strong').textContent = active === 'brd'
+              ? 'BRD'
+              : active === 'settings'
+                ? 'Secret settings'
+                : 'Inspector';
           }
         };
 
+        const showBrdPanel = (show) => {
+          setActiveRightPanel(show ? 'brd' : null);
+        };
+
         const showSecretPanel = (show) => {
-          if (!secretPanelEl) return;
-          secretPanelEl.hidden = !show;
-          secretPanelEl.setAttribute('aria-hidden', String(!show));
-          if (brdPanelEl) {
-            brdPanelEl.hidden = show;
-            brdPanelEl.setAttribute('aria-hidden', String(show));
-          }
-          const stub = rightShell && rightShell.querySelector('.inspector-stub-scroll');
-          if (stub) {
-            stub.setAttribute('aria-hidden', String(show));
-            stub.hidden = show;
-          }
-          const detailPanel = document.getElementById('detail-panel');
-          if (detailPanel) {
-            detailPanel.setAttribute('aria-hidden', String(show));
-            detailPanel.hidden = show;
-          }
-          const detailHeader = rightShell && rightShell.querySelector('.panel-header[data-panel-side="right"]');
-          if (detailHeader) {
-            detailHeader.querySelector('strong').textContent = show ? 'Secret settings' : 'Inspector';
-          }
+          setActiveRightPanel(show ? 'settings' : null);
         };
 
         const mountBrdPanel = async () => {
@@ -5132,26 +5142,22 @@
         };
         const reveal = (name) => {
           if (name === 'inspector') {
-            showBrdPanel(false);
-            showSecretPanel(false);
+            setActiveRightPanel(null);
             const panel = document.getElementById('detail-panel');
             if (panel && typeof panel.scrollIntoView === 'function') panel.scrollIntoView({ block: 'nearest' });
           } else if (name === 'ai-actions') {
-            showBrdPanel(false);
-            showSecretPanel(false);
+            setActiveRightPanel(null);
             const acc = document.querySelector('details[data-accordion-section="ai-actions"]');
             if (acc) {
               acc.open = true;
               if (typeof acc.scrollIntoView === 'function') acc.scrollIntoView({ block: 'nearest' });
             }
           } else if (name === 'reader') {
-            showBrdPanel(false);
-            showSecretPanel(false);
+            setActiveRightPanel(null);
             const readerBtn = document.getElementById('show-more');
             if (readerBtn) readerBtn.click();
           } else if (name === 'brd') {
-            showBrdPanel(true);
-            showSecretPanel(false);
+            setActiveRightPanel('brd');
             if (brdMounted && brdPanelHandle) {
               // Re-revealing the panel re-reads the BRD node from the server so
               // an MCP push that happened while the panel was hidden shows up.
@@ -5160,8 +5166,7 @@
               mountBrdPanel();
             }
           } else if (name === 'settings') {
-            showBrdPanel(false);
-            showSecretPanel(true);
+            setActiveRightPanel('settings');
             if (secretMounted && secretPanelHandle && typeof secretPanelHandle.refresh === 'function') {
               // Re-revealing refreshes the list in case CLI/MCP changes happened while hidden.
               secretPanelHandle.refresh();
@@ -5180,8 +5185,7 @@
           if (wasActive && isExpanded()) {
             rightCollapseBtn.click();
             select(null);
-            if (name === 'brd') showBrdPanel(false);
-            if (name === 'settings') showSecretPanel(false);
+            if (name === 'brd' || name === 'settings') setActiveRightPanel(null);
             return;
           }
           if (!isExpanded()) rightCollapseBtn.click();
@@ -5192,8 +5196,7 @@
         rightCollapseBtn.addEventListener('click', () => {
           if (!isExpanded()) {
             select(null);
-            showBrdPanel(false);
-            showSecretPanel(false);
+            setActiveRightPanel(null);
           }
         });
         // Keep the reader rail icon lit while the center pane is in reader mode
