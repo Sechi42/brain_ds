@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from brain_ds.scoring.embedder import node_text
 from brain_ds.scoring.factors import _tokens, evidence_count, explicit_reference
 from brain_ds.store.models import EdgeRow, NodeRow
 
@@ -121,17 +122,7 @@ def is_sparse(node: NodeRow) -> bool:
 
 
 def node_text_tokens(node: NodeRow) -> set[str]:
-    parts: list[str] = [node.label or "", node.type or ""]
-    for value in (node.details or {}).values():
-        text = str(value or "").strip()
-        if text.lower() in LOW_SIGNAL_DETAIL_VALUES:
-            continue
-        parts.append(text)
-    for section in node.card_sections or []:
-        if isinstance(section, dict):
-            parts.append(str(section.get("title", "")))
-            parts.append(str(section.get("content", ""))[:_SECTION_CONTENT_CAP])
-    return _tokens(" ".join(parts))
+    return _tokens(node_text(node))
 
 
 def _lexical_similarity(focus_tokens: set[str], other_tokens: set[str]) -> tuple[float, list[str]]:

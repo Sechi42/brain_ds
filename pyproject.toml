@@ -15,6 +15,9 @@ dependencies = [
 simple = [
   "pyvis>=0.3",
 ]
+embeddings = [
+  "fastembed>=0.3",
+]
 
 [project.scripts]
 brain_ds = "brain_ds.ui.__main__:main"
