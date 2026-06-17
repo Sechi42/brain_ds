@@ -18,6 +18,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from brain_ds.mcp.tools import suggest_connections, update_node
+from brain_ds.scoring import similarity
 from brain_ds.store.errors import CorruptVectorError
 from brain_ds.store.graph_store import GraphStore
 from brain_ds.store.models import NearestHit
@@ -290,6 +291,7 @@ class TestRankMapConstruction(unittest.TestCase):
 
         def capturing_suggest(*args: Any, **kwargs: Any) -> Any:
             captured["dense_ranks"] = kwargs.get("dense_ranks")
+            captured["dense_scores"] = kwargs.get("dense_scores")
             return original_fn(*args, **kwargs)
 
         with patch.object(self.store, "nearest_embeddings", return_value=hits), \
@@ -304,6 +306,10 @@ class TestRankMapConstruction(unittest.TestCase):
         self.assertIsNotNone(dr)
         self.assertEqual(dr.get("n2"), 1)
         self.assertEqual(dr.get("n3"), 2)
+        ds = captured.get("dense_scores")
+        self.assertIsNotNone(ds)
+        self.assertEqual(ds.get("n2"), 0.9)
+        self.assertEqual(ds.get("n3"), 0.7)
 
 
 # ---------------------------------------------------------------------------
@@ -410,6 +416,99 @@ class TestFullPipelineDenseCandidate(unittest.TestCase):
         ids = [s["node_id"] for s in result["suggestions"]]
         self.assertIn("dense-ds", ids,
                       "Dense-only candidate must appear when given high dense rank")
+
+
+class TestDenseAdmissionFix(unittest.TestCase):
+    def setUp(self) -> None:
+        self.store, self.tmp = _make_store()
+        self.graph_id = "g1"
+
+    def tearDown(self) -> None:
+        self.store.close()
+        self.tmp.cleanup()
+
+    def _add(self, node_id: str, label: str, type_: str, details: dict[str, Any]) -> None:
+        _upsert_node(self.store, self.graph_id, node_id, label, type_, details)
+
+    def _suggest_with_hits(self, hits: list[NearestHit], *, threshold: float | None = None) -> dict[str, Any]:
+        params: dict[str, Any] = {"graph_id": self.graph_id, "node_id": "focus"}
+        if threshold is not None:
+            params["threshold"] = threshold
+        with patch.object(self.store, "nearest_embeddings", return_value=hits):
+            return suggest_connections(self.store, params)
+
+    def test_strong_cosine_weak_lexical_candidate_surfaces_at_default_threshold(self) -> None:
+        self._add("focus", "Revenue Forecast", "KPI", {"where": "finance dashboard monthly"})
+        self._add("candidate", "Revenue Archive", "Data Source", {"where": "systems back office"})
+
+        result = self._suggest_with_hits([NearestHit(target_id="candidate", score=0.91)])
+
+        ids = [item["node_id"] for item in result["suggestions"]]
+        self.assertIn("candidate", ids)
+
+    def test_weak_cosine_zero_token_unmapped_candidate_does_not_appear(self) -> None:
+        self._add("focus", "Revenue Forecast", "KPI", {"where": "finance dashboard monthly"})
+        self._add("noise", "Legal Audit Trail", "Risk", {"where": "governance office"})
+
+        result = self._suggest_with_hits([NearestHit(target_id="noise", score=0.12)])
+
+        ids = [item["node_id"] for item in result["suggestions"]]
+        self.assertNotIn("noise", ids)
+
+    def test_min_dense_similarity_boundary_admits_just_above_and_drops_just_below(self) -> None:
+        self._add("focus", "Revenue Forecast", "KPI", {"where": "finance dashboard monthly"})
+        self._add("above", "Legal Audit Trail", "Risk", {"where": "governance office"})
+        self._add("below", "Compliance Ledger", "Risk", {"where": "policy archive"})
+
+        min_dense = getattr(similarity, "MIN_DENSE_SIMILARITY", 0.58)
+        result = self._suggest_with_hits(
+            [
+                NearestHit(target_id="above", score=min_dense + 0.01),
+                NearestHit(target_id="below", score=min_dense - 0.01),
+            ]
+        )
+
+        ids = [item["node_id"] for item in result["suggestions"]]
+        self.assertIn("above", ids)
+        self.assertNotIn("below", ids)
+
+    def test_dense_admitted_sparse_focus_still_gets_review_needed(self) -> None:
+        self._add("focus", "Revenue Forecast", "KPI", {"where": "", "learned": "Underspecified: pending input"})
+        self._add("candidate", "Revenue Archive", "Data Source", {"where": "systems back office"})
+
+        result = self._suggest_with_hits([NearestHit(target_id="candidate", score=0.93)])
+
+        suggestion = next((item for item in result["suggestions"] if item["node_id"] == "candidate"), None)
+        self.assertIsNotNone(suggestion)
+        self.assertEqual(suggestion["suggested_edge"]["label"], "review-needed")
+
+    def test_dense_admitted_candidate_preserves_type_affinity_label(self) -> None:
+        self._add("focus", "Revenue Forecast", "KPI", {"where": "finance dashboard monthly"})
+        self._add("role", "Revenue Steward", "Role", {"where": "business ops"})
+
+        result = self._suggest_with_hits([NearestHit(target_id="role", score=0.94)])
+
+        suggestion = next((item for item in result["suggestions"] if item["node_id"] == "role"), None)
+        self.assertIsNotNone(suggestion)
+        self.assertEqual(suggestion["suggested_edge"], {"source": "role", "target": "focus", "label": "accountable"})
+
+    def test_dense_ranks_and_scores_none_keep_legacy_output_byte_identical(self) -> None:
+        self._add("focus", "Ventas Mensuales", "KPI", {"where": "Dashboard comercial ventas", "learned": "CRM ventas"})
+        self._add("ds-crm", "CRM Salesforce ventas", "Data Source", {"where": "Salesforce cloud"})
+        self._add("risk-legal", "Riesgo Regulatorio", "Risk", {"where": "Legal"})
+
+        nodes = self.store.query_nodes(self.graph_id)
+        edges = self.store.query_edges(self.graph_id)
+        legacy = similarity.suggest_connections_for_node(nodes, edges, "focus")
+        current = similarity.suggest_connections_for_node(
+            nodes,
+            edges,
+            "focus",
+            dense_ranks=None,
+            dense_scores=None,
+        )
+
+        self.assertEqual(current, legacy)
 
 
 if __name__ == "__main__":

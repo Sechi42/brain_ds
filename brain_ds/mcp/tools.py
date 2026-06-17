@@ -535,12 +535,15 @@ def suggest_connections(store: GraphStore, params: dict[str, Any]) -> dict[str, 
     # Build dense ranks via nearest_embeddings. CorruptVectorError (focus has no
     # embedding) => fall back to lexical-only (dense_ranks=None).
     dense_ranks: dict[str, int] | None = None
+    dense_scores: dict[str, float] | None = None
     k = max(int(limit) * 3, 30)
     try:
         hits = store.nearest_embeddings(graph_id, node_id, k=k)
         dense_ranks = {hit.target_id: rank + 1 for rank, hit in enumerate(hits)}
+        dense_scores = {hit.target_id: hit.score for hit in hits}
     except CorruptVectorError:
         dense_ranks = None
+        dense_scores = None
 
     try:
         return similarity.suggest_connections_for_node(
@@ -554,6 +557,7 @@ def suggest_connections(store: GraphStore, params: dict[str, Any]) -> dict[str, 
             ),
             evidence_items=evidence_items,
             dense_ranks=dense_ranks,
+            dense_scores=dense_scores,
         )
     except KeyError as exc:
         raise ValidationError(code=-32000, message=f"Node '{node_id}' not found in graph '{graph_id}'") from exc

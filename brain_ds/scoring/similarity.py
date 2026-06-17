@@ -110,6 +110,10 @@ _SECTION_CONTENT_CAP = 400
 WEIGHT_RRF = 0.15
 _RRF_K = 60
 
+# Dense-only admission floor: cosine similarity must clear this absolute floor
+# before a dense-only candidate can bypass the lexical threshold.
+MIN_DENSE_SIMILARITY = 0.58
+
 # Sparse-node gate: a node without a concrete "where" or still marked
 # Underspecified must be elicited before it earns automatic edges.
 SPARSE_BLOCK_REASON = "blocked: sparse node — fill in 'where' field first"
@@ -201,6 +205,7 @@ def suggest_connections_for_node(
     minimum_shared_tokens: int = DEFAULT_MIN_SHARED_TOKENS,
     evidence_items: list[dict[str, Any]] | None = None,
     dense_ranks: dict[str, int] | None = None,
+    dense_scores: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     limit = max(1, min(int(limit), MAX_LIMIT))
     threshold = min(max(float(threshold), 0.0), 1.0)
@@ -237,6 +242,7 @@ def suggest_connections_for_node(
             limit=limit,
             minimum_shared_tokens=minimum_shared_tokens,
             dense_ranks=dense_ranks,
+            dense_scores=dense_scores,
         )
 
     # ---------------------------------------------------------------------------
@@ -364,6 +370,7 @@ def _suggest_with_rrf(
     limit: int,
     minimum_shared_tokens: int,
     dense_ranks: dict[str, int],
+    dense_scores: dict[str, float] | None,
 ) -> dict[str, Any]:
     """RRF fusion path: compute lexical scores, build ranks, fuse with dense_ranks.
 
@@ -448,9 +455,14 @@ def _suggest_with_rrf(
         evidence_n: int = pre["_evidence_n"]
         score: float = pre["_score"]
 
-        # A candidate is "dense-only" if it has a dense rank but zero shared tokens.
-        # Such candidates bypass the minimum_shared_tokens gate (but not sparse gate).
-        is_dense_only = (other.id in dense_ranks) and (len(shared_tokens) == 0)
+        # Dense admission is controlled by absolute cosine when scores are available.
+        # If the caller only supplied dense_ranks, preserve the legacy rank/presence
+        # behavior so older callers remain byte-stable.
+        if dense_scores is None:
+            dense_admitted = (other.id in dense_ranks) and len(shared_tokens) == 0
+        else:
+            dense_cosine = dense_scores.get(other.id)
+            dense_admitted = dense_cosine is not None and dense_cosine >= MIN_DENSE_SIMILARITY
 
         # shared-with gate (lexical-only guard — same as before)
         if label == "shared-with" and (
@@ -458,12 +470,13 @@ def _suggest_with_rrf(
         ):
             continue
 
-        # Threshold gate: applied to lexical score (not fused), same as before
-        if score < threshold and not is_dense_only:
+        # Threshold gate: dense-only candidates may bypass lexical threshold only
+        # when the absolute dense cosine clears the calibrated floor.
+        if score < threshold and not dense_admitted:
             continue
 
-        # Unmapped + below token floor: skip unless dense-only
-        if not is_mapped and len(shared_tokens) < minimum_shared_tokens and not is_dense_only:
+        # Unmapped + below token floor: skip unless dense-admitted.
+        if not is_mapped and len(shared_tokens) < minimum_shared_tokens and not dense_admitted:
             continue
 
         # -----------------------------------------------------------------------
@@ -498,8 +511,15 @@ def _suggest_with_rrf(
                 )
                 review_needed_count += 1
 
-        if is_dense_only:
-            reason_parts.append(f"semantic match (no shared tokens), dense rank {dense_ranks.get(other.id)}")
+        if dense_admitted:
+            if len(shared_tokens) == 0:
+                reason_parts.append(
+                    f"semantic match (no shared tokens), dense rank {dense_ranks.get(other.id)}"
+                )
+            else:
+                reason_parts.append(
+                    f"semantic match, dense rank {dense_ranks.get(other.id)}"
+                )
         elif shared_tokens:
             reason_parts.append("shared tokens: " + ", ".join(shared_tokens[:6]))
         if evidence_n:
