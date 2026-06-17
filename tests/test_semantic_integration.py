@@ -28,7 +28,8 @@ import pytest
 
 fastembed = pytest.importorskip("fastembed", reason="fastembed not installed — T10 skipped", exc_type=ImportError)
 
-from brain_ds.mcp.tools import create_graph, suggest_connections, update_node
+from brain_ds.mcp.tools import create_graph, search_graph, suggest_connections, update_node
+from brain_ds.scoring.embedder import get_default_model
 from brain_ds.store.graph_store import GraphStore
 
 
@@ -133,3 +134,50 @@ class TestSemanticIntegration:
         print(f"\n[T10 REAL MODEL] model={model_name}")
         print(f"[T10 REAL MODEL] Suggestions for 'workforce churn': {result_a.get('suggestions', [])}")
         print(f"[T10 REAL MODEL] Suggestions for 'talent exodus': {result_b.get('suggestions', [])}")
+
+    def test_hybrid_search_recalls_semantic_hit_with_real_embeddings(self, tmp_path: Path) -> None:
+        """PR-2 hybrid search proof: dense recall surfaces when lexical search is empty."""
+        model = get_default_model()
+        if model is None:
+            pytest.skip("Embedding model unavailable — hybrid recall proof skipped")
+
+        store = _make_integration_store(str(tmp_path))
+        create_graph(store, {"graph_id": "int-g2", "name": "Integration Graph 2", "project": "test"})
+
+        update_node(
+            store,
+            {
+                "graph_id": "int-g2",
+                "node_id": "node-churn",
+                "label": "workforce churn",
+                "type": "Process",
+                "details": {"context": "employees leaving the company unexpectedly"},
+            },
+        )
+        update_node(
+            store,
+            {
+                "graph_id": "int-g2",
+                "node_id": "node-exodus",
+                "label": "talent exodus",
+                "type": "Solution",
+                "details": {"context": "departure of skilled staff from the organization"},
+            },
+        )
+
+        result = search_graph(
+            store,
+            {
+                "graph_id": "int-g2",
+                "query": "employee attrition",
+            },
+        )
+
+        assert isinstance(result, list)
+        result_ids = [row["id"] for row in result]
+        assert result_ids, f"Expected semantic recall, got: {result}"
+        assert "node-churn" in result_ids or "node-exodus" in result_ids, (
+            f"Expected a semantic hit for employee attrition, got: {result}"
+        )
+
+        print(f"\n[PR2 REAL MODEL] hybrid search results for 'employee attrition': {result}")

@@ -5,7 +5,6 @@ from __future__ import annotations
 import sqlite3
 import hashlib
 import json
-from heapq import nlargest
 from math import fsum, sqrt
 from datetime import datetime, timedelta, timezone
 from typing import cast
@@ -27,6 +26,29 @@ from .migrations import _normalize_text, _extract_text_from_json
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _rank_cosine_hits(query: list[float], rows: list[EmbeddingRow], *, k: int) -> list[NearestHit]:
+    """Rank embedding rows by cosine similarity to a query vector."""
+    query_norm = sqrt(fsum(value * value for value in query))
+    if query_norm == 0.0:
+        raise CorruptVectorError("Query vector has zero norm")
+
+    best_scores: dict[str, float] = {}
+    for row in rows:
+        candidate = decode_vector(row.vector, dimensions=row.dimensions)
+        candidate_norm = sqrt(fsum(value * value for value in candidate))
+        if candidate_norm == 0.0:
+            continue
+
+        score = fsum(a * b for a, b in zip(query, candidate)) / (query_norm * candidate_norm)
+        previous = best_scores.get(row.target_id)
+        if previous is None or score > previous:
+            best_scores[row.target_id] = score
+
+    limit = max(int(k), 0)
+    ranked = sorted(best_scores.items(), key=lambda item: (-item[1], item[0]))[:limit]
+    return [NearestHit(target_id=target_id, score=score) for target_id, score in ranked]
 
 
 def _fts_upsert(conn: sqlite3.Connection, graph_id: str, node_id: str, label: str, details_json: str | None, sections_json: str | None) -> None:
@@ -846,17 +868,35 @@ class EmbeddingRepository:
             dimensions=target_row.dimensions,
             target_id=target_id,
         )
+        return _rank_cosine_hits(query, candidates, k=k)
 
-        scored: list[NearestHit] = []
-        for row in candidates:
-            candidate = decode_vector(row.vector, dimensions=row.dimensions)
-            candidate_norm = sqrt(fsum(value * value for value in candidate))
-            if candidate_norm == 0.0:
-                continue
-            score = fsum(a * b for a, b in zip(query, candidate)) / (query_norm * candidate_norm)
-            scored.append(NearestHit(target_id=row.target_id, score=score))
+    def nearest_to_vector(
+        self,
+        graph_id: str,
+        vector: list[float],
+        *,
+        k: int = 10,
+    ) -> list[NearestHit]:
+        dimensions = len(vector)
+        query_norm = sqrt(fsum(value * value for value in vector))
+        if query_norm == 0.0:
+            raise CorruptVectorError("Query vector has zero norm")
 
-        return nlargest(k, scored, key=lambda hit: hit.score)
+        rows = self.conn.execute(
+            """
+            SELECT id, graph_id, target_type, target_id, model, dimensions, vector, created_at
+              FROM embeddings
+             WHERE graph_id = ?
+               AND dimensions = ?
+             ORDER BY id ASC
+            """,
+            (graph_id, dimensions),
+        ).fetchall()
+        if not rows:
+            return []
+
+        candidates = [EmbeddingRow(*row) for row in rows]
+        return _rank_cosine_hits(vector, candidates, k=k)
 
     def _load_target(self, *, graph_id: str, target_id: str, model: str | None) -> EmbeddingRow | None:
         sql = """

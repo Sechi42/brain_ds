@@ -248,6 +248,68 @@ def _normalize_query(text: str) -> str:
     return "".join(ch for ch in nfd if unicodedata.category(ch) != "Mn")
 
 
+def _search_graph_lexical_rows(store: GraphStore, graph_id: str, raw_query: str, rows: list[Any]) -> list[dict[str, Any]]:
+    """Return the current lexical search result exactly as before."""
+    fts_ids = store.search_nodes_fts(graph_id, raw_query)
+
+    if fts_ids is not None and len(fts_ids) > 0:
+        id_set = set(fts_ids)
+        return [_node_to_dict(row) for row in rows if row.id in id_set]
+
+    query = _normalize_query(raw_query)
+
+    def _match(row: Any) -> bool:
+        return (
+            query in _normalize_query(row.label)
+            or query in _normalize_query(row.type)
+            or query in _normalize_query(_details_text(row.details))
+        )
+
+    return [_node_to_dict(row) for row in rows if _match(row)]
+
+
+def _fuse_search_rows(
+    rows: list[Any],
+    lexical_rows: list[dict[str, Any]],
+    dense_hits: list[Any],
+) -> list[dict[str, Any]]:
+    """Fuse lexical and dense ranks with RRF, deduping by node id."""
+    rows_by_id = {row.id: row for row in rows}
+    lexical_ids: list[str] = []
+    for item in lexical_rows:
+        node_id = item.get("id")
+        if isinstance(node_id, str) and node_id in rows_by_id:
+            lexical_ids.append(node_id)
+
+    dense_ids: list[str] = []
+    for hit in dense_hits:
+        node_id = getattr(hit, "target_id", None)
+        if isinstance(node_id, str) and node_id in rows_by_id:
+            dense_ids.append(node_id)
+
+    if not lexical_ids and not dense_ids:
+        return lexical_rows
+
+    lexical_rank = {node_id: rank + 1 for rank, node_id in enumerate(lexical_ids)}
+    dense_rank = {node_id: rank + 1 for rank, node_id in enumerate(dense_ids)}
+    lexical_sentinel = len(lexical_ids) + 1
+
+    candidates: list[tuple[float, str]] = []
+    seen: set[str] = set()
+    for node_id in lexical_ids + dense_ids:
+        if node_id in seen:
+            continue
+        seen.add(node_id)
+        rrf = 1.0 / (60 + lexical_rank.get(node_id, lexical_sentinel))
+        dense_rank_value = dense_rank.get(node_id)
+        if dense_rank_value is not None:
+            rrf += 1.0 / (60 + dense_rank_value)
+        candidates.append((rrf, node_id))
+
+    candidates.sort(key=lambda item: (-item[0], item[1]))
+    return [_node_to_dict(rows_by_id[node_id]) for _, node_id in candidates]
+
+
 @error_boundary
 def search_graph(store: GraphStore, params: dict[str, Any]) -> list[dict[str, Any]] | dict[str, Any]:
     validated = validate_tool_input("search_graph", params, TOOL_SCHEMAS["search_graph"])
@@ -259,24 +321,27 @@ def search_graph(store: GraphStore, params: dict[str, Any]) -> list[dict[str, An
     except GraphNotFoundError as exc:
         raise ValidationError(code=-32000, message=str(exc)) from exc
 
-    # Attempt FTS5 search first
-    fts_ids = store.search_nodes_fts(graph_id, raw_query)
+    lexical_rows = _search_graph_lexical_rows(store, graph_id, raw_query, rows)
 
-    if fts_ids is not None and len(fts_ids) > 0:
-        id_set = set(fts_ids)
-        return [_node_to_dict(row) for row in rows if row.id in id_set]
+    model = get_default_model()
+    if model is None:
+        return lexical_rows
 
-    # Fallback: Python substring scan (accent-insensitive)
-    query = _normalize_query(raw_query)
-
-    def _match(row: Any) -> bool:
-        return (
-            query in _normalize_query(row.label)
-            or query in _normalize_query(row.type)
-            or query in _normalize_query(_details_text(row.details))
+    try:
+        limit = similarity.DEFAULT_LIMIT
+        query_vector = model.embed(raw_query)
+        dense_hits = store.nearest_to_vector(
+            graph_id,
+            query_vector,
+            k=max(limit * 3, 30),
         )
+    except Exception:
+        return lexical_rows
 
-    return [_node_to_dict(row) for row in rows if _match(row)]
+    if not dense_hits:
+        return lexical_rows
+
+    return _fuse_search_rows(rows, lexical_rows, dense_hits)
 
 
 @error_boundary

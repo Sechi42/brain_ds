@@ -324,6 +324,16 @@ class GraphStore:
         self._assert_graph_exists(graph_id)
         return self.embedding_repo.nearest_embeddings(graph_id, target_id, k=k, model=model)
 
+    def nearest_to_vector(
+        self,
+        graph_id: str,
+        vector: list[float],
+        *,
+        k: int = 10,
+    ) -> list[NearestHit]:
+        self._assert_graph_exists(graph_id)
+        return self.embedding_repo.nearest_to_vector(graph_id, vector, k=k)
+
     def _node_to_row_input(self, node: Node) -> dict[str, Any]:
         entity_type = node.entity_type
         payload = {
