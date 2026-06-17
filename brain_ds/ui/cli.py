@@ -25,6 +25,14 @@ from .setup import setup_main
 from .viewer import render_graph_data, render_graph_file
 
 
+def _resolve_backfill_store(project_root: Path):  # returns GraphStore
+    """Open the GraphStore for the given project root (thin seam for tests)."""
+    from brain_ds.store.graph_store import GraphStore
+
+    db_path = project_root / ".brain_ds" / "store.db"
+    return GraphStore(str(db_path))
+
+
 def _resolve_ui_project_root(project_root_arg: str | None) -> Path:
     if project_root_arg:
         return Path(project_root_arg).resolve()
@@ -161,7 +169,64 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Also attempt real provider connectivity (explicit opt-in)",
     )
 
+    embed_backfill_parser = subparsers.add_parser(
+        "embed-backfill",
+        help="Backfill embeddings for all nodes in a graph that are not yet embedded",
+    )
+    embed_backfill_parser.add_argument(
+        "--graph-id",
+        required=True,
+        help="Graph ID to backfill",
+    )
+    embed_backfill_parser.add_argument(
+        "--project-root",
+        default=".",
+        help="Project root containing .brain_ds/store.db (default: .)",
+    )
+    embed_backfill_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report how many nodes would be embedded without writing",
+    )
+
     return parser, secret_parser
+
+
+def _run_embed_backfill(args: argparse.Namespace) -> int:
+    """Handler for the ``embed-backfill`` subcommand."""
+    from brain_ds.scoring.embedder import embed_graph_nodes, get_default_model
+
+    project_root = _resolve_ui_project_root(args.project_root)
+    store = _resolve_backfill_store(project_root)
+
+    # Guard: model must be present
+    model = get_default_model()
+    if model is None:
+        print(
+            "Warning: fastembed is not installed — embedding model unavailable.\n"
+            "Install it with: pip install brain_ds[embeddings]",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Guard: graph must exist
+    graphs = store.list_graphs()
+    graph_ids = {g.id for g in graphs}
+    if args.graph_id not in graph_ids:
+        print(f"Error: graph '{args.graph_id}' not found.", file=sys.stderr)
+        return 1
+
+    result = embed_graph_nodes(store, args.graph_id, model, dry_run=args.dry_run)
+
+    if result.get("dry_run"):
+        would = result.get("would_embed", 0)
+        print(f"Dry-run: would embed {would} node(s) in graph '{args.graph_id}' (0 written).")
+    else:
+        embedded = result.get("embedded", 0)
+        skipped = result.get("skipped", 0)
+        print(f"Backfill complete: embedded={embedded}, skipped={skipped} (graph='{args.graph_id}').")
+
+    return 0
 
 
 def _run_setup(args: argparse.Namespace) -> int:
@@ -465,6 +530,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         from brain_ds.harness_check import harness_check_main
 
         return harness_check_main(Path(args.project_root))
+
+    if args.command == "embed-backfill":
+        return _run_embed_backfill(args)
 
     if args.command == "secret":
         if args.secret_command == "list":

@@ -244,7 +244,7 @@ class TestEmbedGraphNodes(unittest.TestCase):
     ) -> Any:
         """Build a minimal mock store for embed_graph_nodes."""
         store = MagicMock()
-        store.list_nodes.return_value = nodes
+        store.query_nodes.return_value = nodes
 
         _existing = existing_embeddings or set()
 

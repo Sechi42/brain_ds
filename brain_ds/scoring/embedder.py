@@ -160,7 +160,7 @@ def embed_graph_nodes(
         ``{"embedded": 0, "skipped": 0, "would_embed": int, "dry_run": True}``
         in dry-run mode.
     """
-    nodes: list[NodeRow] = store.list_nodes(graph_id)
+    nodes: list[NodeRow] = store.query_nodes(graph_id)
     embedded = 0
     skipped = 0
     would_embed = 0
