@@ -29,7 +29,8 @@ from brain_ds.mcp.security import (
     validate_path_within_root,
     validate_tool_input,
 )
-from brain_ds.store.errors import GraphAlreadyExistsError, GraphNotFoundError, StoreError
+from brain_ds.scoring.embedder import get_default_model, node_text
+from brain_ds.store.errors import CorruptVectorError, GraphAlreadyExistsError, GraphNotFoundError, StoreError
 from brain_ds.store.graph_store import GraphStore
 
 
@@ -313,6 +314,23 @@ def update_node(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
 
         store.upsert_node(graph_id, payload)
         result = get_node.__wrapped__(store, {"graph_id": graph_id, "node_id": node_id})
+
+        # Embedding producer hook: fire-and-forget, never fail the write.
+        try:
+            _model = get_default_model()
+            if _model is not None:
+                # Re-fetch all nodes and locate this one for the canonical NodeRow.
+                for _node_row in store.query_nodes(graph_id):
+                    if _node_row.id == node_id:
+                        _vec = _model.embed(node_text(_node_row))
+                        store.upsert_embedding(graph_id, "node", node_id, _model.name, _vec)
+                        break
+        except Exception:
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "Embedding producer hook failed for node %s; skipping.", node_id, exc_info=True
+            )
+
         store.log_audit("update_node", validated, "ok")
         store.enqueue_event(
             "node.created" if is_create else "node.updated",
@@ -503,6 +521,7 @@ def suggest_connections(store: GraphStore, params: dict[str, Any]) -> dict[str, 
     validated = validate_tool_input("suggest_connections", params, TOOL_SCHEMAS["suggest_connections"])
     graph_id = validated["graph_id"]
     node_id = validated["node_id"]
+    limit = validated.get("limit", similarity.DEFAULT_LIMIT)
 
     try:
         nodes = store.query_nodes(graph_id)
@@ -513,17 +532,28 @@ def suggest_connections(store: GraphStore, params: dict[str, Any]) -> dict[str, 
 
     evidence_items = [{"id": row.id, "text": row.content} for row in evidence_rows]
 
+    # Build dense ranks via nearest_embeddings. CorruptVectorError (focus has no
+    # embedding) => fall back to lexical-only (dense_ranks=None).
+    dense_ranks: dict[str, int] | None = None
+    k = max(int(limit) * 3, 30)
+    try:
+        hits = store.nearest_embeddings(graph_id, node_id, k=k)
+        dense_ranks = {hit.target_id: rank + 1 for rank, hit in enumerate(hits)}
+    except CorruptVectorError:
+        dense_ranks = None
+
     try:
         return similarity.suggest_connections_for_node(
             nodes,
             edges,
             node_id,
             threshold=validated.get("threshold", similarity.DEFAULT_THRESHOLD),
-            limit=validated.get("limit", similarity.DEFAULT_LIMIT),
+            limit=limit,
             minimum_shared_tokens=validated.get(
                 "minimum_shared_tokens", similarity.DEFAULT_MIN_SHARED_TOKENS
             ),
             evidence_items=evidence_items,
+            dense_ranks=dense_ranks,
         )
     except KeyError as exc:
         raise ValidationError(code=-32000, message=f"Node '{node_id}' not found in graph '{graph_id}'") from exc

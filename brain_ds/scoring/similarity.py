@@ -106,6 +106,10 @@ DEFAULT_LIMIT = 10
 MAX_LIMIT = 50
 _SECTION_CONTENT_CAP = 400
 
+# RRF fusion constants
+WEIGHT_RRF = 0.15
+_RRF_K = 60
+
 # Sparse-node gate: a node without a concrete "where" or still marked
 # Underspecified must be elicited before it earns automatic edges.
 SPARSE_BLOCK_REASON = "blocked: sparse node — fill in 'where' field first"
@@ -196,6 +200,7 @@ def suggest_connections_for_node(
     limit: int = DEFAULT_LIMIT,
     minimum_shared_tokens: int = DEFAULT_MIN_SHARED_TOKENS,
     evidence_items: list[dict[str, Any]] | None = None,
+    dense_ranks: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     limit = max(1, min(int(limit), MAX_LIMIT))
     threshold = min(max(float(threshold), 0.0), 1.0)
@@ -215,6 +220,28 @@ def suggest_connections_for_node(
     focus_tokens = node_text_tokens(focus)
     focus_sparse = is_sparse(focus)
 
+    # ---------------------------------------------------------------------------
+    # When dense_ranks is provided, use RRF fusion path.
+    # Otherwise fall through to the unchanged lexical-only path.
+    # ---------------------------------------------------------------------------
+    if dense_ranks is not None:
+        return _suggest_with_rrf(
+            nodes=nodes,
+            focus=focus,
+            neighbors=neighbors,
+            connected=connected,
+            focus_tokens=focus_tokens,
+            focus_sparse=focus_sparse,
+            evidence_by_id=evidence_by_id,
+            threshold=threshold,
+            limit=limit,
+            minimum_shared_tokens=minimum_shared_tokens,
+            dense_ranks=dense_ranks,
+        )
+
+    # ---------------------------------------------------------------------------
+    # Legacy lexical-only path — ZERO change from pre-RRF implementation.
+    # ---------------------------------------------------------------------------
     candidates: list[dict[str, Any]] = []
     review_needed_count = 0
     blocked_sparse_count = 0
@@ -304,6 +331,209 @@ def suggest_connections_for_node(
         )
 
     candidates.sort(key=lambda item: (-item["score"], item["node_id"]))
+    above_threshold = len(candidates)
+    returned = candidates[:limit]
+    effective_threshold = returned[-1]["score"] if above_threshold > limit else threshold
+
+    return {
+        "node_id": focus.id,
+        "node_label": focus.label,
+        "node_type": focus.type,
+        "threshold": threshold,
+        "minimum_shared_tokens": minimum_shared_tokens,
+        "effective_threshold": effective_threshold,
+        "candidates_above_threshold": above_threshold,
+        "returned": len(returned),
+        "review_needed": review_needed_count,
+        "blocked_sparse": blocked_sparse_count,
+        "already_connected": sorted(connected),
+        "suggestions": returned,
+    }
+
+
+def _suggest_with_rrf(
+    *,
+    nodes: list[NodeRow],
+    focus: NodeRow,
+    neighbors: dict[str, set[str]],
+    connected: set[str],
+    focus_tokens: set[str],
+    focus_sparse: bool,
+    evidence_by_id: dict[str, dict[str, Any]],
+    threshold: float,
+    limit: int,
+    minimum_shared_tokens: int,
+    dense_ranks: dict[str, int],
+) -> dict[str, Any]:
+    """RRF fusion path: compute lexical scores, build ranks, fuse with dense_ranks.
+
+    dense_ranks is guaranteed non-None here.  The function is factored out so
+    the lexical-only path above remains byte-identical to the pre-RRF code.
+    """
+    # -----------------------------------------------------------------------
+    # Pass 1: collect every non-connected candidate with its raw lexical score.
+    # This gives us the ordering we need to assign 1-based lexical ranks.
+    # -----------------------------------------------------------------------
+    PreCandidate = dict[str, Any]
+    pre_candidates: list[PreCandidate] = []
+
+    for other in nodes:
+        if other.id == focus.id or other.id in connected:
+            continue
+
+        source_id, target_id, label, is_mapped = _suggestion_for_pair(focus, other)
+        type_affinity = TYPE_AFFINITY_MAPPED if is_mapped else TYPE_AFFINITY_UNMAPPED
+        lexical, shared_tokens = _lexical_similarity(focus_tokens, node_text_tokens(other))
+        shared_neighbors = connected & neighbors.get(other.id, set())
+        neighbor_score = min(len(shared_neighbors) / 3.0, 1.0)
+        evidence_score, evidence_n = _evidence_score(
+            focus, other, _pair_evidence(focus, other, evidence_by_id)
+        )
+
+        if label in HIGH_IMPACT_LABELS:
+            lexical_weight, evidence_weight = WEIGHT_LEXICAL_HIGH_IMPACT, WEIGHT_EVIDENCE_HIGH_IMPACT
+        else:
+            lexical_weight, evidence_weight = WEIGHT_LEXICAL_DEFAULT, WEIGHT_EVIDENCE_DEFAULT
+
+        score = (
+            WEIGHT_TYPE_AFFINITY * type_affinity
+            + lexical_weight * lexical
+            + evidence_weight * evidence_score
+            + WEIGHT_NEIGHBORS * neighbor_score
+        )
+
+        pre_candidates.append({
+            "_other": other,
+            "_source_id": source_id,
+            "_target_id": target_id,
+            "_label": label,
+            "_is_mapped": is_mapped,
+            "_shared_tokens": shared_tokens,
+            "_shared_neighbors": shared_neighbors,
+            "_evidence_score": evidence_score,
+            "_evidence_n": evidence_n,
+            "_score": score,
+        })
+
+    # Total candidates evaluated (used for sentinel)
+    candidates_evaluated = len(pre_candidates)
+    _LEXICAL_SENTINEL = candidates_evaluated + 1
+
+    # -----------------------------------------------------------------------
+    # Build 1-based lexical rank map from the raw scores.
+    # Sort descending by score, assign rank 1 to the highest.
+    # -----------------------------------------------------------------------
+    pre_candidates.sort(key=lambda c: (-c["_score"], c["_other"].id))
+    lexical_rank_map: dict[str, int] = {
+        c["_other"].id: rank + 1
+        for rank, c in enumerate(pre_candidates)
+    }
+
+    # -----------------------------------------------------------------------
+    # Pass 2: filter and score each candidate using RRF fusion.
+    # -----------------------------------------------------------------------
+    candidates: list[dict[str, Any]] = []
+    review_needed_count = 0
+    blocked_sparse_count = 0
+
+    for pre in pre_candidates:
+        other: NodeRow = pre["_other"]
+        source_id: str = pre["_source_id"]
+        target_id: str = pre["_target_id"]
+        label: str = pre["_label"]
+        is_mapped: bool = pre["_is_mapped"]
+        shared_tokens: list[str] = pre["_shared_tokens"]
+        shared_neighbors: set[str] = pre["_shared_neighbors"]
+        evidence_score: float = pre["_evidence_score"]
+        evidence_n: int = pre["_evidence_n"]
+        score: float = pre["_score"]
+
+        # A candidate is "dense-only" if it has a dense rank but zero shared tokens.
+        # Such candidates bypass the minimum_shared_tokens gate (but not sparse gate).
+        is_dense_only = (other.id in dense_ranks) and (len(shared_tokens) == 0)
+
+        # shared-with gate (lexical-only guard — same as before)
+        if label == "shared-with" and (
+            score < SHARED_WITH_MIN_SCORE or len(shared_tokens) < SHARED_WITH_MIN_TOKENS
+        ):
+            continue
+
+        # Threshold gate: applied to lexical score (not fused), same as before
+        if score < threshold and not is_dense_only:
+            continue
+
+        # Unmapped + below token floor: skip unless dense-only
+        if not is_mapped and len(shared_tokens) < minimum_shared_tokens and not is_dense_only:
+            continue
+
+        # For dense-only candidates that don't meet lexical threshold,
+        # we still require they appear in dense_ranks (already guaranteed by is_dense_only)
+        if is_dense_only and score < threshold and other.id not in dense_ranks:
+            continue
+
+        # -----------------------------------------------------------------------
+        # RRF score computation
+        # -----------------------------------------------------------------------
+        rank_lexical = lexical_rank_map.get(other.id, _LEXICAL_SENTINEL)
+        rank_dense = dense_ranks.get(other.id)
+        rrf = 1.0 / (_RRF_K + rank_lexical)
+        if rank_dense is not None:
+            rrf += 1.0 / (_RRF_K + rank_dense)
+
+        fused_score = score + WEIGHT_RRF * rrf
+
+        # -----------------------------------------------------------------------
+        # Label resolution (same logic as lexical path)
+        # -----------------------------------------------------------------------
+        reason_parts: list[str] = []
+        if is_mapped:
+            reason_parts.append(f"type rule: {focus.type} <-> {other.type} ({label})")
+        else:
+            if score > SHARED_WITH_MIN_SCORE and len(shared_tokens) >= SHARED_WITH_MIN_TOKENS:
+                label = "shared-with"
+                reason_parts.append(
+                    f"no canonical type rule for {focus.type} <-> {other.type}; "
+                    f"strong lexical evidence ({len(shared_tokens)} shared tokens)"
+                )
+            else:
+                label = REVIEW_NEEDED_LABEL
+                reason_parts.append(
+                    f"no canonical type rule for {focus.type} <-> {other.type}; "
+                    "lexical evidence too weak to auto-suggest a relationship"
+                )
+                review_needed_count += 1
+
+        if is_dense_only:
+            reason_parts.append(f"semantic match (no shared tokens), dense rank {dense_ranks.get(other.id)}")
+        elif shared_tokens:
+            reason_parts.append("shared tokens: " + ", ".join(shared_tokens[:6]))
+        if evidence_n:
+            reason_parts.append(f"{evidence_n} evidence item(s), evidence score {evidence_score:.2f}")
+        elif label in HIGH_IMPACT_LABELS:
+            reason_parts.append("no evidence captured — high-impact label needs evidence before acceptance")
+        if shared_neighbors:
+            reason_parts.append(f"{len(shared_neighbors)} shared neighbor(s)")
+
+        # Sparse gate
+        if focus_sparse or is_sparse(other):
+            label = REVIEW_NEEDED_LABEL
+            reason_parts.insert(0, SPARSE_BLOCK_REASON)
+            blocked_sparse_count += 1
+
+        candidates.append(
+            {
+                "node_id": other.id,
+                "label": other.label,
+                "type": other.type,
+                "score": round(score, 4),
+                "fused_score": round(fused_score, 6),
+                "suggested_edge": {"source": source_id, "target": target_id, "label": label},
+                "reason": "; ".join(reason_parts),
+            }
+        )
+
+    # Sort by fused_score descending (dense-aware ordering)
+    candidates.sort(key=lambda item: (-item["fused_score"], item["node_id"]))
     above_threshold = len(candidates)
     returned = candidates[:limit]
     effective_threshold = returned[-1]["score"] if above_threshold > limit else threshold

@@ -803,6 +803,24 @@ class EmbeddingRepository:
         )
         self.conn.commit()
 
+    def has_embedding(
+        self,
+        graph_id: str,
+        target_type: str,
+        target_id: str,
+        model: str,
+    ) -> bool:
+        """Return True when an embedding row exists for this (graph, type, target, model)."""
+        row = self.conn.execute(
+            """
+            SELECT 1 FROM embeddings
+             WHERE graph_id = ? AND target_type = ? AND target_id = ? AND model = ?
+             LIMIT 1
+            """,
+            (graph_id, target_type, target_id, model),
+        ).fetchone()
+        return row is not None
+
     def nearest_embeddings(
         self,
         graph_id: str,
