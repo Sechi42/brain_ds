@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from brain_ds.scoring.embedder import node_text
+from brain_ds.scoring.node_text import node_text
 from brain_ds.scoring.factors import _tokens, evidence_count, explicit_reference
 from brain_ds.store.models import EdgeRow, NodeRow
 
@@ -464,11 +464,6 @@ def _suggest_with_rrf(
 
         # Unmapped + below token floor: skip unless dense-only
         if not is_mapped and len(shared_tokens) < minimum_shared_tokens and not is_dense_only:
-            continue
-
-        # For dense-only candidates that don't meet lexical threshold,
-        # we still require they appear in dense_ranks (already guaranteed by is_dense_only)
-        if is_dense_only and score < threshold and other.id not in dense_ranks:
             continue
 
         # -----------------------------------------------------------------------

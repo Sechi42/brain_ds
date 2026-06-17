@@ -121,82 +121,110 @@ class TestRRFRegressionGuard(unittest.TestCase):
 
 
 class TestRRFMath(unittest.TestCase):
-    """Verify the RRF formula produces the expected numeric values."""
+    """Verify the RRF formula produces the expected numeric values.
+
+    Design note: ``WEIGHT_RRF=0.15`` is intentionally small (tie-breaking, not
+    wholesale inversion).  The fixtures therefore give A and B *identical* lexical
+    scores so the RRF term is the sole differentiator.  Alphabetical node-id
+    tiebreaking inside the lexical sort guarantees A gets lexical rank 1 and B
+    gets lexical rank 2 — a deterministic baseline for the dense re-ranking check.
+    """
 
     def _make_graph(self) -> tuple[list[NodeRow], list[EdgeRow]]:
-        # Focus F with KPI type; A and B are Data Sources (mapped pair -> KPI measured-by DS)
-        # We give F and A a shared token "ventas" so A passes lexical gate.
-        # B has only a weak match but we'll give it dense rank 1.
-        focus = _node("focus", "ventas metricas", "KPI",
+        """KPI focus with two Data-Source candidates that have identical lexical scores.
+
+        Both A and B share the same tokens with focus so their raw scores are equal.
+        The alphabetical tiebreak (``-score, node_id``) makes A lexical rank 1 and
+        B lexical rank 2.  Tests then supply ``dense_ranks`` to invert that order.
+        """
+        focus = _node("focus", "ventas analisis reporte", "KPI",
                       {"where": "dashboard ventas"})
-        a = _node("A", "ventas datos fuente", "Data Source",
-                  {"where": "salesforce ventas"})
-        b = _node("B", "fuente datos metricas", "Data Source",
-                  {"where": "sistema datos metricas"})
+        # A and B: identical token overlap with focus so lexical scores match.
+        # Alphabetical id tiebreak ensures A < B => A is lexical rank 1.
+        a = _node("A", "ventas analisis datos", "Data Source",
+                  {"where": "sistema reporte"})
+        b = _node("B", "ventas analisis datos", "Data Source",
+                  {"where": "sistema reporte"})
         return [focus, a, b], []
 
     def test_rrf_ranks_b_above_a(self) -> None:
-        """lexical A=1 B=2, dense A=3 B=1 => B ranks above A in fused result."""
+        """Dense rank inversion: lexical A=1, B=2; dense A=3, B=1 => B wins fused.
+
+        With equal lexical scores the alphabetical tiebreak gives A rank 1, B rank 2.
+        Dense ranks A=3, B=1 produce different RRF sums:
+          rrf(A) = 1/61 + 1/63  (lexical=1, dense=3)
+          rrf(B) = 1/62 + 1/61  (lexical=2, dense=1)
+        rrf(B) > rrf(A) so fused(B) > fused(A).
+        """
         nodes, edges = self._make_graph()
 
-        # We need to know the lexical ordering first: call without dense_ranks
-        baseline = suggest_connections_for_node(nodes, edges, "focus")
+        # Confirm baseline lexical order (threshold=0.0 so all candidates surface).
+        baseline = suggest_connections_for_node(nodes, edges, "focus", threshold=0.0)
         ids = _result_node_ids(baseline)
-        # A should be ranked 1 (more shared tokens with focus) and B ranked 2
-        # If the actual lexical order is different the test is still valid as long as
-        # dense_ranks inverts it.
         if len(ids) < 2:
             self.skipTest("Not enough candidates to test ranking inversion")
 
-        # Assign dense ranks to INVERT the lexical order
-        lexical_rank_map = {node_id: rank + 1 for rank, node_id in enumerate(ids)}
-        # dense: top of lexical rank gets worst dense rank, bottom gets best
-        dense_rank_map = {node_id: len(ids) - rank + 1 for rank, node_id in enumerate(ids)}
+        # Lexical rank 1 = ids[0] (A), rank 2 = ids[1] (B).
+        # Dense ranks: A=3 (poor), B=1 (best) — asymmetric so RRF sums differ.
+        dense_rank_map = {ids[0]: 3, ids[1]: 1}
 
-        result = suggest_connections_for_node(nodes, edges, "focus", dense_ranks=dense_rank_map)
+        result = suggest_connections_for_node(
+            nodes, edges, "focus", dense_ranks=dense_rank_map, threshold=0.0
+        )
         fused_ids = _result_node_ids(result)
 
-        # The bottom lexical candidate should now rank above the top one
-        if len(fused_ids) >= 2:
-            self.assertNotEqual(fused_ids[0], ids[0],
-                                "Dense-boosted candidate should move to top")
+        self.assertGreaterEqual(len(fused_ids), 2, "Both candidates must survive")
+        # B (lexical rank 2, dense rank 1) should now be first after RRF fusion
+        self.assertEqual(fused_ids[0], ids[1],
+                         "Dense-boosted candidate (lexical rank 2) should move to top")
+        self.assertEqual(fused_ids[1], ids[0])
 
     def test_rrf_exact_values_a1_b2_a3_b1(self) -> None:
         """
-        Spec SUG-S3:
-          lexical ranks: A=1, B=2
-          dense ranks:   A=3, B=1
-          rrf(A) = 1/(60+1) + 1/(60+3) = 1/61 + 1/63 ≈ 0.03222
-          rrf(B) = 1/(60+2) + 1/(60+1) = 1/62 + 1/61 ≈ 0.03250
-          => B has higher rrf => B above A
-        """
-        # Build a graph where A and B are both valid lexical candidates so we
-        # can supply artificial dense ranks and verify B comes out on top.
-        focus = _node("focus", "ventas analisis reporte", "KPI",
-                      {"where": "dashboard ventas analisis"})
-        # A: more shared tokens so will be lexical rank 1
-        a = _node("A", "ventas analisis metricas datos", "Data Source",
-                  {"where": "sistema ventas analisis"})
-        # B: fewer shared tokens so will be lexical rank 2
-        b = _node("B", "datos reporte metricas", "Data Source",
-                  {"where": "almacen datos"})
-        nodes = [focus, a, b]
-        edges: list[EdgeRow] = []
+        Spec SUG-S3 — exact RRF formula with _RRF_K=60:
 
-        # Verify baseline lexical order
-        baseline = suggest_connections_for_node(nodes, edges, "focus")
+          lexical ranks: A=1, B=2   (identical scores; alphabetical tiebreak)
+          dense ranks:   A=3, B=1
+
+          rrf(A) = 1/(60+1) + 1/(60+3) = 1/61 + 1/63 ≈ 0.032266
+          rrf(B) = 1/(60+2) + 1/(60+1) = 1/62 + 1/61 ≈ 0.032522
+
+          fused(B) - fused(A) = WEIGHT_RRF * (rrf_B - rrf_A) > 0  => B above A
+        """
+        nodes, edges = self._make_graph()
+        edges_typed: list[EdgeRow] = list(edges)
+
+        # Verify the alphabetical tiebreak gives A lexical rank 1.
+        baseline = suggest_connections_for_node(nodes, edges_typed, "focus", threshold=0.0)
         baseline_ids = _result_node_ids(baseline)
         if len(baseline_ids) < 2 or baseline_ids[0] != "A":
             self.skipTest(f"Expected A to be lexical rank 1 but got {baseline_ids}")
 
-        # Assign dense ranks: A=3, B=1
+        # Assign dense ranks: A=3, B=1 (SUG-S3 scenario).
         dense_ranks = {"A": 3, "B": 1}
-        result = suggest_connections_for_node(nodes, edges, "focus", dense_ranks=dense_ranks)
+        result = suggest_connections_for_node(
+            nodes, edges_typed, "focus", dense_ranks=dense_ranks, threshold=0.0
+        )
 
         fused_ids = _result_node_ids(result)
         self.assertGreaterEqual(len(fused_ids), 2, "Both candidates must survive")
         self.assertEqual(fused_ids[0], "B", "B should rank above A after RRF")
         self.assertEqual(fused_ids[1], "A")
+
+        # Verify the numeric values match the formula exactly.
+        suggs = {s["node_id"]: s for s in result["suggestions"]}
+        score_a = suggs["A"]["score"]
+        score_b = suggs["B"]["score"]
+        self.assertAlmostEqual(score_a, score_b, places=6,
+                               msg="A and B must have identical lexical scores")
+        rrf_a = 1 / (60 + 1) + 1 / (60 + 3)   # lexical=1, dense=3
+        rrf_b = 1 / (60 + 2) + 1 / (60 + 1)   # lexical=2, dense=1
+        from brain_ds.scoring.similarity import WEIGHT_RRF
+        expected_fused_a = score_a + WEIGHT_RRF * rrf_a
+        expected_fused_b = score_b + WEIGHT_RRF * rrf_b
+        self.assertAlmostEqual(suggs["A"]["fused_score"], round(expected_fused_a, 6), places=5)
+        self.assertAlmostEqual(suggs["B"]["fused_score"], round(expected_fused_b, 6), places=5)
+        self.assertGreater(suggs["B"]["fused_score"], suggs["A"]["fused_score"])
 
         # Also check that rrf values are exposed/used correctly
         # We can verify the ordering is correct by checking fused_score if exposed

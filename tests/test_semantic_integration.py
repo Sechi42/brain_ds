@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-fastembed = pytest.importorskip("fastembed", reason="fastembed not installed — T10 skipped")
+fastembed = pytest.importorskip("fastembed", reason="fastembed not installed — T10 skipped", exc_type=ImportError)
 
 from brain_ds.mcp.tools import create_graph, suggest_connections, update_node
 from brain_ds.store.graph_store import GraphStore

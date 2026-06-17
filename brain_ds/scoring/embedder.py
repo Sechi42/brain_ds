@@ -16,6 +16,7 @@ import logging
 from typing import Any, Protocol, runtime_checkable
 
 from brain_ds.store.models import NodeRow
+from brain_ds.scoring.node_text import node_text  # re-exported for back-compat
 
 log = logging.getLogger(__name__)
 
@@ -109,29 +110,7 @@ def get_default_model() -> EmbeddingModel | None:
 # ---------------------------------------------------------------------------
 # Node text assembly (shared source of truth with similarity.node_text_tokens)
 # ---------------------------------------------------------------------------
-
-_SECTION_CONTENT_CAP = 400
-_LOW_SIGNAL = frozenset({"ok", "n/a", "na", "none", "unknown"})
-
-
-def node_text(node: NodeRow) -> str:
-    """Build the raw text string used for embedding and tokenisation.
-
-    This is the single source of truth for *what text represents a node*.
-    ``similarity.node_text_tokens`` delegates here so that the lexical and
-    vector spaces are always aligned.
-    """
-    parts: list[str] = [node.label or "", node.type or ""]
-    for value in (node.details or {}).values():
-        text = str(value or "").strip()
-        if text.lower() in _LOW_SIGNAL:
-            continue
-        parts.append(text)
-    for section in node.card_sections or []:
-        if isinstance(section, dict):
-            parts.append(str(section.get("title", "")))
-            parts.append(str(section.get("content", ""))[:_SECTION_CONTENT_CAP])
-    return " ".join(parts)
+# node_text imported from node_text.py above (re-exported for back-compat).
 
 
 # ---------------------------------------------------------------------------
