@@ -9,6 +9,38 @@ const eventToMessage = (event) => {
   return event?.data && typeof event.data === 'object' ? event.data : null;
 };
 
+// ── Presence model types (design contract — JSDoc only; file eval'd as plain JS) ──
+
+/**
+ * @typedef {Object} AgentPresence
+ * @property {string} agentId
+ * @property {string} label
+ * @property {string} role    — Agent role as reported by the transport (e.g. 'orchestrator', 'apply', 'verify'); defaults to 'agent' if not supplied.
+ * @property {'active'|'idle'|'error'} status
+ * @property {string} lastSeen
+ * @property {string[]} recentTools
+ *
+ * AgentPresence — one entry per distinct agent seen in this session.
+ * Populated from `tool.invoked` event payloads; never cleared on disconnect.
+ */
+
+/**
+ * @typedef {Object} ActivityEntry
+ * @property {string} agentId
+ * @property {string} tool
+ * @property {string} timestamp
+ * @property {string} status
+ *
+ * ActivityEntry — one item in the recentActivity ring buffer (cap 200).
+ * Pushed on every `tool.invoked` event; never dropped.
+ */
+
+/** Rate-limit for panel update notifications: ≤4 Hz = 250 ms. */
+const PRESENCE_THROTTLE_MS = 250;
+
+/** Maximum entries in the recentActivity ring buffer. */
+const ACTIVITY_RING_CAP = 200;
+
 export class LiveDataStore {
   constructor(initialContext, nodesDataSet, edgesDataSet) {
     this.context = initialContext || {};
@@ -18,6 +50,20 @@ export class LiveDataStore {
     this.onNodeRemoved = NOOP;
     this.onEventBuffered = NOOP;
     this.onReceipt = NOOP;
+    // ── Presence model (T2.2 / T2.4) ─────────────────────────────────────────
+    /** Known agents. Never cleared on disconnect — survives transport loss. @type {Map<string, AgentPresence>} */
+    this.presenceByAgent = new Map();
+    /** Activity ring buffer: all tool.invoked events, capped at ACTIVITY_RING_CAP. @type {ActivityEntry[]} */
+    this.recentActivity = [];
+    /** Transport state: 'connected' | 'reconnecting'. */
+    this.connectionState = 'connected';
+    /** Called whenever connectionState changes. */
+    this.onConnectionStateChange = NOOP;
+    /** Presence-update subscribers (notified at ≤4 Hz). @type {Array<()=>void>} */
+    this._presenceSubscribers = [];
+    /** Throttle timer handle for presence panel notifications. */
+    this._presenceUpdateTimer = null;
+    // ─────────────────────────────────────────────────────────────────────────
     this.bufferQueue = [];
     this.isFetchComplete = false;
     this.nodeMap = new Map();
@@ -27,6 +73,74 @@ export class LiveDataStore {
     this.pendingPlacement = new Set();
     this.highlightTimers = new Map();
     this.seedFromContext(this.context);
+  }
+
+  // ── Presence model public API (T2.2) ─────────────────────────────────────────
+
+  /** Return the presenceByAgent Map. @returns {Map<string, AgentPresence>} */
+  getPresence() {
+    return this.presenceByAgent;
+  }
+
+  /**
+   * Subscribe to presence updates. cb is called at ≤4 Hz when the model changes.
+   * @param {()=>void} cb
+   * @returns {()=>void} unsubscribe function
+   */
+  subscribePresence(cb) {
+    this._presenceSubscribers.push(cb);
+    return () => {
+      this._presenceSubscribers = this._presenceSubscribers.filter((s) => s !== cb);
+    };
+  }
+
+  /** Schedule a throttled notification to presence subscribers (≤4 Hz). */
+  _notifyPresence() {
+    if (this._presenceUpdateTimer !== null) return; // already scheduled
+    this._presenceUpdateTimer = setTimeout(() => {
+      this._presenceUpdateTimer = null;
+      for (const cb of this._presenceSubscribers) {
+        try { cb(); } catch { /* subscriber errors must not propagate */ }
+      }
+    }, PRESENCE_THROTTLE_MS);
+  }
+
+  /** Update presenceByAgent from a tool.invoked payload. @param {Record<string,unknown>} payload */
+  _applyPresence(payload) {
+    const agentId = String(payload?.agent_id || payload?.tool || 'unknown');
+    const tool = String(payload?.tool || '');
+    const timestamp = String(payload?.timestamp || new Date().toISOString());
+    const status = String(payload?.status || 'ok').toLowerCase() === 'error' ? 'error' : 'active';
+    // W2: role from transport payload; default to 'agent' if not provided
+    const role = String(payload?.role || 'agent');
+
+    // Always push to activity log — never dropped
+    const entry = { agentId, tool, timestamp, status };
+    this.recentActivity.push(entry);
+    // Enforce ring cap (200 entries max)
+    if (this.recentActivity.length > ACTIVITY_RING_CAP) {
+      this.recentActivity.splice(0, this.recentActivity.length - ACTIVITY_RING_CAP);
+    }
+
+    // Update presence record
+    const existing = this.presenceByAgent.get(agentId);
+    const recentTools = existing?.recentTools ?? [];
+    if (tool && !recentTools.includes(tool)) {
+      recentTools.unshift(tool);
+      if (recentTools.length > 5) recentTools.length = 5;
+    }
+    const updated = {
+      agentId,
+      label: agentId,
+      role,
+      status,
+      lastSeen: timestamp,
+      recentTools,
+    };
+    this.presenceByAgent.set(agentId, updated);
+
+    // Throttle panel DOM notification (≤4 Hz) — the state update above is immediate
+    this._notifyPresence();
   }
 
   // The REST API (/api/edges) emits {edge_id, source, target}; the viewer contract
@@ -124,6 +238,7 @@ export class LiveDataStore {
     const name = String(event?.event || '');
     const payload = event?.payload || {};
     if (name === 'tool.invoked') {
+      this._applyPresence(payload);
       this.renderReceipt(payload);
       this.onReceipt(payload);
       return;
@@ -314,12 +429,20 @@ export function connectWebSocket(graphId, store) {
     socket = new WebSocket(wsUrl);
     socket.addEventListener('open', () => {
       retries = 0;
+      // T2.4: restore connected state — presenceByAgent is intentionally NOT cleared
+      store.connectionState = 'connected';
+      store.onConnectionStateChange('connected');
     });
     socket.addEventListener('message', (evt) => {
       const parsed = eventToMessage(evt);
       if (parsed) store.queueOrApply(parsed);
     });
-    socket.addEventListener('close', scheduleReconnect);
+    socket.addEventListener('close', () => {
+      // T2.4: signal reconnecting; presenceByAgent stays intact
+      store.connectionState = 'reconnecting';
+      store.onConnectionStateChange('reconnecting');
+      scheduleReconnect();
+    });
     socket.addEventListener('error', () => {
       socket?.close();
     });
