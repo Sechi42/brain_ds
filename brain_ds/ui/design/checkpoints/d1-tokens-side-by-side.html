@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>D.1 Token Review — Side-by-Side Checkpoint</title>
+    <style>
+      html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background: #09090b; color: #f4f4f5; font-family: -apple-system, "Segoe UI", system-ui, sans-serif; }
+      header {
+        height: 64px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 1rem;
+        background: #121214;
+        border-bottom: 1px solid rgba(63, 63, 70, 0.4);
+      }
+      header h1 { margin: 0; font-size: 0.95rem; font-weight: 600; color: #ffffff; }
+      header .sub { font-size: 0.78rem; color: #71717a; margin-top: 0.15rem; }
+      header details { font-size: 0.78rem; }
+      header summary { cursor: pointer; color: #a78bfa; }
+      header details[open] {
+        background: #141414;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid rgba(63, 63, 70, 0.4);
+        border-radius: 8px;
+        max-width: 30rem;
+      }
+      .frames {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0;
+        height: calc(100vh - 64px);
+      }
+      .frame-wrap {
+        position: relative;
+        height: 100%;
+        border-right: 1px solid rgba(63, 63, 70, 0.4);
+        overflow: hidden;
+      }
+      .frame-wrap:last-child { border-right: 0; }
+      .frame-label {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        z-index: 10;
+        background: rgba(18, 18, 20, 0.85);
+        border: 1px solid rgba(63, 63, 70, 0.4);
+        border-radius: 8px;
+        padding: 0.25rem 0.55rem;
+        font-size: 0.72rem;
+        color: #f4f4f5;
+        pointer-events: none;
+        backdrop-filter: blur(4px);
+      }
+      iframe { width: 100%; height: 100%; border: 0; background: #09090b; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>D.1 Token Review — modern-design-tokens</h1>
+        <div class="sub">Locked: --bg-main #09090b · --bg-panel #121214 · --border-subtle rgba(63,63,70,0.4) · --radius-md 8px · --fw-{regular,medium,semibold}</div>
+      </div>
+      <details>
+        <summary>What to inspect</summary>
+        <ul style="margin: 0.4rem 0 0; padding-left: 1.1rem; line-height: 1.5;">
+          <li>Carbon/zinc backgrounds — NO absolute black (#000), surfaces should read as #09090b / #121214.</li>
+          <li>Refined borders — rgba(63,63,70,0.4) on panels, no white-tinted borders.</li>
+          <li>Radius scale — buttons/tabs use --radius-ui (8px via --radius-md). NOTE: bumped from 6px (design catalog) to 8px (spec/DIV-4) — corners should look slightly softer than before. Not a regression.</li>
+          <li>Font weights — labels should use --fw-medium / --fw-semibold, not size jumps.</li>
+          <li>Motion — hover/focus respects prefers-reduced-motion.</li>
+          <li>Out of scope (D.2/D.3): segmented controls, mini-sidebar, 4-zone layout.</li>
+        </ul>
+        <p style="margin: 0.5rem 0 0; font-size: 0.7rem; color: #71717a;">
+          Regenerate left sample: <code>uv run python -c "from brain_ds.demo import build_logitrans_graph; from brain_ds.ui.render_context import build_render_context; from brain_ds.ui.template_renderer import render_interactive_html; from pathlib import Path; Path('brain_ds/ui/design/checkpoints/d1-viewer-sample.html').write_text(render_interactive_html(build_render_context(build_logitrans_graph())), encoding='utf-8')"</code>
+        </p>
+      </details>
+    </header>
+    <div class="frames">
+      <div class="frame-wrap">
+        <div class="frame-label">LEFT — live graph_viewer.html (new tokens.css)</div>
+        <iframe src="./d1-viewer-sample.html" title="Live graph_viewer with tokens.css"></iframe>
+      </div>
+      <div class="frame-wrap">
+        <div class="frame-label">RIGHT — reference moderngraphui_notailwind.html</div>
+        <iframe src="../sections/moderngraphui_notailwind.html" title="Reference modern graph UI"></iframe>
+      </div>
+    </div>
+  </body>
+</html>
