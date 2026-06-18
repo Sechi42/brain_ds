@@ -42,10 +42,10 @@
       .workspace-shell {
         display: grid;
         /* Side panels are user-resizable via drag handles and collapsible to a 48px
-           peek. Widths live in --rail-w / --inspector-w (default 264 / 320, within the
-           220-300 / 280-360 reference bands). The grid-template-columns transition gives
+           peek. Widths live in --rail-w / --inspector-w (default 288 / 352, within the
+           220-320 / 280-384 reference bands). The grid-template-columns transition gives
            the collapse/expand its smooth track-shrink effect. */
-        --rail-w: 264px;
+        --rail-w: 288px;
         --inspector-w: 352px;
         grid-template-columns: 48px var(--rail-w) minmax(0,1fr) var(--inspector-w) 48px;
         grid-template-rows: 1fr;
@@ -465,7 +465,7 @@
       .rail[data-rail-side='right'] .rail-icon[data-rail-icon='inspector'][aria-selected="true"] {
         color: var(--accent-mora);
         background-color: color-mix(in srgb, var(--accent-mora) 14%, var(--bg-panel-hover));
-        box-shadow: inset 0 -2px 0 var(--accent-mora);
+        box-shadow: inset 3px 0 0 var(--accent-mora), 0 0 0 1px color-mix(in srgb, var(--accent-mora) 34%, transparent);
       }
       .rail[data-rail-side='right'] .rail-icon[data-rail-icon='inspector'][aria-selected="true"]::before {
         background: var(--accent-mora);
@@ -473,11 +473,13 @@
       .rail[data-rail-side='right'] .rail-icon[data-rail-icon='ai-actions'][aria-selected="true"] {
         color: var(--status-active);
         background-color: color-mix(in srgb, var(--status-active) 14%, var(--bg-panel-hover));
-        box-shadow: inset 0 -2px 0 var(--status-active);
+        box-shadow: inset 3px 0 0 var(--status-active), 0 0 0 1px color-mix(in srgb, var(--status-active) 34%, transparent);
       }
       .rail[data-rail-side='right'] .rail-icon[data-rail-icon='ai-actions'][aria-selected="true"]::before {
         background: var(--status-active);
       }
+      .rail[data-rail-side='right'] .rail-icon[data-rail-icon='inspector'] svg { color: var(--accent-mora); }
+      .rail[data-rail-side='right'] .rail-icon[data-rail-icon='ai-actions'] svg { color: var(--status-active); }
       .rail[data-rail-side='right'] .rail-icon:focus-visible {
         outline: 2px solid var(--accent-mora);
         outline-offset: -2px;
@@ -685,6 +687,10 @@
       .project-group[data-group-by='datasource'] > summary {
         min-height: 44px;
         padding: 0.5rem 0.65rem;
+      }
+      .project-group[data-group-by='datasource'] .project-group-label {
+        white-space: normal;
+        line-height: 1.25;
       }
       .project-group[data-group-by='datasource'] .project-group-body {
         gap: 0.25rem;
@@ -1707,10 +1713,10 @@
         flex-direction: column;
         height: auto;
         max-height: calc(100% - 1.5rem);
-        width: min(100%, 360px);
+        width: calc(100% - 2rem);
         max-width: 360px;
-        align-self: flex-end;
-        margin: 1rem;
+        align-self: center;
+        margin: 1rem auto;
         overflow: hidden;
         background: var(--bg-panel);
         border: 1px solid var(--border-subtle);
@@ -2621,7 +2627,7 @@
       </div>
       <div class="meta" id="org-ts"></div>
     </header>
-    <main class="workspace-shell layout" style="--inspector-w: 48px">
+    <main class="workspace-shell layout" style="--inspector-w: 48px" data-rail-w="288px" data-inspector-w="352px">
       <!-- Left rail — section-1-left-shell.html pattern (PR2) -->
       <!-- Rail-icon click behavior and panel routing are wired via workspaceChrome runtime modules -->
       <nav class="rail" role="tablist" aria-orientation="vertical" aria-label="Left workspace rail" data-rail-side="left">
@@ -4673,6 +4679,12 @@
             const btn = target && typeof target.closest === "function" ? target.closest("[data-group-by]") : null;
             if (!btn) return;
             groupBy = btn.getAttribute("data-group-by") || "type";
+            if (workspaceShellEl) {
+              const preferredRailWidth = groupBy === "datasource" ? "304px" : "288px";
+              workspaceShellEl.dataset.railW = preferredRailWidth;
+              const leftExpanded = !leftShell || !leftShell.classList.contains("collapsed");
+              if (leftExpanded) workspaceShellEl.style.setProperty("--rail-w", preferredRailWidth);
+            }
             grouping.querySelectorAll("[data-group-by]").forEach((b) => {
               const active = b === btn;
               b.setAttribute("aria-checked", String(active));
@@ -5145,7 +5157,7 @@
           // Shrink/restore the grid track itself so the canvas reclaims the space
           // (the transition on grid-template-columns animates the collapse).
           if (workspaceShellEl) {
-            workspaceShellEl.style.setProperty('--rail-w', expanded ? '48px' : (workspaceShellEl.dataset.railW || '264px'));
+            workspaceShellEl.style.setProperty('--rail-w', expanded ? '48px' : (workspaceShellEl.dataset.railW || '288px'));
           }
         });
       }
@@ -5181,7 +5193,7 @@
           rightCollapseBtn.setAttribute('aria-label', expanded ? 'Expand right panel' : 'Collapse right panel');
           rightShell.classList.toggle('collapsed', expanded);
           if (workspaceShellEl) {
-            workspaceShellEl.style.setProperty('--inspector-w', expanded ? '48px' : (workspaceShellEl.dataset.inspectorW || '320px'));
+            workspaceShellEl.style.setProperty('--inspector-w', expanded ? '48px' : (workspaceShellEl.dataset.inspectorW || '352px'));
           }
         });
         // Inspector starts collapsed: the canvas gets the space until the user

@@ -1395,14 +1395,16 @@ class TestWorkspaceShellPr1Template(unittest.TestCase):
     def test_workspace_shell_uses_five_column_grid(self):
         # Five columns: 48px rail | resizable left panel | 1fr center | resizable
         # right panel | 48px rail. Panel widths are now CSS vars (user-resizable +
-        # collapsible) with defaults inside the 220-300 / 280-360 reference bands.
+        # collapsible) with roomier defaults inside the 220-320 / 280-384 reference bands.
         self.assertIn(".workspace-shell", self.template_text)
         self.assertRegex(
             self.template_text,
             r"grid-template-columns:\s*48px\s+var\(--rail-w\)\s+minmax\(0,\s*1fr\)\s+var\(--inspector-w\)\s+48px",
         )
-        self.assertRegex(self.template_text, r"--rail-w:\s*264px")
+        self.assertRegex(self.template_text, r"--rail-w:\s*288px")
         self.assertRegex(self.template_text, r"--inspector-w:\s*352px")
+        self.assertIn('data-rail-w="288px"', self.template_text)
+        self.assertIn('data-inspector-w="352px"', self.template_text)
 
     def test_center_chrome_has_locked_tab_and_toolbar_heights(self):
         # PR #4 chrome parity: tab-strip is 36px per ADR-009 project override
