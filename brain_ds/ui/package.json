@@ -17,6 +17,8 @@
   "devDependencies": {
     "@playwright/test": "^1.60.0",
     "esbuild": "^0.28.1",
+    "graphology": "^0.25.4",
+    "graphology-layout-forceatlas2": "^0.10.1",
     "typescript": "^5.4.0"
   }
 }

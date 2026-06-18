@@ -8,6 +8,452 @@
     return Array.isArray(payload) ? payload : [payload];
   }
 
+  // ── Label-policy (Slice 1: graph-label-culling) ───────────────────────────
+  // Inlined from brain_ds/ui/src/labels/label-policy.ts.
+  // renderer.ts must remain dependency-free (no import/require), so the pure
+  // culling logic lives here. label-policy.ts is the canonical typed source
+  // consumed by any build pipeline; this copy tracks it exactly.
+  var _labelPolicyDefaults = { zoomThreshold: 0.4, budgetPerFrame: 80, priorityWeights: { degree: 1.0, centrality: 2.0, selected: 100.0 } };
+
+  function _labelScore(node, weights) {
+    var w = weights || {};
+    return (node.degree || 0) * (w.degree !== undefined ? w.degree : 1.0)
+      + (node.centrality || 0) * (w.centrality !== undefined ? w.centrality : 2.0)
+      + (node.selected ? 1 : 0) * (w.selected !== undefined ? w.selected : 100.0);
+  }
+
+  function _labelAlwaysReason(node) {
+    if (node.selected) return 'selected';
+    if (node.hovered)  return 'hovered';
+    if (node.focused)  return 'focused';
+    if (node.pinned)   return 'pinned';
+    return null;
+  }
+
+  /**
+   * computeVisibleLabels(nodes, viewport, config) → LabelDecision[]
+   *
+   * Always-visible: selected | hovered | focused | pinned — bypass zoom + budget.
+   * Below zoomThreshold: all non-always-visible nodes get visible=false, reason='culled'.
+   * Budget cap: at most budgetPerFrame labels drawn, ranked by degree/centrality/selection.
+   */
+  function computeVisibleLabels(nodes, viewport, config) {
+    var cfg = config || _labelPolicyDefaults;
+    var belowThreshold = viewport.scale < cfg.zoomThreshold;
+    var decisions = new Array(nodes.length);
+    var candidateIndices = [];
+
+    for (var i = 0; i < nodes.length; i++) {
+      var alwaysReason = _labelAlwaysReason(nodes[i]);
+      if (alwaysReason !== null) {
+        decisions[i] = { visible: true, reason: alwaysReason };
+      } else if (belowThreshold) {
+        decisions[i] = { visible: false, reason: 'culled' };
+      } else {
+        decisions[i] = { visible: false, reason: 'culled' };
+        candidateIndices.push(i);
+      }
+    }
+
+    if (belowThreshold) return decisions;
+
+    var budget = cfg.budgetPerFrame;
+    var weights = cfg.priorityWeights || {};
+    var alwaysVisibleCount = 0;
+    for (var j = 0; j < decisions.length; j++) {
+      if (decisions[j].visible) alwaysVisibleCount++;
+    }
+
+    candidateIndices.sort(function (a, b) {
+      return _labelScore(nodes[b], weights) - _labelScore(nodes[a], weights);
+    });
+
+    var remaining = Math.max(0, budget - alwaysVisibleCount);
+    for (var k = 0; k < candidateIndices.length; k++) {
+      var idx = candidateIndices[k];
+      decisions[idx] = k < remaining
+        ? { visible: true, reason: 'budget' }
+        : { visible: false, reason: 'culled' };
+    }
+
+    return decisions;
+  }
+  // ── End label-policy ──────────────────────────────────────────────────────
+
+  // ── Physics: Barnes-Hut quadtree (Slice 3: graph-physics-fa2-quadtree) ────
+  // Inlined from brain_ds/ui/src/physics/barnes-hut.ts and
+  // brain_ds/ui/src/physics/collision.ts and layout-adapter.ts.
+  // renderer.ts must remain dependency-free (no import/require).
+
+  // LCG constants (Park-Miller)
+  var _LCG_M = 2147483647;
+  var _LCG_A = 16807;
+
+  function _lcg(seed) {
+    var state = ((Math.floor(Math.abs(seed || 1)) % (_LCG_M - 1)) || 1);
+    return function () {
+      state = (_LCG_A * state) % _LCG_M;
+      return (state - 1) / (_LCG_M - 2);
+    };
+  }
+
+  // ── Quadtree ───────────────────────────────────────────────────────────────
+
+  function _makeCell(x, y, w, h) {
+    return { x: x, y: y, w: w, h: h, mass: 0, cx: 0, cy: 0, body: null, children: null };
+  }
+
+  function _qtInsert(cell, node, depth) {
+    if (depth > 64) return;
+    if (cell.mass === 0) {
+      cell.body = node;
+      cell.mass = 1;
+      cell.cx = node.x;
+      cell.cy = node.y;
+      return;
+    }
+    var newMass = cell.mass + 1;
+    cell.cx = (cell.cx * cell.mass + node.x) / newMass;
+    cell.cy = (cell.cy * cell.mass + node.y) / newMass;
+    cell.mass = newMass;
+    if (cell.children === null) {
+      var hw = cell.w / 2;
+      var hh = cell.h / 2;
+      cell.children = [
+        _makeCell(cell.x,      cell.y,      hw, hh),
+        _makeCell(cell.x + hw, cell.y,      hw, hh),
+        _makeCell(cell.x,      cell.y + hh, hw, hh),
+        _makeCell(cell.x + hw, cell.y + hh, hw, hh),
+      ];
+      if (cell.body !== null) {
+        _qtInsert(_qtChildFor(cell, cell.body), cell.body, depth + 1);
+        cell.body = null;
+      }
+    }
+    _qtInsert(_qtChildFor(cell, node), node, depth + 1);
+  }
+
+  function _qtChildFor(cell, node) {
+    var mx = cell.x + cell.w / 2;
+    var my = cell.y + cell.h / 2;
+    var idx = (node.x >= mx ? 1 : 0) + (node.y >= my ? 2 : 0);
+    return cell.children[idx];
+  }
+
+  function _buildQuadtree(nodes) {
+    if (!nodes.length) return _makeCell(-500, -500, 1000, 1000);
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      if (n.x < minX) minX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.x > maxX) maxX = n.x;
+      if (n.y > maxY) maxY = n.y;
+    }
+    var size = Math.max(maxX - minX, maxY - minY) + 2;
+    var root = _makeCell(minX - 1, minY - 1, size, size);
+    for (var j = 0; j < nodes.length; j++) {
+      _qtInsert(root, nodes[j], 0);
+    }
+    return root;
+  }
+
+  function _bhRepulsionFrom(cell, body, theta, repulsion, out) {
+    if (cell.mass === 0) return;
+    if (cell.children === null) {
+      if (cell.body === body || cell.body === null) return;
+      var dx0 = body.x - cell.body.x;
+      var dy0 = body.y - cell.body.y;
+      var distSq0 = (dx0 * dx0 + dy0 * dy0) || 0.01;
+      var dist0 = Math.sqrt(distSq0);
+      var force0 = repulsion / distSq0;
+      out.fx += (dx0 / dist0) * force0;
+      out.fy += (dy0 / dist0) * force0;
+      return;
+    }
+    var dx = body.x - cell.cx;
+    var dy = body.y - cell.cy;
+    var distSq = (dx * dx + dy * dy) || 0.01;
+    var dist = Math.sqrt(distSq);
+    if (cell.w / dist < theta) {
+      var force = repulsion * cell.mass / distSq;
+      out.fx += (dx / dist) * force;
+      out.fy += (dy / dist) * force;
+    } else {
+      for (var k = 0; k < 4; k++) {
+        if (cell.children[k] !== null) {
+          _bhRepulsionFrom(cell.children[k], body, theta, repulsion, out);
+        }
+      }
+    }
+  }
+
+  function _applyBhRepulsion(nodes, theta, repulsion) {
+    var qt = _buildQuadtree(nodes);
+    var out = { fx: 0, fy: 0 };
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      if (n.fixed) continue;
+      out.fx = 0;
+      out.fy = 0;
+      _bhRepulsionFrom(qt, n, theta, repulsion, out);
+      n.vx = (n.vx || 0) + out.fx;
+      n.vy = (n.vy || 0) + out.fy;
+    }
+  }
+
+  // ── Collision step ─────────────────────────────────────────────────────────
+
+  function _applyCollisionStep(nodes, nodeRadius, maxIterations) {
+    var minDist = (nodeRadius || 12) * 2;
+    var minDistSq = minDist * minDist;
+    var iters = Math.min(3, maxIterations || 3);
+    for (var iter = 0; iter < iters; iter++) {
+      var anyOverlap = false;
+      for (var i = 0; i < nodes.length; i++) {
+        var a = nodes[i];
+        if (a.fixed) continue;
+        for (var j = i + 1; j < nodes.length; j++) {
+          var b = nodes[j];
+          if (b.fixed) continue;
+          var dx = b.x - a.x;
+          var dy = b.y - a.y;
+          var distSq = (dx * dx + dy * dy) || 0.0001;
+          if (distSq < minDistSq) {
+            anyOverlap = true;
+            var dist = Math.sqrt(distSq);
+            var overlap = minDist - dist;
+            var nx = (dx / dist) * (overlap / 2);
+            var ny = (dy / dist) * (overlap / 2);
+            a.x -= nx;
+            a.y -= ny;
+            b.x += nx;
+            b.y += ny;
+          }
+        }
+      }
+      if (!anyOverlap) break;
+    }
+  }
+
+  // ── inferSettings (auto-tune) ──────────────────────────────────────────────
+
+  function _inferSettings(n) {
+    var workerThreshold = 1000;
+    var algorithm = n < 50 ? 'legacy' : (n < workerThreshold ? 'fa2' : 'worker');
+    var theta = n > 500 ? 0.6 : 0.5;
+    var restLength = Math.max(80, 30 * Math.sqrt(Math.min(n, 500)));
+    var repulsion = Math.max(400, 3600 / Math.sqrt(n / 10 + 1));
+    return {
+      algorithm: algorithm,
+      workerThreshold: workerThreshold,
+      theta: theta,
+      maxCollisionIterations: 3,
+      temperature: 1.0,
+      gravity: 0.002,
+      repulsion: repulsion,
+      spring: 0.01,
+      restLength: restLength,
+    };
+  }
+
+  // ── LayoutStrategy inline implementation ──────────────────────────────────
+  // Mirrors brain_ds/ui/src/physics/layout-adapter.ts exactly.
+
+  function LayoutStrategy(opts) {
+    var o = opts || {};
+    this.workerThreshold = o.workerThreshold !== undefined ? o.workerThreshold : 1000;
+    this.theta = o.theta !== undefined ? o.theta : 0.5;
+    this.repulsion = o.repulsion !== undefined ? o.repulsion : 3600;
+    this.spring = o.spring !== undefined ? o.spring : 0.01;
+    this.restLength = o.restLength !== undefined ? o.restLength : 180;
+    this.gravity = o.gravity !== undefined ? o.gravity : 0.0024;
+    this.damping = o.damping !== undefined ? o.damping : 0.9;
+    this.maxSpeed = o.maxSpeed !== undefined ? o.maxSpeed : 120;
+    this.temperature = o.temperature !== undefined ? o.temperature : 1.0;
+    this._fallbackLogged = false;
+    var alg = (o.algorithm || 'fa2').toLowerCase();
+    this.mode = alg === 'legacy' ? 'legacy' : 'barnes-hut';
+  }
+
+  LayoutStrategy.prototype.tick = function (state, dt) {
+    var nodes = state.nodes;
+    var edges = state.edges;
+    var n = nodes.length;
+    var temperature = state.temperature !== undefined ? state.temperature : this.temperature;
+    var effectiveMode = this.mode;
+    if (this.mode !== 'legacy') {
+      effectiveMode = n >= this.workerThreshold ? 'worker' : 'barnes-hut';
+    }
+    if (effectiveMode === 'worker' || effectiveMode === 'legacy') {
+      this._tickLegacy(nodes, edges, dt, temperature, state.dragNodeId, state.dragPulls);
+      return;
+    }
+    try {
+      this._bhRepulsion(nodes, edges, dt, temperature, state.dragNodeId, state.dragPulls);
+    } catch (e) {
+      if (!this._fallbackLogged) {
+        console.warn('[LayoutStrategy] Barnes-Hut failed, falling back to legacy O(n²):', e);
+        this._fallbackLogged = true;
+      }
+      this.mode = 'legacy';
+      this._tickLegacy(nodes, edges, dt, temperature, state.dragNodeId, state.dragPulls);
+    }
+  };
+
+  LayoutStrategy.prototype.seed = function (nodes, edges) {
+    var neighborOf = new Map();
+    for (var e = 0; e < edges.length; e++) {
+      var from = String(edges[e].from || edges[e].source || '');
+      var to = String(edges[e].to || edges[e].target || '');
+      if (!neighborOf.has(from)) neighborOf.set(from, []);
+      if (!neighborOf.has(to)) neighborOf.set(to, []);
+      neighborOf.get(from).push(to);
+      neighborOf.get(to).push(from);
+    }
+    var positioned = new Map();
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      if (n.x !== undefined && n.y !== undefined) positioned.set(n.id, n);
+    }
+    for (var j = 0; j < nodes.length; j++) {
+      var node = nodes[j];
+      if (node.x !== undefined && node.y !== undefined) continue;
+      var neighbors = neighborOf.get(node.id) || [];
+      var placed = false;
+      for (var k = 0; k < neighbors.length; k++) {
+        var nbr = positioned.get(neighbors[k]);
+        if (nbr) {
+          var angle = Math.PI * 2 * ((j * 1.618033) % 1);
+          var dist = 30 + (j % 5) * 8;
+          node.x = nbr.x + Math.cos(angle) * dist;
+          node.y = nbr.y + Math.sin(angle) * dist;
+          node.vx = 0;
+          node.vy = 0;
+          positioned.set(node.id, node);
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        node.x = (j % 50) * 30 - 750;
+        node.y = Math.floor(j / 50) * 30 - 375;
+        node.vx = 0;
+        node.vy = 0;
+        positioned.set(node.id, node);
+      }
+    }
+  };
+
+  LayoutStrategy.prototype._bhRepulsion = function (nodes, edges, dt, temperature, dragNodeId, dragPulls) {
+    var n = nodes.length;
+    var centerX = 0;
+    var centerY = 0;
+    var incident = new Map();
+    for (var e = 0; e < edges.length; e++) {
+      var from = String(edges[e].from || edges[e].source || '');
+      var to = String(edges[e].to || edges[e].target || '');
+      if (!incident.has(from)) incident.set(from, []);
+      if (!incident.has(to)) incident.set(to, []);
+      incident.get(from).push(to);
+      incident.get(to).push(from);
+    }
+    var nodesById = new Map();
+    for (var p = 0; p < n; p++) nodesById.set(String(nodes[p].id), nodes[p]);
+    _applyBhRepulsion(nodes, this.theta, this.repulsion);
+    for (var i = 0; i < n; i++) {
+      var a = nodes[i];
+      if (a.fixed || (dragNodeId !== null && dragNodeId !== undefined && String(a.id) === String(dragNodeId))) continue;
+      var fx = a.vx || 0;
+      var fy = a.vy || 0;
+      var linked = incident.get(String(a.id)) || [];
+      for (var k = 0; k < linked.length; k++) {
+        var other = nodesById.get(linked[k]);
+        if (!other) continue;
+        var sx = other.x - a.x;
+        var sy = other.y - a.y;
+        var sl = Math.sqrt(sx * sx + sy * sy) || 0.01;
+        var hooke = this.spring * (sl - this.restLength);
+        fx += (sx / sl) * hooke;
+        fy += (sy / sl) * hooke;
+      }
+      fx += (centerX - a.x) * this.gravity;
+      fy += (centerY - a.y) * this.gravity;
+      var vx = fx * this.damping;
+      var vy = fy * this.damping;
+      var speed = Math.abs(vx) + Math.abs(vy);
+      if (speed > this.maxSpeed) { vx *= this.maxSpeed / speed; vy *= this.maxSpeed / speed; }
+      else if (speed < 0.02) { vx = 0; vy = 0; }
+      a.vx = vx;
+      a.vy = vy;
+      var moveScale = 1;
+      if (dragPulls) {
+        var pull = dragPulls.get(String(a.id));
+        moveScale = pull === undefined ? 0 : pull;
+      }
+      a.x += vx * temperature * moveScale;
+      a.y += vy * temperature * moveScale;
+    }
+  };
+
+  LayoutStrategy.prototype._tickLegacy = function (nodes, edges, dt, temperature, dragNodeId, dragPulls) {
+    var centerX = 0;
+    var centerY = 0;
+    var cutoffSq = 480 * 480;
+    var incident = new Map();
+    for (var e = 0; e < edges.length; e++) {
+      var from = String(edges[e].from || edges[e].source || '');
+      var to = String(edges[e].to || edges[e].target || '');
+      if (!incident.has(from)) incident.set(from, []);
+      if (!incident.has(to)) incident.set(to, []);
+      incident.get(from).push(to);
+      incident.get(to).push(from);
+    }
+    var nodesById = new Map();
+    for (var p = 0; p < nodes.length; p++) nodesById.set(String(nodes[p].id), nodes[p]);
+    for (var i = 0; i < nodes.length; i++) {
+      var a = nodes[i];
+      if (a.fixed || (dragNodeId !== null && dragNodeId !== undefined && String(a.id) === String(dragNodeId))) continue;
+      var fx = 0; var fy = 0;
+      for (var j = 0; j < nodes.length; j++) {
+        if (i === j) continue;
+        var b = nodes[j];
+        var dx = a.x - b.x; var dy = a.y - b.y;
+        var distSq = (dx * dx + dy * dy) || 0.01;
+        if (distSq > cutoffSq) continue;
+        var dist = Math.sqrt(distSq);
+        var force = this.repulsion / distSq;
+        fx += (dx / dist) * force; fy += (dy / dist) * force;
+      }
+      var linked = incident.get(String(a.id)) || [];
+      for (var k = 0; k < linked.length; k++) {
+        var other = nodesById.get(linked[k]);
+        if (!other) continue;
+        var sx = other.x - a.x; var sy = other.y - a.y;
+        var sl = Math.sqrt(sx * sx + sy * sy) || 0.01;
+        var hooke = this.spring * (sl - this.restLength);
+        fx += (sx / sl) * hooke; fy += (sy / sl) * hooke;
+      }
+      fx += (centerX - a.x) * this.gravity;
+      fy += (centerY - a.y) * this.gravity;
+      var vx = ((a.vx || 0) + fx * dt) * this.damping;
+      var vy = ((a.vy || 0) + fy * dt) * this.damping;
+      var speed = Math.abs(vx) + Math.abs(vy);
+      if (speed > this.maxSpeed) { vx *= this.maxSpeed / speed; vy *= this.maxSpeed / speed; }
+      else if (speed < 0.02) { vx = 0; vy = 0; }
+      a.vx = vx; a.vy = vy;
+      var moveScale = 1;
+      if (dragPulls) {
+        var pull = dragPulls.get(String(a.id));
+        moveScale = pull === undefined ? 0 : pull;
+      }
+      a.x += vx * temperature * moveScale;
+      a.y += vy * temperature * moveScale;
+    }
+  };
+
+  // ── End physics (Slice 3) ─────────────────────────────────────────────────
+
   function DataSet(items) {
     this._map = new Map();
     this._listeners = [];
@@ -124,7 +570,24 @@
     // Shape from design: { open: false, x: 0, y: 0, target: null }
     // 'open' is the gate checked by _onMouseMove hover-suppression (REQ-6.10 / REQ-4.6).
     this.contextMenu = { open: false, x: 0, y: 0, target: null };
+
+    // Slice 1 (graph-label-culling): label rendering policy config.
+    // Overridable via network.setLabelConfig({ ... }).
+    // Safe degradation: if the policy call throws, all labels render.
+    this._labelConfig = Object.assign({}, _labelPolicyDefaults);
     this._themeTokens = {};
+
+    // Slice 3 (graph-physics-fa2-quadtree): layout strategy.
+    // Reads physics.algorithm and physics.workerThreshold from options.
+    // Defaults to Barnes-Hut (fa2) main-thread path for n < 1000.
+    var physicsOpts = (options && options.physics) || {};
+    this._layoutStrategy = new LayoutStrategy({
+      algorithm: physicsOpts.algorithm || 'fa2',
+      workerThreshold: physicsOpts.workerThreshold !== undefined ? physicsOpts.workerThreshold : 1000,
+      theta: physicsOpts.theta !== undefined ? physicsOpts.theta : 0.5,
+    });
+    // Physics config accessible from template
+    this._physicsConfig = physicsOpts;
 
     this.container.classList.add("vis-network");
     this.container.innerHTML = "";
@@ -348,6 +811,16 @@
       // Re-enabling physics re-warms so the layout visibly re-settles.
       if (physics.enabled && !this.physicsEnabled) this.temperature = Math.max(this.temperature, 0.6);
       this.physicsEnabled = physics.enabled;
+    }
+    // Slice 3: update layout strategy when physics.algorithm or workerThreshold changes
+    if (physics && this._layoutStrategy) {
+      if (physics.algorithm !== undefined || physics.workerThreshold !== undefined) {
+        this._layoutStrategy = new LayoutStrategy({
+          algorithm: physics.algorithm || this._layoutStrategy.mode,
+          workerThreshold: physics.workerThreshold !== undefined ? physics.workerThreshold : this._layoutStrategy.workerThreshold,
+          theta: physics.theta !== undefined ? physics.theta : this._layoutStrategy.theta,
+        });
+      }
     }
   };
 
@@ -851,7 +1324,32 @@
     var hoveredNeighborhood = hoveredId !== null
       ? (self._neighborIndex.get(hoveredId) || new Set())
       : null;
-    state.nodes.forEach(function (node) {
+
+    // Slice 1 (graph-label-culling): compute per-node label visibility before
+    // the draw loop. Annotate each visible node with selection/hover/focus state
+    // so always-visible rules (selected | hovered | focused | pinned) are honoured.
+    // Safe degradation: if computeVisibleLabels throws, fall back to all-visible.
+    var labelDecisions;
+    try {
+      var policyNodes = state.nodes.map(function (node) {
+        return {
+          id: node.id,
+          degree: node.degree || 0,
+          centrality: node.centrality || 0,
+          selected: String(node.id) === String(self.selectedNodeId)
+            || (self.selectedNodeIds && self.selectedNodeIds.has(String(node.id))),
+          hovered: String(node.id) === String(self.hoveredNodeId),
+          focused: String(node.id) === String(self.keyboardFocusedNodeId),
+          pinned: !!node.fixed,
+        };
+      });
+      labelDecisions = computeVisibleLabels(policyNodes, self.viewport, self._labelConfig);
+    } catch (e) {
+      // Safe degradation: policy failure → render all labels
+      labelDecisions = null;
+    }
+
+    state.nodes.forEach(function (node, nodeIdx) {
       if (node.hidden) return;
       if (hoveredId !== null) {
         var isNeighbor = hoveredNeighborhood && hoveredNeighborhood.has(String(node.id));
@@ -909,6 +1407,13 @@
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.restore();
+      }
+      // Guard: skip fillText when label policy says not visible.
+      // labelDecisions is null on safe-degradation path → render all labels.
+      var decision = labelDecisions ? labelDecisions[nodeIdx] : null;
+      if (decision && decision.visible === false) {
+        ctx.globalAlpha = 1;
+        return;
       }
       ctx.fillStyle = self._themeTokens.panelText || "#f5f6f7";
       ctx.font = String(self._labelFontWeight) + " 12px sans-serif";
@@ -1359,7 +1864,16 @@
     }
 
     if (!this._prefersReducedMotion && this.physicsEnabled && this.temperature >= 0.01) {
-      this._applyForces(state, dt);
+      // Slice 3 (graph-physics-fa2-quadtree): route through LayoutStrategy.tick().
+      // Passes dragNodeId and dragPulls so LayoutStrategy honours pinning/falloff.
+      var dragPulls = this._dragFalloffFor(state);
+      this._layoutStrategy.tick({
+        nodes: state.nodes,
+        edges: state.edges,
+        dragNodeId: this.dragNodeId,
+        dragPulls: dragPulls,
+        temperature: this.temperature,
+      }, dt);
       this.temperature = this.temperature * 0.95;
     }
 
@@ -1589,5 +2103,6 @@
     this._wake();
   };
 
-  window.vis = { Network: Network, DataSet: DataSet };
+  // Slice 3: expose inferSettings so templates can auto-tune physics config
+  window.vis = { Network: Network, DataSet: DataSet, inferSettings: _inferSettings };
 })();
