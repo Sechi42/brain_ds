@@ -74,6 +74,9 @@ THEME_TOKENS = {
         # DATA for contrast tooling only — NOT a CSS emitter.
         "danger": "#f87171",
         "danger_soft": "rgba(239, 68, 68, 0.1)",
+        "status_active": "#059669",
+        "status_warn": "#d97706",
+        "status_danger": "#f87171",
         "state_success_bg": "#14532d",
         "state_success_fg": "#dcfce7",
         "state_info_bg": "#0c4a6e",
@@ -172,6 +175,9 @@ THEME_TOKENS = {
         # Danger chrome token mirror (canonical CSS source: tokens.css --danger).
         "danger": "#dc2626",
         "danger_soft": "rgba(220, 38, 38, 0.1)",
+        "status_active": "#047857",
+        "status_warn": "#b45309",
+        "status_danger": "#dc2626",
         "state_success_bg": "#dcfce7",
         "state_success_fg": "#14532d",
         "state_info_bg": "#dbeafe",

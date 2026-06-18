@@ -65,7 +65,7 @@ function _escapeHtml(value: unknown): string {
 
 function _renderMeta(metadata: Record<string, unknown>): string {
   const entries = Object.entries(metadata);
-  if (!entries.length) return '<p class="secret-empty-meta">No metadata</p>';
+  if (!entries.length) return '<p class="secret-empty-meta">Sin metadatos</p>';
   const rows = entries
     .map(([key, value]) => {
       const display = Array.isArray(value) ? value.join(', ') : _escapeHtml(value);
@@ -134,14 +134,14 @@ async function _removeSecret(handle: string): Promise<boolean> {
 function _renderHeader(): HTMLElement {
   const header = document.createElement('div');
   header.className = 'secret-panel-header';
-  header.innerHTML = `<h3 class="secret-panel-title">${GEAR_ICON} Secret settings</h3>`;
+  header.innerHTML = `<h3 class="secret-panel-title">${GEAR_ICON} Configuración de secretos</h3>`;
   return header;
 }
 
 function _renderEmpty(): HTMLElement {
   const empty = document.createElement('div');
   empty.className = 'secret-panel-empty';
-  empty.innerHTML = `<p>No workspace secrets configured.</p>`;
+  empty.innerHTML = `<p>No hay secretos configurados en este workspace.</p>`;
   return empty;
 }
 
@@ -149,7 +149,7 @@ function _renderList(): HTMLElement {
   const list = document.createElement('ul');
   list.className = 'secret-list';
   list.setAttribute('role', 'listbox');
-  list.setAttribute('aria-label', 'Workspace secret handles');
+  list.setAttribute('aria-label', 'Secretos del workspace');
 
   for (const handle of _handles) {
     const li = document.createElement('li');
@@ -164,16 +164,16 @@ function _renderList(): HTMLElement {
         <span class="secret-kind">${_escapeHtml(handle.kind)}</span>
       </div>
       <details class="secret-detail">
-        <summary class="secret-summary" aria-label="Toggle details for ${handle.handle}">
-          <span>Details</span>
+        <summary class="secret-summary" aria-label="Mostrar detalles de ${handle.handle}">
+          <span>Detalles</span>
           <span class="secret-chevron">${CHEVRON_RIGHT_ICON}</span>
         </summary>
         <div class="secret-detail-body" id="${summaryId}">
           ${_renderMeta(handle.metadata)}
         </div>
       </details>
-      <button type="button" class="secret-remove-btn" data-secret-handle="${_escapeHtml(handle.handle)}" aria-label="Remove secret ${_escapeHtml(handle.handle)}">
-        Remove
+      <button type="button" class="secret-remove-btn" data-secret-handle="${_escapeHtml(handle.handle)}" aria-label="Eliminar secreto ${_escapeHtml(handle.handle)}">
+        Eliminar
       </button>
     `;
     list.appendChild(li);
@@ -183,35 +183,35 @@ function _renderList(): HTMLElement {
 }
 
 function _renderKindOptions(): string {
-  if (!_schema) return '<option value="">Select kind</option>';
+  if (!_schema) return '<option value="">Seleccionar tipo</option>';
   const kinds = Object.keys(_schema.provider_kinds).sort();
   const options = kinds.map((k) => `<option value="${_escapeHtml(k)}">${_escapeHtml(k)}</option>`).join('');
-  return `<option value="">Select kind</option>${options}`;
+  return `<option value="">Seleccionar tipo</option>${options}`;
 }
 
 function _renderAddForm(): HTMLElement {
   const form = document.createElement('form');
   form.className = 'secret-form';
-  form.setAttribute('aria-label', 'Add workspace secret');
+  form.setAttribute('aria-label', 'Agregar secreto al workspace');
   form.innerHTML = `
-    <h4 class="secret-form-title">Add secret</h4>
+    <h4 class="secret-form-title">Agregar secreto</h4>
     <div class="secret-field-row">
-      <label for="secret-new-handle">Handle</label>
-      <input id="secret-new-handle" class="secret-input" type="text" autocomplete="off" placeholder="e.g. warehouse_ro" required />
+      <label for="secret-new-handle">Identificador</label>
+      <input id="secret-new-handle" class="secret-input" type="text" autocomplete="off" placeholder="ej. warehouse_ro" required />
     </div>
     <div class="secret-field-row">
-      <label for="secret-new-kind">Kind</label>
+      <label for="secret-new-kind">Tipo</label>
       <select id="secret-new-kind" class="secret-input" required>
         ${_renderKindOptions()}
       </select>
     </div>
     <div id="secret-kind-fields" class="secret-kind-fields"></div>
     <div class="secret-field-row">
-      <label for="secret-new-value">Credential value</label>
+      <label for="secret-new-value">Valor de credencial</label>
       <input id="secret-new-value" class="secret-input" type="password" autocomplete="off" placeholder="••••" required />
     </div>
     <button type="submit" class="pill-btn btn-outline secret-add-btn">
-      Add secret
+      Agregar secreto
     </button>
   `;
   return form;
@@ -304,7 +304,7 @@ function _renderPanel(): void {
     };
 
     const ok = await _addSecret(payload);
-    const status = _renderStatus(ok ? 'Secret added' : 'Failed to add secret', !ok);
+    const status = _renderStatus(ok ? 'Secreto agregado' : 'No se pudo agregar el secreto', !ok);
     form.appendChild(status);
     if (ok) {
       handleInput.value = '';
@@ -320,7 +320,7 @@ function _renderPanel(): void {
     const handle = (btn as HTMLElement).getAttribute('data-secret-handle');
     if (!handle) return;
     _on(btn, 'click', async () => {
-      if (!window.confirm(`Remove secret "${handle}"?`)) return;
+       if (!window.confirm(`¿Eliminar el secreto "${handle}"?`)) return;
       await _removeSecret(handle);
       await _refreshPanel();
     });

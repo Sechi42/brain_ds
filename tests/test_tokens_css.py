@@ -146,6 +146,12 @@ class TestTokensCssCatalog(unittest.TestCase):
         self.assertIn("--text-muted: #475569", css)
         self.assertIn("--vis-focus-ring: #0369a1", css)
 
+    def test_status_chrome_tokens_are_defined_in_root_and_light(self):
+        css = TOKENS_CSS.read_text(encoding="utf-8")
+        self.assertRegex(css, r":root\s*\{[\s\S]*--status-active:\s*#059669;[\s\S]*--status-warn:\s*#d97706;[\s\S]*--status-danger:\s*var\(--danger\);")
+        self.assertRegex(css, r'\[data-theme="light"\]\s*\{[\s\S]*--status-active:\s*#047857;[\s\S]*--status-warn:\s*#b45309;')
+        self.assertNotRegex(css, r'\[data-theme="light"\][\s\S]*--status-danger:\s*')
+
 
 # ---------------------------------------------------------------------------
 # T3 — template renderer substitution behaviour
@@ -193,6 +199,29 @@ class TestTemplateRenderer(unittest.TestCase):
         self.assertIn(".workspace-shell", html)
         self.assertIn("flex: 0 0 36px", html)  # .tab-strip (ADR-009 project contract)
         self.assertIn("flex: 0 0 44px", html)  # .top-toolbar / .panel-header
+
+    def test_ui_panel_chrome_consumed_tokens_are_defined_for_brd_and_secret_surfaces(self):
+        template_path = ROOT / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
+        template_text = template_path.read_text(encoding="utf-8")
+        tokens_css = TOKENS_CSS.read_text(encoding="utf-8")
+        root_block = re.search(r":root\s*\{([\s\S]*?)\}\s*\[data-theme=\"light\"\]", tokens_css)
+        light_block = re.search(r"\[data-theme=\"light\"\]\s*\{([\s\S]*?)\}\s*@media", tokens_css)
+        self.assertIsNotNone(root_block, "Could not parse :root token block")
+        self.assertIsNotNone(light_block, "Could not parse light token block")
+        consumed_tokens = {
+            "status-active": "--status-active",
+            "status-warn": "--status-warn",
+            "status-danger": "--status-danger",
+            "bg-panel-elevated": "--bg-panel-elevated",
+            "shadow-xs": "--shadow-xs",
+        }
+        for label, token in consumed_tokens.items():
+            self.assertIn(token, template_text, f"graph_viewer.html must consume {token} for {label}")
+            self.assertIn(token, tokens_css)
+        for token in ("--status-active", "--status-warn", "--bg-panel-elevated", "--shadow-xs"):
+            self.assertIn(token, root_block.group(1))
+            self.assertIn(token, light_block.group(1))
+        self.assertIn("--status-danger", root_block.group(1))
 
 
 # ---------------------------------------------------------------------------

@@ -50,6 +50,11 @@
   --danger-soft: rgba(239, 68, 68, 0.1);
   --danger-border: rgba(239, 68, 68, 0.3);
 
+  /* === Status (chrome state colors) === */
+  --status-active: #059669;
+  --status-warn: #d97706;
+  --status-danger: var(--danger);
+
   /* Reference-aligned aliases (moderngraphui_notailwind chrome parity).
      These are name-equivalents the design reference uses; brain_ds palette is the
      source of truth. Added as ADDITIONAL names (do not rename existing tokens). */
@@ -148,6 +153,9 @@
   --danger: #dc2626;
   --danger-soft: rgba(220, 38, 38, 0.1);
   --danger-border: rgba(220, 38, 38, 0.25);
+
+  --status-active: #047857;
+  --status-warn: #b45309;
 
   --accent-color: var(--accent-mora);
   --accent-color-soft: #0ea5e9;

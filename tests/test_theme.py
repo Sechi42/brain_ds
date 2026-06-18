@@ -144,6 +144,24 @@ class TestThemePalettes(unittest.TestCase):
             missing = sorted(required_keys - set(tokens.keys()))
             self.assertEqual([], missing, f"{theme_name} missing Slice 2 tokens: {missing}")
 
+    def test_status_chrome_tokens_exist_in_both_themes(self):
+        expected = {
+            "dark": {
+                "status_active": "#059669",
+                "status_warn": "#d97706",
+                "status_danger": "#f87171",
+            },
+            "light": {
+                "status_active": "#047857",
+                "status_warn": "#b45309",
+                "status_danger": "#dc2626",
+            },
+        }
+        for theme_name, values in expected.items():
+            for token_name, token_value in values.items():
+                self.assertIn(token_name, THEME_TOKENS[theme_name])
+                self.assertEqual(token_value, THEME_TOKENS[theme_name][token_name])
+
     def test_spacing_and_radius_aliases_remain_available(self):
         for _theme_name, tokens in THEME_TOKENS.items():
             self.assertEqual("0.5rem", tokens["spacing_sm"])

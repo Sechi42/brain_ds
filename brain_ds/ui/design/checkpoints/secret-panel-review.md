@@ -1,4 +1,4 @@
-# UI Review Checkpoint — Secret Settings Panel (PR 4a)
+# UI Review Checkpoint — Panel de configuración de secretos (PR 4a)
 
 ## What changed
 

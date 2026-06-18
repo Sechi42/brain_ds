@@ -133,6 +133,210 @@ class TestViewerFoundation(unittest.TestCase):
         self.assertIn("PkgOrg", html)
         self.assertIn("window.vis", html)
 
+    def test_status_chrome_css_uses_tokens_without_hex_fallbacks(self):
+        template_text = (Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "templates" / "graph_viewer.html").read_text(encoding="utf-8")
+        fresh_block = re.search(r"\.brd-freshness-chip--fresh\s*\{([^}]*)\}", template_text)
+        stale_block = re.search(r"\.brd-freshness-chip--stale\s*\{([^}]*)\}", template_text)
+        secret_block = re.search(r"\.secret-status--ok\s*\{([^}]*)\}", template_text)
+
+        self.assertIsNotNone(fresh_block, "Missing BRD fresh chip CSS rule")
+        self.assertIsNotNone(stale_block, "Missing BRD stale chip CSS rule")
+        self.assertIsNotNone(secret_block, "Missing secret status CSS rule")
+
+        self.assertNotIn("var(--status-active, #059669)", fresh_block.group(1))
+        self.assertNotIn("var(--status-warn, #d97706)", stale_block.group(1))
+        self.assertNotIn("var(--status-active, #059669)", secret_block.group(1))
+
+
+class TestUiPanelChromePolishSidebar(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        template_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
+        cls.template_text = template_path.read_text(encoding="utf-8")
+
+    def test_controls_base_rule_uses_compact_spacing_without_viewport_height(self):
+        controls = re.search(r"\.controls\s*\{\s*display:\s*flex;([\s\S]*?)\}", self.template_text)
+        self.assertIsNotNone(controls, "Missing .controls CSS rule")
+        block = controls.group(1)
+        self.assertIn("gap: 16px", block)
+        self.assertIn("padding: 12px 16px", block)
+        self.assertNotIn("height: 100vh", block)
+
+    def test_left_panel_shell_controls_keep_min_height_zero(self):
+        block = re.search(r"\.left-panel-shell \.controls\s*\{([^}]*)\}", self.template_text)
+        self.assertIsNotNone(block, "Missing .left-panel-shell .controls CSS rule")
+        self.assertIn("min-height: 0", block.group(1))
+
+    def test_panel_card_adjacent_margin_rule_removed(self):
+        self.assertNotIn(".panel-card + .panel-card", self.template_text)
+
+    def test_left_rail_icons_duplicate_block_removed(self):
+        self.assertEqual(self.template_text.count(".left-rail-icons {"), 1)
+
+    def test_secret_panel_has_roomier_inset_spacing(self):
+        secret_panel = re.search(r"#secret-panel\s*\{([^}]*)\}", self.template_text)
+        secret_list = re.search(r"\.secret-list\s*\{([^}]*)\}", self.template_text)
+        secret_form = re.search(r"\.secret-form\s*\{([^}]*)\}", self.template_text)
+
+        self.assertIsNotNone(secret_panel, "Missing #secret-panel CSS rule")
+        self.assertIsNotNone(secret_list, "Missing .secret-list CSS rule")
+        self.assertIsNotNone(secret_form, "Missing .secret-form CSS rule")
+
+        self.assertIn("margin: 1rem", secret_panel.group(1))
+        self.assertIn("padding: 0.75rem 1rem", secret_list.group(1))
+        self.assertIn("padding: 0.75rem 1rem 1rem", secret_form.group(1))
+
+    def test_left_datasource_grouping_uses_roomier_expansion_styles(self):
+        self.assertIn("details.dataset.groupBy = groupBy;", self.template_text)
+
+        datasource_summary = re.search(
+            r"\.project-group\[data-group-by='datasource'\]\s*>\s*summary\s*\{([^}]*)\}",
+            self.template_text,
+        )
+        datasource_rows = re.search(
+            r"\.project-group\[data-group-by='datasource'\]\s*\.project-node-row\s*\{([^}]*)\}",
+            self.template_text,
+        )
+
+        self.assertIsNotNone(datasource_summary, "Missing datasource group summary rule")
+        self.assertIsNotNone(datasource_rows, "Missing datasource node row rule")
+        self.assertIn("min-height: 44px", datasource_summary.group(1))
+        self.assertIn("min-height: 44px", datasource_rows.group(1))
+        self.assertIn("padding: 0.5rem 0.65rem", datasource_summary.group(1))
+        self.assertIn("padding: 0.35rem 0.6rem", datasource_rows.group(1))
+
+    def test_right_sidebar_default_width_is_roomier_for_selected_node_content(self):
+        workspace = re.search(r"\.workspace-shell\s*\{([^}]*)\}", self.template_text)
+        self.assertIsNotNone(workspace, "Missing .workspace-shell CSS rule")
+        self.assertIn("--inspector-w: 352px", workspace.group(1))
+
+    def test_right_rail_selected_states_are_icon_specific(self):
+        inspector = re.search(
+            r"\.rail\[data-rail-side='right'\] \.rail-icon\[data-rail-icon='inspector'\]\[aria-selected=\"true\"\]\s*\{([^}]*)\}",
+            self.template_text,
+        )
+        ai_actions = re.search(
+            r"\.rail\[data-rail-side='right'\] \.rail-icon\[data-rail-icon='ai-actions'\]\[aria-selected=\"true\"\]\s*\{([^}]*)\}",
+            self.template_text,
+        )
+
+        self.assertIsNotNone(inspector, "Missing inspector selected-state rule")
+        self.assertIsNotNone(ai_actions, "Missing AI actions selected-state rule")
+        self.assertIn("var(--accent-mora)", inspector.group(1))
+        self.assertIn("var(--status-active)", ai_actions.group(1))
+        self.assertNotEqual(inspector.group(1), ai_actions.group(1))
+
+
+class TestUiPanelChromePolishBrdPanel(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        root = Path(__file__).resolve().parent.parent
+        cls.template_text = (root / "brain_ds" / "ui" / "templates" / "graph_viewer.html").read_text(encoding="utf-8")
+        cls.brd_panel_text = (root / "brain_ds" / "ui" / "src" / "panels" / "brd-panel.ts").read_text(encoding="utf-8")
+
+    def test_brd_action_buttons_share_flex_width(self):
+        block = re.search(r"\.brd-open-btn,\s*\.brd-edit-btn\s*\{([^}]*)\}", self.template_text)
+        self.assertIsNotNone(block, "Missing grouped BRD action button CSS rule")
+        body = block.group(1)
+        self.assertIn("flex: 1", body)
+        self.assertIn("justify-content: center", body)
+        self.assertNotIn("width: 100%", body)
+
+    def test_brd_header_and_title_tokens(self):
+        header = re.search(r"\.brd-panel-header\s*\{([^}]*)\}", self.template_text)
+        title = re.search(r"\.brd-panel-title\s*\{([^}]*)\}", self.template_text)
+        self.assertIsNotNone(header, "Missing .brd-panel-header CSS rule")
+        self.assertIsNotNone(title, "Missing .brd-panel-title CSS rule")
+        self.assertRegex(header.group(1), r"min-height:\s*44px")
+        self.assertIn("font-weight: var(--fw-semibold)", title.group(1))
+        self.assertNotIn("650", title.group(1))
+
+    def test_brd_buttons_have_disabled_state(self):
+        self.assertRegex(self.template_text, r"\.brd-(?:open|edit)-btn\[disabled\]", "Expected BRD button disabled selector")
+
+    def test_brd_panel_source_uses_short_freshness_chip_labels(self):
+        self.assertIn("chip.textContent = fresh ? 'Actualizado' : 'Desactualizado'", self.brd_panel_text)
+
+
+class TestUiPanelChromePolishSecretPanel(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        root = Path(__file__).resolve().parent.parent
+        cls.template_text = (root / "brain_ds" / "ui" / "templates" / "graph_viewer.html").read_text(encoding="utf-8")
+        cls.secret_panel_text = (root / "brain_ds" / "ui" / "src" / "panels" / "secret-panel.ts").read_text(encoding="utf-8")
+        cls.viewer_bundle_text = (root / "brain_ds" / "ui" / "assets" / "viewer.bundle.js").read_text(encoding="utf-8")
+
+    def test_secret_panel_chrome_uses_44px_controls_and_elevated_cards(self):
+        remove_btn = re.search(r"\.secret-remove-btn\s*\{([^}]*)\}", self.template_text)
+        summary = re.search(r"\.secret-summary\s*\{([^}]*)\}", self.template_text)
+        secret_item = re.search(r"\.secret-item\s*\{([^}]*)\}", self.template_text)
+        add_btn = re.search(r"\.secret-add-btn\s*\{([^}]*)\}", self.template_text)
+
+        self.assertIsNotNone(remove_btn, "Missing .secret-remove-btn CSS rule")
+        self.assertIsNotNone(summary, "Missing .secret-summary CSS rule")
+        self.assertIsNotNone(secret_item, "Missing .secret-item CSS rule")
+        self.assertIsNotNone(add_btn, "Missing .secret-add-btn CSS rule")
+
+        self.assertIn("min-height: 44px", remove_btn.group(1))
+        self.assertIn("transition", remove_btn.group(1))
+        self.assertIn("[disabled]", self.template_text)
+        self.assertIn("min-height: 44px", summary.group(1))
+        self.assertIn("background: var(--bg-panel-elevated)", secret_item.group(1))
+        self.assertTrue("width: 100%" in add_btn.group(1) or "align-self: stretch" in add_btn.group(1))
+
+    def test_secret_panel_status_and_motion_rules_are_token_based(self):
+        status = re.search(r"\.secret-status--ok\s*\{([^}]*)\}", self.template_text)
+        light_item = re.search(r"\[data-theme='light'\] \.secret-item\s*\{([^}]*)\}", self.template_text)
+        reduce_motion = re.search(r"@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.secret-remove-btn[^\{]*\{[^}]*transition:\s*none;", self.template_text)
+
+        self.assertIsNotNone(status, "Missing .secret-status--ok CSS rule")
+        self.assertIsNotNone(light_item, "Missing light-theme .secret-item rule")
+        self.assertIsNotNone(reduce_motion, "Missing reduced-motion media block")
+
+        self.assertIn("var(--status-active)", status.group(1))
+        self.assertIn("box-shadow: var(--shadow-xs)", light_item.group(1))
+        self.assertIsNotNone(reduce_motion)
+
+    def test_secret_panel_has_hover_focus_and_disabled_states_for_touched_controls(self):
+        self.assertRegex(self.template_text, r"\.secret-remove-btn:hover")
+        self.assertRegex(self.template_text, r"\.secret-remove-btn:focus-visible")
+        self.assertRegex(self.template_text, r"\.secret-remove-btn\[disabled\]")
+        self.assertRegex(self.template_text, r"\.secret-add-btn:hover")
+        self.assertRegex(self.template_text, r"\.secret-add-btn:focus-visible")
+        self.assertRegex(self.template_text, r"\.secret-add-btn\[disabled\]")
+
+    def test_secret_panel_strings_are_translated_to_spanish(self):
+        self.assertIn("Agregar secreto", self.secret_panel_text)
+        self.assertIn("Eliminar", self.secret_panel_text)
+        self.assertIn("Detalles", self.secret_panel_text)
+        self.assertIn("Sin metadatos", self.secret_panel_text)
+        self.assertIn("Identificador", self.secret_panel_text)
+        self.assertIn("Tipo", self.secret_panel_text)
+        self.assertIn("Valor de credencial", self.secret_panel_text)
+        self.assertIn("Seleccionar tipo", self.secret_panel_text)
+        self.assertIn("Eliminar secreto", self.secret_panel_text)
+
+    def test_secret_panel_bundle_stays_in_sync_with_spanish_source_strings(self):
+        self.assertIn("Agregar secreto", self.viewer_bundle_text)
+        self.assertIn("Eliminar", self.viewer_bundle_text)
+        self.assertIn("Detalles", self.viewer_bundle_text)
+        self.assertIn("Sin metadatos", self.viewer_bundle_text)
+        self.assertIn("Identificador", self.viewer_bundle_text)
+        self.assertIn("Tipo", self.viewer_bundle_text)
+        self.assertIn("Valor de credencial", self.viewer_bundle_text)
+        self.assertIn("Seleccionar tipo", self.viewer_bundle_text)
+        self.assertIn("Eliminar secreto", self.viewer_bundle_text)
+        self.assertNotIn("Secret settings", self.viewer_bundle_text)
+        self.assertNotIn("Add secret", self.viewer_bundle_text)
+        self.assertNotIn("Remove secret", self.viewer_bundle_text)
+
+    def test_secret_panel_template_strings_are_localized_in_graph_viewer(self):
+        self.assertIn('aria-label="Configuración de secretos"', self.template_text)
+        self.assertIn('title="Configuración de secretos"', self.template_text)
+        self.assertIn("Configuración de secretos", self.template_text)
+        self.assertNotIn('aria-label="Secret settings"', self.template_text)
+        self.assertNotIn('title="Secret settings"', self.template_text)
+
     def test_pyproject_declares_ui_package_data(self):
         pyproject_text = (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text(encoding="utf-8")
         self.assertIn('[tool.setuptools.package-data]', pyproject_text)
@@ -1198,7 +1402,7 @@ class TestWorkspaceShellPr1Template(unittest.TestCase):
             r"grid-template-columns:\s*48px\s+var\(--rail-w\)\s+minmax\(0,\s*1fr\)\s+var\(--inspector-w\)\s+48px",
         )
         self.assertRegex(self.template_text, r"--rail-w:\s*264px")
-        self.assertRegex(self.template_text, r"--inspector-w:\s*320px")
+        self.assertRegex(self.template_text, r"--inspector-w:\s*352px")
 
     def test_center_chrome_has_locked_tab_and_toolbar_heights(self):
         # PR #4 chrome parity: tab-strip is 36px per ADR-009 project override

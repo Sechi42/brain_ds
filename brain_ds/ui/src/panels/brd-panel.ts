@@ -205,9 +205,7 @@ function renderPanel(): void {
     const chip = document.createElement('span');
     chip.className = `brd-freshness-chip ${fresh ? 'brd-freshness-chip--fresh' : 'brd-freshness-chip--stale'}`;
     chip.setAttribute('aria-live', 'polite');
-    chip.textContent = fresh
-      ? 'Actualizado'
-      : `Posiblemente desactualizado — ${changedCount} nodo${changedCount !== 1 ? 's' : ''} cambiaron después`;
+    chip.textContent = fresh ? 'Actualizado' : 'Desactualizado';
     header.appendChild(chip);
   }
 

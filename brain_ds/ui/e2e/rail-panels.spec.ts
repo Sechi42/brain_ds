@@ -50,8 +50,29 @@ async function mountCheckpoint(page: import("@playwright/test").Page): Promise<v
         label: "Fleet Manager",
         modified_at: "2026-02-01T00:00:00Z",
       },
+      {
+        id: "warehouse-source",
+        label: "Warehouse Source",
+        type: "Data Source",
+        modified_at: "2026-02-02T00:00:00Z",
+      },
+      {
+        id: "warehouse-ops-node",
+        label: "Warehouse Ops Node",
+        modified_at: "2026-02-02T02:00:00Z",
+      },
+      {
+        id: "detail-node",
+        label: "Very long selected node header that should stay fully readable",
+        type: "Role",
+        supertype: "actor",
+        modified_at: "2026-02-03T13:30:00Z",
+      },
     ],
-    edges: [],
+    edges: [
+      { source: "warehouse-source", target: "warehouse-ops-node", label: "feeds", weight: 0.8 },
+      { source: "detail-node", target: "warehouse-source", label: "uses", weight: 0.7 },
+    ],
     detail_index: {
       "brd-demo-graph": {
         id: "brd-demo-graph",
@@ -60,6 +81,26 @@ async function mountCheckpoint(page: import("@playwright/test").Page): Promise<v
           { title: "Contenido", content: brdMarkdown, order: 0, icon: "" },
         ],
       },
+      "demo-role-fleet-manager": {
+        id: "demo-role-fleet-manager",
+        label: "Fleet Manager",
+        sections: [
+          { title: "Resumen", content: "Purple-ish header card content that should not be clipped at the top.", order: 0, icon: "", accent_color: "#7c3aed" },
+          { title: "Notas", content: "The full header and first card should remain visible in the open inspector.", order: 1, icon: "", accent_color: "#7c3aed" },
+        ],
+      },
+      "detail-node": {
+        id: "detail-node",
+        label: "Very long selected node header that should stay fully readable",
+        sections: [
+          { title: "Resumen", content: "Purple-ish header card content that should not be clipped at the top.", order: 0, icon: "", accent_color: "#7c3aed" },
+          { title: "Notas", content: "The full header and first card should remain visible in the open inspector.", order: 1, icon: "", accent_color: "#7c3aed" },
+        ],
+      },
+    },
+    adjacency: {
+      "warehouse-source": ["warehouse-ops-node"],
+      "detail-node": ["warehouse-source"],
     },
   });
 
@@ -127,6 +168,9 @@ async function mountCheckpoint(page: import("@playwright/test").Page): Promise<v
       if (url.includes("/api/secrets/schema")) {
         return getJsonResponse(schema);
       }
+      if (url.includes("/api/secrets") && method === "GET") {
+        return getJsonResponse({ handles: secretHandles });
+      }
       if (url.includes("/api/secrets") && method === "POST") {
         const body = JSON.parse(String(init?.body || "{}"));
         secretHandles.push({
@@ -192,4 +236,37 @@ test("right rail panels stay exclusive, isolated, and bounded", async ({ page })
   await expect(secretPanel).toHaveCSS("display", "none");
 
   await page.screenshot({ path: "test-results/rail-panels-checkpoint.png", fullPage: false });
+});
+
+test("panel chrome gains breathing room and distinct selected states", async ({ page }) => {
+  await mountCheckpoint(page);
+
+  const settingsIcon = page.locator('[data-rail-icon="settings"]');
+  const inspectorIcon = page.locator('[data-rail-icon="inspector"]');
+  const aiActionsIcon = page.locator('[data-rail-icon="ai-actions"]');
+  const datasourceBtn = page.locator('#projects-grouping [data-group-by="datasource"]');
+  const datasourceGroup = page.locator('#projects-panel .project-group[data-group-by="datasource"]');
+  const secretPanel = page.locator('#secret-panel');
+
+  await datasourceBtn.click();
+  await expect(datasourceGroup.first()).toBeVisible();
+  await datasourceGroup.first().locator('summary').click();
+  const datasourceRow = datasourceGroup.first().locator('.project-node-row').first();
+  const datasourceRowBox = await datasourceRow.boundingBox();
+  if (!datasourceRowBox) {
+    throw new Error('Missing datasource row bounding box');
+  }
+  expect(datasourceRowBox.height).toBeGreaterThanOrEqual(44);
+
+  await settingsIcon.click();
+  await expect(secretPanel).toBeVisible();
+  await expect(secretPanel).toHaveCSS('margin-top', '16px');
+  await expect(page.locator('.secret-list')).toHaveCSS('padding-left', '16px');
+  await expect(page.locator('.secret-form')).toHaveCSS('padding-left', '16px');
+
+  await inspectorIcon.evaluate((el) => el.setAttribute('aria-selected', 'true'));
+  await aiActionsIcon.evaluate((el) => el.setAttribute('aria-selected', 'true'));
+  const inspectorSelectedShadow = await inspectorIcon.evaluate((el) => getComputedStyle(el).boxShadow);
+  const aiSelectedShadow = await aiActionsIcon.evaluate((el) => getComputedStyle(el).boxShadow);
+  expect(inspectorSelectedShadow).not.toBe(aiSelectedShadow);
 });
