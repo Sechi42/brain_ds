@@ -12,6 +12,7 @@
     "e2e:ecosystem": "playwright test e2e/ecosystem.spec.ts",
     "typecheck": "tsc --noEmit -p .",
     "bundle-size": "node build/check-bundle-size.mjs",
+    "bundle-freshness": "uv run python -m brain_ds.ui.bundle_freshness",
     "ci": "npm run typecheck && npm run build && npm run bundle-size"
   },
   "devDependencies": {

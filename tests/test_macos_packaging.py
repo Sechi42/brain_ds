@@ -35,12 +35,14 @@ class MacOSPackagingTests(unittest.TestCase):
         self.assertIn("pnpm audit --audit-level high", content)
         self.assertIn("pnpm run build", content)
         self.assertIn("pnpm run bundle-size", content)
+        self.assertIn("brain_ds.ui.bundle_freshness", content)
         self.assertIn("viewer.bundle.js", content)
         self.assertIn("uv venv --python 3.13", content)
         self.assertIn("pyinstaller==6.11.1", content)
         self.assertIn("ui --probe", content)
         self.assertIn("READY", content)
         self.assertIn("cargo tauri build --features bundled --bundles dmg,app", content)
+        self.assertLess(content.index("brain_ds.ui.bundle_freshness"), content.index("cargo tauri build --features bundled --bundles dmg,app"))
 
     def test_build_macos_sh_uses_unix_paths_and_darwin_sidecar_names(self) -> None:
         script = ROOT / "scripts" / "build-macos.sh"
@@ -80,6 +82,8 @@ class MacOSPackagingTests(unittest.TestCase):
         install = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
         self.assertIn("./scripts/build-macos.sh", install)
         self.assertIn("Gatekeeper", install)
+        self.assertIn("bundle-freshness", install)
+        self.assertIn("pnpm --dir brain_ds/ui run build", install)
 
 
 if __name__ == "__main__":

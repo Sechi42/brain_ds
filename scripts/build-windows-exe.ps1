@@ -55,6 +55,8 @@ try {
   if ($LASTEXITCODE -ne 0) { Fail "UI bundle build failed with exit code $LASTEXITCODE." }
   pnpm run bundle-size
   if ($LASTEXITCODE -ne 0) { Fail "UI bundle size check failed with exit code $LASTEXITCODE." }
+  uv run python -m brain_ds.ui.bundle_freshness --ui-root $uiPath
+  if ($LASTEXITCODE -ne 0) { Fail "UI bundle freshness check failed with exit code $LASTEXITCODE." }
 
   if (-not (Test-Path -LiteralPath $bundlePath)) {
     Fail "Expected rebuilt UI bundle at $bundlePath"

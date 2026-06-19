@@ -89,8 +89,10 @@ class WindowsExeInstallerPr2SidecarOrchestrationTests(unittest.TestCase):
         self.assertIn('viewer.bundle.js', content)
         self.assertIn('pnpm run build', content)
         self.assertIn('pnpm run bundle-size', content)
+        self.assertIn('brain_ds.ui.bundle_freshness', content)
         self.assertIn('cargo tauri build --features bundled --bundles nsis', content)
         self.assertLess(content.index('pnpm run build'), content.index('cargo tauri build --features bundled --bundles nsis'))
+        self.assertLess(content.index('brain_ds.ui.bundle_freshness'), content.index('cargo tauri build --features bundled --bundles nsis'))
 
     def test_workflow_pins_pnpm_before_running_windows_build(self) -> None:
         workflow = ROOT / '.github' / 'workflows' / 'build-windows-exe.yml'

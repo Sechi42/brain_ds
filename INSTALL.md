@@ -42,7 +42,8 @@ Solo si querés la app de escritorio empaquetada (instalador NSIS):
 .\scripts\build-windows-exe.ps1
 ```
 
-El script hace todo: venv de build (CPython 3.13), PyInstaller del sidecar,
+El script hace todo: rebuild del bundle UI (`pnpm --dir brain_ds/ui run build`),
+guard `bundle-freshness`, venv de build (CPython 3.13), PyInstaller del sidecar,
 probe de `READY`, `cargo tauri build` y copia el instalador `*setup.exe` a `dist/`.
 Ejecutá el instalador de `dist/` y listo.
 
@@ -58,8 +59,8 @@ En macOS el empaquetado se hace con el script equivalente (Bash):
 ./scripts/build-macos.sh
 ```
 
-Hace lo mismo que el de Windows pero produce `dmg` y `app`: venv de build
-(CPython 3.13), PyInstaller del sidecar con nombre por arquitectura
+Hace lo mismo que el de Windows pero produce `dmg` y `app`: rebuild del bundle UI,
+guard `bundle-freshness`, venv de build (CPython 3.13), PyInstaller del sidecar con nombre por arquitectura
 (`brain_ds-x86_64-apple-darwin` / `brain_ds-aarch64-apple-darwin`), probe de
 `READY`, `cargo tauri build --features bundled --bundles dmg,app` y copia el
 `.dmg` a `dist/`. Requiere `aarch64-apple-darwin` o `x86_64-apple-darwin`

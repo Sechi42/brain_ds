@@ -129,6 +129,18 @@ class TestToolchainFilesExist(unittest.TestCase):
         text = path.read_text(encoding="utf-8")
         self.assertRegex(text, r"process\.exit\(\s*(?:failed\s*\?\s*1\s*:\s*0|1)\s*\)")
 
+    def test_package_json_has_bundle_freshness_script(self):
+        import json
+        path = UI_DIR / "package.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        scripts = data.get("scripts", {})
+
+        self.assertEqual(
+            scripts.get("bundle-freshness"),
+            "uv run python -m brain_ds.ui.bundle_freshness",
+            "package.json must expose a deploy guard for stale committed viewer bundles",
+        )
+
 
 class TestRendererTsExists(unittest.TestCase):
     """Commit 3 — renderer.ts created (RED until file exists)."""

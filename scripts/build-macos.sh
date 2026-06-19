@@ -38,6 +38,7 @@ pnpm install --frozen-lockfile
 pnpm audit --audit-level high
 pnpm run build
 pnpm run bundle-size
+uv run python -m brain_ds.ui.bundle_freshness --ui-root "$ui_path"
 
 [[ -f "$bundle_path" ]] || fail "Expected rebuilt UI bundle at $bundle_path"
 
