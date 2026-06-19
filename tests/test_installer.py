@@ -131,7 +131,10 @@ class InstallerTests(unittest.TestCase):
         if not bash_path:
             self.skipTest("bash not available in test environment")
         env = os.environ.copy()
-        env["PATH"] = str(self.bin)
+        # Prepend the fake bin so stub .cmd files shadow nothing in bash, but
+        # keep the real system PATH so bash-native coreutils (find, mkdir, cp,
+        # etc.) and the real opencode/git executables remain accessible.
+        env["PATH"] = f"{self.bin}{os.pathsep}{env.get('PATH', '')}"
         env["HOME"] = str(self.home)
         cmd = [bash_path, str(self.repo / "install-opencode.sh"), *args]
         return subprocess.run(cmd, capture_output=True, text=True, env=env)
