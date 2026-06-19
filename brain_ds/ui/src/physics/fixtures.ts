@@ -93,17 +93,22 @@ export function generateFixture(n: number, seed: number): PhysicsFixture {
   for (let i = 0; i < n; i++) {
     // Primary ring: connect i → (i+1) % n
     const j = (i + 1) % n;
+    const node = nodes[i];
+    const neighbor = nodes[j];
+    if (!node || !neighbor) continue;
     edges.push({ from: String(i), to: String(j) });
-    nodes[i].degree += 1;
-    nodes[j].degree += 1;
+    node.degree += 1;
+    neighbor.degree += 1;
 
     // Skip link: connect every 7th node to i+7 for cross-cluster edges
     if (i % 3 === 0) {
       const k = (i + 7) % n;
       if (k !== i) {
+        const skipNode = nodes[k];
+        if (!skipNode) continue;
         edges.push({ from: String(i), to: String(k) });
-        nodes[i].degree += 1;
-        nodes[k].degree += 1;
+        node.degree += 1;
+        skipNode.degree += 1;
       }
     }
   }

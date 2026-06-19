@@ -215,6 +215,35 @@ class TestBundleArtifactsExist(unittest.TestCase):
                            "viewer.bundle.css must be non-empty")
 
 
+class TestBundleRevisionGuard(unittest.TestCase):
+    """Guard against stale bundle/source drift for viewer.bundle.js."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.main_path = SRC_DIR / "main.ts"
+        cls.bundle_path = ASSETS_DIR / "viewer.bundle.js"
+        cls.main_text = cls.main_path.read_text(encoding="utf-8") if cls.main_path.exists() else ""
+        cls.bundle_text = cls.bundle_path.read_text(encoding="utf-8") if cls.bundle_path.exists() else ""
+
+    def _require_artifacts(self):
+        if not self.main_path.exists() or not self.bundle_path.exists():
+            self.skipTest("main.ts or viewer.bundle.js not found")
+
+    def test_bundle_revision_matches_built_asset(self):
+        self._require_artifacts()
+
+        source_match = re.search(r'bundleRevision:\s*["\']([^"\']+)["\']', self.main_text)
+        bundle_match = re.search(r'bundleRevision:\s*["\']([^"\']+)["\']', self.bundle_text)
+
+        self.assertIsNotNone(source_match, "main.ts must declare window.brainDsUI.bundleRevision")
+        self.assertIsNotNone(bundle_match, "viewer.bundle.js must embed the same bundleRevision marker")
+        self.assertEqual(
+            source_match.group(1),
+            bundle_match.group(1),
+            "bundleRevision in source and built bundle must stay in sync to catch stale rebuilds",
+        )
+
+
 class TestLegacyRendererAssetDeleted(unittest.TestCase):
     """Commit 5 — original JS file deleted (RED until deletion)."""
 

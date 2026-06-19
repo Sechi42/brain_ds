@@ -188,12 +188,20 @@
     }
   }
 
-  function _applyBhRepulsion(nodes, theta, repulsion) {
+  function _applyBhRepulsion(nodes, theta, repulsion, dragPulls) {
     var qt = _buildQuadtree(nodes);
     var out = { fx: 0, fy: 0 };
     for (var i = 0; i < nodes.length; i++) {
       var n = nodes[i];
       if (n.fixed) continue;
+      if (dragPulls) {
+        var pull = dragPulls.get(String(n.id));
+        if (!(pull > 0)) {
+          n.vx = 0;
+          n.vy = 0;
+          continue;
+        }
+      }
       out.fx = 0;
       out.fy = 0;
       _bhRepulsionFrom(qt, n, theta, repulsion, out);
@@ -349,6 +357,7 @@
     var n = nodes.length;
     var centerX = 0;
     var centerY = 0;
+    var settlingAfterDrop = dragPulls && (dragNodeId === null || dragNodeId === undefined);
     var incident = new Map();
     for (var e = 0; e < edges.length; e++) {
       var from = String(edges[e].from || edges[e].source || '');
@@ -360,12 +369,20 @@
     }
     var nodesById = new Map();
     for (var p = 0; p < n; p++) nodesById.set(String(nodes[p].id), nodes[p]);
-    _applyBhRepulsion(nodes, this.theta, this.repulsion);
+    _applyBhRepulsion(nodes, this.theta, this.repulsion, dragPulls);
     for (var i = 0; i < n; i++) {
       var a = nodes[i];
       if (a.fixed || (dragNodeId !== null && dragNodeId !== undefined && String(a.id) === String(dragNodeId))) continue;
       var fx = a.vx || 0;
       var fy = a.vy || 0;
+      if (dragPulls) {
+        var pull = dragPulls.get(String(a.id));
+        if (!(pull > 0)) {
+          a.vx = 0;
+          a.vy = 0;
+          continue;
+        }
+      }
       var linked = incident.get(String(a.id)) || [];
       for (var k = 0; k < linked.length; k++) {
         var other = nodesById.get(linked[k]);
@@ -381,6 +398,10 @@
       fy += (centerY - a.y) * this.gravity;
       var vx = fx * this.damping;
       var vy = fy * this.damping;
+      if (settlingAfterDrop) {
+        vx *= 0.3;
+        vy *= 0.3;
+      }
       var speed = Math.abs(vx) + Math.abs(vy);
       if (speed > this.maxSpeed) { vx *= this.maxSpeed / speed; vy *= this.maxSpeed / speed; }
       else if (speed < 0.02) { vx = 0; vy = 0; }
@@ -388,7 +409,7 @@
       a.vy = vy;
       var moveScale = 1;
       if (dragPulls) {
-        var pull = dragPulls.get(String(a.id));
+        pull = dragPulls.get(String(a.id));
         moveScale = pull === undefined ? 0 : pull;
       }
       a.x += vx * temperature * moveScale;
@@ -400,6 +421,7 @@
     var centerX = 0;
     var centerY = 0;
     var cutoffSq = 480 * 480;
+    var settlingAfterDrop = dragPulls && (dragNodeId === null || dragNodeId === undefined);
     var incident = new Map();
     for (var e = 0; e < edges.length; e++) {
       var from = String(edges[e].from || edges[e].source || '');
@@ -415,6 +437,14 @@
       var a = nodes[i];
       if (a.fixed || (dragNodeId !== null && dragNodeId !== undefined && String(a.id) === String(dragNodeId))) continue;
       var fx = 0; var fy = 0;
+      if (dragPulls) {
+        var pull = dragPulls.get(String(a.id));
+        if (!(pull > 0)) {
+          a.vx = 0;
+          a.vy = 0;
+          continue;
+        }
+      }
       for (var j = 0; j < nodes.length; j++) {
         if (i === j) continue;
         var b = nodes[j];
@@ -438,13 +468,17 @@
       fy += (centerY - a.y) * this.gravity;
       var vx = ((a.vx || 0) + fx * dt) * this.damping;
       var vy = ((a.vy || 0) + fy * dt) * this.damping;
+      if (settlingAfterDrop) {
+        vx *= 0.3;
+        vy *= 0.3;
+      }
       var speed = Math.abs(vx) + Math.abs(vy);
       if (speed > this.maxSpeed) { vx *= this.maxSpeed / speed; vy *= this.maxSpeed / speed; }
       else if (speed < 0.02) { vx = 0; vy = 0; }
       a.vx = vx; a.vy = vy;
       var moveScale = 1;
       if (dragPulls) {
-        var pull = dragPulls.get(String(a.id));
+        pull = dragPulls.get(String(a.id));
         moveScale = pull === undefined ? 0 : pull;
       }
       a.x += vx * temperature * moveScale;
@@ -1100,7 +1134,7 @@
   //   - the edge's weight (strong relationships drag harder), and
   //   - the neighbor's anchoring (a node held by many other connections
   //     resists the pull; a leaf with a single link follows almost 1:1).
-  // Nodes outside the map stay frozen, so dragging never stirs the whole graph.
+  // Nodes outside the one-hop map stay frozen, so dragging never stirs the whole graph.
   Network.prototype._dragFalloffFor = function (state) {
     if (this.dragNodeId === null || this.dragNodeId === undefined) {
       // Post-drop settle: reuse the gesture's pull map (cleared by _render once
@@ -1127,7 +1161,7 @@
     pulls.set(dragId, 1);
     var frontier = [dragId];
     var depth = 0;
-    while (frontier.length > 0 && depth < 3) {
+    while (frontier.length > 0 && depth < 1) {
       depth += 1;
       var hopDecay = depth === 1 ? 1 : 0.55;
       var next = [];
@@ -1137,12 +1171,10 @@
         for (var n = 0; n < neighbors.length; n++) {
           var entry = neighbors[n];
           if (entry.id === dragId) continue;
-          // Strong edges (weight→1) keep ~full pull; weak ones (0.35) ~60%.
-          var weightFactor = 0.4 + 0.6 * entry.weight;
-          // Anchoring: every connection beyond the pulling edge holds the node back.
-          var otherLinks = Math.max(0, (degreeById.get(entry.id) || 0) - 1);
-          var anchor = 1 / (1 + 0.3 * otherLinks);
-          var candidate = Math.min(1, parentPull * hopDecay * weightFactor * anchor);
+          // Direct neighbors should visibly follow the drag; far nodes stay out of
+          // the local pull map entirely. Keep the direct-hop pull strong so the
+          // dragged cluster moves with the cursor instead of lagging behind.
+          var candidate = Math.min(1, parentPull * hopDecay);
           var existing = pulls.get(entry.id);
           if (existing === undefined || candidate > existing) {
             pulls.set(entry.id, candidate);
@@ -1209,6 +1241,14 @@
       }
 
       var aId = String(a.id);
+      if (dragPulls) {
+        var pull = dragPulls.get(aId);
+        if (!(pull > 0)) {
+          a.vx = 0;
+          a.vy = 0;
+          continue;
+        }
+      }
       var linked = incident.get(aId) || [];
       for (var e = 0; e < linked.length; e++) {
         var other = nodesById.get(linked[e]);
@@ -1237,9 +1277,7 @@
       }
       var moveScale = 1;
       if (dragPulls) {
-        var pull = dragPulls.get(aId);
-        // Outside the dragged neighborhood: completely frozen. The dragged node
-        // itself (pull = 1) is pinned by the gesture, so scale its neighbors only.
+        pull = dragPulls.get(aId);
         moveScale = pull === undefined ? 0 : pull;
       }
       a.x += a.vx * this.temperature * moveScale;
@@ -1598,7 +1636,6 @@
       this._wake();
       return;
     }
-    this._toggleExpandCollapse(node, state.nodes);
     var nodeId = String(node.id);
 
     // Slice 3a: modifier-key selection semantics (REQ-3.1, 3.2, 3.3)
@@ -1692,7 +1729,7 @@
       }
     }
 
-    if (this.isPanning) {
+    if (this.isPanning && this.dragNodeId === null) {
       // Slice 1a: pan — update tx/ty from screen delta (REQ-1.2 / OBS-1.1)
       this.viewport.tx = this.panStart.tx0 + (sx - this.panStart.x);
       this.viewport.ty = this.panStart.ty0 + (sy - this.panStart.y);
@@ -1729,11 +1766,27 @@
       var dragged = state.nodes.find(function (n) { return String(n.id) === String(this.dragNodeId); }, this);
       if (dragged) {
         // Slice 1a: use world coords for drag position (not raw screen)
+        var previousWorld = this._dragWorld || { x: world.x, y: world.y };
+        var deltaWorldX = world.x - previousWorld.x;
+        var deltaWorldY = world.y - previousWorld.y;
         dragged.x = world.x;
         dragged.y = world.y;
         dragged.vx = 0;
         dragged.vy = 0;
-        this.temperature = Math.max(this.temperature, 0.2);
+        var dragPulls = this._dragFalloffFor(state);
+        if (dragPulls && (deltaWorldX !== 0 || deltaWorldY !== 0)) {
+          state.nodes.forEach(function (node) {
+            if (String(node.id) === String(this.dragNodeId)) return;
+            var pull = dragPulls.get(String(node.id));
+            if (!(pull > 0)) return;
+            node.x += deltaWorldX * pull;
+            node.y += deltaWorldY * pull;
+            node.vx = 0;
+            node.vy = 0;
+          }, this);
+        }
+        this._dragWorld = { x: world.x, y: world.y };
+        this.temperature = Math.max(this.temperature, 0.6);
       }
     }
     this._wake();
@@ -1750,12 +1803,14 @@
     if (node) {
       // Node drag takes priority — NOT panning (OBS-1.2)
       this.isDragging = true;
+      this.isPanning = false;
       this.dragNodeId = node.id;
       this._mode = "dragging-node";
       // A plain click must not stir the simulation: the gesture only becomes a
       // real drag (and reheats physics) after the cursor travels a few pixels.
       this._pressScreen = { x: sx, y: sy };
       this._dragMoved = false;
+      this._dragWorld = { x: world.x, y: world.y };
       return;
     }
     // Slice 3a: Shift+empty canvas → marquee (REQ-3.5 / REQ-3.13)
@@ -1786,6 +1841,7 @@
   Network.prototype._onMouseUp = function () {
     this.isDragging = false;
     this.dragNodeId = null;
+    this._dragWorld = null;
     this._mode = "idle";
 
     // Slice 3a: marquee commit — REPLACE selection (Decision 2 / REQ-3.6)
@@ -1858,7 +1914,7 @@
     // (covers both the canvas and the DOM-overlay drag paths, which clear
     // dragNodeId directly). Keeping it through the settle keeps the re-layout
     // local to the dragged neighborhood instead of stirring the whole graph.
-    if (this.dragNodeId === null && this._dragHops && this.temperature < 0.05) {
+    if (this.dragNodeId === null && this._dragHops && this.temperature < 0.01) {
       this._dragHops = null;
       this._dragHopsFor = null;
     }

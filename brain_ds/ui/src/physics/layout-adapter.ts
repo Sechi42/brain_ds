@@ -76,6 +76,7 @@ export class LayoutStrategy {
     const edges = state.edges;
     const n = nodes.length;
     const temperature = state.temperature !== undefined ? state.temperature : this.temperature;
+    const dragIsolationActive = Boolean(state.dragPulls);
 
     // Determine effective mode for this tick
     let effectiveMode = this.mode;
@@ -84,7 +85,11 @@ export class LayoutStrategy {
       effectiveMode = (n >= this.workerThreshold) ? 'worker' : 'barnes-hut';
     }
 
-    if (effectiveMode === 'worker') {
+    if (dragIsolationActive) {
+      this._suspendWorker();
+    }
+
+    if (effectiveMode === 'worker' && !dragIsolationActive) {
       this._tickWorker(state, dt, temperature);
       return;
     }
@@ -105,6 +110,18 @@ export class LayoutStrategy {
       this.mode = 'legacy';
       this._tickLegacy(nodes, edges, dt, temperature, state.dragNodeId, state.dragPulls);
     }
+  }
+
+  _suspendWorker() {
+    if (this._worker && typeof this._worker.terminate === 'function') {
+      try {
+        this._worker.terminate();
+      } catch (e) {
+        // noop
+      }
+    }
+    this._worker = null;
+    this._workerPending = false;
   }
 
   /**
@@ -171,6 +188,7 @@ export class LayoutStrategy {
     const n = nodes.length;
     const centerX = 0;
     const centerY = 0;
+    const settlingAfterDrop = dragPulls && (dragNodeId === null || dragNodeId === undefined);
 
     const incident = new Map();
     for (let e = 0; e < edges.length; e++) {
@@ -188,7 +206,7 @@ export class LayoutStrategy {
     // applyRepulsion is expected to be in scope from barnes-hut.ts when both
     // are eval'd together. When running standalone, fall back to O(n²).
     if (typeof applyRepulsion === "function") {
-      applyRepulsion(nodes, { theta: this.theta, repulsion: this.repulsion });
+      applyRepulsion(nodes, { theta: this.theta, repulsion: this.repulsion, dragPulls });
     } else {
       // Inline O(n²) repulsion as safe fallback
       const cutoffSq = 480 * 480;
@@ -215,6 +233,14 @@ export class LayoutStrategy {
       const a = nodes[i];
       if (a.fixed) continue;
       if (dragNodeId !== null && dragNodeId !== undefined && String(a.id) === String(dragNodeId)) continue;
+      if (dragPulls) {
+        const pull = dragPulls.get(String(a.id));
+        if (!(pull > 0)) {
+          a.vx = 0;
+          a.vy = 0;
+          continue;
+        }
+      }
 
       let fx = a.vx || 0;
       let fy = a.vy || 0;
@@ -236,6 +262,10 @@ export class LayoutStrategy {
 
       let vx = fx * this.damping;
       let vy = fy * this.damping;
+      if (settlingAfterDrop) {
+        vx *= 0.3;
+        vy *= 0.3;
+      }
       const speed = Math.abs(vx) + Math.abs(vy);
       if (speed > this.maxSpeed) { vx *= this.maxSpeed / speed; vy *= this.maxSpeed / speed; }
       else if (speed < 0.02) { vx = 0; vy = 0; }
@@ -260,6 +290,7 @@ export class LayoutStrategy {
     const centerX = 0;
     const centerY = 0;
     const cutoffSq = 480 * 480;
+    const settlingAfterDrop = dragPulls && (dragNodeId === null || dragNodeId === undefined);
 
     const incident = new Map();
     for (let e = 0; e < edges.length; e++) {
@@ -277,6 +308,14 @@ export class LayoutStrategy {
       const a = nodes[i];
       if (a.fixed) continue;
       if (dragNodeId !== null && dragNodeId !== undefined && String(a.id) === String(dragNodeId)) continue;
+      if (dragPulls) {
+        const pull = dragPulls.get(String(a.id));
+        if (!(pull > 0)) {
+          a.vx = 0;
+          a.vy = 0;
+          continue;
+        }
+      }
 
       let fx = 0; let fy = 0;
 
@@ -306,6 +345,10 @@ export class LayoutStrategy {
 
       let vx = ((a.vx || 0) + fx * dt) * this.damping;
       let vy = ((a.vy || 0) + fy * dt) * this.damping;
+      if (settlingAfterDrop) {
+        vx *= 0.3;
+        vy *= 0.3;
+      }
       const speed = Math.abs(vx) + Math.abs(vy);
       if (speed > this.maxSpeed) { vx *= this.maxSpeed / speed; vy *= this.maxSpeed / speed; }
       else if (speed < 0.02) { vx = 0; vy = 0; }

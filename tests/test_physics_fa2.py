@@ -988,6 +988,164 @@ console.log(JSON.stringify({{ aUnchanged, bUnchanged }}));
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# PR2 — Natural motion assertions for dense drag behavior
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestNaturalMotionDenseFixture(unittest.TestCase):
+    """PR2: dense fixture should keep drag local and cool down cleanly."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.la_path = PHYSICS_DIR / "layout-adapter.ts"
+        cls.bh_path = PHYSICS_DIR / "barnes-hut.ts"
+        cls.coll_path = PHYSICS_DIR / "collision.ts"
+        cls.fixture_path = FIXTURES_DIR / "physics_dense_natural_motion.json"
+        cls.available = all(p.exists() for p in [cls.la_path, cls.bh_path, cls.coll_path, cls.fixture_path])
+
+    def _skip_if_missing(self):
+        if not self.available:
+            self.skipTest("natural-motion fixture or physics dependencies not yet implemented")
+
+    def _get_physics_js(self):
+        bh_js = _strip_ts(self.bh_path.read_text(encoding="utf-8"))
+        coll_js = _strip_ts(self.coll_path.read_text(encoding="utf-8"))
+        la_js = _strip_ts(self.la_path.read_text(encoding="utf-8"))
+        return bh_js, coll_js, la_js
+
+    def _run_dense_motion(self):
+        self._skip_if_missing()
+        bh_js, coll_js, la_js = self._get_physics_js()
+
+        code = f"""
+{bh_js}
+{coll_js}
+{la_js}
+
+const fixture = JSON.parse(fs.readFileSync(path.join(process.cwd(), "tests", "fixtures", "physics_dense_natural_motion.json"), "utf8"));
+const nodes = fixture.nodes.map((node) => ({{ ...node, vx: 0, vy: 0 }}));
+const edges = fixture.edges.map((edge) => ({{ ...edge }}));
+const nodesById = new Map(nodes.map((node) => [String(node.id), node]));
+const focus = nodesById.get(String(fixture.focusId));
+if (!focus) throw new Error("Missing focus node in dense natural-motion fixture");
+
+const dragPulls = new Map();
+dragPulls.set(String(fixture.focusId), 1);
+for (const id of fixture.neighborIds) dragPulls.set(String(id), 0.8);
+for (const id of fixture.farIds) dragPulls.set(String(id), 0);
+
+const strategy = new LayoutStrategy({{ algorithm: "fa2", workerThreshold: 1000, temperature: 1.0 }});
+const dragTarget = {{ x: focus.x + fixture.drag.dx, y: focus.y + fixture.drag.dy }};
+const dragDistance = Math.hypot(fixture.drag.dx, fixture.drag.dy) || 1;
+
+function snapshot(ids) {{
+  return ids.map((id) => ({{
+    id: String(id),
+    x: Number(nodesById.get(String(id)).x),
+    y: Number(nodesById.get(String(id)).y),
+  }}));
+}}
+
+function centroid(points) {{
+  if (!points.length) return {{ x: 0, y: 0 }};
+  const total = points.reduce((acc, point) => ({{ x: acc.x + point.x, y: acc.y + point.y }}), {{ x: 0, y: 0 }});
+  return {{ x: total.x / points.length, y: total.y / points.length }};
+}}
+
+function projection(before, after) {{
+  const start = centroid(before);
+  const end = centroid(after);
+  return ((end.x - start.x) * fixture.drag.dx + (end.y - start.y) * fixture.drag.dy) / dragDistance;
+}}
+
+function medianDistance(before, after) {{
+  const values = before.map((point, index) => Math.hypot(after[index].x - point.x, after[index].y - point.y)).sort((a, b) => a - b);
+  return values[Math.floor(values.length / 2)] || 0;
+}}
+
+function maxSpeed(ids) {{
+  return Math.max(...ids.map((id) => {{
+    const node = nodesById.get(String(id));
+    return Math.hypot(Number(node.vx) || 0, Number(node.vy) || 0);
+  }}));
+}}
+
+const beforeNeighbors = snapshot(fixture.neighborIds);
+const beforeFar = snapshot(fixture.farIds);
+
+for (let step = 0; step < 8; step += 1) {{
+  focus.x = dragTarget.x;
+  focus.y = dragTarget.y;
+  focus.vx = 0;
+  focus.vy = 0;
+  strategy.tick({{ nodes, edges, dragNodeId: fixture.focusId, dragPulls, temperature: 1.0 }}, 0.016);
+}}
+
+const duringNeighbors = snapshot(fixture.neighborIds);
+const duringFar = snapshot(fixture.farIds);
+const dragNeighborFollow = projection(beforeNeighbors, duringNeighbors);
+const dragFarShift = medianDistance(beforeFar, duringFar);
+const dragFarSpeed = maxSpeed(fixture.farIds);
+const dragMaxSpeed = maxSpeed(nodes.map((node) => node.id));
+
+for (let step = 0; step < 8; step += 1) {{
+  focus.x = dragTarget.x;
+  focus.y = dragTarget.y;
+  focus.vx = 0;
+  focus.vy = 0;
+  strategy.tick({{ nodes, edges, dragNodeId: null, dragPulls, temperature: 0.35 }}, 0.016);
+}}
+
+const afterReleaseFar = snapshot(fixture.farIds);
+const releaseFarShift = medianDistance(beforeFar, afterReleaseFar);
+const releaseMaxSpeed = maxSpeed(nodes.map((node) => node.id));
+
+console.log(JSON.stringify({{
+  dragDistance,
+  dragNeighborFollow,
+  dragFarShift,
+  dragFarSpeed,
+  dragMaxSpeed,
+  releaseFarShift,
+  releaseMaxSpeed,
+}}));
+"""
+        return _run_node(code, timeout=20)
+
+    def test_dense_drag_neighbors_follow_and_far_nodes_stay_quiet(self):
+        """Direct neighbors should follow the drag while far nodes remain still."""
+        out = self._run_dense_motion()
+        self.assertGreaterEqual(
+            out.get("dragNeighborFollow", 0),
+            out.get("dragDistance", 0) * 0.25,
+            f"Neighbor centroid must follow at least 25% of drag distance; got {out}",
+        )
+        self.assertLessEqual(
+            out.get("dragFarShift", 9999),
+            1.0,
+            f"Far nodes should stay within 1px median drift during drag; got {out}",
+        )
+        self.assertLessEqual(
+            out.get("dragFarSpeed", 9999),
+            0.1,
+            f"Far nodes should not accumulate velocity during drag; got {out}",
+        )
+
+    def test_dense_release_cools_without_reheating(self):
+        """After release, the graph should settle instead of reheating globally."""
+        out = self._run_dense_motion()
+        self.assertLessEqual(
+            out.get("releaseFarShift", 9999),
+            1.5,
+            f"Release settling should stay local; got {out}",
+        )
+        self.assertLessEqual(
+            out.get("releaseMaxSpeed", 9999),
+            max(6.0, out.get("dragMaxSpeed", 0) * 0.4),
+            f"Release should cool instead of reheating; got {out}",
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # T3.11 / T3.12 — Safe fallback
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1134,6 +1292,36 @@ console.log(JSON.stringify({{ median, p95, max, ticks: TICKS }}));
         median = out.get("median", 9999)
         self.assertLess(median, 16.0,
                         f"Median frame time must be < 16 ms; got {median:.2f} ms (p95={out.get('p95', 0):.2f} ms)")
+
+
+class TestNaturalMotionFixtureCoverage(unittest.TestCase):
+    """Warning remediation: keep the E2E fixture small and the 1000+ upper bound covered."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.physics_src = (PHYSICS_DIR / "fixtures.ts").read_text(encoding="utf-8")
+        cls.motion_fixture = json.loads((FIXTURES_DIR / "physics_dense_natural_motion.json").read_text(encoding="utf-8"))
+
+    def test_playwright_fixture_stays_below_1000_for_speed(self):
+        self.assertLess(
+            int(self.motion_fixture.get("n", 0)),
+            1000,
+            "The Playwright natural-motion fixture should stay under 1000 nodes to keep the gate lightweight",
+        )
+
+    def test_upper_bound_fixture_exists_for_1000_plus_behavior(self):
+        self.assertRegex(
+            self.physics_src,
+            r"FA2_2000_FIXTURE\s*:\s*PhysicsFixture\s*=\s*generateFixture\(2000,\s*0xC0FFEE\)",
+            "fixtures.ts must keep a 1000+ upper-bound fixture for non-E2E coverage",
+        )
+
+    def test_infer_settings_keeps_worker_threshold_at_1000(self):
+        self.assertRegex(
+            self.physics_src,
+            r"const workerThreshold = 1000;",
+            "fixtures.ts must keep the 1000-node worker threshold used by the upper-bound coverage",
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

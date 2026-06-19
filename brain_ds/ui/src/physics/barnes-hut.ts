@@ -165,11 +165,20 @@ export function computeBarnesHutRepulsion(nodes, qt, opts) {
 export function applyRepulsion(nodes, opts) {
   const theta = (opts && opts.theta !== undefined) ? opts.theta : DEFAULT_THETA;
   const repulsion = (opts && opts.repulsion !== undefined) ? opts.repulsion : DEFAULT_REPULSION;
+  const dragPulls = (opts && opts.dragPulls instanceof Map) ? opts.dragPulls : null;
   const qt = buildQuadtree(nodes, opts);
   const out = { fx: 0, fy: 0 };
   for (let i = 0; i < nodes.length; i++) {
     const n = nodes[i];
     if (n.fixed) continue;
+    if (dragPulls) {
+      const pull = dragPulls.get(String(n.id));
+      if (!(pull > 0)) {
+        n.vx = 0;
+        n.vy = 0;
+        continue;
+      }
+    }
     out.fx = 0;
     out.fy = 0;
     bhRepulsionFrom(qt, n, theta, repulsion, out);

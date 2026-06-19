@@ -5184,7 +5184,7 @@
         let panning = false;
         let panStartX = 0, panStartY = 0, tx0 = 0, ty0 = 0;
         const onPanMove = (event) => {
-          if (!panning) return;
+          if (!panning || network.dragNodeId != null) return;
           network.viewport.tx = tx0 + (event.clientX - panStartX);
           network.viewport.ty = ty0 + (event.clientY - panStartY);
         };
@@ -5196,6 +5196,7 @@
         };
         centerSplit.addEventListener("mousedown", (event) => {
           if (event.button !== 0) return;
+          if (network.dragNodeId != null) return;
           if (event.target.closest && event.target.closest(".d4-node")) return;
           panning = true;
           panStartX = event.clientX;

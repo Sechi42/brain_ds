@@ -12,7 +12,7 @@ test("graph viewer template exposes the workspace shell", async ({ page }) => {
 
   await page.setContent(html, { waitUntil: "domcontentloaded" });
 
-  await expect(page).toHaveTitle("brain_ds Graph Viewer");
+  await expect(page).toHaveTitle("BrainDS Graph Viewer");
   await expect(page.locator(".workspace-shell")).toBeVisible();
   await expect(page.locator('[data-rail-side="left"]')).toBeVisible();
   await expect(page.locator('[data-rail-side="right"]')).toBeVisible();

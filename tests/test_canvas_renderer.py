@@ -196,6 +196,21 @@ class TestCanvasRendererContracts(unittest.TestCase):
         self.assertIn("ctx.setTransform(", self.js_text)
         self.assertIn("this._stepInertia(dt)", self.js_text)
 
+    def test_inline_physics_mirrors_pr2_drag_settling_after_drop(self):
+        self.assertRegex(
+            self.js_text,
+            r"function\s+_applyBhRepulsion\(nodes,\s*theta,\s*repulsion,\s*dragPulls\)",
+            "renderer.ts must thread dragPulls into its inline Barnes-Hut helper",
+        )
+        self.assertIn(
+            "var settlingAfterDrop = dragPulls && (dragNodeId === null || dragNodeId === undefined);",
+            self.js_text,
+        )
+        self.assertIn(
+            "vx *= 0.3;",
+            self.js_text,
+        )
+
 
 # ── Slice 1a contracts (REQ-1.1, REQ-1.2, REQ-1.9, REQ-1.11, REQ-1.12, REQ-1.13) ──
 
