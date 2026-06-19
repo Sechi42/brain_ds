@@ -212,6 +212,18 @@ class TestSetup(unittest.TestCase):
             self.assertIn(".mcp.json", output)
             self.assertIn(".opencode/opencode.json", output)
 
+    def test_setup_emits_shared_brain_ds_banner_without_breaking_markers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            code, output = self._run_setup(root, agent="both")
+
+            self.assertEqual(code, 0)
+            self.assertIn("BrainDS", output)
+            self.assertIn("Enterprise Data & Knowledge Mapper", output)
+            self.assertIn("Config target written:", output)
+            self.assertIn("1. Rebuild/install the Windows exe", output)
+
     def test_path_canonicalization_alignment(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()

@@ -14,6 +14,8 @@ from brain_ds.mcp.config import generate_claude_config, generate_opencode_config
 from brain_ds.store.graph_store import GraphStore
 from brain_ds.workspaces import register_workspace
 
+from .onboarding import Style, banner, branded_print
+
 
 CHECKLIST_LINES = [
     "1. Rebuild/install the Windows exe",
@@ -208,7 +210,8 @@ def setup_main(args) -> int:
         print("Setup cancelled.")
         return 1
 
-    print(f"Resolved project root: {project_root}")
+    print(banner("setup"))
+    branded_print(f"Resolved project root: {project_root}")
 
     if args.dry_run:
         _ensure_store(project_root, dry_run=True)
@@ -218,15 +221,15 @@ def setup_main(args) -> int:
             before = _render_json(existing)
             after = _render_json(merged)
             display_path = _display_path(project_root, target.path)
-            print(f"Config target ({target.agent}): {display_path}")
-            print(f"DRY RUN: preview for {display_path}")
+            branded_print(f"Config target ({target.agent}): {display_path}")
+            branded_print(f"DRY RUN: preview for {display_path}", style=Style.WARNING)
             print(_diff_preview(Path(display_path), before, after) or "(no changes)")
         return 0
 
     result = apply_setup(project_root, agent=agent)
     for path in result["written"]:
-        print(f"Config target written: {path}")
+        branded_print(f"Config target written: {path}", style=Style.SUCCESS)
     for line in CHECKLIST_LINES:
-        print(line)
+        branded_print(line)
 
     return 0
