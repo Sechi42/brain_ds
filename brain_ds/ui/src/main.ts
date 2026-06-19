@@ -60,7 +60,7 @@ window.brainDsUI = {
   tree,
   splitPane,
   scoreFilter,
-  bundleRevision: "graph-physics-natural-motion-pr4-20260619",
+  bundleRevision: "graph-physics-cold-start-pr1-20260619",
   contextMenu,
   popover,
   liveSync,

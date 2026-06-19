@@ -656,5 +656,98 @@ class TestW2TreeFilterContracts(unittest.TestCase):
         self.assertNotIn("Network.prototype._inferParentId", self.ts_text)
 
 
+class TestLayoutHintProjection(unittest.TestCase):
+    """T1.1 — RED guard: build_render_context must project layout_hint x/y into node dict.
+
+    This test is the failing-test half of the TDD pair for T1.2.
+    It asserts that a node carrying layout_hint {x, y} produces 'x' and 'y'
+    keys in the render-context node dict so the renderer's cold-start gate has
+    a real signal.
+    """
+
+    def _build_ctx_with_layout_hint(self):
+        import sys
+        repo_root = Path(__file__).resolve().parent.parent
+        if str(repo_root) not in sys.path:
+            sys.path.insert(0, str(repo_root))
+
+        from brain_ds.ontology import Graph
+        from brain_ds.ui.render_context import build_render_context
+
+        payload = {
+            "org": "Test",
+            "nodes": [
+                {
+                    "id": "n1",
+                    "label": "Node One",
+                    "type": "Role",
+                    "layout_hint": {"x": 123.0, "y": 456.0},
+                },
+                {
+                    "id": "n2",
+                    "label": "Node Two",
+                    "type": "Role",
+                    # no layout_hint — must NOT get x/y keys
+                },
+            ],
+            "edges": [],
+            "evidence": [],
+        }
+        graph = Graph.from_v1(payload)
+        return build_render_context(graph)
+
+    def test_node_with_layout_hint_has_x_key(self):
+        ctx = self._build_ctx_with_layout_hint()
+        node_n1 = next(n for n in ctx["nodes"] if n["id"] == "n1")
+        self.assertIn("x", node_n1, "Node with layout_hint must have 'x' in render context")
+
+    def test_node_with_layout_hint_has_y_key(self):
+        ctx = self._build_ctx_with_layout_hint()
+        node_n1 = next(n for n in ctx["nodes"] if n["id"] == "n1")
+        self.assertIn("y", node_n1, "Node with layout_hint must have 'y' in render context")
+
+    def test_node_with_layout_hint_x_value_correct(self):
+        ctx = self._build_ctx_with_layout_hint()
+        node_n1 = next(n for n in ctx["nodes"] if n["id"] == "n1")
+        self.assertEqual(node_n1.get("x"), 123.0, "x must match layout_hint['x']")
+
+    def test_node_with_layout_hint_y_value_correct(self):
+        ctx = self._build_ctx_with_layout_hint()
+        node_n1 = next(n for n in ctx["nodes"] if n["id"] == "n1")
+        self.assertEqual(node_n1.get("y"), 456.0, "y must match layout_hint['y']")
+
+    def test_node_without_layout_hint_has_no_x_key(self):
+        ctx = self._build_ctx_with_layout_hint()
+        node_n2 = next(n for n in ctx["nodes"] if n["id"] == "n2")
+        self.assertNotIn("x", node_n2, "Node without layout_hint must NOT have 'x' in render context")
+
+    def test_node_without_layout_hint_has_no_y_key(self):
+        ctx = self._build_ctx_with_layout_hint()
+        node_n2 = next(n for n in ctx["nodes"] if n["id"] == "n2")
+        self.assertNotIn("y", node_n2, "Node without layout_hint must NOT have 'y' in render context")
+
+    def test_layout_hint_with_partial_coords_has_no_xy(self):
+        """A layout_hint with only x (no y) must NOT project either key."""
+        import sys
+        repo_root = Path(__file__).resolve().parent.parent
+        if str(repo_root) not in sys.path:
+            sys.path.insert(0, str(repo_root))
+
+        from brain_ds.ontology import Graph
+        from brain_ds.ui.render_context import build_render_context
+
+        payload = {
+            "org": "Test",
+            "nodes": [{"id": "n3", "label": "N3", "type": "Role", "layout_hint": {"x": 10.0}}],
+            "edges": [],
+            "evidence": [],
+        }
+        graph = Graph.from_v1(payload)
+        ctx = build_render_context(graph)
+        node_n3 = ctx["nodes"][0]
+        self.assertNotIn("x", node_n3, "Partial layout_hint (no y) must not project x")
+        self.assertNotIn("y", node_n3, "Partial layout_hint (no y) must not project y")
+
+
 if __name__ == "__main__":
     unittest.main()

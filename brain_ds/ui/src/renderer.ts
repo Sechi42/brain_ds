@@ -686,8 +686,26 @@
     this._bindReducedMotion();
     this._refreshThemeTokens();
     this._syncModesFromOptions(this.options);
+    this._initialTemperatureForData();
     this._wake();
   }
+
+  // C1 cold-start fix: set a low initial temperature when ALL nodes already
+  // carry finite x/y coordinates (projected from layout_hint by render_context.py).
+  // This prevents the first-frame physics tick from scattering nodes on selection
+  // immediately after load.  Graphs without layout coordinates keep temperature=1
+  // so the physics engine still performs the initial dispersion layout.
+  // Do NOT call this after construction — it is a one-shot initializer.
+  Network.prototype._initialTemperatureForData = function () {
+    var nodes = (this.data.nodes && this.data.nodes.get) ? this.data.nodes.get() : [];
+    if (
+      nodes.length > 0 &&
+      nodes.every(function (n) { return Number.isFinite(n.x) && Number.isFinite(n.y); })
+    ) {
+      this.temperature = 0.005;
+    }
+    // else: leave temperature at constructor default of 1
+  };
 
   Network.prototype._readCssVar = function (name, fallback) {
     try {

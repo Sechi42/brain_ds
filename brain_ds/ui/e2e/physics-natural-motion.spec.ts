@@ -42,7 +42,7 @@ const BASELINE_DIR = path.join(__dirname, "baselines", "physics-natural-motion")
 const FIXTURE = loadFixture();
 const ALL_NODE_IDS = FIXTURE.nodes.map((node) => node.id);
 const LIVE_STATE = loadLiveState();
-const EXPECTED_BUNDLE_REVISION = "graph-physics-natural-motion-pr4-20260619";
+const EXPECTED_BUNDLE_REVISION = "graph-physics-cold-start-pr1-20260619";
 
 test("dense selection stays local instead of scattering unrelated nodes", async ({ page, request }) => {
   const graphId = await seedGraph(request, FIXTURE, "dense-select");

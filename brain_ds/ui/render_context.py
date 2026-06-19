@@ -77,23 +77,32 @@ def build_render_context(graph: Graph, workspace: WorkspaceContext | None = None
             continue
         entity_type = _entity_type(node.type)
         node_type = entity_type.value
-        nodes.append(
-            {
-                "id": node.id,
-                "label": node.label or node.id,
-                "type": node_type,
-                "supertype": node.supertype or entity_type.supertype,
-                "color": {
-                    "background": color_for_type(node_type, "dark"),
-                    "dark": color_for_type(node_type, "dark"),
-                    "light": color_for_type(node_type, "light"),
-                },
-                "title": _node_title(node.details or {}, node.card_sections),
-                "parent_id": node.parent_id,
-                "depth": node.depth,
-                "component_id": component_ids.get(node.id),
-            }
-        )
+        node_payload: dict[str, Any] = {
+            "id": node.id,
+            "label": node.label or node.id,
+            "type": node_type,
+            "supertype": node.supertype or entity_type.supertype,
+            "color": {
+                "background": color_for_type(node_type, "dark"),
+                "dark": color_for_type(node_type, "dark"),
+                "light": color_for_type(node_type, "light"),
+            },
+            "title": _node_title(node.details or {}, node.card_sections),
+            "parent_id": node.parent_id,
+            "depth": node.depth,
+            "component_id": component_ids.get(node.id),
+        }
+        # C1 fix: project layout_hint x/y so the renderer cold-start gate has a
+        # real signal. Only include BOTH keys when both are present — a partial
+        # hint (x only or y only) carries no useful positional information for
+        # the all-nodes-positioned gate in renderer.ts.
+        if node.layout_hint:
+            lx = node.layout_hint.get("x")
+            ly = node.layout_hint.get("y")
+            if lx is not None and ly is not None:
+                node_payload["x"] = lx
+                node_payload["y"] = ly
+        nodes.append(node_payload)
 
     edges: list[dict[str, Any]] = []
     for edge in graph.edges:
