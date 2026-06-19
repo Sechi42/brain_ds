@@ -144,17 +144,28 @@ class GraphMetaRepository:
         )
         self.conn.commit()
 
-    def list_graphs(self) -> list[GraphMeta]:
+    def list_graphs(self, *, include_hidden: bool = False) -> list[GraphMeta]:
+        where = "" if include_hidden else "WHERE hidden = 0"
         rows = self.conn.execute(
-            """
+            f"""
             SELECT id, workspace_root, workspace_path, project, org, schema_version,
                    contract_version, node_count, edge_count, imported_from,
                    generated_at, created_at, updated_at
               FROM graphs
+             {where}
           ORDER BY updated_at DESC, rowid DESC, id ASC
             """
         ).fetchall()
         return [GraphMeta(*row) for row in rows]
+
+    def set_hidden(self, graph_id: str, hidden: bool) -> None:
+        cur = self.conn.execute(
+            "UPDATE graphs SET hidden = ? WHERE id = ?",
+            (1 if hidden else 0, graph_id),
+        )
+        self.conn.commit()
+        if cur.rowcount == 0:
+            raise GraphNotFoundError(f"Graph '{graph_id}' not found")
 
     def delete_graph(self, graph_id: str) -> None:
         cur = self.conn.execute("DELETE FROM graphs WHERE id = ?", (graph_id,))

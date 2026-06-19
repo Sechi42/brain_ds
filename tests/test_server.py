@@ -537,3 +537,179 @@ class TestSlice4BootstrapWiring(unittest.TestCase):
         self.assertIn("/?graph_id=", html, (
             "vault_picker.html JS must navigate to /?graph_id=<id> after successful create-org"
         ))
+
+
+# ---------------------------------------------------------------------------
+# PR3 — T3.6: DELETE /api/graphs/{graph_id} endpoint (soft + hard paths)
+# ---------------------------------------------------------------------------
+
+class TestDeleteApiGraphs(unittest.TestCase):
+    """T3.6: DELETE /api/graphs/{id} — soft hide and hard permanent delete."""
+
+    def _make_app_real_store(self, tmp: str):
+        from brain_ds.ui import server
+        from brain_ds.ontology import Graph
+
+        root = Path(tmp)
+        store_path = root / ".brain_ds" / "store.db"
+        store_path.parent.mkdir(parents=True, exist_ok=True)
+        store = GraphStore(str(store_path), allow_cross_thread=True)
+        app = server.build_ui_app(project_root=root, store=store)
+        return app, store, root
+
+    def _create_graph(self, client, label: str) -> str:
+        resp = client.post("/api/graphs", json={"label": label})
+        self.assertEqual(resp.status_code, 201)
+        return resp.json()["id"]
+
+    # --- soft delete (hide) ---
+
+    def test_soft_delete_returns_200_with_hidden_true(self):
+        """T3.6: DELETE /api/graphs/{id} (no ?hard) returns 200 {hidden: true}."""
+        with tempfile.TemporaryDirectory() as tmp:
+            app, store, root = self._make_app_real_store(tmp)
+            try:
+                with TestClient(app) as client:
+                    graph_id = self._create_graph(client, "SoftOrg")
+                    resp = client.delete(f"/api/graphs/{graph_id}")
+                self.assertEqual(resp.status_code, 200)
+                body = resp.json()
+                self.assertTrue(body.get("hidden"), f"Expected hidden=true, got {body}")
+            finally:
+                store.close()
+
+    def test_soft_delete_graph_absent_from_list(self):
+        """T3.6: After soft-delete, GET /api/graphs must not include the graph."""
+        with tempfile.TemporaryDirectory() as tmp:
+            app, store, root = self._make_app_real_store(tmp)
+            try:
+                with TestClient(app) as client:
+                    graph_id = self._create_graph(client, "HideMe")
+                    client.delete(f"/api/graphs/{graph_id}")
+                    resp = client.get("/api/graphs")
+                ids = [g["id"] for g in resp.json()]
+                self.assertNotIn(graph_id, ids)
+            finally:
+                store.close()
+
+    def test_soft_delete_data_survives_in_store(self):
+        """T3.6: Soft-delete sets hidden=1 but row still exists in SQLite."""
+        with tempfile.TemporaryDirectory() as tmp:
+            app, store, root = self._make_app_real_store(tmp)
+            try:
+                with TestClient(app) as client:
+                    graph_id = self._create_graph(client, "StillThere")
+                    client.delete(f"/api/graphs/{graph_id}")
+                row = store.conn.execute(
+                    "SELECT hidden FROM graphs WHERE id = ?", (graph_id,)
+                ).fetchone()
+                self.assertIsNotNone(row)
+                self.assertEqual(row[0], 1)
+            finally:
+                store.close()
+
+    # --- hard delete ---
+
+    def _delete_with_body(self, client, url: str, body: dict | None = None):
+        """DELETE request with optional JSON body (starlette TestClient workaround)."""
+        if body is not None:
+            return client.request(
+                "DELETE",
+                url,
+                data=json.dumps(body),
+                headers={"Content-Type": "application/json"},
+            )
+        return client.request("DELETE", url)
+
+    def test_hard_delete_correct_confirm_returns_200_deleted_true(self):
+        """T3.6: DELETE /api/graphs/{id}?hard=true with correct typed_confirm returns 200."""
+        with tempfile.TemporaryDirectory() as tmp:
+            app, store, root = self._make_app_real_store(tmp)
+            try:
+                with TestClient(app) as client:
+                    graph_id = self._create_graph(client, "DeleteMe")
+                    resp = self._delete_with_body(
+                        client,
+                        f"/api/graphs/{graph_id}?hard=true",
+                        {"typed_confirm": "DeleteMe"},
+                    )
+                self.assertEqual(resp.status_code, 200)
+                body = resp.json()
+                self.assertTrue(body.get("deleted"), f"Expected deleted=true, got {body}")
+            finally:
+                store.close()
+
+    def test_hard_delete_removes_row_from_store(self):
+        """T3.6: Hard delete removes the row entirely from SQLite."""
+        with tempfile.TemporaryDirectory() as tmp:
+            app, store, root = self._make_app_real_store(tmp)
+            try:
+                with TestClient(app) as client:
+                    graph_id = self._create_graph(client, "GoForever")
+                    self._delete_with_body(
+                        client,
+                        f"/api/graphs/{graph_id}?hard=true",
+                        {"typed_confirm": "GoForever"},
+                    )
+                row = store.conn.execute(
+                    "SELECT id FROM graphs WHERE id = ?", (graph_id,)
+                ).fetchone()
+                self.assertIsNone(row)
+            finally:
+                store.close()
+
+    def test_hard_delete_wrong_confirm_returns_422(self):
+        """T3.6: DELETE with wrong typed_confirm must return 422."""
+        with tempfile.TemporaryDirectory() as tmp:
+            app, store, root = self._make_app_real_store(tmp)
+            try:
+                with TestClient(app) as client:
+                    graph_id = self._create_graph(client, "Protected")
+                    resp = self._delete_with_body(
+                        client,
+                        f"/api/graphs/{graph_id}?hard=true",
+                        {"typed_confirm": "wrong-value"},
+                    )
+                self.assertEqual(resp.status_code, 422)
+            finally:
+                store.close()
+
+    def test_hard_delete_missing_confirm_returns_422(self):
+        """T3.6: DELETE ?hard=true with no body must return 422."""
+        with tempfile.TemporaryDirectory() as tmp:
+            app, store, root = self._make_app_real_store(tmp)
+            try:
+                with TestClient(app) as client:
+                    graph_id = self._create_graph(client, "Protected2")
+                    resp = self._delete_with_body(client, f"/api/graphs/{graph_id}?hard=true")
+                self.assertEqual(resp.status_code, 422)
+            finally:
+                store.close()
+
+    def test_delete_nonexistent_graph_returns_404(self):
+        """T3.6: DELETE /api/graphs/nonexistent must return 404."""
+        with tempfile.TemporaryDirectory() as tmp:
+            app, store, root = self._make_app_real_store(tmp)
+            try:
+                with TestClient(app) as client:
+                    resp = client.delete("/api/graphs/does-not-exist")
+                self.assertEqual(resp.status_code, 404)
+            finally:
+                store.close()
+
+    # --- JS wiring check ---
+
+    def test_vault_picker_js_calls_graphs_endpoint_not_workspaces(self):
+        """T3.8: vault_picker.html JS must DELETE /api/graphs/, not /api/workspaces/."""
+        html_path = Path(__file__).parent.parent / "brain_ds" / "ui" / "templates" / "vault_picker.html"
+        html = html_path.read_text(encoding="utf-8")
+        self.assertIn("/api/graphs/", html, "JS must call /api/graphs/{id} for delete")
+        # The old workspace endpoint must NOT be the delete target anymore
+        # (it may still exist in the code for other purposes, but not in the deleteWorkspace function)
+        # We check that the deleteWorkspace function body uses /api/graphs
+        delete_fn_start = html.find("function deleteWorkspace")
+        delete_fn_end = html.find("}", delete_fn_start + 1)
+        if delete_fn_start != -1 and delete_fn_end != -1:
+            fn_body = html[delete_fn_start:delete_fn_end + 1]
+            self.assertIn("/api/graphs/", fn_body, "deleteWorkspace must call /api/graphs/ endpoint")
+            self.assertNotIn("/api/workspaces/", fn_body, "deleteWorkspace must not call old /api/workspaces/ endpoint")

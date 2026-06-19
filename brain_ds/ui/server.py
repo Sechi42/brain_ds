@@ -144,6 +144,52 @@ def build_ui_app(*, project_root: Path, store: GraphStore) -> FastAPI:
         graphs = runtime._graphs_payload()
         return HTMLResponse(render_vault_picker_html(graphs))
 
+    @app.delete("/api/graphs/{graph_id}")
+    def delete_graph_route(graph_id: str, hard: bool = False, body: dict = Body(default={})) -> JSONResponse:
+        """Soft-delete (default) or hard-delete a graph by UUID.
+
+        - ``hard=false`` (default): marks the graph hidden via the ``hidden``
+          column. Data survives; the graph disappears from list/picker. Reversible.
+        - ``hard=true``: permanently deletes the graph row and all attached data
+          (nodes/edges/evidence via ON DELETE CASCADE). Requires
+          ``{"typed_confirm": "<graph label or id>"}`` in the request body.
+        """
+        typed_body = body if isinstance(body, dict) else {}
+
+        if hard:
+            # Require a confirm token matching the graph label or id
+            typed_confirm = str(typed_body.get("typed_confirm", "")).strip()
+            if not typed_confirm:
+                return JSONResponse(
+                    status_code=422,
+                    content={"detail": "typed_confirm is required for hard delete"},
+                )
+            # Fetch graph meta to validate confirm token
+            try:
+                graphs = runtime.store.meta_repo.list_graphs(include_hidden=True)
+                meta = next((g for g in graphs if g.id == graph_id), None)
+            except Exception:
+                meta = None
+            if meta is None:
+                return JSONResponse(status_code=404, content={"detail": f"Graph '{graph_id}' not found"})
+            if typed_confirm not in {meta.id, meta.org}:
+                return JSONResponse(
+                    status_code=422,
+                    content={"detail": "typed_confirm must match the graph label or id"},
+                )
+            try:
+                runtime.store.delete_graph(graph_id)
+            except GraphNotFoundError:
+                return JSONResponse(status_code=404, content={"detail": f"Graph '{graph_id}' not found"})
+            return JSONResponse(content={"id": graph_id, "deleted": True})
+
+        # Soft delete: hide
+        try:
+            runtime.store.hide_graph(graph_id)
+        except GraphNotFoundError:
+            return JSONResponse(status_code=404, content={"detail": f"Graph '{graph_id}' not found"})
+        return JSONResponse(content={"id": graph_id, "hidden": True})
+
     @app.delete("/api/workspaces/{path:path}")
     def delete_workspace(path: str, delete_store: bool = False, body: dict = Body(default={})) -> JSONResponse:
         workspace_root = Path(path)

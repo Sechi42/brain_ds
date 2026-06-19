@@ -164,7 +164,7 @@ class GraphStore:
         node_rows = self.node_repo.query_nodes(graph_id)
         edge_rows = self.edge_repo.query_edges(graph_id)
         evidence_rows = self.evidence_repo.search_evidence(graph_id)
-        meta = next(meta for meta in self.meta_repo.list_graphs() if meta.id == graph_id)
+        meta = next(meta for meta in self.meta_repo.list_graphs(include_hidden=True) if meta.id == graph_id)
 
         # Defensive read: edge rows are written without ontology validation
         # (MCP add_edge / outbox writes accept free-text labels), so a single
@@ -190,6 +190,15 @@ class GraphStore:
 
     def list_graphs(self) -> list[GraphMeta]:
         return self._guard_closed(lambda: self.meta_repo.list_graphs())
+
+    def hide_graph(self, graph_id: str) -> None:
+        """Soft-delete: mark the graph hidden so list_graphs excludes it.
+
+        The row and all attached data remain in SQLite. The operation is
+        reversible by calling set_hidden(graph_id, False) directly on the repo.
+        """
+        self._ensure_writable()
+        self.meta_repo.set_hidden(graph_id, True)
 
     def delete_graph(self, graph_id: str) -> None:
         self._ensure_writable()

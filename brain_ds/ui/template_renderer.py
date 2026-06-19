@@ -26,30 +26,55 @@ def render_vault_picker_html(graphs: list[dict]) -> str:
     template = templates_root.joinpath("vault_picker.html").read_text(encoding="utf-8")
     tokens_css = static_root.joinpath("tokens.css").read_text(encoding="utf-8")
 
-    # Build server-rendered workspace rows (R8 + B safe-confirm actions).
+    # Build server-rendered workspace rows (R1.1–R1.7, S1-A, S1-B, S1-C).
+    # Structure per card:
+    #   - Primary CTA: <a data-workspace-open> to open the workspace
+    #   - <h2 class="workspace-name"> as prominent heading
+    #   - <details class="workspace-manage"> collapsed at rest, containing:
+    #       - "Remove from list" button (secondary, NOT primary-styled)
+    #       - <details class="workspace-danger-zone"> for hard delete
     rows: list[str] = []
     for index, g in enumerate(graphs, start=1):
-        workspace_path = _escape_html(str(g["id"]))
+        graph_id = _escape_html(str(g["id"]))
         workspace_name = _escape_html(str(g["label"]))
         confirm_id = f"workspace-delete-confirm-{index}"
         rows.append(
-            "      <li class=\"workspace-card\" "
-            f'data-workspace-path="{workspace_path}" data-workspace-name="{workspace_name}">'
-            f'<a class="org-row" href="/?graph_id={workspace_path}">{workspace_name}</a>'
-            "<div class=\"workspace-actions\">"
-            f'<button type="button" class="workspace-action-btn workspace-action-btn--primary" '
-            f'data-workspace-remove data-workspace-path="{workspace_path}">Remove from list</button>'
-            "<details class=\"workspace-danger-zone\">"
-            "<summary class=\"workspace-action-btn workspace-action-btn--danger\">Delete all data</summary>"
-            f'<form class="workspace-danger-form" data-workspace-path="{workspace_path}" data-workspace-name="{workspace_name}">'
-            "<p class=\"workspace-danger-copy\">Irreversible. Type the workspace name or path to confirm.</p>"
+            f'      <li class="workspace-card" '
+            f'data-graph-id="{graph_id}" '
+            f'data-workspace-path="{graph_id}" '
+            f'data-workspace-name="{workspace_name}">'
+            # Prominent heading
+            f'<h2 class="workspace-name" data-workspace-name="{workspace_name}">{workspace_name}</h2>'
+            # Primary open CTA
+            f'<a class="org-row workspace-open-cta" '
+            f'href="/?graph_id={graph_id}" '
+            f'data-workspace-open '
+            f'data-graph-id="{graph_id}">Open workspace</a>'
+            # Collapsed manage block — secondary/destructive actions
+            '<details class="workspace-manage">'
+            '<summary class="workspace-manage-summary">Manage</summary>'
+            '<div class="workspace-manage-body">'
+            # Remove from list — secondary, NOT primary-styled
+            f'<button type="button" class="workspace-action-btn workspace-action-btn--secondary" '
+            f'data-workspace-remove '
+            f'data-workspace-path="{graph_id}" '
+            f'data-graph-id="{graph_id}">Remove from list</button>'
+            # Nested danger zone for hard delete
+            '<details class="workspace-danger-zone">'
+            '<summary class="workspace-action-btn workspace-action-btn--danger">Delete all data</summary>'
+            f'<form class="workspace-danger-form" '
+            f'data-workspace-path="{graph_id}" '
+            f'data-graph-id="{graph_id}" '
+            f'data-workspace-name="{workspace_name}">'
+            '<p class="workspace-danger-copy">Irreversible. Type the workspace name or path to confirm.</p>'
             f'<label for="{confirm_id}" class="visually-hidden">Type {workspace_name} or path to confirm</label>'
             f'<input id="{confirm_id}" class="workspace-confirm-input" name="typed_confirm" type="text" '
             f'placeholder="Type {workspace_name} or path" autocomplete="off" required />'
             '<button type="submit" class="workspace-action-btn workspace-action-btn--danger" disabled>'
-            "Delete all data</button>"
+            'Delete all data</button>'
             '<p class="workspace-action-status" role="status" aria-live="polite"></p>'
-            "</form></details></div></li>"
+            '</form></details>'
+            '</div></details></li>'
         )
     rows_html = "\n".join(rows)
 

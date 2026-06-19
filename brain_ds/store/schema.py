@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS graphs (
     imported_from TEXT,
     generated_at TEXT,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    hidden INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS nodes (

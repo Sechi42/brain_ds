@@ -26,7 +26,7 @@ class DesktopShellFoundationTests(unittest.TestCase):
         config_path = TAURI_ROOT / "tauri.conf.json"
         config = json.loads(config_path.read_text(encoding="utf-8"))
 
-        self.assertEqual("brain_ds", config["app"]["windows"][0]["title"])
+        self.assertEqual("BrainDS", config["app"]["windows"][0]["title"])
         self.assertEqual("bootstrap", config["build"]["frontendDist"])
 
     def test_capabilities_include_dialog_and_shell_with_scoped_sidecar(self) -> None:

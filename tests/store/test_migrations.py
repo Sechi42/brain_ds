@@ -92,7 +92,8 @@ class TestMigrations(unittest.TestCase):
 
             migrations_module.MIGRATIONS = original
             second = apply_pending(conn)
-            self.assertEqual(second, [3, 4])
+            # v3 (event_outbox), v4 (nodes_fts), v5 (graphs.hidden) are applied
+            self.assertEqual(second, [3, 4, 5])
         finally:
             migrations_module.MIGRATIONS = original
 

@@ -172,5 +172,95 @@ class GraphStoreTests(unittest.TestCase):
         self.assertEqual(graph.nodes[0].card_sections[0].order, 2)
 
 
+# ---------------------------------------------------------------------------
+# PR3 — T3.1: hide_graph / list_graphs hidden filter / delete_graph hard path
+# ---------------------------------------------------------------------------
+
+class TestGraphStoreHideAndDelete(unittest.TestCase):
+    """T3.1: hide_graph excludes from list_graphs; delete_graph hard-deletes."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.temp_dir.name) / "store.db"
+        self.store = GraphStore(str(self.db_path))
+
+    def tearDown(self) -> None:
+        self.store.close()
+        self.temp_dir.cleanup()
+
+    def _create_graph(self, name: str) -> str:
+        from brain_ds.ontology import Graph
+        g = Graph.from_v1({"nodes": [], "edges": [], "org": name})
+        return self.store.save_graph(g, workspace_root=self.temp_dir.name)
+
+    def test_hide_graph_excludes_from_list_graphs(self) -> None:
+        """T3.1: After hide_graph, list_graphs must not return that graph_id."""
+        graph_id = self._create_graph("HiddenOrg")
+        # Confirm it's visible first
+        ids_before = [g.id for g in self.store.list_graphs()]
+        self.assertIn(graph_id, ids_before)
+
+        self.store.hide_graph(graph_id)
+
+        ids_after = [g.id for g in self.store.list_graphs()]
+        self.assertNotIn(graph_id, ids_after)
+
+    def test_hide_graph_data_still_in_store(self) -> None:
+        """T3.1: Hidden graph row still exists — data survives (reversible)."""
+        graph_id = self._create_graph("SoftRemoved")
+        self.store.hide_graph(graph_id)
+
+        # Direct SQL confirms row exists
+        row = self.store.conn.execute(
+            "SELECT hidden FROM graphs WHERE id = ?", (graph_id,)
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row[0], 1)
+
+    def test_migration_idempotent_hidden_column(self) -> None:
+        """T3.2: Running v5_graphs_hidden twice must not raise (idempotency guard)."""
+        from brain_ds.store.migrations import v5_graphs_hidden
+        # First run already happened during store init (schema v5)
+        # Running again must be a no-op, not raise OperationalError
+        try:
+            v5_graphs_hidden(self.store.conn)
+        except Exception as exc:  # noqa: BLE001
+            self.fail(f"v5_graphs_hidden raised on second run: {exc}")
+
+    def test_fresh_store_has_hidden_column(self) -> None:
+        """T3.3: Fresh store (DDL) must include hidden column on graphs table."""
+        cols = [
+            row[1]
+            for row in self.store.conn.execute("PRAGMA table_info(graphs)").fetchall()
+        ]
+        self.assertIn("hidden", cols)
+
+    def test_hide_nonexistent_graph_raises(self) -> None:
+        """T3.4: hide_graph on unknown id must raise GraphNotFoundError."""
+        from brain_ds.store.errors import GraphNotFoundError
+        with self.assertRaises(GraphNotFoundError):
+            self.store.hide_graph("does-not-exist")
+
+    def test_delete_graph_hard_removes_row(self) -> None:
+        """T3.5: delete_graph (hard) must remove the row entirely (CASCADE)."""
+        graph_id = self._create_graph("ToDelete")
+        self.store.delete_graph(graph_id)
+
+        row = self.store.conn.execute(
+            "SELECT id FROM graphs WHERE id = ?", (graph_id,)
+        ).fetchone()
+        self.assertIsNone(row)
+
+    def test_hidden_graphs_excluded_when_two_graphs(self) -> None:
+        """T3.1 multi: only non-hidden graphs appear in list_graphs."""
+        visible_id = self._create_graph("Visible")
+        hidden_id = self._create_graph("Hidden")
+        self.store.hide_graph(hidden_id)
+
+        ids = [g.id for g in self.store.list_graphs()]
+        self.assertIn(visible_id, ids)
+        self.assertNotIn(hidden_id, ids)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -140,7 +140,18 @@ def v4_fts5_nodes(conn: sqlite3.Connection) -> None:
             )
 
 
-MIGRATIONS: Sequence[Migration] = (v1_initial_schema, v2_tools_audit, v3_event_outbox, v4_fts5_nodes)
+def v5_graphs_hidden(conn: sqlite3.Connection) -> None:
+    """Add hidden column to graphs table for soft-delete (reversible hide).
+
+    SQLite ALTER TABLE ADD COLUMN has no IF NOT EXISTS clause, so we guard
+    idempotency by checking PRAGMA table_info before issuing the ALTER.
+    """
+    existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(graphs)").fetchall()}
+    if "hidden" not in existing_cols:
+        conn.execute("ALTER TABLE graphs ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")
+
+
+MIGRATIONS: Sequence[Migration] = (v1_initial_schema, v2_tools_audit, v3_event_outbox, v4_fts5_nodes, v5_graphs_hidden)
 
 
 def _current_schema_version(conn: sqlite3.Connection) -> int:

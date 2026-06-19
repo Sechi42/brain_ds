@@ -96,12 +96,63 @@
       margin-bottom: 0.35rem;
     }
 
-    .workspace-actions {
+    /* Open workspace CTA — primary action (purple/accent) */
+    .workspace-open-cta {
+      display: block;
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border-subtle, rgba(63,63,70,0.4));
+      border-radius: 6px;
+      background: var(--accent-mora, #a78bfa);
+      color: #09090b;
+      text-decoration: none;
+      font-size: 0.9375rem;
+      font-weight: 600;
+      transition: opacity 0.15s;
+      cursor: pointer;
+    }
+
+    .workspace-open-cta:hover { opacity: 0.88; }
+    .workspace-open-cta:focus {
+      outline: 2px solid var(--accent-mora, #a78bfa);
+      outline-offset: 2px;
+    }
+
+    /* Workspace heading */
+    .workspace-name {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: var(--text-normal, #f4f4f5);
+      margin: 0;
+    }
+
+    /* Manage details block — collapsed at rest */
+    .workspace-manage {
+      border: 1px solid var(--border-subtle, rgba(63,63,70,0.4));
+      border-radius: 6px;
+      background: var(--bg-secondary, var(--bg-panel, #121214));
+    }
+
+    .workspace-manage-summary {
+      list-style: none;
+      padding: 0.5rem 0.75rem;
+      cursor: pointer;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: var(--text-muted, #71717a);
+      user-select: none;
+    }
+
+    .workspace-manage-summary::-webkit-details-marker { display: none; }
+
+    .workspace-manage[open] .workspace-manage-summary {
+      border-bottom: 1px solid var(--border-subtle, rgba(63,63,70,0.4));
+    }
+
+    .workspace-manage-body {
       display: flex;
-      flex-wrap: wrap;
+      flex-direction: column;
       gap: 0.5rem;
-      align-items: flex-start;
-      padding-left: 0.2rem;
+      padding: 0.75rem;
     }
 
     .workspace-action-btn {
@@ -116,9 +167,17 @@
       line-height: 1;
     }
 
-    .workspace-action-btn--primary {
-      background: var(--accent-mora, #a78bfa);
-      color: #09090b;
+    /* Secondary (Remove from list) — quiet, NOT primary purple */
+    .workspace-action-btn--secondary {
+      background: transparent;
+      color: var(--text-normal, #f4f4f5);
+      border-color: var(--border-subtle, rgba(63,63,70,0.4));
+    }
+
+    .workspace-action-btn--secondary:hover,
+    .workspace-action-btn--secondary:focus {
+      border-color: var(--text-muted, #71717a);
+      background: var(--bg-main, #09090b);
     }
 
     .workspace-action-btn--danger {
@@ -365,10 +424,14 @@
     })();
 
     (function () {
-      function deleteWorkspace(path, options) {
-        var deleteStore = options && options.deleteStore;
+      // deleteWorkspace — calls DELETE /api/graphs/{graphId}
+      // options.hard=true  → permanent delete (requires typed_confirm in body)
+      // options.hard=false → soft hide (reversible, no data loss)
+      function deleteWorkspace(graphId, options) {
+        var hard = options && options.hard;
         var body = options && options.body ? options.body : null;
-        return fetch("/api/workspaces/" + encodeURIComponent(path) + (deleteStore ? "?delete_store=true" : ""), {
+        var url = "/api/graphs/" + encodeURIComponent(graphId) + (hard ? "?hard=true" : "");
+        return fetch(url, {
           method: "DELETE",
           headers: body ? { "Content-Type": "application/json" } : {},
           body: body ? JSON.stringify(body) : null,
@@ -379,6 +442,14 @@
         });
       }
 
+      function removeCard(card) {
+        if (card && card.parentNode) {
+          card.parentNode.removeChild(card);
+        } else {
+          window.location.reload();
+        }
+      }
+
       function setStatus(statusEl, message, isError) {
         if (!statusEl) return;
         statusEl.textContent = message || "";
@@ -387,12 +458,13 @@
 
       document.querySelectorAll("[data-workspace-remove]").forEach(function (button) {
         button.addEventListener("click", function () {
-          var path = button.getAttribute("data-workspace-path") || "";
-          if (!path) return;
+          var graphId = button.getAttribute("data-graph-id") || button.getAttribute("data-workspace-path") || "";
+          if (!graphId) return;
           button.disabled = true;
-          deleteWorkspace(path, { deleteStore: false }).then(function (result) {
+          var card = button.closest(".workspace-card") || button.closest("[data-graph-id]");
+          deleteWorkspace(graphId, { hard: false }).then(function (result) {
             if (result.ok) {
-              window.location.reload();
+              removeCard(card);
             } else {
               button.disabled = false;
             }
@@ -406,15 +478,15 @@
         var input = form.querySelector("input[name='typed_confirm']");
         var submit = form.querySelector("button[type='submit']");
         var statusEl = form.querySelector(".workspace-action-status");
-        var path = form.getAttribute("data-workspace-path") || "";
+        var graphId = form.getAttribute("data-graph-id") || form.getAttribute("data-workspace-path") || "";
         var name = form.getAttribute("data-workspace-name") || "";
 
         function sync() {
           var value = (input && input.value || "").trim();
           if (submit) {
-            submit.disabled = !(value === path || value === name);
+            submit.disabled = !(value === graphId || value === name);
           }
-          setStatus(statusEl, value && value !== path && value !== name ? "Type the exact workspace name or path to confirm." : "", true);
+          setStatus(statusEl, value && value !== graphId && value !== name ? "Type the exact workspace name or id to confirm." : "", true);
         }
 
         if (input) {
@@ -425,14 +497,15 @@
         form.addEventListener("submit", function (event) {
           event.preventDefault();
           var value = (input && input.value || "").trim();
-          if (!(value === path || value === name)) {
+          if (!(value === graphId || value === name)) {
             setStatus(statusEl, "Confirmation text does not match.", true);
             return;
           }
           if (submit) submit.disabled = true;
-          deleteWorkspace(path, { deleteStore: true, body: { typed_confirm: value } }).then(function (result) {
+          var card = form.closest(".workspace-card") || form.closest("[data-graph-id]");
+          deleteWorkspace(graphId, { hard: true, body: { typed_confirm: value } }).then(function (result) {
             if (result.ok) {
-              window.location.reload();
+              removeCard(card);
               return;
             }
             setStatus(statusEl, (result.payload && result.payload.detail) || "Unable to delete workspace.", true);
