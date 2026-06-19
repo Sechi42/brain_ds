@@ -30,9 +30,10 @@ declare global {
       search: typeof search;
       filterPanel: typeof filterPanel;
       tree: typeof tree;
-      splitPane: typeof splitPane;
-      scoreFilter: typeof scoreFilter;
-      contextMenu: typeof contextMenu;
+    splitPane: typeof splitPane;
+    scoreFilter: typeof scoreFilter;
+    bundleRevision?: string;
+    contextMenu: typeof contextMenu;
       popover: typeof popover;
       liveSync: typeof liveSync;
       motion: { motionEnabled: typeof motionEnabled };
@@ -59,6 +60,7 @@ window.brainDsUI = {
   tree,
   splitPane,
   scoreFilter,
+  bundleRevision: "graph-physics-natural-motion-pr4-20260619",
   contextMenu,
   popover,
   liveSync,

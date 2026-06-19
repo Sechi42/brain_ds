@@ -1,4 +1,5 @@
 import { motionEnabled } from './motion/motion';
+import { computeVisibleLabels, DEFAULT_LABEL_CONFIG } from './labels/label-policy';
 
 type D4Node = {
   id: string | number;
@@ -49,6 +50,7 @@ const FIRST_PAINT_NODE_STAGGER_CAP_MS = 650;
 const FIRST_PAINT_EDGE_BASE_DELAY_MS = 260;
 const FIRST_PAINT_EDGE_STAGGER_MS = 8;
 const FIRST_PAINT_EDGE_STAGGER_CAP_MS = 420;
+const D4_DEFAULT_COLOR = '#3b82f6';
 
 const d4HexToRgb = (hex: string | null | undefined): string => {
   if (typeof hex !== 'string') return '59,130,246';
@@ -90,12 +92,12 @@ export function mount(args: D4MountArgs) {
   const enteringIds = args.enteringIds || new Set<string>();
   const hiddenTypes = args.hiddenTypes || new Set<string>();
   const onNodeActivate = args.onNodeActivate;
-  const palette = ['#3b82f6', '#14b8a6', '#f59e0b', '#a855f7', '#ef4444', '#22c55e', '#06b6d4', '#eab308'];
+  const palette = [D4_DEFAULT_COLOR, '#14b8a6', '#f59e0b', '#a855f7', '#ef4444', '#22c55e', '#06b6d4', '#eab308'];
 
   const state = {
     hoveredNodeId: null as string | null,
     selectedNodeIds: new Set<string>(),
-    nodeEls: new Map<string, HTMLElement>(),
+    nodeEls: new Map<string, HTMLButtonElement>(),
     edgeEls: new Map<string, SVGLineElement>(),
     popoverEl: null as HTMLElement | null,
   };
@@ -189,17 +191,16 @@ export function mount(args: D4MountArgs) {
   };
   const d4RelatedFor = (focusId: string | null) => (focusId ? new Set(d4Adjacency().get(focusId) || []) : new Set<string>());
   const d4ColorVars = (node: D4Node) => {
-    let hex: string | null = null;
+    let hex: string = D4_DEFAULT_COLOR;
     const cid = node && node.component_id;
     if (cid !== null && cid !== undefined && cid !== '') {
       const idx = Math.abs(Number(cid)) % palette.length;
-      if (!Number.isNaN(idx)) hex = palette[idx];
+      if (!Number.isNaN(idx)) hex = palette[idx] || D4_DEFAULT_COLOR;
     }
     if (!hex && node && node.color) {
       if (typeof node.color === 'string') hex = node.color;
-      else hex = node.color.dark || node.color.background || node.color.light || null;
+      else hex = node.color.dark || node.color.background || node.color.light || D4_DEFAULT_COLOR;
     }
-    if (!hex) hex = palette[0];
     const rgb = d4HexToRgb(hex);
     return { color: hex, muted: `rgba(${rgb},0.25)` };
   };
@@ -295,6 +296,33 @@ export function mount(args: D4MountArgs) {
     const selectedPrimary = state.selectedNodeIds.values().next().value || null;
     const related = d4RelatedFor(state.hoveredNodeId || selectedPrimary);
     d4SyncContainerState();
+
+    // Slice 1 (graph-label-culling): compute overlay label visibility independently
+    // of the canvas renderer. Uses the network viewport scale so D4 and canvas are
+    // gated by the same zoom threshold but each makes its own decision.
+    // Accessible button labels (aria-label) are NEVER removed — only visual .node-label text.
+    const d4Viewport = (network && network.viewport) || { scale: 1 };
+    const d4LabelConfig = (network && network._labelConfig) || DEFAULT_LABEL_CONFIG;
+    let d4LabelDecisions;
+    try {
+      const d4PolicyNodes = nodeRecords.map((node) => {
+        const id = d4NodeId(node.id);
+        return {
+          id: node.id,
+          degree: (node as any).degree || 0,
+          centrality: (node as any).centrality || 0,
+          selected: state.selectedNodeIds.has(id),
+          hovered: state.hoveredNodeId === id,
+          focused: false,
+          pinned: !!(node as any).fixed,
+        };
+      });
+      d4LabelDecisions = computeVisibleLabels(d4PolicyNodes, d4Viewport, d4LabelConfig);
+    } catch (_e) {
+      // Safe degradation: policy failure → show all labels
+      d4LabelDecisions = null;
+    }
+
     // Per-pass enter counter: both the load cascade and live batch arrivals
     // (e.g. an MCP import_graph) stagger instead of popping simultaneously.
     let nodeEnterSeq = 0;
@@ -305,7 +333,7 @@ export function mount(args: D4MountArgs) {
       let el = state.nodeEls.get(id);
       const isNewElement = !el;
       if (!el) {
-        el = document.createElement('button');
+        el = document.createElement('button') as HTMLButtonElement;
         el.type = 'button';
         el.className = 'graph-node d4-node';
         el.dataset.id = id;
@@ -323,9 +351,9 @@ export function mount(args: D4MountArgs) {
         });
         // Node drag. The canvas host is pointer-events:none in overlay mode, so the
         // canvas drag never fires — drive it from the overlay button. Dragging mutates
-        // the live node position, pins it via network.dragNodeId (so neighbors re-settle
-        // around it via the reheated simulation), and on drop marks it fixed so it stays.
-        const elBtn = el as HTMLElement;
+        // the live node position and reheats the simulation through network.dragNodeId;
+        // on drop we clear any temporary fixed pin so the canvas and overlay paths stay aligned.
+        const elBtn = el as HTMLButtonElement;
         let d4DragMoved = false;
         el.addEventListener('pointerdown', (downEv: PointerEvent) => {
           if (downEv.button !== undefined && downEv.button !== 0) return;
@@ -359,7 +387,7 @@ export function mount(args: D4MountArgs) {
             network.dragNodeId = null;
             if (d4DragMoved) {
               const live = findLiveNode();
-              if (live) live.fixed = true;
+              if (live) live.fixed = false;
               const swallowClick = (clickEv: Event) => {
                 clickEv.stopPropagation();
                 clickEv.preventDefault();
@@ -393,10 +421,18 @@ export function mount(args: D4MountArgs) {
       el.style.transform = `translate3d(${pos.x}px, ${pos.y}px, 0) translate(-50%, -50%)`;
       el.style.setProperty('--node-color', color.color);
       el.style.setProperty('--node-color-muted', color.muted);
+      // Accessible button aria-label is ALWAYS set — never removed by label policy.
       el.setAttribute('aria-label', resolveNodeAriaLabel(node, id));
       el.tabIndex = idx === 0 ? 0 : -1;
-      const label = el.querySelector('.node-label');
-      if (label) label.textContent = resolveNodeLabel(node);
+      // Visual label text is controlled by the label policy (D4 Overlay Independence).
+      const label = el.querySelector('.node-label') as HTMLElement | null;
+      if (label) {
+        label.textContent = resolveNodeLabel(node);
+        // Guard: hide visual label text when policy says not visible.
+        // d4LabelDecisions is null on safe-degradation path → show all labels.
+        const d4Decision = d4LabelDecisions ? d4LabelDecisions[idx] : null;
+        label.style.visibility = (d4Decision && d4Decision.visible === false) ? 'hidden' : '';
+      }
       if (state.hoveredNodeId === id) d4ShowPopover(id, pos.x, pos.y);
       if (enteringIds.has(id)) enteringIds.delete(id);
     });

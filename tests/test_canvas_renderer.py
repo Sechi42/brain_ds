@@ -188,9 +188,28 @@ class TestCanvasRendererContracts(unittest.TestCase):
         self.assertRegex(self.js_text, r"if\s*\(\s*!this\._d4OverlayActive\s*\)\s*\{[\s\S]*_syncA11yList\(")
 
     def test_physics_viewport_run_when_gated(self):
-        self.assertIn("_applyForces(state, dt)", self.js_text)
+        # Slice 3: physics is now routed through _layoutStrategy.tick()
+        # (the direct _applyForces call was replaced by T3.14)
+        has_physics = ("_applyForces(state, dt)" in self.js_text
+                       or "_layoutStrategy.tick" in self.js_text)
+        self.assertTrue(has_physics, "renderer must call _applyForces or _layoutStrategy.tick")
         self.assertIn("ctx.setTransform(", self.js_text)
         self.assertIn("this._stepInertia(dt)", self.js_text)
+
+    def test_inline_physics_mirrors_pr2_drag_settling_after_drop(self):
+        self.assertRegex(
+            self.js_text,
+            r"function\s+_applyBhRepulsion\(nodes,\s*theta,\s*repulsion,\s*dragPulls\)",
+            "renderer.ts must thread dragPulls into its inline Barnes-Hut helper",
+        )
+        self.assertIn(
+            "var settlingAfterDrop = dragPulls && (dragNodeId === null || dragNodeId === undefined);",
+            self.js_text,
+        )
+        self.assertIn(
+            "vx *= 0.3;",
+            self.js_text,
+        )
 
 
 # ── Slice 1a contracts (REQ-1.1, REQ-1.2, REQ-1.9, REQ-1.11, REQ-1.12, REQ-1.13) ──

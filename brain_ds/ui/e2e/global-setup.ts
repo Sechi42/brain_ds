@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -10,6 +10,7 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const TEMP_ROOT = path.join(os.tmpdir(), "opencode");
 const STATE_FILE = path.join(TEMP_ROOT, "brain-ds-live-e2e-state.json");
+const NATURAL_MOTION_FIXTURE = path.join(REPO_ROOT, "tests", "fixtures", "physics_dense_natural_motion.json");
 
 type LiveState = {
   baseUrl: string;
@@ -17,6 +18,12 @@ type LiveState = {
   sandboxRoot: string;
   uiPid: number;
   mcpBridgePid: number;
+  naturalMotionFixture: {
+    path: string;
+    seed: number;
+    n: number;
+    focusId: string;
+  };
 };
 
 export default async function globalSetup(): Promise<void> {
@@ -59,6 +66,7 @@ export default async function globalSetup(): Promise<void> {
 
   const baseUrl = `http://127.0.0.1:${uiPort}`;
   const mcpBridgeUrl = `http://127.0.0.1:${mcpBridgePort}`;
+  const naturalMotionFixture = JSON.parse(await readFile(NATURAL_MOTION_FIXTURE, "utf8")) as { seed: number; n: number; focusId: string };
 
   await waitForUrl(`${baseUrl}/api/graphs`);
   await waitForUrl(`${mcpBridgeUrl}/health`);
@@ -69,6 +77,12 @@ export default async function globalSetup(): Promise<void> {
     sandboxRoot,
     uiPid: uiProcess.pid ?? 0,
     mcpBridgePid: bridgeProcess.pid ?? 0,
+    naturalMotionFixture: {
+      path: NATURAL_MOTION_FIXTURE,
+      seed: naturalMotionFixture.seed,
+      n: naturalMotionFixture.n,
+      focusId: naturalMotionFixture.focusId,
+    },
   };
 
   await writeFile(STATE_FILE, JSON.stringify(state, null, 2), "utf8");
@@ -77,6 +91,7 @@ export default async function globalSetup(): Promise<void> {
   process.env.BRAIN_DS_E2E_MCP_BRIDGE_URL = mcpBridgeUrl;
   process.env.BRAIN_DS_E2E_SANDBOX_ROOT = sandboxRoot;
   process.env.BRAIN_DS_E2E_STATE_FILE = STATE_FILE;
+  process.env.BRAIN_DS_E2E_NATURAL_MOTION_FIXTURE = NATURAL_MOTION_FIXTURE;
 }
 
 async function getFreePort(): Promise<number> {

@@ -7,7 +7,7 @@ test.describe("Ecosystem Validation: exe → MCP → store → browser", () => {
   test("served viewer exposes workspace shell from live server", async ({ page }) => {
     await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
 
-    await expect(page).toHaveTitle("brain_ds Graph Viewer");
+    await expect(page).toHaveTitle("BrainDS Graph Viewer");
     await expect(page.locator(".workspace-shell")).toBeVisible();
     await expect(page.locator('[data-rail-side="left"]')).toBeVisible();
     await expect(page.locator('[data-rail-side="right"]')).toBeVisible();

@@ -114,7 +114,8 @@ class TestNodeDragOverlay(unittest.TestCase):
 
     def test_drag_reheats_and_fixes_on_drop(self):
         self.assertRegex(self.d4, r"network\.temperature\s*=\s*Math\.max\(")
-        self.assertIn("live.fixed = true", self.d4)
+        self.assertIn("live.fixed = false", self.d4)
+        self.assertNotIn("live.fixed = true", self.d4)
 
     def test_applyforces_pins_dragged_and_fixed_nodes(self):
         self.assertRegex(

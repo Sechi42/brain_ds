@@ -2485,6 +2485,121 @@
       #ai-actions-receipts li.receipt-ok { border-inline-start: 3px solid var(--status-active); }
       #ai-actions-receipts li.receipt-error { border-inline-start: 3px solid var(--status-danger); }
 
+      /* === Slice 2: Agent Presence Panel === */
+      #agent-presence-panel {
+        margin: 0;
+        padding: 0;
+      }
+      /* Feature-flag: hidden when agentPanel.enabled = false (CSS only; panel stays in DOM for ARIA) */
+      #agent-presence-panel[hidden] { display: none; }
+
+      .agent-presence-reconnecting {
+        display: none;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.3rem 0.5rem;
+        border-radius: 6px;
+        background: color-mix(in srgb, var(--status-warn, var(--status-active)) 12%, transparent);
+        color: var(--text-muted);
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+      }
+      #agent-presence-panel[data-connection="reconnecting"] .agent-presence-reconnecting {
+        display: flex;
+      }
+
+      .agent-presence-activity-log {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+
+      .agent-presence-entry {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.25rem 0.5rem;
+        align-items: start;
+        border: 1px solid var(--border-subtle);
+        border-radius: 8px;
+        padding: 0.35rem 0.45rem;
+        font-size: 0.82rem;
+        color: var(--text-normal);
+        background: var(--bg-panel);
+        min-height: 44px;
+        cursor: pointer;
+      }
+      .agent-presence-entry:focus-visible {
+        outline: 2px solid var(--accent-mora, var(--accent-purple, #7c3aed));
+        outline-offset: 2px;
+      }
+      .agent-presence-entry[aria-expanded="true"] .agent-presence-tools {
+        display: flex;
+      }
+      .agent-presence-entry[aria-expanded="false"] .agent-presence-tools {
+        display: none;
+      }
+
+      .agent-presence-name {
+        font-weight: 600;
+        color: var(--text-bright);
+        font-size: 0.84rem;
+        text-overflow: ellipsis;
+        overflow: hidden;
+        white-space: nowrap;
+      }
+      .agent-presence-status-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.1rem 0.4rem;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        font-weight: 600;
+        white-space: nowrap;
+        align-self: start;
+      }
+      .agent-presence-status-chip--active {
+        background: color-mix(in srgb, var(--status-active) 16%, transparent);
+        color: var(--status-active);
+      }
+      .agent-presence-status-chip--idle {
+        background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+        color: var(--text-muted);
+      }
+      .agent-presence-status-chip--error {
+        background: color-mix(in srgb, var(--status-danger) 14%, transparent);
+        color: var(--status-danger);
+      }
+
+      .agent-presence-meta {
+        color: var(--text-muted);
+        font-size: 0.7rem;
+        text-overflow: ellipsis;
+        overflow: hidden;
+        white-space: nowrap;
+        grid-column: 1 / -1;
+      }
+
+      /* Tool list — progressive disclosure (hidden by default) */
+      .agent-presence-tools {
+        display: none;
+        flex-wrap: wrap;
+        gap: 0.2rem;
+        grid-column: 1 / -1;
+        margin-top: 0.15rem;
+      }
+      .agent-presence-tool-chip {
+        font-size: 0.68rem;
+        padding: 0.1rem 0.35rem;
+        border-radius: 4px;
+        background: color-mix(in srgb, var(--accent-mora, var(--accent-purple, #7c3aed)) 10%, transparent);
+        color: var(--text-muted);
+      }
+      /* === END Slice 2: Agent Presence Panel === */
+
       @media (prefers-reduced-motion: no-preference) {
         .d4-edge,
         .edge-line,
@@ -2966,6 +3081,20 @@
             </div>
           </details>
         </div>
+        <!-- Slice 2: Agent Presence Panel — semantic section near #ai-actions-receipts in right rail -->
+        <section id="agent-presence-panel" aria-label="Agent Activity" data-connection="connected">
+          <!-- Reconnecting indicator — shown via CSS when data-connection="reconnecting" -->
+          <span class="agent-presence-reconnecting" aria-live="assertive" role="status">
+            <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+            Reconnecting…
+          </span>
+          <!-- Activity updates live region — aria-live="polite" for presence updates -->
+          <ol class="agent-presence-activity-log" aria-live="polite" aria-label="Active agents">
+            <!-- Populated at runtime by agentPresencePanel.render() -->
+          </ol>
+        </section>
         <!-- BRD panel — mounted by brdPanel.mount() at runtime; hidden until BRD rail icon activated -->
         <section id="brd-panel" class="brd-panel" aria-label="BRD — Business Requirements Document" hidden></section>
         <!-- Secret settings panel — mounted by secretPanel.mount() at runtime; hidden until settings rail icon activated -->
@@ -3300,6 +3429,104 @@
       if (window.brainDsUI) {
         window.brainDsUI.network = network;
       }
+
+      // Slice 1 (graph-label-culling): wire label config into the renderer.
+      // All thresholds are configurable; safe degradation: if the policy call
+      // throws, all labels render (renderer's try/catch catches the failure).
+      // Feature flag labels.enabled = false → skip culling (show all labels).
+      (function () {
+        var labels = {
+          zoomThreshold: 0.4,
+          budgetPerFrame: 80,
+          enabled: true,
+          priorityWeights: { degree: 1.0, centrality: 2.0, selected: 100.0 },
+        };
+        if (network && typeof network._labelConfig !== "undefined") {
+          try {
+            if (labels.enabled !== false) {
+              network._labelConfig = {
+                zoomThreshold: labels.zoomThreshold,
+                budgetPerFrame: labels.budgetPerFrame,
+                priorityWeights: labels.priorityWeights,
+              };
+            }
+          } catch (e) {
+            // Safe degradation: if config wiring fails, keep renderer defaults
+          }
+        }
+      }());
+
+      // Slice 2 (agent-presence-panel): config + runtime wiring.
+      // Feature flag: agentPanel.enabled = false → panel hidden via CSS display:none (stays in DOM for ARIA).
+      (function () {
+        var agentPanel = {
+          enabled: true,
+        };
+
+        var panelEl = document.getElementById("agent-presence-panel");
+        if (!panelEl) return;
+
+        // Apply feature flag — hide via CSS (not removal) so ARIA tree stays intact
+        if (agentPanel.enabled === false) {
+          panelEl.style.display = "none";
+          return;
+        }
+
+        var listEl = panelEl.querySelector(".agent-presence-activity-log");
+
+        // Render one <li> per known agent (summary row + expandable tool list)
+        function renderPresence(store) {
+          if (!listEl) return;
+          try {
+            var presence = store && typeof store.getPresence === "function" ? store.getPresence() : null;
+            if (!presence || presence.size === 0) return;
+            listEl.innerHTML = "";
+            presence.forEach(function (agent) {
+              var li = document.createElement("li");
+              li.className = "agent-presence-entry";
+              li.tabIndex = 0;
+              li.setAttribute("aria-expanded", "false");
+              var statusCls = "agent-presence-status-chip--" + (agent.status || "idle");
+              var toolsHtml = (agent.recentTools || []).map(function (t) {
+                return '<span class="agent-presence-tool-chip">' + String(t).replace(/</g, "&lt;") + "</span>";
+              }).join("");
+              li.innerHTML =
+                '<span class="agent-presence-name">' + String(agent.label || agent.agentId).replace(/</g, "&lt;") + "</span>" +
+                '<span class="agent-presence-status-chip ' + statusCls + '">' + String(agent.status || "idle") + "</span>" +
+                '<span class="agent-presence-meta">' + (agent.lastSeen ? String(agent.lastSeen).slice(0, 19).replace("T", " ") : "") + "</span>" +
+                '<span class="agent-presence-tools">' + (toolsHtml || '<span class="agent-presence-tool-chip">—</span>') + "</span>";
+              // Progressive disclosure: click toggles tool list
+              li.addEventListener("click", function () {
+                var expanded = li.getAttribute("aria-expanded") === "true";
+                li.setAttribute("aria-expanded", expanded ? "false" : "true");
+              });
+              li.addEventListener("keydown", function (e) {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  li.click();
+                }
+              });
+              listEl.appendChild(li);
+            });
+          } catch (e) {
+            // Safe degradation: render failure must not throw
+          }
+        }
+
+        // Wire to LiveDataStore when available
+        var store = window.brainDsUI && window.brainDsUI.liveStore;
+        if (store && typeof store.subscribePresence === "function") {
+          store.subscribePresence(function () {
+            renderPresence(store);
+          });
+          // Wire connectionState → panel data-connection attribute
+          var origOnStateChange = typeof store.onConnectionStateChange === "function" ? store.onConnectionStateChange : function () {};
+          store.onConnectionStateChange = function (state) {
+            try { origOnStateChange(state); } catch (e) { /* noop */ }
+            if (panelEl) panelEl.setAttribute("data-connection", String(state));
+          };
+        }
+      }());
 
       const rendererD4 = window.brainDsUI && window.brainDsUI.rendererD4;
       const d4ModuleMounted = Boolean(rendererD4 && typeof rendererD4.mount === "function");
@@ -4957,7 +5184,7 @@
         let panning = false;
         let panStartX = 0, panStartY = 0, tx0 = 0, ty0 = 0;
         const onPanMove = (event) => {
-          if (!panning) return;
+          if (!panning || network.dragNodeId != null) return;
           network.viewport.tx = tx0 + (event.clientX - panStartX);
           network.viewport.ty = ty0 + (event.clientY - panStartY);
         };
@@ -4969,6 +5196,7 @@
         };
         centerSplit.addEventListener("mousedown", (event) => {
           if (event.button !== 0) return;
+          if (network.dragNodeId != null) return;
           if (event.target.closest && event.target.closest(".d4-node")) return;
           panning = true;
           panStartX = event.clientX;

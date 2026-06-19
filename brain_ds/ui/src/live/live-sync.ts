@@ -1,16 +1,72 @@
+// @ts-nocheck
+//
+// live-sync.ts — runtime data store + WebSocket transport for the graph viewer.
+//
+// IMPORTANT — Dual-runtime contract:
+//   1. tsc --noEmit compiles this file as TypeScript.
+//   2. The Node test harness (tests/test_ui_runtime_behavior.py::TestLiveSyncRuntime)
+//      strips `export` keywords and raw-evals the source via `new Function(source)`.
+//      After `export` is removed, the file MUST still be valid plain JavaScript.
+//   Therefore: no `type` aliases, no parameter/return/field type annotations, no
+//   `as Type` casts, and no generic type parameters. Type information lives in
+//   JSDoc @typedef comments only.
+
+// ── Presence model design contract (T2.1) ────────────────────────────────────
+
+/**
+ * @typedef {Object} AgentPresence
+ * @property {string} agentId
+ * @property {string} label
+ * @property {string} role
+ * @property {'active'|'idle'|'error'} status
+ * @property {string} lastSeen
+ * @property {string[]} recentTools
+ *
+ * AgentPresence — one entry per distinct agent seen in this session.
+ * Populated from `tool.invoked` event payloads; never cleared on disconnect.
+ */
+
+/**
+ * @typedef {Object} ActivityEntry
+ * @property {string} agentId
+ * @property {string} tool
+ * @property {string} timestamp
+ * @property {string} status
+ *
+ * ActivityEntry — one item in the recentActivity ring buffer (cap 200).
+ * Pushed on every `tool.invoked` event; never dropped.
+ */
+
+/**
+ * @typedef {Object} AnyFn
+ * @property {...any} [...args]
+ */
+
+/** Rate-limit for panel update notifications: ≤4 Hz = 250 ms. */
+const PRESENCE_THROTTLE_MS = 250;
+
+/** Maximum entries in the recentActivity ring buffer. */
+const ACTIVITY_RING_CAP = 200;
+
 const NOOP = () => {};
+
+/** Normalize a node id from an incoming event payload. Keep create/update/delete consistent. */
+const nodeIdFromPayload = (payload) => {
+  if (!payload) return "";
+  return String(payload.id ?? payload.node_id ?? "");
+};
 
 const eventToMessage = (event) => {
   try {
-    if (typeof event?.data === 'string') return JSON.parse(event.data);
+    if (typeof event?.data === "string") return JSON.parse(event.data);
   } catch {
     return null;
   }
-  return event?.data && typeof event.data === 'object' ? event.data : null;
+  return event?.data && typeof event.data === "object" ? event.data : null;
 };
 
 export class LiveDataStore {
-  constructor(initialContext, nodesDataSet, edgesDataSet) {
+  constructor(initialContext = {}, nodesDataSet = null, edgesDataSet = null) {
     this.context = initialContext || {};
     this.nodesDataSet = nodesDataSet;
     this.edgesDataSet = edgesDataSet;
@@ -18,6 +74,20 @@ export class LiveDataStore {
     this.onNodeRemoved = NOOP;
     this.onEventBuffered = NOOP;
     this.onReceipt = NOOP;
+    // ── Presence model (T2.2 / T2.4) ─────────────────────────────────────────
+    /** Known agents. Never cleared on disconnect — survives transport loss. */
+    this.presenceByAgent = new Map();
+    /** Activity ring buffer: all tool.invoked events, capped at ACTIVITY_RING_CAP. */
+    this.recentActivity = [];
+    /** Transport state: 'connected' | 'reconnecting'. */
+    this.connectionState = "connected";
+    /** Called whenever connectionState changes. */
+    this.onConnectionStateChange = NOOP;
+    /** Presence-update subscribers (notified at ≤4 Hz). */
+    this._presenceSubscribers = [];
+    /** Throttle timer handle for presence panel notifications. */
+    this._presenceUpdateTimer = null;
+    // ─────────────────────────────────────────────────────────────────────────
     this.bufferQueue = [];
     this.isFetchComplete = false;
     this.nodeMap = new Map();
@@ -27,6 +97,73 @@ export class LiveDataStore {
     this.pendingPlacement = new Set();
     this.highlightTimers = new Map();
     this.seedFromContext(this.context);
+  }
+
+  // ── Presence model public API (T2.2) ───────────────────────────────────────
+
+  /** Return the presenceByAgent Map. */
+  getPresence() {
+    return this.presenceByAgent;
+  }
+
+  /**
+   * Subscribe to presence updates. cb is called at ≤4 Hz when the model changes.
+   * @returns {() => void} unsubscribe function
+   */
+  subscribePresence(cb) {
+    this._presenceSubscribers.push(cb);
+    return () => {
+      this._presenceSubscribers = this._presenceSubscribers.filter((s) => s !== cb);
+    };
+  }
+
+  /** Schedule a throttled notification to presence subscribers (≤4 Hz). */
+  _notifyPresence() {
+    if (this._presenceUpdateTimer !== null) return; // already scheduled
+    this._presenceUpdateTimer = setTimeout(() => {
+      this._presenceUpdateTimer = null;
+      for (const cb of this._presenceSubscribers) {
+        try { cb(); } catch { /* subscriber errors must not propagate */ }
+      }
+    }, PRESENCE_THROTTLE_MS);
+  }
+
+  /** Update presenceByAgent from a tool.invoked payload. */
+  _applyPresence(payload) {
+    const agentId = String(payload?.agent_id || payload?.tool || "unknown");
+    const tool = String(payload?.tool || "");
+    const timestamp = String(payload?.timestamp || new Date().toISOString());
+    const status = String(payload?.status || "ok").toLowerCase() === "error" ? "error" : "active";
+    // W2: role from transport payload; default to 'agent' if not provided
+    const role = String(payload?.role || "agent");
+
+    // Always push to activity log — never dropped
+    const entry = { agentId, tool, timestamp, status };
+    this.recentActivity.push(entry);
+    // Enforce ring cap (200 entries max)
+    if (this.recentActivity.length > ACTIVITY_RING_CAP) {
+      this.recentActivity.splice(0, this.recentActivity.length - ACTIVITY_RING_CAP);
+    }
+
+    // Update presence record
+    const existing = this.presenceByAgent.get(agentId);
+    const recentTools = existing?.recentTools ?? [];
+    if (tool && !recentTools.includes(tool)) {
+      recentTools.unshift(tool);
+      if (recentTools.length > 5) recentTools.length = 5;
+    }
+    const updated = {
+      agentId,
+      label: agentId,
+      role,
+      status,
+      lastSeen: timestamp,
+      recentTools,
+    };
+    this.presenceByAgent.set(agentId, updated);
+
+    // Throttle panel DOM notification (≤4 Hz) — the state update above is immediate
+    this._notifyPresence();
   }
 
   // The REST API (/api/edges) emits {edge_id, source, target}; the viewer contract
@@ -58,7 +195,7 @@ export class LiveDataStore {
 
   edgeId(edge) {
     if (edge?.id !== undefined && edge?.id !== null) return String(edge.id);
-    return `${String(edge?.from)}->${String(edge?.to)}:${String(edge?.label || '')}`;
+    return `${String(edge?.from)}->${String(edge?.to)}:${String(edge?.label || "")}`;
   }
 
   rebuildAdjacency() {
@@ -66,10 +203,18 @@ export class LiveDataStore {
     for (const edge of this.edgeMap.values()) {
       const from = String(edge.from);
       const to = String(edge.to);
-      if (!this.adjacency.has(from)) this.adjacency.set(from, new Set());
-      if (!this.adjacency.has(to)) this.adjacency.set(to, new Set());
-      this.adjacency.get(from).add(to);
-      this.adjacency.get(to).add(from);
+      let fromSet = this.adjacency.get(from);
+      if (!fromSet) {
+        fromSet = new Set();
+        this.adjacency.set(from, fromSet);
+      }
+      let toSet = this.adjacency.get(to);
+      if (!toSet) {
+        toSet = new Set();
+        this.adjacency.set(to, toSet);
+      }
+      fromSet.add(to);
+      toSet.add(from);
     }
   }
 
@@ -103,7 +248,7 @@ export class LiveDataStore {
     if (!neighbors || neighbors.size === 0) return false;
     const positioned = [];
     for (const neighborId of neighbors) {
-      const neighbor = this.nodesDataSet && typeof this.nodesDataSet.get === 'function'
+      const neighbor = this.nodesDataSet && typeof this.nodesDataSet.get === "function"
         ? this.nodesDataSet.get().find((n) => String(n.id) === String(neighborId))
         : null;
       if (neighbor && isFinite(Number(neighbor.x)) && isFinite(Number(neighbor.y))) {
@@ -113,7 +258,7 @@ export class LiveDataStore {
     if (positioned.length === 0) return false;
     const x = positioned.reduce((sum, p) => sum + p.x, 0) / positioned.length;
     const y = positioned.reduce((sum, p) => sum + p.y, 0) / positioned.length;
-    if (this.nodesDataSet && typeof this.nodesDataSet.update === 'function') {
+    if (this.nodesDataSet && typeof this.nodesDataSet.update === "function") {
       this.nodesDataSet.update([{ id: nodeId, x, y }]);
     }
     this.pendingPlacement.delete(String(nodeId));
@@ -121,20 +266,21 @@ export class LiveDataStore {
   }
 
   applyEvent(event) {
-    const name = String(event?.event || '');
+    const name = String(event?.event || "");
     const payload = event?.payload || {};
-    if (name === 'tool.invoked') {
+    if (name === "tool.invoked") {
+      this._applyPresence(payload);
       this.renderReceipt(payload);
       this.onReceipt(payload);
       return;
     }
-    if (name === 'node.updated' && this._shouldPreserveUnsavedEdits(payload)) {
+    if (name === "node.updated" && this._shouldPreserveUnsavedEdits(payload)) {
       this._setConflictStale();
       return;
     }
-    if (name === 'node.created' || name === 'node.updated') {
-      const node = { ...payload };
-      const id = String(node.id);
+    if (name === "node.created" || name === "node.updated") {
+      const id = nodeIdFromPayload(payload);
+      const node = { ...payload, id };
       const existed = this.nodeMap.has(id);
       this.nodeMap.set(id, node);
       this.nodesDataSet?.update?.([node]);
@@ -148,11 +294,11 @@ export class LiveDataStore {
         node,
         sections: Array.isArray(node.card_sections) ? node.card_sections : (this.detailIndex[id]?.sections || []),
       };
-      this._setNodeHighlight(id, event?.highlight_type || 'update');
+      this._setNodeHighlight(id, event?.highlight_type || "update");
       return;
     }
-    if (name === 'node.deleted') {
-      const nodeId = String(payload.id || payload.node_id);
+    if (name === "node.deleted") {
+      const nodeId = nodeIdFromPayload(payload);
       const existed = this.nodeMap.delete(nodeId);
       if (existed) {
         this.nodesDataSet?.remove?.([nodeId]);
@@ -162,17 +308,17 @@ export class LiveDataStore {
       this.context.nodes = this.getNodes();
       return;
     }
-    if (name === 'edge.created' || name === 'edge.updated') {
+    if (name === "edge.created" || name === "edge.updated") {
       const edge = this.normalizeEdge(payload);
       const id = this.edgeId(edge);
       this.edgeMap.set(id, { ...edge, id });
       this.edgesDataSet?.update?.([{ ...edge, id }]);
       this.rebuildAdjacency();
       this.context.edges = this.getEdges();
-      this._setEdgeHighlight(edge, event?.highlight_type || 'update');
+      this._setEdgeHighlight(edge, event?.highlight_type || "update");
       return;
     }
-    if (name === 'edge.deleted') {
+    if (name === "edge.deleted") {
       const id = payload.id ? String(payload.id) : this.edgeId(payload);
       if (this.edgeMap.delete(id)) {
         this.edgesDataSet?.remove?.([id]);
@@ -183,7 +329,7 @@ export class LiveDataStore {
   }
 
   renderReceipt(payload) {
-    if (typeof document === 'undefined') return;
+    if (typeof document === "undefined") return;
     const list = document.getElementById('ai-actions-receipts');
     if (!list) return;
     const item = document.createElement('li');
@@ -202,12 +348,14 @@ export class LiveDataStore {
     });
     list.insertBefore(item, list.firstChild);
     while (list.children.length > 50) {
-      list.removeChild(list.lastChild);
+      const lastChild = list.lastChild;
+      if (!lastChild) break;
+      list.removeChild(lastChild);
     }
   }
 
   _setNodeHighlight(nodeId, kind) {
-    if (typeof document === 'undefined') return;
+    if (typeof document === "undefined") return;
     const selector = `.d4-node[data-id="${String(nodeId)}"], .graph-node[data-id="${String(nodeId)}"]`;
     const el = document.querySelector(selector);
     if (!el) return;
@@ -215,9 +363,9 @@ export class LiveDataStore {
   }
 
   _setEdgeHighlight(edge, kind) {
-    if (typeof document === 'undefined') return;
-    const source = String(edge?.from || edge?.source || '');
-    const target = String(edge?.to || edge?.target || '');
+    if (typeof document === "undefined") return;
+    const source = String(edge?.from || edge?.source || "");
+    const target = String(edge?.to || edge?.target || "");
     if (!source || !target) return;
     const selector = `.d4-edge[data-source="${source}"][data-target="${target}"]`;
     const el = document.querySelector(selector);
@@ -240,24 +388,24 @@ export class LiveDataStore {
   _shouldPreserveUnsavedEdits(payload) {
     const api = window.brainDsUI && window.brainDsUI.detailPanel;
     if (!api) return false;
-    const selected = typeof api.getSelectedNodeId === 'function' ? api.getSelectedNodeId() : null;
-    const hasEdits = typeof api.getHasEdits === 'function' ? api.getHasEdits() : false;
-    const editMode = typeof api.isEditMode === 'function' ? api.isEditMode() : false;
-    return Boolean(editMode && hasEdits && selected && String(selected) === String(payload?.id || ''));
+    const selected = typeof api.getSelectedNodeId === "function" ? api.getSelectedNodeId() : null;
+    const hasEdits = typeof api.getHasEdits === "function" ? api.getHasEdits() : false;
+    const editMode = typeof api.isEditMode === "function" ? api.isEditMode() : false;
+    return Boolean(editMode && hasEdits && selected && String(selected) === String(payload?.id || ""));
   }
 
   _setConflictStale() {
-    const body = document.getElementById('detail-body');
+    const body = document.getElementById("detail-body");
     const parent = body && body.parentElement;
-    if (parent) parent.setAttribute('data-conflict', 'stale'); // data-conflict="stale"
-    const banner = document.getElementById('detail-conflict-banner'); // #detail-conflict-banner
-    if (banner) banner.removeAttribute('hidden');
+    if (parent) parent.setAttribute("data-conflict", "stale"); // data-conflict="stale"
+    const banner = document.getElementById("detail-conflict-banner"); // #detail-conflict-banner
+    if (banner) banner.removeAttribute("hidden");
     const api = window.brainDsUI && window.brainDsUI.detailPanel;
-    if (api && typeof api.markConflictStale === 'function') api.markConflictStale();
+    if (api && typeof api.markConflictStale === "function") api.markConflictStale();
   }
 
   queueOrApply(event) {
-    if (String(event?.event || '') === 'tool.invoked') {
+    if (String(event?.event || "") === "tool.invoked") {
       this.applyEvent(event);
       return;
     }
@@ -272,7 +420,7 @@ export class LiveDataStore {
   flushBufferedEvents() {
     while (this.bufferQueue.length > 0) {
       const event = this.bufferQueue.shift();
-      this.applyEvent(event);
+      if (event) this.applyEvent(event);
     }
   }
 
@@ -301,7 +449,7 @@ export class LiveDataStore {
 export function connectWebSocket(graphId, store) {
   let retries = 0;
   let socket = null;
-  const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const scheme = window.location.protocol === "https:" ? "wss" : "ws";
   const wsUrl = `${scheme}://${window.location.host}/api/events?graph_id=${encodeURIComponent(graphId)}`;
 
   const scheduleReconnect = () => {
@@ -312,15 +460,23 @@ export function connectWebSocket(graphId, store) {
 
   const connect = () => {
     socket = new WebSocket(wsUrl);
-    socket.addEventListener('open', () => {
+    socket.addEventListener("open", () => {
       retries = 0;
+      // T2.4: restore connected state — presenceByAgent is intentionally NOT cleared
+      store.connectionState = "connected";
+      store.onConnectionStateChange("connected");
     });
-    socket.addEventListener('message', (evt) => {
+    socket.addEventListener("message", (evt) => {
       const parsed = eventToMessage(evt);
       if (parsed) store.queueOrApply(parsed);
     });
-    socket.addEventListener('close', scheduleReconnect);
-    socket.addEventListener('error', () => {
+    socket.addEventListener("close", () => {
+      // T2.4: signal reconnecting; presenceByAgent stays intact
+      store.connectionState = "reconnecting";
+      store.onConnectionStateChange("reconnecting");
+      scheduleReconnect();
+    });
+    socket.addEventListener("error", () => {
       socket?.close();
     });
   };
