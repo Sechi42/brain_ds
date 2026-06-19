@@ -117,12 +117,12 @@ jobs:
           fi
           # Deterministic, collision-proof asset name: product, arch, run number.
           arch="$(uname -m)"
-          asset="dist/brain_ds-macos-${arch}-build-${GITHUB_RUN_NUMBER}.dmg"
+          asset="dist/BrainDS-macos-${arch}-build-${GITHUB_RUN_NUMBER}.dmg"
           cp "$dmg" "$asset"
           tag="macos-exe-build-${GITHUB_RUN_NUMBER}"
           notes="$(printf 'Commit: %s\nWorkflow run: %s/%s/actions/runs/%s\nUnsigned/non-notarized draft build - Gatekeeper will warn on first open.' "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")"
           gh release create "$tag" "$asset" \
             --draft \
-            --title "brain_ds macOS build #${GITHUB_RUN_NUMBER}" \
+            --title "BrainDS macOS build #${GITHUB_RUN_NUMBER}" \
             --notes "$notes"
           echo "Draft release created: $tag (visible solo para colaboradores con write access)"
