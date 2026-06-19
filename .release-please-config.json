@@ -1,0 +1,19 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "python",
+      "package-name": "brain_ds",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "src-tauri/tauri.conf.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "generic",
+          "path": "src-tauri/Cargo.toml"
+        }
+      ]
+    }
+  }
+}

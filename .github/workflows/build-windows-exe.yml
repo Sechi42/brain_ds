@@ -5,13 +5,17 @@ name: build-windows-exe
 # - Top-level permissions empty; each job grants only what it needs.
 # - Package-manager lifecycle scripts disabled globally (clean libraries).
 # - Locked installs only: uv.lock for Python, --locked for cargo installs.
-# - The installer .exe is uploaded to a DRAFT release, never as a public
-#   Actions artifact: drafts are visible only to users with write access,
-#   so on this public repo only the owner can download the binary.
+# - The installer .exe is uploaded to the release-please-created GitHub release
+#   for the semver tag (v*.*.*). One release per version — no competing drafts.
+#   On workflow_dispatch (no tag), the upload step is skipped.
 
 on:
   push:
-    branches: [main]
+    # Triggered by release-please tags (v*.*.*) — NOT on every push to main.
+    # release-please.yml owns versioning + tag creation; this workflow attaches
+    # the Windows installer to the release-please-created GitHub release.
+    # Avoids double-release: no competing draft-release from run numbers.
+    tags: ['v*.*.*']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -107,16 +111,17 @@ jobs:
         shell: pwsh
         run: ./scripts/build-windows-exe.ps1
 
-      - name: Upload installer to draft release (owner-only download)
+      - name: Upload installer to release-please release
+        # Attaches the Windows installer to the GitHub release that release-please
+        # already created for this tag. One release per version, no competing drafts.
+        # On workflow_dispatch (no tag), this step uploads nothing (no release exists).
+        if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $exe = Get-ChildItem dist/*setup.exe | Select-Object -First 1
           if (-not $exe) { throw "No installer found in dist/" }
-          $tag = "exe-build-$env:GITHUB_RUN_NUMBER"
-          gh release create $tag $exe.FullName `
-            --draft `
-            --title "brain_ds installer build #$env:GITHUB_RUN_NUMBER" `
-            --notes "Commit: $env:GITHUB_SHA`nWorkflow run: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
-          Write-Output "Draft release created: $tag (visible solo para colaboradores con write access)"
+          $tag = $env:GITHUB_REF_NAME  # e.g. v0.1.1
+          gh release upload $tag $exe.FullName --clobber
+          Write-Output "Installer uploaded to release $tag"
