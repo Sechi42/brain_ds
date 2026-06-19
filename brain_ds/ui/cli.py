@@ -22,6 +22,7 @@ from brain_ds.validation import validate_graph
 from .render_context import WorkspaceContext
 from .server import run_server
 from .setup import setup_main
+from .onboarding import run_onboard
 from .viewer import render_graph_data, render_graph_file
 
 
@@ -102,6 +103,40 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     setup_parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing files")
     setup_parser.add_argument("--force", action="store_true", help="Skip confirmation prompt before writing")
+
+    onboard_parser = subparsers.add_parser("onboard", help="Run the branded BrainDS onboarding flow")
+    onboard_parser.add_argument(
+        "--project-root",
+        default=".",
+        help="Project root used for store, MCP config, and OpenCode deploy (default: .)",
+    )
+    onboard_parser.add_argument(
+        "--agent",
+        choices=["claude", "opencode", "both"],
+        default="both",
+        help="Which agent target(s) to onboard (default: both)",
+    )
+    onboard_scope = onboard_parser.add_mutually_exclusive_group()
+    onboard_scope.add_argument(
+        "--global",
+        action="store_const",
+        const="global",
+        dest="install_scope",
+        help="Deploy OpenCode skills/agents globally",
+    )
+    onboard_scope.add_argument(
+        "--project",
+        action="store_const",
+        const="project",
+        dest="install_scope",
+        help="Deploy OpenCode skills for this project (default)",
+    )
+    onboard_parser.set_defaults(install_scope="project")
+    onboard_parser.add_argument("--agent-deploy", action="store_true", help="Also deploy the BrainDS OpenCode agents and commands")
+    onboard_parser.add_argument("--dry-run", action="store_true", help="Preview onboarding without running the OpenCode installer")
+    onboard_parser.add_argument("--json", action="store_true", help="Emit a single machine-readable JSON summary")
+    onboard_parser.add_argument("--quiet", action="store_true", help="Suppress human banner and progress output")
+    onboard_parser.add_argument("--force", action="store_true", help="Skip confirmation prompts")
 
     check_parser = subparsers.add_parser(
         "check",
@@ -525,6 +560,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "setup":
         return _run_setup(args)
+
+    if args.command == "onboard":
+        return run_onboard(args)
 
     if args.command == "check":
         from brain_ds.harness_check import harness_check_main
