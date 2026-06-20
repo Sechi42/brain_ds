@@ -24,6 +24,10 @@ aws = [
 postgres = [
   "psycopg[binary]>=3.1",
 ]
+gsheets = [
+  "gspread>=6",
+  "google-auth>=2",
+]
 
 [project.scripts]
 brain_ds = "brain_ds.ui.__main__:main"
@@ -71,6 +75,7 @@ testpaths = ["tests"]
 addopts = ["-ra"]
 markers = [
     "postgres_live: live PostgreSQL integration tests (requires psycopg + reachable Postgres)",
+    "gsheets_live: live Google Sheets integration tests (requires BRAINDS_GSHEETS_LIVE_ARN env var + real SA)",
 ]
 
 [tool.coverage.run]
