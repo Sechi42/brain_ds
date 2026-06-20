@@ -333,6 +333,12 @@ class TestSplashTokens(unittest.TestCase):
         html = self._html()
         self.assertIn("prefers-reduced-motion", html)
 
+    def test_bootstrap_brand_uses_product_name(self):
+        """Bootstrap shell should present the product name, not the package key."""
+        html = self._html()
+        self.assertIn("<title>BrainDS</title>", html)
+        self.assertIn('<span class="brand-name">BrainDS</span>', html)
+
 
 # ---------------------------------------------------------------------------
 # T3.1 / T3.2 / T3.3 / T3.4 — GET /vault-picker  (R8, R9, R13, R14)
@@ -530,6 +536,13 @@ class TestSlice4BootstrapWiring(unittest.TestCase):
         self.assertNotIn("location.assign(result.url)", js, (
             "bootstrap.js must not navigate to bare result.url — must navigate to /vault-picker"
         ))
+
+    def test_bootstrap_js_preserves_tauri_string_errors(self):
+        """Tauri invoke rejects with strings; launcher must not hide them behind a generic error."""
+        js = self._js()
+        self.assertIn("function launchErrorMessage", js)
+        self.assertIn('typeof error === "string"', js)
+        self.assertIn("showError(launchErrorMessage(error))", js)
 
     def test_picker_js_navigates_to_graph_id_on_create_success(self):
         """R12: vault_picker.html JS must navigate to /?graph_id=<new_id> on create-org success."""
