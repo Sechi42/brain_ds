@@ -92,9 +92,8 @@ jobs:
 
       - name: Install pnpm (exact pinned version)
         # Pinned to the version in brain_ds/ui/package.json packageManager.
-        # build-macos.sh then runs: frozen-lockfile install (no lifecycle
-        # scripts) + audit gate + bundle build, so the app always ships a
-        # fresh, clean-tree UI bundle.
+        # The workflow and build script both rebuild from the checked-out commit
+        # before packaging, so the app cannot reuse stale release assets.
         run: |
           npm install -g pnpm@11.0.8
           pnpmVersion="$(pnpm --version | tr -d '[:space:]')"
@@ -102,6 +101,13 @@ jobs:
             echo "Expected pnpm 11.0.8 but found $pnpmVersion" >&2
             exit 1
           fi
+
+      - name: Rebuild and verify fresh UI bundle
+        run: |
+          pnpm --dir brain_ds/ui install --frozen-lockfile
+          pnpm --dir brain_ds/ui run build
+          uv run python -m brain_ds.ui.bundle_freshness --ui-root brain_ds/ui
+          git diff --exit-code -- brain_ds/ui/assets/viewer.bundle.js brain_ds/ui/assets/viewer.bundle.css
 
       - name: Build macOS bundle
         run: bash ./scripts/build-macos.sh
@@ -117,7 +123,7 @@ jobs:
           fi
           # Deterministic, collision-proof asset name: product, arch, run number.
           arch="$(uname -m)"
-          asset="dist/BrainDS-macos-${arch}-build-${GITHUB_RUN_NUMBER}.dmg"
+          asset="dist/brain_ds-macos-${arch}-build-${GITHUB_RUN_NUMBER}.dmg"
           cp "$dmg" "$asset"
           tag="macos-exe-build-${GITHUB_RUN_NUMBER}"
           notes="$(printf 'Commit: %s\nWorkflow run: %s/%s/actions/runs/%s\nUnsigned/non-notarized draft build - Gatekeeper will warn on first open.' "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")"

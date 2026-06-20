@@ -99,15 +99,22 @@ jobs:
       - name: Install pnpm (exact pinned version)
         shell: pwsh
         # Pinned to the version in brain_ds/ui/package.json packageManager.
-        # The build script then runs: frozen-lockfile install (no lifecycle
-        # scripts) + audit gate + bundle build, so the exe always ships a
-        # fresh, clean-tree UI bundle.
+        # The workflow and build script both rebuild from the checked-out commit
+        # before packaging, so the exe cannot reuse stale release assets.
         run: |
           npm install -g pnpm@11.0.8
           $pnpmVersion = (pnpm --version).Trim()
           if ($pnpmVersion -ne "11.0.8") {
             throw "Expected pnpm 11.0.8 but found $pnpmVersion"
           }
+
+      - name: Rebuild and verify fresh UI bundle
+        shell: pwsh
+        run: |
+          pnpm --dir brain_ds/ui install --frozen-lockfile
+          pnpm --dir brain_ds/ui run build
+          uv run python -m brain_ds.ui.bundle_freshness --ui-root brain_ds/ui
+          git diff --exit-code -- brain_ds/ui/assets/viewer.bundle.js brain_ds/ui/assets/viewer.bundle.css
 
       - name: Build Windows installer
         shell: pwsh
