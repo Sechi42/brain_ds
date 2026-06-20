@@ -167,7 +167,7 @@ function positionMenu(clientX: number, clientY: number): void {
 // Build a non-interactive node summary header for the context menu.
 function makeNodeHeader(nodeData: any): HTMLElement {
   const header = document.createElement("div");
-  header.className = "context-menu-header";
+  header.className = "vis-context-menu__header";
   header.setAttribute("aria-hidden", "true");
   header.style.pointerEvents = "none";
 
@@ -176,15 +176,15 @@ function makeNodeHeader(nodeData: any): HTMLElement {
   const score = nodeData?.score != null ? String(Number(nodeData.score).toFixed(2)) : null;
   const source = nodeData?.source ?? null;
 
-  let html = `<span class="context-menu-header__label">${label ? label.replace(/</g, "&lt;").replace(/>/g, "&gt;") : ""}</span>`;
+  let html = `<span class="vis-context-menu__header-label">${label ? label.replace(/</g, "&lt;").replace(/>/g, "&gt;") : ""}</span>`;
   if (type) {
-    html += `<span class="context-menu-header__type">${type.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>`;
+    html += `<span class="vis-context-menu__header-type">${type.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>`;
   }
   if (score !== null) {
-    html += `<span class="context-menu-header__score">${score}</span>`;
+    html += `<span class="vis-context-menu__header-score">${score}</span>`;
   }
   if (source) {
-    html += `<span class="context-menu-header__source">${source.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>`;
+    html += `<span class="vis-context-menu__header-source">${source.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>`;
   }
   header.innerHTML = html;
   return header;

@@ -1658,6 +1658,12 @@
       .vis-context-menu__separator { border: 0; border-top: 1px solid var(--border-subtle); margin: 0.25rem 0; }
       .menu-item--danger { color: var(--danger); }
       .menu-item--danger:hover, .menu-item--danger.vis-context-menu__item--hovered { background: var(--danger-soft); }
+      /* Node mini-summary header (B5-R1/R2/R3) — non-interactive, sits above action items */
+      .vis-context-menu__header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.5rem; padding: 0.5rem 0.5rem 0.5rem; border-bottom: 1px solid var(--border-subtle); margin-bottom: 0.25rem; pointer-events: none; user-select: none; }
+      .vis-context-menu__header-label { font-weight: var(--fw-semibold); color: var(--text-normal); font-size: 0.875rem; flex: 1 1 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .vis-context-menu__header-type { font-size: 0.75rem; color: var(--text-muted); }
+      .vis-context-menu__header-score { font-size: 0.7rem; color: var(--text-muted); background: var(--bg-active); border-radius: var(--radius-full); padding: 0.05rem 0.4rem; }
+      .vis-context-menu__header-source { font-size: 0.75rem; color: var(--text-muted); }
 
       /* Toolbar overflow (kebab) menu — created by workspaceChrome with class
          .workspace-overflow-menu and an inline min-width:180px. Without an explicit

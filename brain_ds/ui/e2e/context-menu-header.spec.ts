@@ -159,7 +159,7 @@ test("B5-S1: node context menu shows non-interactive header with node label and 
   await expect(menu).toBeVisible();
 
   // The header must contain the node label
-  const header = menu.locator(".context-menu-header");
+  const header = menu.locator(".vis-context-menu__header");
   await expect(header).toBeVisible();
 
   const headerText = await header.textContent();
@@ -183,11 +183,11 @@ test("B5-S2: context menu header is not a clickable button (non-interactive)", a
   const menu = page.locator("#vis-context-menu");
 
   // The header must NOT be a button
-  const headerAsButton = menu.locator('.context-menu-header button');
+  const headerAsButton = menu.locator('.vis-context-menu__header button');
   expect(await headerAsButton.count()).toBe(0);
 
   // The header element itself must not have role=menuitem
-  const header = menu.locator(".context-menu-header");
+  const header = menu.locator(".vis-context-menu__header");
   const role = await header.getAttribute("role");
   expect(role).not.toBe("menuitem");
 });
