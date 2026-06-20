@@ -5,15 +5,23 @@ name: build-macos-exe
 # - Top-level permissions empty; each job grants only what it needs.
 # - Package-manager lifecycle scripts disabled globally (clean libraries).
 # - Locked installs only: uv.lock for Python, --locked for cargo installs.
-# - The .dmg is uploaded to a DRAFT release, never as a public Actions
-#   artifact: drafts are visible only to users with write access, so on this
-#   public repo only the owner can download the binary.
+# - Dual delivery (mirrors build-windows-exe.yml):
+#   * On push to main / workflow_dispatch (no tag), the .dmg is uploaded to a
+#     per-run DRAFT release, never as a public Actions artifact. Drafts are
+#     visible only to users with write access, so on this public repo only the
+#     owner can download the binary.
+#   * On a release-please tag (brain_ds-v*.*.*), the .dmg is attached to the
+#     release-please-created GitHub release for that version.
 # - macOS is a draft-only, UNSIGNED target. The .dmg/.app are not notarized;
 #   Gatekeeper will warn on first open (see INSTALL.md macOS notes).
 
 on:
   push:
     branches: [main]
+    # release-please.yml owns versioning + tag creation; on a brain_ds-v*.*.* tag this
+    # workflow attaches the macOS bundle to that release. On push to main it keeps
+    # producing owner-only draft builds.
+    tags: ['brain_ds-v*.*.*']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -112,7 +120,22 @@ jobs:
       - name: Build macOS bundle
         run: bash ./scripts/build-macos.sh
 
+      - name: Upload .dmg to release-please release (tag)
+        if: startsWith(github.ref, 'refs/tags/brain_ds-v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dmg="$(ls dist/*.dmg 2>/dev/null | head -n 1)"
+          if [ -z "$dmg" ]; then
+            echo "No .dmg found in dist/" >&2
+            exit 1
+          fi
+          tag="$GITHUB_REF_NAME"
+          gh release upload "$tag" "$dmg" --clobber
+          echo "DMG uploaded to release $tag"
+
       - name: Upload .dmg to draft release (owner-only download)
+        if: ${{ !startsWith(github.ref, 'refs/tags/brain_ds-v') }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

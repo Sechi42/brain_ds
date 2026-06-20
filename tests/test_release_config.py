@@ -13,6 +13,27 @@ import yaml
 REPO_ROOT = Path(__file__).parent.parent
 
 
+def _load_workflow(name: str) -> dict:
+    wf_path = REPO_ROOT / ".github" / "workflows" / name
+    assert wf_path.exists(), f".github/workflows/{name} not found"
+    wf = yaml.safe_load(wf_path.read_text(encoding="utf-8"))
+    assert isinstance(wf, dict), f"{name} must parse to a YAML mapping"
+    return wf
+
+
+def _on_push(workflow: dict) -> dict:
+    on = workflow.get("on") or workflow.get(True)  # YAML parses bare 'on' as boolean True
+    return on.get("push", {}) if isinstance(on, dict) else {}
+
+
+def _release_please_tag_pattern() -> str:
+    config_path = REPO_ROOT / ".release-please-config.json"
+    cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    package_name = cfg["packages"]["."].get("package-name")
+    assert package_name, "release-please root package must define package-name"
+    return f"{package_name}-v*.*.*"
+
+
 # ---------------------------------------------------------------------------
 # T5.1 — manifest + config structural assertions (S6-B, S6-C)
 # ---------------------------------------------------------------------------
@@ -143,28 +164,41 @@ def test_release_please_workflow_has_write_permissions():
 # ---------------------------------------------------------------------------
 
 
-def test_build_windows_workflow_triggers_on_version_tags():
-    """build-windows-exe.yml on.push.tags must include a v* pattern (R6.6, S6-D)."""
-    wf_path = REPO_ROOT / ".github" / "workflows" / "build-windows-exe.yml"
-    assert wf_path.exists(), ".github/workflows/build-windows-exe.yml not found"
-    wf = yaml.safe_load(wf_path.read_text(encoding="utf-8"))
-    on = wf.get("on") or wf.get(True)
-    push = on.get("push", {}) if isinstance(on, dict) else {}
+def test_build_windows_workflow_triggers_on_release_please_tags():
+    """build-windows-exe.yml on.push.tags must match release-please package tags."""
+    wf = _load_workflow("build-windows-exe.yml")
+    push = _on_push(wf)
     tags = push.get("tags", [])
     assert tags, "on.push.tags must be present in build-windows-exe.yml"
-    assert any(t.startswith("v") for t in tags), (
-        f"on.push.tags must contain a 'v*' pattern, got {tags!r}"
+    assert _release_please_tag_pattern() in tags, (
+        "Windows app-generation workflow tags must match release-please's "
+        f"package tag pattern; expected {_release_please_tag_pattern()!r}, got {tags!r}"
     )
 
 
-def test_build_windows_workflow_does_not_push_to_branch_main():
-    """build-windows-exe.yml should NOT trigger on push to main branch (avoids double-release)."""
-    wf_path = REPO_ROOT / ".github" / "workflows" / "build-windows-exe.yml"
-    wf = yaml.safe_load(wf_path.read_text(encoding="utf-8"))
-    on = wf.get("on") or wf.get(True)
-    push = on.get("push", {}) if isinstance(on, dict) else {}
+def test_build_macos_workflow_triggers_on_release_please_tags():
+    """build-macos-exe.yml on.push.tags must match release-please package tags."""
+    wf = _load_workflow("build-macos-exe.yml")
+    push = _on_push(wf)
+    tags = push.get("tags", [])
+    assert tags, "on.push.tags must be present in build-macos-exe.yml"
+    assert _release_please_tag_pattern() in tags, (
+        "macOS app-generation workflow tags must match release-please's "
+        f"package tag pattern; expected {_release_please_tag_pattern()!r}, got {tags!r}"
+    )
+
+
+def test_build_windows_workflow_preserves_main_draft_builds():
+    """build-windows-exe.yml should keep push-to-main draft builds fresh."""
+    wf = _load_workflow("build-windows-exe.yml")
+    push = _on_push(wf)
     branches = push.get("branches", [])
-    assert "main" not in branches, (
-        "build-windows-exe.yml must NOT trigger on push to main (avoid double-release); "
-        f"found branches: {branches!r}"
-    )
+    assert "main" in branches, f"on.push.branches must contain 'main', got {branches!r}"
+
+
+def test_build_macos_workflow_preserves_main_draft_builds():
+    """build-macos-exe.yml should keep push-to-main draft builds fresh."""
+    wf = _load_workflow("build-macos-exe.yml")
+    push = _on_push(wf)
+    branches = push.get("branches", [])
+    assert "main" in branches, f"on.push.branches must contain 'main', got {branches!r}"
