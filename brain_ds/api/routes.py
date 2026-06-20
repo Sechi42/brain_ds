@@ -188,7 +188,7 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except SecretManifestError as exc:
             raise HTTPException(status_code=400, detail=f"Secret manifest error: {exc}") from exc
-        for field in ("handle", "kind", "metadata", "raw_value"):
+        for field in ("handle", "kind", "metadata"):
             if field not in payload:
                 raise HTTPException(status_code=422, detail=f"Missing required field: {field}")
         handle_value = payload["handle"]
@@ -200,9 +200,23 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
         metadata_value = payload["metadata"]
         if not isinstance(metadata_value, dict):
             raise HTTPException(status_code=422, detail="Field 'metadata' must be an object")
-        raw_value = payload.get("raw_value")
-        if not isinstance(raw_value, str) or not raw_value:
-            raise HTTPException(status_code=422, detail="Field 'raw_value' must be a non-empty string")
+
+        # Provider-scoped raw_value validation (A2-D4):
+        # Read requires_raw_value from schema for this kind (default true when absent).
+        # Only providers with requires_raw_value=false (e.g. aws-secrets) may omit raw_value.
+        kind_schema = catalog.schema.get("provider_kinds", {}).get(kind_value, {})
+        provider_requires_raw_value = kind_schema.get("requires_raw_value", True)
+        raw_value: str | None = payload.get("raw_value") or None
+        if provider_requires_raw_value:
+            if not isinstance(raw_value, str) or not raw_value:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Field 'raw_value' (password/credential) must be a non-empty string "
+                        f"for provider kind '{kind_value}'."
+                    ),
+                )
+
         # Fail fast on unknown kinds and invalid metadata so the manifest is never
         # persisted in an inconsistent state. Adapters own the per-kind contract.
         try:
