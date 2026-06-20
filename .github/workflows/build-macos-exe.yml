@@ -117,6 +117,17 @@ jobs:
           uv run python -m brain_ds.ui.bundle_freshness --ui-root brain_ds/ui
           git diff --exit-code -- brain_ds/ui/assets/viewer.bundle.js brain_ds/ui/assets/viewer.bundle.css
 
+      - name: Force fresh Tauri bundle (bust stale build cache)
+        # The cargo-tauri cache key is hashFiles('src-tauri/Cargo.lock') only, and
+        # Cargo.lock is effectively frozen, so the cache restores a prebuilt
+        # src-tauri/target/release/bundle and `cargo tauri build` becomes a no-op,
+        # shipping a stale bundle (see the Windows installer cache regression).
+        # Clean only the app crate (deps stay cached) and drop the bundle output so
+        # the frontend is always re-embedded and the bundle re-packaged.
+        run: |
+          cargo clean --release -p brain_ds_desktop --manifest-path src-tauri/Cargo.toml
+          rm -rf src-tauri/target/release/bundle
+
       - name: Build macOS bundle
         run: bash ./scripts/build-macos.sh
 
