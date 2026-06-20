@@ -6,11 +6,11 @@ import { gzipSync } from 'node:zlib';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const uiRoot = path.resolve(here, '..');
 
-// Budgets rebased 2026-06-12: the minified bundle sits at ~106KB raw / ~32KB gz
-// after the reader tabs + BRD panel + live-sync features; the old 60KB budget
-// predated them and was never enforced in CI. ~25% headroom over current size.
+// Budgets rebased 2026-06-20: the minified bundle sits at ~140KB raw / ~41KB gz
+// after the right-rail panels, secrets UX, and lazy AI actions panel. Keep only
+// modest headroom so future UI work must stay intentional.
 const LIMITS = {
-  [path.resolve(uiRoot, 'assets/viewer.bundle.js')]:  { raw: 136 * 1024, gz: 40 * 1024 },
+  [path.resolve(uiRoot, 'assets/viewer.bundle.js')]:  { raw: 142 * 1024, gz: 42 * 1024 },
   [path.resolve(uiRoot, 'assets/viewer.bundle.css')]: { raw: 15 * 1024, gz:  4 * 1024 },
 };
 let failed = false;

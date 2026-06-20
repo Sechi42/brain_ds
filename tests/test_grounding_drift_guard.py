@@ -437,7 +437,10 @@ class GroundingPipelineContractTests(unittest.TestCase):
 
 class GroundingPipelineMirrorParityTests(unittest.TestCase):
     def _read(self, relative_path: str) -> str:
-        return (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+        path = REPO_ROOT / relative_path
+        if not path.exists() and relative_path.startswith(".claude/agents/"):
+            self.skipTest(f"agent prose file absent ({path.name}) — installed per-client artifact, mirror not verified here")
+        return path.read_text(encoding="utf-8")
 
     def _assert_tokens(self, content: str, *, must_have: tuple[str, ...], must_not_have: tuple[str, ...] = ()) -> None:
         for token in must_have:
