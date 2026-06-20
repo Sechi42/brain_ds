@@ -11,7 +11,7 @@ import brain_ds.mcp.completeness as completeness
 import brain_ds.mcp.grounding as grounding
 import brain_ds.scoring.similarity as similarity
 import brain_ds.workspaces as workspace_registry
-from brain_ds.connectors import CsvConnector, SQLiteConnector
+from brain_ds.connectors import CsvConnector, PostgresConnector, SQLiteConnector
 from brain_ds.connectors.change_detection import (
     build_change_detection,
     scope_baseline_for_table,
@@ -745,7 +745,10 @@ def _get_node_connection(store: GraphStore, graph_id: str, node_id: str) -> dict
             code=-32000,
             message=(
                 f"Node '{node_id}' has no 'connection' descriptor in details. "
-                "Set details.connection = {{kind: 'sqlite'|'csv', path: '...'}} to enable exploration."
+                "Supported descriptors: "
+                "{{kind: 'sqlite'|'csv'|'tsv', path: '...'}} for file-based sources, "
+                "or {{kind: 'aws-postgres', secret_handle: '...', database: '...'}} "
+                "for AWS RDS Postgres sources."
             ),
         )
     return connection
@@ -775,12 +778,81 @@ def _get_node_change_detection_state(
 
 
 def _resolve_connector(connection: dict[str, Any], project_root: Path):
-    """Resolve and validate a connector from a connection descriptor."""
+    """Resolve and validate a connector from a connection descriptor.
+
+    File-based kinds (sqlite, csv, tsv): require a 'path' field validated
+    within project_root.
+
+    Secret-based kinds (aws-postgres): require a 'secret_handle' field that
+    references a registered entry in the workspace SecretCatalog. The adapter
+    is called to resolve the handle to typed connection params; no credentials
+    are written to any log or response.
+    """
     kind = connection.get("kind", "").lower()
+
+    # ------------------------------------------------------------------
+    # Secret-based kinds — dispatch through adapter + SecretCatalog
+    # ------------------------------------------------------------------
+    if kind == "aws-postgres":
+        secret_handle = connection.get("secret_handle")
+        if not secret_handle:
+            raise ValidationError(
+                code=-32000,
+                message=(
+                    "aws-postgres connection descriptor missing 'secret_handle'. "
+                    "Set details.connection.secret_handle to the registered secret handle name."
+                ),
+            )
+
+        # Load the SecretCatalog from the workspace root
+        catalog = SecretCatalog(project_root)
+        try:
+            catalog.load()
+        except SecretManifestError as exc:
+            raise ValidationError(
+                code=-32000,
+                message=f"Failed to load secret catalog: {exc}",
+            ) from exc
+
+        entry = catalog.get(secret_handle)
+        if entry is None:
+            raise ValidationError(
+                code=-32000,
+                message=(
+                    f"Secret handle {secret_handle!r} not found in the workspace secret catalog. "
+                    "Register it first via the Secrets panel or validate_secret_handle."
+                ),
+            )
+
+        from brain_ds.connectors.secrets.providers.aws_postgres import AwsPostgresAdapter
+
+        adapter = AwsPostgresAdapter()
+        try:
+            params = adapter.resolve(secret_handle, entry.metadata)
+        except ValidationError:
+            raise
+        except Exception as exc:
+            raise ValidationError(
+                code=-32000,
+                message=f"Failed to resolve aws-postgres secret '{secret_handle}': {exc}",
+            ) from exc
+
+        return PostgresConnector(params)
+
+    # ------------------------------------------------------------------
+    # File-based kinds — require path within project_root sandbox
+    # ------------------------------------------------------------------
     raw_path = connection.get("path", "")
 
     if not raw_path:
-        raise ValidationError(code=-32000, message="Connection descriptor missing 'path'")
+        raise ValidationError(
+            code=-32000,
+            message=(
+                f"Connection descriptor for kind {kind!r} missing 'path'. "
+                "Supported file-based kinds: sqlite, csv, tsv. "
+                "For AWS Postgres use kind 'aws-postgres' with 'secret_handle'."
+            ),
+        )
 
     try:
         safe_path = validate_path_within_root(raw_path, project_root)
@@ -796,7 +868,7 @@ def _resolve_connector(connection: dict[str, Any], project_root: Path):
     else:
         raise ValidationError(
             code=-32000,
-            message=f"Unsupported connection kind: {kind!r}. Supported: sqlite, csv, tsv",
+            message=f"Unsupported connection kind: {kind!r}. Supported: sqlite, csv, tsv, aws-postgres",
         )
 
 
@@ -848,9 +920,12 @@ def explore_source(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     container = validated.get("container")
     table = validated.get("table")
 
-    connection = redact_secrets(_get_node_connection(store, graph_id, node_id))
+    # Get the raw (unredacted) connection descriptor — _resolve_connector needs
+    # the real secret_handle value for aws-postgres dispatch. The connector
+    # itself enforces that credentials never appear in any response (INV-1).
+    raw_connection = _get_node_connection(store, graph_id, node_id)
     project_root = _project_root_from_store_path(store.path)
-    connector = _resolve_connector(connection, project_root)
+    connector = _resolve_connector(raw_connection, project_root)
 
     try:
         if container is None:
@@ -919,11 +994,13 @@ def query_source(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     connection = _get_node_connection(store, graph_id, node_id)
     kind = connection.get("kind", "").lower()
 
-    if kind != "sqlite":
+    if kind not in ("sqlite", "aws-postgres"):
         raise ValidationError(
             code=-32000,
-            message=f"query_source only supports SQLite sources, got kind={kind!r}. "
-                    "For CSV sources, use explore_source to preview data.",
+            message=(
+                f"query_source supports SQLite and aws-postgres sources, got kind={kind!r}. "
+                "For CSV sources, use explore_source to preview data."
+            ),
         )
 
     project_root = _project_root_from_store_path(store.path)

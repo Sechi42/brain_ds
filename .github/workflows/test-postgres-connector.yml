@@ -1,0 +1,143 @@
+name: test-postgres-connector
+
+# Runs the PostgresConnector live integration tests against a real Postgres
+# service container. Triggered on any PR or push that touches the connector,
+# tools wiring, or the adapter.
+#
+# Local note: live tests are marked @pytest.mark.postgres_live and are skipped
+# when psycopg is not installed or 127.0.0.1:5432 is unreachable, so
+# `uv run pytest` stays green without Docker.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'brain_ds/connectors/postgres_connector.py'
+      - 'brain_ds/connectors/secrets/providers/aws_postgres.py'
+      - 'brain_ds/mcp/tools.py'
+      - 'tests/test_postgres_connector.py'
+      - 'tests/test_aws_postgres_adapter.py'
+      - 'pyproject.toml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'brain_ds/connectors/postgres_connector.py'
+      - 'brain_ds/connectors/secrets/providers/aws_postgres.py'
+      - 'brain_ds/mcp/tools.py'
+      - 'tests/test_postgres_connector.py'
+      - 'tests/test_aws_postgres_adapter.py'
+      - 'pyproject.toml'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_NO_PROGRESS: "1"
+
+jobs:
+  postgres-connector:
+    name: PostgresConnector live integration
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_pass
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test_user -d test_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@f0ec1fc3b38f5e7cd731bb1ec075dc976b1a2fb7 # v5.4.1
+        with:
+          enable-cache: true
+
+      - name: Install brain_ds with postgres extra
+        run: uv sync --extra postgres
+
+      - name: Seed test schema
+        env:
+          PGPASSWORD: test_pass
+        run: |
+          psql -h 127.0.0.1 -U test_user -d test_db <<'SQL'
+          CREATE TABLE IF NOT EXISTS sample_data (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            value NUMERIC,
+            created_at TIMESTAMP DEFAULT NOW()
+          );
+          INSERT INTO sample_data (name, value)
+          SELECT 'row_' || i, i * 1.5
+          FROM generate_series(1, 300) AS i;
+          SQL
+
+      - name: Run unit tests (always — no docker needed)
+        run: uv run pytest tests/test_postgres_connector.py tests/test_aws_postgres_adapter.py -v --tb=short -q
+
+      - name: Run live integration tests (postgres_live marker)
+        run: uv run pytest tests/test_postgres_connector.py -m postgres_live -v --tb=short
+
+      - name: Assert write operations are REJECTED
+        run: |
+          uv run python - <<'PY'
+          from brain_ds.connectors.postgres_connector import PostgresConnector
+
+          params = {
+              "host": "127.0.0.1",
+              "port": 5432,
+              "username": "test_user",
+              "password": "test_pass",
+              "database": "test_db",
+              "sslmode": "disable",
+          }
+          connector = PostgresConnector(params)
+
+          # -- SELECT must succeed
+          result = connector.query("SELECT * FROM sample_data")
+          assert len(result["rows"]) == 200, f"Expected 200 rows, got {len(result['rows'])}"
+          assert result["truncated"], "Expected truncated=True for 300-row table"
+          print(f"SELECT OK: {len(result['rows'])} rows, truncated={result['truncated']}")
+
+          # -- INSERT must be REJECTED (SELECT-only guard fires before DB execution)
+          try:
+              connector.query("INSERT INTO sample_data (name, value) VALUES ('evil', 0)")
+              raise AssertionError("INSERT should have been rejected but was not!")
+          except (ValueError, Exception) as exc:
+              print(f"INSERT correctly rejected: {exc}")
+
+          # -- UPDATE must be REJECTED
+          try:
+              connector.query("UPDATE sample_data SET value = 0 WHERE id = 1")
+              raise AssertionError("UPDATE should have been rejected but was not!")
+          except (ValueError, Exception) as exc:
+              print(f"UPDATE correctly rejected: {exc}")
+
+          # -- DROP must be REJECTED
+          try:
+              connector.query("DROP TABLE sample_data")
+              raise AssertionError("DROP should have been rejected but was not!")
+          except (ValueError, Exception) as exc:
+              print(f"DROP correctly rejected: {exc}")
+
+          print("All write-rejection assertions passed.")
+          PY
+
+      - name: Run full unit test suite (regression check)
+        run: uv run pytest --ignore=tests/test_ui_runtime_behavior.py -q --tb=short
