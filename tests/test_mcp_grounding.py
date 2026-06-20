@@ -15,6 +15,7 @@ from brain_ds.mcp.grounding import (
     NODE_ID_FORMAT,
     NODE_WRITE_TEMPLATES,
     CONNECTION_RULES,
+    SECRET_CONNECTION_RULES,
     BRD_SECTION_ORDER,
     SECTION_RULES,
     COMPLETENESS_MATRIX_TEMPLATE,
@@ -264,21 +265,25 @@ class TestComposerReturnShapes(unittest.TestCase):
         self.assertIn("validate retrieval changes on a seeded vault", retrieval_contract)
 
     # T1-3/T1-4/T1-8: bump key counts 14→16, 12→13, 10→11 (artifact_contract + deliverable_contract injected)
-    def test_elicit_context_has_all_16_keys(self) -> None:
+    # PR4-T1: counts bumped again 16→17, 13→14, 11→12 (secret_connection_rules injected)
+    def test_elicit_context_has_all_17_keys(self) -> None:
         result = elicit_context()
         self.assertIn("artifact_contract", result)
         self.assertIn("deliverable_contract", result)
-        self.assertEqual(len(result), 16)
+        self.assertIn("secret_connection_rules", result)
+        self.assertEqual(len(result), 17)
 
-    def test_map_connections_context_has_13_keys(self) -> None:
+    def test_map_connections_context_has_14_keys(self) -> None:
         result = map_connections_context()
         self.assertIn("artifact_contract", result)
-        self.assertEqual(len(result), 13)
+        self.assertIn("secret_connection_rules", result)
+        self.assertEqual(len(result), 14)
 
-    def test_generate_brd_context_has_11_keys(self) -> None:
+    def test_generate_brd_context_has_12_keys(self) -> None:
         result = generate_brd_context()
         self.assertIn("artifact_contract", result)
-        self.assertEqual(len(result), 11)
+        self.assertIn("secret_connection_rules", result)
+        self.assertEqual(len(result), 12)
 
 
 class TestArtifactContract(unittest.TestCase):
@@ -319,6 +324,87 @@ class TestArtifactContract(unittest.TestCase):
     def test_artifact_contract_brd_has_brd_node_key(self) -> None:
         brd_entry = ARTIFACT_CONTRACT["brd"]
         self.assertIn("brd_node", brd_entry["required_keys"])
+
+
+class TestSecretConnectionRules(unittest.TestCase):
+    """PR4-T1 — SECRET_CONNECTION_RULES constant shape + payload wiring.
+
+    These tests enforce the three spec requirements for PR4:
+    1. SECRET_CONNECTION_RULES exists as an importable constant with the 6-step recipe.
+    2. It appears in all three grounding tool payloads.
+    3. It explicitly forbids list_secret_handles and teaches the correct flow.
+    """
+
+    def test_secret_connection_rules_is_string(self) -> None:
+        """Constant exists and is a non-empty string."""
+        self.assertIsInstance(SECRET_CONNECTION_RULES, str)
+        self.assertTrue(SECRET_CONNECTION_RULES)
+
+    def test_secret_connection_rules_forbids_list_secret_handles(self) -> None:
+        """Must explicitly say agents must NOT call list_secret_handles."""
+        self.assertIn("list_secret_handles", SECRET_CONNECTION_RULES)
+        # Rule must forbid it (keyword "NEVER" or "NOT" or "admin-only" nearby)
+        self.assertIn("NEVER", SECRET_CONNECTION_RULES.upper())
+
+    def test_secret_connection_rules_teaches_list_source_connections(self) -> None:
+        """Must teach list_source_connections as the discovery step."""
+        self.assertIn("list_source_connections", SECRET_CONNECTION_RULES)
+
+    def test_secret_connection_rules_teaches_explore_source(self) -> None:
+        """Must reference explore_source as the connection step."""
+        self.assertIn("explore_source", SECRET_CONNECTION_RULES)
+
+    def test_secret_connection_rules_covers_aws_postgres(self) -> None:
+        """Must include a worked example for aws-postgres."""
+        self.assertIn("aws-postgres", SECRET_CONNECTION_RULES)
+
+    def test_secret_connection_rules_covers_aws_google_sheets(self) -> None:
+        """Must include a worked example for aws-google-sheets."""
+        self.assertIn("aws-google-sheets", SECRET_CONNECTION_RULES)
+
+    def test_secret_connection_rules_mentions_secret_handle(self) -> None:
+        """Must teach agents to read secret_handle from the descriptor."""
+        self.assertIn("secret_handle", SECRET_CONNECTION_RULES)
+
+    def test_secret_connection_rules_has_flat_recipe_steps(self) -> None:
+        """Must be a flat numbered recipe (at least 5 steps)."""
+        import re
+        steps = re.findall(r"^\s*\d+\.", SECRET_CONNECTION_RULES, re.MULTILINE)
+        self.assertGreaterEqual(len(steps), 5, "Expected at least 5 numbered steps in the recipe")
+
+    def test_secret_connection_rules_in_elicit_context(self) -> None:
+        result = elicit_context()
+        self.assertIn("secret_connection_rules", result)
+        self.assertEqual(result["secret_connection_rules"], SECRET_CONNECTION_RULES)
+
+    def test_secret_connection_rules_in_map_connections_context(self) -> None:
+        result = map_connections_context()
+        self.assertIn("secret_connection_rules", result)
+        self.assertEqual(result["secret_connection_rules"], SECRET_CONNECTION_RULES)
+
+    def test_secret_connection_rules_in_generate_brd_context(self) -> None:
+        result = generate_brd_context()
+        self.assertIn("secret_connection_rules", result)
+        self.assertEqual(result["secret_connection_rules"], SECRET_CONNECTION_RULES)
+
+    def test_connection_descriptor_note_includes_aws_postgres(self) -> None:
+        """connection_descriptor_note must include aws-postgres example."""
+        from brain_ds.mcp.grounding import NODE_WRITE_TEMPLATES
+        note = NODE_WRITE_TEMPLATES["Data Source"]["connection_descriptor_note"]
+        self.assertIn("aws-postgres", note)
+
+    def test_connection_descriptor_note_includes_aws_google_sheets(self) -> None:
+        """connection_descriptor_note must include aws-google-sheets example."""
+        from brain_ds.mcp.grounding import NODE_WRITE_TEMPLATES
+        note = NODE_WRITE_TEMPLATES["Data Source"]["connection_descriptor_note"]
+        self.assertIn("aws-google-sheets", note)
+
+    def test_connection_descriptor_note_no_obsolete_google_sheets_sentence(self) -> None:
+        """Obsolete 'Google Sheets delegated to agent layer / export to CSV' text must be removed."""
+        from brain_ds.mcp.grounding import NODE_WRITE_TEMPLATES
+        note = NODE_WRITE_TEMPLATES["Data Source"]["connection_descriptor_note"]
+        self.assertNotIn("delegated to the agent layer", note)
+        self.assertNotIn("export to CSV", note)
 
 
 if __name__ == "__main__":
