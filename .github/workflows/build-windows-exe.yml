@@ -116,6 +116,12 @@ jobs:
           uv run python -m brain_ds.ui.bundle_freshness --ui-root brain_ds/ui
           git diff --exit-code -- brain_ds/ui/assets/viewer.bundle.js brain_ds/ui/assets/viewer.bundle.css
 
+      - name: Force fresh Tauri bundle
+        shell: pwsh
+        run: |
+          cargo clean --release -p brain_ds_desktop --manifest-path src-tauri/Cargo.toml
+          Remove-Item -Recurse -Force src-tauri/target/release/bundle -ErrorAction SilentlyContinue
+
       - name: Build Windows installer
         shell: pwsh
         run: ./scripts/build-windows-exe.ps1
