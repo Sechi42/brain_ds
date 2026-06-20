@@ -150,8 +150,8 @@ test("interactive controls have accessible labels", async ({ page }) => {
     { handle: "warehouse_ro", kind: "postgres", created_at: "2026-06-15T10:00:00Z", metadata: { host: "db.local" } },
   ]);
 
-  await expect(page.locator('label[for="secret-new-handle"]')).toHaveText("Handle");
-  await expect(page.locator(".secret-remove-btn")).toHaveAttribute("aria-label", /Remove secret warehouse_ro/);
+  await expect(page.locator('label[for="secret-new-handle"]')).toHaveText("Identificador");
+  await expect(page.locator(".secret-remove-btn")).toHaveAttribute("aria-label", /Eliminar secreto warehouse_ro/);
   await expect(page.locator(".secret-list")).toHaveAttribute("role", "listbox");
 });
 
