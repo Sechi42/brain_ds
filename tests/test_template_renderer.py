@@ -131,6 +131,23 @@ class TestVaultPickerManageBlockCollapsed:
         assert 'data-workspace-name="<script>' not in html
         assert '<h2 class="workspace-name" data-workspace-name="<script>' not in html
 
+    def test_admin_only_delete_controls_and_active_context_are_rendered(self) -> None:
+        """PR3: delete affordance is permission-gated and carries active workspace context."""
+        html = render_vault_picker_html(
+            graphs=SAMPLE_GRAPHS,
+            permissions={"abc-123": {"workspace_admin": True}, "def-456": {"workspace_admin": False}},
+            active_graph_id="abc-123",
+        )
+
+        first_card = html[html.index('data-graph-id="abc-123"'):html.index('data-graph-id="def-456"')]
+        second_start = html.index('data-graph-id="def-456"')
+        second_card = html[second_start:html.index("</li>", second_start)]
+        assert "Eliminar" in first_card
+        assert "data-active-graph-id=\"abc-123\"" in first_card
+        assert "data-active-workspace=\"true\"" in first_card
+        assert "data-workspace-remove" not in second_card
+        assert "Delete all data" not in second_card
+
 
 class TestTauriConfBranding:
     """T2.5: Assert tauri.conf.json branding fields."""

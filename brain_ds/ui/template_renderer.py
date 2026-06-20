@@ -11,7 +11,12 @@ TEMPLATES_DIR = Path(__file__).with_name("templates")
 STATIC_DIR = Path(__file__).with_name("static")
 
 
-def render_vault_picker_html(graphs: list[dict]) -> str:
+def render_vault_picker_html(
+    graphs: list[dict],
+    *,
+    permissions: dict[str, dict[str, bool]] | None = None,
+    active_graph_id: str | None = None,
+) -> str:
     """Render the vault-picker page with org rows and create-org form.
 
     Args:
@@ -37,7 +42,49 @@ def render_vault_picker_html(graphs: list[dict]) -> str:
     for index, g in enumerate(graphs, start=1):
         graph_id = _escape_html(str(g["id"]))
         workspace_name = _escape_html(str(g["label"]))
+        raw_graph_id = str(g["id"])
+        can_delete = True if permissions is None else bool(permissions.get(raw_graph_id, {}).get("workspace_admin"))
+        is_active = raw_graph_id == active_graph_id
         confirm_id = f"workspace-delete-confirm-{index}"
+        active_ack_id = f"workspace-active-ack-{index}"
+        manage_html = ""
+        if can_delete:
+            manage_html = (
+                # Collapsed manage block — secondary/destructive actions
+                '<details class="workspace-manage">'
+                '<summary class="workspace-manage-summary">Manage</summary>'
+                '<div class="workspace-manage-body">'
+                # Remove from list — secondary, NOT primary-styled
+                f'<button type="button" class="workspace-action-btn workspace-action-btn--secondary" '
+                f'data-workspace-remove '
+                f'data-workspace-path="{graph_id}" '
+                f'data-active-graph-id="{_escape_html(str(active_graph_id or ""))}" '
+                f'data-active-workspace="{str(is_active).lower()}" '
+                f'data-graph-id="{graph_id}">Eliminar · Remove from list</button>'
+                # Nested danger zone for hard delete
+                '<details class="workspace-danger-zone">'
+                '<summary class="workspace-action-btn workspace-action-btn--danger">Delete all data</summary>'
+                f'<form class="workspace-danger-form" '
+                f'data-workspace-path="{graph_id}" '
+                f'data-active-graph-id="{_escape_html(str(active_graph_id or ""))}" '
+                f'data-active-workspace="{str(is_active).lower()}" '
+                f'data-graph-id="{graph_id}" '
+                f'data-workspace-name="{workspace_name}">'
+                '<p class="workspace-danger-copy">Irreversible. Type the workspace name or path to confirm.</p>'
+                f'<label for="{confirm_id}" class="visually-hidden">Type {workspace_name} or path to confirm</label>'
+                f'<input id="{confirm_id}" class="workspace-confirm-input" name="typed_confirm" type="text" '
+                f'placeholder="Type {workspace_name} or path" autocomplete="off" required />'
+                f'<label for="{active_ack_id}" class="workspace-active-ack">'
+                f'<input id="{active_ack_id}" name="active_acknowledged" type="checkbox" '
+                f'{"required" if is_active else ""} />'
+                'I understand this is the active workspace.'
+                '</label>'
+                '<button type="submit" class="workspace-action-btn workspace-action-btn--danger" disabled>'
+                'Delete all data</button>'
+                '<p class="workspace-action-status" role="status" aria-live="polite"></p>'
+                '</form></details>'
+                '</div></details>'
+            )
         rows.append(
             f'      <li class="workspace-card" '
             f'data-graph-id="{graph_id}" '
@@ -50,31 +97,7 @@ def render_vault_picker_html(graphs: list[dict]) -> str:
             f'href="/?graph_id={graph_id}" '
             f'data-workspace-open '
             f'data-graph-id="{graph_id}">Open workspace</a>'
-            # Collapsed manage block — secondary/destructive actions
-            '<details class="workspace-manage">'
-            '<summary class="workspace-manage-summary">Manage</summary>'
-            '<div class="workspace-manage-body">'
-            # Remove from list — secondary, NOT primary-styled
-            f'<button type="button" class="workspace-action-btn workspace-action-btn--secondary" '
-            f'data-workspace-remove '
-            f'data-workspace-path="{graph_id}" '
-            f'data-graph-id="{graph_id}">Remove from list</button>'
-            # Nested danger zone for hard delete
-            '<details class="workspace-danger-zone">'
-            '<summary class="workspace-action-btn workspace-action-btn--danger">Delete all data</summary>'
-            f'<form class="workspace-danger-form" '
-            f'data-workspace-path="{graph_id}" '
-            f'data-graph-id="{graph_id}" '
-            f'data-workspace-name="{workspace_name}">'
-            '<p class="workspace-danger-copy">Irreversible. Type the workspace name or path to confirm.</p>'
-            f'<label for="{confirm_id}" class="visually-hidden">Type {workspace_name} or path to confirm</label>'
-            f'<input id="{confirm_id}" class="workspace-confirm-input" name="typed_confirm" type="text" '
-            f'placeholder="Type {workspace_name} or path" autocomplete="off" required />'
-            '<button type="submit" class="workspace-action-btn workspace-action-btn--danger" disabled>'
-            'Delete all data</button>'
-            '<p class="workspace-action-status" role="status" aria-live="polite"></p>'
-            '</form></details>'
-            '</div></details></li>'
+            f'{manage_html}</li>'
         )
     rows_html = "\n".join(rows)
 

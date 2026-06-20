@@ -188,6 +188,7 @@ global.window = {
 };
 globalThis.window = global.window;
 globalThis.document = document;
+global.fetch = () => new Promise(() => {});
 
 const repo = process.cwd();
 const bundle = fs.readFileSync(path.join(repo, "brain_ds", "ui", "assets", "viewer.bundle.js"), "utf8");
@@ -203,6 +204,7 @@ root.appendChild(results);
 
 let cleared = 0;
 window.brainDsUI.search.mount(root, {
+  graphId: "runtime-graph",
   nodes: [
     { id: "n1", label: "Alpha", type: "Department" },
     { id: "n2", label: "Alpine", type: "Role" },
@@ -2465,3 +2467,7 @@ console.log(JSON.stringify({{ menuLeft, menuInsideColumn }}));
             f"Overflow menu left={out.get('menuLeft')} must be within center-column bounds "
             f"[{264}, {584 - 180}] (column: left=264, right=584, minWidth=180). Full output: {out}",
         )
+
+
+def test_runtime_search_and_context_menu_behavior_from_bundle():
+    TestUiRuntimeBehavior("test_runtime_search_and_context_menu_behavior_from_bundle").test_runtime_search_and_context_menu_behavior_from_bundle()

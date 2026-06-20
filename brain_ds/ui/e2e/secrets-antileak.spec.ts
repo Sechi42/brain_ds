@@ -17,6 +17,10 @@ const BASE_URL = process.env.BRAIN_DS_E2E_BASE_URL ?? "http://127.0.0.1:8765";
 const MCP_BRIDGE_URL = process.env.BRAIN_DS_E2E_MCP_BRIDGE_URL ?? "http://127.0.0.1:8766";
 const STATE_FILE = process.env.BRAIN_DS_E2E_STATE_FILE;
 
+function uniqueHandle(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+}
+
 function loadSandboxRoot(): string {
   if (process.env.BRAIN_DS_E2E_SANDBOX_ROOT) {
     return process.env.BRAIN_DS_E2E_SANDBOX_ROOT;
@@ -54,7 +58,7 @@ async function fillMockPostgresForm(
   await page.locator("#secret-field-port").fill("5432");
   await page.locator("#secret-field-database").fill("warehouse");
   await page.locator("#secret-field-username").fill("etl");
-  await page.locator("#secret-field-sslmode").fill("require");
+  await page.locator("#secret-field-sslmode").selectOption("require");
   await page.locator("#secret-new-value").fill(value);
 }
 
@@ -83,7 +87,7 @@ async function addSecretViaUi(
     await fillMockGoogleSheetsForm(page, handle, value);
   }
   await page.locator(".secret-add-btn").click();
-  await expect(page.locator(".secret-status--ok")).toContainText("Secret added", { timeout: 5000 });
+  await expect(page.locator(".secret-status--ok")).toContainText(/Secret added|Secreto agregado/, { timeout: 5000 });
   await expect(page.locator(".secret-handle").filter({ hasText: handle })).toBeVisible();
 }
 
@@ -157,7 +161,7 @@ test.describe("Phase 4b: E2E anti-leak validation", () => {
     const panel = page.locator("#secret-panel");
     await expect(panel).toBeVisible();
     await expect(panel).toHaveAttribute("aria-hidden", "false");
-    await expect(panel).toHaveAttribute("aria-label", "Secret settings");
+    await expect(panel).toHaveAttribute("aria-label", /Secret settings|Configuración de secretos/);
 
     // Shift+Tab from the gear moves focus backwards into the panel (DOM order:
     // panel shell precedes the right rail).
@@ -172,10 +176,11 @@ test.describe("Phase 4b: E2E anti-leak validation", () => {
 
   test("add mock-postgres secret via UI does not leak canary in DOM, console, or API responses", async ({ page, request }) => {
     const graphId = await createGraph(request, "Secret Postgres Leak Test");
+    const handle = uniqueHandle("warehouse_ro");
     const scan = await installLeakScans(page, CANARY);
     await openSecretPanel(page, graphId);
 
-    await addSecretViaUi(page, "warehouse_ro", "mock-postgres", CANARY);
+    await addSecretViaUi(page, handle, "mock-postgres", CANARY);
 
     const leaks = await scan();
     expect(leaks.dom).toBe(false);
@@ -183,7 +188,7 @@ test.describe("Phase 4b: E2E anti-leak validation", () => {
     expect(leaks.network).toBe(false);
 
     // The handle and kind are visible, but the value is not.
-    await expect(page.locator(".secret-handle").filter({ hasText: "warehouse_ro" })).toBeVisible();
+    await expect(page.locator(".secret-handle").filter({ hasText: handle })).toBeVisible();
     const panelText = await page.locator("#secret-panel").textContent();
     expect(panelText).toContain("mock-postgres");
     expect(panelText).not.toContain(CANARY);
@@ -191,18 +196,19 @@ test.describe("Phase 4b: E2E anti-leak validation", () => {
 
   test("add mock-google-sheets-json secret redacts client_secret and private_key canaries", async ({ page, request }) => {
     const graphId = await createGraph(request, "Secret Google Leak Test");
+    const handle = uniqueHandle("sales_q3");
     const scanClientSecret = await installLeakScans(page, CANARY_CLIENT_SECRET);
     const scanPrivateKey = await installLeakScans(page, CANARY_PRIVATE_KEY);
     await openSecretPanel(page, graphId);
 
-    await addSecretViaUi(page, "sales_q3", "mock-google-sheets-json", `${CANARY_CLIENT_SECRET}\n${CANARY_PRIVATE_KEY}`);
+    await addSecretViaUi(page, handle, "mock-google-sheets-json", `${CANARY_CLIENT_SECRET}\n${CANARY_PRIVATE_KEY}`);
 
     const leaksClientSecret = await scanClientSecret();
     const leaksPrivateKey = await scanPrivateKey();
     expect(leaksClientSecret.dom || leaksClientSecret.console || leaksClientSecret.network).toBe(false);
     expect(leaksPrivateKey.dom || leaksPrivateKey.console || leaksPrivateKey.network).toBe(false);
 
-    await expect(page.locator(".secret-handle").filter({ hasText: "sales_q3" })).toBeVisible();
+    await expect(page.locator(".secret-handle").filter({ hasText: handle })).toBeVisible();
     const panelText = await page.locator("#secret-panel").textContent();
     expect(panelText).toContain("mock-google-sheets-json");
     expect(panelText).not.toContain(CANARY_CLIENT_SECRET);
@@ -211,56 +217,59 @@ test.describe("Phase 4b: E2E anti-leak validation", () => {
 
   test("remove secret via UI after confirmation deletes the handle", async ({ page, request }) => {
     const graphId = await createGraph(request, "Secret Remove Test");
+    const handle = uniqueHandle("to_remove");
     await openSecretPanel(page, graphId);
-    await addSecretViaUi(page, "to_remove", "mock-postgres", "remove-me-9999");
+    await addSecretViaUi(page, handle, "mock-postgres", "remove-me-9999");
 
     page.on("dialog", (dialog) => dialog.accept());
-    await page.locator('.secret-remove-btn[data-secret-handle="to_remove"]').click();
+    await page.locator(`.secret-remove-btn[data-secret-handle="${handle}"]`).click();
 
-    await expect(page.locator(".secret-handle").filter({ hasText: "to_remove" })).toHaveCount(0);
+    await expect(page.locator(".secret-handle").filter({ hasText: handle })).toHaveCount(0);
   });
 
   test("MCP list_secret_handles response contains no raw canary", async ({ page, request }) => {
     const graphId = await createGraph(request, "Secret MCP List Test");
+    const handle = uniqueHandle("mcp_canary");
     await openSecretPanel(page, graphId);
-    await addSecretViaUi(page, "mcp_canary", "mock-postgres", CANARY);
+    await addSecretViaUi(page, handle, "mock-postgres", CANARY);
 
     const result = await callMcpTool("list_secret_handles", {
       agent_scope: "workspace_admin",
     });
     const resultText = JSON.stringify(result);
-    expect(resultText).toContain("mcp_canary");
+    expect(resultText).toContain(handle);
     expect(resultText).not.toContain(CANARY);
 
     const handles = (result as { handles?: Array<{ handle: string }> }).handles ?? [];
-    expect(handles.some((h) => h.handle === "mcp_canary")).toBe(true);
+    expect(handles.some((h) => h.handle === handle)).toBe(true);
   });
 
   test("MCP validate_secret_handle defaults to dry-run and explicit probe uses fixture", async ({ page, request }) => {
     const graphId = await createGraph(request, "Secret MCP Validate Test");
+    const handle = uniqueHandle("mcp_validate");
     await openSecretPanel(page, graphId);
-    await addSecretViaUi(page, "mcp_validate", "mock-postgres", CANARY);
+    await addSecretViaUi(page, handle, "mock-postgres", CANARY);
 
     const dryRun = await callMcpTool("validate_secret_handle", {
-      handle: "mcp_validate",
+      handle,
       agent_scope: "workspace_admin",
     });
     expect(dryRun).toEqual(
       expect.objectContaining({
         valid: true,
-        reason: "mcp_validate is valid (dry-run)",
+        reason: "Secret handle is valid (dry-run)",
       })
     );
 
     const probe = await callMcpTool("validate_secret_handle", {
-      handle: "mcp_validate",
+      handle,
       agent_scope: "workspace_admin",
       probe: true,
     });
     expect(probe).toEqual(
       expect.objectContaining({
         valid: true,
-        reason: "mcp_validate is valid and reachable",
+        reason: "Secret handle is valid and reachable",
       })
     );
   });

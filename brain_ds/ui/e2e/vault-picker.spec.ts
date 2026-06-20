@@ -227,6 +227,8 @@ test("select/open workspace navigates to graph viewer URL", async ({ page, reque
 test("remove from list removes card and calls correct endpoint", async ({ page, request }) => {
   const label = uniqueLabel("remove");
   const graphId = await apiCreateGraph(request, label);
+  const activeLabel = uniqueLabel("active");
+  const activeGraphId = await apiCreateGraph(request, activeLabel);
 
   // Track DELETE requests to verify endpoint correctness.
   const deleteRequests: string[] = [];
@@ -270,6 +272,7 @@ test("remove from list removes card and calls correct endpoint", async ({ page, 
   expect(workspacesHit.length).toBe(0);
 
   // Graph is soft-hidden — no cleanup needed (already removed from list).
+  await apiDeleteGraph(request, activeGraphId, activeLabel);
 });
 
 /**
@@ -299,6 +302,11 @@ test("delete all data removes card permanently across reload", async ({ page, re
   const confirmInput = cardLocator(page, graphId).locator("input[name='typed_confirm']");
   await expect(confirmInput).toBeVisible({ timeout: 2_000 });
   await confirmInput.fill(label);
+
+  const activeAck = cardLocator(page, graphId).locator("input[name='active_acknowledged']");
+  if (await activeAck.isVisible()) {
+    await activeAck.check();
+  }
 
   // Submit button should be enabled once confirmation matches.
   const submitBtn = cardLocator(page, graphId).locator(".workspace-danger-form button[type='submit']");

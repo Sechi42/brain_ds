@@ -32,12 +32,29 @@ interface SecretSchema {
   provider_kinds: Record<string, SecretKindContract>;
 }
 
+type SecretListStatus = 'permission_denied' | 'empty' | 'ready' | 'error';
+
+interface SecretListResponse {
+  status: SecretListStatus;
+  handles?: SecretHandle[];
+  message?: string;
+  detail?: string;
+}
+
+interface SecretValidationStatus {
+  status: 'ok' | 'error';
+  connection: 'probed' | 'not_probed' | 'probe_failed';
+  message: string;
+}
+
 // ── Module state ───────────────────────────────────────────────────────────
 
 let _deps: SecretPanelDeps | null = null;
 let _panelEl: HTMLElement | null = null;
 let _listeners: Array<{ target: EventTarget; type: string; handler: EventListenerOrEventListenerObject }> = [];
 let _handles: SecretHandle[] = [];
+let _listStatus: SecretListStatus = 'empty';
+let _listMessage = '';
 let _schema: SecretSchema | null = null;
 let _abort: AbortController | null = null;
 
@@ -88,7 +105,7 @@ function _renderMeta(metadata: Record<string, unknown>): string {
 
 async function _loadSchema(): Promise<SecretSchema | null> {
   if (!_deps) return null;
-  const url = `${_apiUrl('/secrets/schema')}?graph_id=${encodeURIComponent(_deps.graphId)}`;
+  const url = `${_apiUrl('/secrets/schema')}?graph_id=${encodeURIComponent(_deps.graphId)}&agent_scope=workspace_admin`;
   try {
     const res = await fetch(url, { signal: _abort?.signal ?? null });
     if (!res.ok) return null;
@@ -98,22 +115,37 @@ async function _loadSchema(): Promise<SecretSchema | null> {
   }
 }
 
-async function _loadHandles(): Promise<SecretHandle[]> {
-  if (!_deps) return [];
-  const url = `${_apiUrl('/secrets')}?graph_id=${encodeURIComponent(_deps.graphId)}`;
+async function _loadHandles(): Promise<void> {
+  if (!_deps) return;
+  const url = `${_apiUrl('/secrets')}?graph_id=${encodeURIComponent(_deps.graphId)}&agent_scope=workspace_admin`;
   try {
     const res = await fetch(url, { signal: _abort?.signal ?? null });
-    if (!res.ok) return [];
-    const data = (await res.json()) as { handles?: SecretHandle[] };
-    return data.handles ?? [];
+    const data = (await res.json()) as SecretListResponse;
+    if (res.status === 403 || data.status === 'permission_denied') {
+      _handles = [];
+      _listStatus = 'permission_denied';
+      _listMessage = data.detail ?? 'Permisos insuficientes: se requiere workspace_admin.';
+      return;
+    }
+    if (!res.ok) {
+      _handles = [];
+      _listStatus = 'error';
+      _listMessage = data.detail ?? 'No se pudieron cargar los secretos del workspace.';
+      return;
+    }
+    _handles = data.handles ?? [];
+    _listStatus = data.status ?? (_handles.length ? 'ready' : 'empty');
+    _listMessage = data.message ?? '';
   } catch (_e) {
-    return [];
+    _handles = [];
+    _listStatus = 'error';
+    _listMessage = 'No se pudieron cargar los secretos del workspace.';
   }
 }
 
-async function _addSecret(payload: Record<string, unknown>): Promise<boolean> {
-  if (!_deps) return false;
-  const url = `${_apiUrl('/secrets')}?graph_id=${encodeURIComponent(_deps.graphId)}`;
+async function _addSecret(payload: Record<string, unknown>): Promise<{ ok: boolean; validation?: SecretValidationStatus }> {
+  if (!_deps) return { ok: false };
+  const url = `${_apiUrl('/secrets')}?graph_id=${encodeURIComponent(_deps.graphId)}&agent_scope=workspace_admin&probe=true`;
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -121,15 +153,20 @@ async function _addSecret(payload: Record<string, unknown>): Promise<boolean> {
       body: JSON.stringify(payload),
       signal: _abort?.signal ?? null,
     });
-    return res.ok;
+    const data = (await res.json().catch(() => ({}))) as { validation?: SecretValidationStatus };
+    const validation = data.validation;
+    if (validation !== undefined) {
+      return { ok: res.ok, validation };
+    }
+    return { ok: res.ok };
   } catch (_e) {
-    return false;
+    return { ok: false };
   }
 }
 
 async function _removeSecret(handle: string): Promise<boolean> {
   if (!_deps) return false;
-  const url = `${_apiUrl('/secrets')}/${encodeURIComponent(handle)}?graph_id=${encodeURIComponent(_deps.graphId)}`;
+  const url = `${_apiUrl('/secrets')}/${encodeURIComponent(handle)}?graph_id=${encodeURIComponent(_deps.graphId)}&agent_scope=workspace_admin`;
   try {
     const res = await fetch(url, { method: 'DELETE', signal: _abort?.signal ?? null });
     return res.ok;
@@ -150,8 +187,24 @@ function _renderHeader(): HTMLElement {
 function _renderEmpty(): HTMLElement {
   const empty = document.createElement('div');
   empty.className = 'secret-panel-empty';
-  empty.innerHTML = `<p>No hay secretos configurados en este workspace.</p>`;
+  empty.innerHTML = `<p>${_escapeHtml(_listMessage || 'No hay secretos configurados en este workspace.')}</p>`;
   return empty;
+}
+
+function _renderPermissionDenied(): HTMLElement {
+  const denied = document.createElement('div');
+  denied.className = 'secret-panel-empty secret-panel-empty--permission';
+  denied.setAttribute('role', 'alert');
+  denied.textContent = _listMessage || 'Permisos insuficientes: se requiere workspace_admin.';
+  return denied;
+}
+
+function _renderLoadError(): HTMLElement {
+  const error = document.createElement('div');
+  error.className = 'secret-panel-empty secret-panel-empty--error';
+  error.setAttribute('role', 'alert');
+  error.textContent = _listMessage || 'No se pudieron cargar los secretos del workspace.';
+  return error;
 }
 
 function _renderList(): HTMLElement {
@@ -315,7 +368,7 @@ function _renderStatus(message: string, isError = false): HTMLElement {
 }
 
 async function _refreshPanel(): Promise<void> {
-  _handles = await _loadHandles();
+  await _loadHandles();
   if (_panelEl) _renderPanel();
 }
 
@@ -325,9 +378,13 @@ function _renderPanel(): void {
 
   _panelEl.appendChild(_renderHeader());
 
-  if (_handles.length === 0) {
+  if (_listStatus === 'permission_denied') {
+    _panelEl.appendChild(_renderPermissionDenied());
+  } else if (_listStatus === 'error') {
+    _panelEl.appendChild(_renderLoadError());
+  } else if (_listStatus === 'empty' || _handles.length === 0) {
     _panelEl.appendChild(_renderEmpty());
-  } else {
+  } else if (_listStatus === 'ready') {
     _panelEl.appendChild(_renderList());
   }
 
@@ -362,10 +419,12 @@ function _renderPanel(): void {
       payload.raw_value = valueInput.value;
     }
 
-    const ok = await _addSecret(payload);
-    const status = _renderStatus(ok ? 'Secreto agregado' : 'No se pudo agregar el secreto', !ok);
+    const result = await _addSecret(payload);
+    const validationMessage = result.validation?.message ?? 'Validación segura OK; contrato del proveedor verificado.';
+    const message = result.ok ? `Secreto agregado. ${validationMessage}` : 'No se pudo agregar el secreto';
+    const status = _renderStatus(message, !result.ok || result.validation?.status === 'error');
     form.appendChild(status);
-    if (ok) {
+    if (result.ok) {
       handleInput.value = '';
       kindInput.value = '';
       if (valueInput) valueInput.value = '';
@@ -394,12 +453,14 @@ export async function mount(panelEl: HTMLElement, deps: SecretPanelDeps): Promis
   _panelEl = panelEl;
   _deps = deps;
   _handles = [];
+  _listStatus = 'empty';
+  _listMessage = '';
   _schema = null;
   _listeners = [];
   _abort = new AbortController();
 
   _schema = await _loadSchema();
-  _handles = await _loadHandles();
+  await _loadHandles();
   _renderPanel();
 
   return {
@@ -417,6 +478,8 @@ export async function mount(panelEl: HTMLElement, deps: SecretPanelDeps): Promis
       _deps = null;
       _schema = null;
       _handles = [];
+      _listStatus = 'empty';
+      _listMessage = '';
     },
   };
 }

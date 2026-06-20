@@ -2158,6 +2158,7 @@
         opacity: 0.4;
       }
       .d4-node[data-state="selected-target"] .node-circle,
+      .d4-node[data-selected="true"] .node-circle,
       .graph-node[data-state="selected-target"] .node-circle {
         transform: scale(1.12);
         border-width: 2px;
@@ -2166,12 +2167,14 @@
         box-shadow: 0 0 0 5px var(--node-color-muted), 0 0 18px var(--node-color-muted), inset 0 0 0 1px var(--node-color);
       }
       .d4-node[data-state="selected-target"] .node-circle::after,
+      .d4-node[data-selected="true"] .node-circle::after,
       .graph-node[data-state="selected-target"] .node-circle::after {
         background: var(--node-color);
         inset: 4px;
         opacity: 0.85;
       }
       .d4-node[data-state="selected-target"] .node-label,
+      .d4-node[data-selected="true"] .node-label,
       .graph-node[data-state="selected-target"] .node-label {
         color: var(--text-bright);
         font-weight: 600;
@@ -2214,6 +2217,17 @@
         color: var(--text-bright);
         background-color: rgba(255,255,255,0.05);
         border: 1px solid rgba(255,255,255,0.1);
+      }
+
+      .d4-node[data-search-match="true"] .node-circle,
+      .graph-node[data-search-match="true"] .node-circle {
+        border-color: var(--status-active);
+        box-shadow: 0 0 0 4px color-mix(in srgb, var(--status-active) 24%, transparent), 0 0 18px color-mix(in srgb, var(--status-active) 45%, transparent);
+      }
+      .d4-node[data-search-match="true"] .node-label,
+      .graph-node[data-search-match="true"] .node-label {
+        color: var(--text-bright);
+        background-color: color-mix(in srgb, var(--status-active) 18%, var(--bg-main));
       }
 
       .d4-node:focus-visible,
@@ -2510,6 +2524,46 @@
         padding: var(--ai-actions-pad-block) 0 0;
         font-size: var(--ai-actions-text);
         color: var(--text-normal);
+      }
+      .rail-section-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.55rem;
+      }
+      .rail-section-heading {
+        margin: 0;
+        color: var(--text-muted);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .rail-section-divider {
+        height: 1px;
+        margin: 0.75rem 0;
+        border: 0;
+        background: var(--border-subtle);
+      }
+      .ai-actions-node-intel__selected-context {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        padding: 0.45rem 0.5rem;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-ui);
+        background: var(--bg-panel-hover);
+      }
+      .ai-actions-node-intel__selected-eyebrow {
+        color: var(--text-muted);
+        font-size: var(--ai-actions-text-xs);
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .ai-actions-node-intel__selected-id {
+        color: var(--text-normal);
+        font-size: var(--ai-actions-text-sm);
+        overflow-wrap: anywhere;
       }
       .ai-actions-node-intel__loading,
       .ai-actions-node-intel__empty,
@@ -3192,11 +3246,18 @@
               <svg class="chevron" aria-hidden="true" width="16" height="16"><use href="#icon-chevron-right"/></svg>
             </summary>
             <div class="inspector-body">
-              <ol id="ai-actions-receipts" aria-live="polite"></ol>
-              <!-- B4: per-node AI intel section — owned by ai-actions-panel.ts.
-                   SEPARATE from #ai-actions-receipts (GII agent-activity feed).
-                   Reconciliation constraint: do NOT render B4 results into #ai-actions-receipts. -->
-              <div id="ai-actions-node-intel" class="ai-actions-node-intel" aria-live="polite" aria-label="Node AI analysis"></div>
+              <section class="rail-section-group rail-section-group--ai-actions" aria-labelledby="ai-actions-node-heading">
+                <h3 id="ai-actions-node-heading" class="rail-section-heading">Acciones IA</h3>
+                <!-- B4: per-node AI intel section — owned by ai-actions-panel.ts.
+                     SEPARATE from #ai-actions-receipts (GII agent-activity feed).
+                     Reconciliation constraint: do NOT render B4 results into #ai-actions-receipts. -->
+                <div id="ai-actions-node-intel" class="ai-actions-node-intel" aria-live="polite" aria-label="Node AI analysis"></div>
+              </section>
+              <hr class="rail-section-divider" aria-hidden="true" />
+              <section class="rail-section-group rail-section-group--pipeline" aria-labelledby="pipeline-stage-heading">
+                <h3 id="pipeline-stage-heading" class="rail-section-heading">Pipeline stage</h3>
+                <ol id="ai-actions-receipts" aria-live="polite"></ol>
+              </section>
             </div>
           </details>
         </div>
@@ -3743,21 +3804,21 @@
         const rgb = d4HexToRgb(hex);
         return { color: hex, muted: `rgba(${rgb},0.25)` };
       };
-      const d4StateForNode = (nodeId, related) => {
-        // Hover dominates selection: hovered node + neighborhood light up, the
-        // selected node recedes while hovering and is restored on blur.
-        if (d4State.hoveredNodeId) {
-          if (d4State.hoveredNodeId === nodeId) return "hover-target";
-          if (related.has(nodeId)) return "hover-related";
-          return "default";
-        }
+      const d4Union = (...sets) => {
+        const out = new Set();
+        sets.forEach((set) => set.forEach((id) => out.add(id)));
+        return out;
+      };
+      const d4StateForNode = (nodeId, selectedRelated, hoverRelated) => {
         if (d4State.selectedNodeIds.has(nodeId)) return "selected-target";
-        if (d4State.selectedNodeIds.size > 0 && related.has(nodeId)) return "selected-related";
+        if (d4State.selectedNodeIds.size > 0 && selectedRelated.has(nodeId)) return "selected-related";
+        if (d4State.hoveredNodeId === nodeId) return "hover-target";
+        if (hoverRelated.has(nodeId)) return "hover-related";
         return "default";
       };
       const d4SyncContainerState = () => {
         const hasHover = Boolean(d4State.hoveredNodeId);
-        const hasSelection = d4State.selectedNodeIds.size > 0 && !d4State.hoveredNodeId;
+        const hasSelection = d4State.selectedNodeIds.size > 0;
         d4Canvas.setAttribute("data-has-hover", hasHover ? "true" : "false");
         d4Canvas.setAttribute("data-has-selection", hasSelection ? "true" : "false");
         d4Canvas.classList.toggle("has-hover", hasHover);
@@ -3847,7 +3908,9 @@
           }
         }
         const selectedPrimary = d4State.selectedNodeIds.values().next().value || null;
-        const related = d4RelatedFor(d4State.hoveredNodeId || selectedPrimary);
+        const selectedRelated = d4RelatedFor(selectedPrimary);
+        const hoverRelated = d4RelatedFor(d4State.hoveredNodeId);
+        const related = d4Union(selectedRelated, hoverRelated);
         d4SyncContainerState();
 
         const activeNodeIds = new Set();
@@ -3872,6 +3935,17 @@
               d4RenderOverlay();
             });
             el.addEventListener("click", () => {
+              if (typeof network._selectNodeById === "function") {
+                network._selectNodeById(node.id);
+              }
+              selectedNodeId = node.id;
+              renderDetailPanel(node.id);
+              d4State.selectedNodeIds = new Set([id]);
+              d4RenderOverlay();
+            });
+            el.addEventListener("keydown", (event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
               if (typeof network._selectNodeById === "function") {
                 network._selectNodeById(node.id);
               }
@@ -3959,15 +4033,19 @@
               enteringIds.delete(id); // consume intent; class now drives lifecycle
             }
           }
-          const state = d4StateForNode(id, related);
+          const state = d4StateForNode(id, selectedRelated, hoverRelated);
           const color = d4ColorVars(node);
           el.dataset.state = state;
+          el.dataset.selected = d4State.selectedNodeIds.has(id) ? "true" : "false";
+          el.dataset.hover = d4State.hoveredNodeId === id ? "true" : "false";
+          el.dataset.related = related.has(id) ? "true" : "false";
           // GPU-composited transform — scales to thousands of nodes without
           // triggering layout/paint. translate3d forces compositor layer.
           el.style.transform = `translate3d(${pos.x}px, ${pos.y}px, 0) translate(-50%, -50%)`;
           el.style.setProperty("--node-color", color.color);
           el.style.setProperty("--node-color-muted", color.muted);
           el.setAttribute("aria-label", `${node.label || id}, ${node.type || "Node"}, score ${Number(node.score || 0)}`);
+          el.setAttribute("aria-selected", d4State.selectedNodeIds.has(id) ? "true" : "false");
           el.tabIndex = idx === 0 ? 0 : -1;
           const label = el.querySelector(".node-label");
           if (label) label.textContent = String(node.label || id);
@@ -4007,7 +4085,7 @@
           const touchesSelection = d4State.selectedNodeIds.has(fromId) || d4State.selectedNodeIds.has(toId);
           const isRelated = (!d4State.hoveredNodeId && d4State.selectedNodeIds.size === 0)
             ? true
-            : (d4State.hoveredNodeId ? touchesHover : touchesSelection);
+            : (touchesSelection || touchesHover);
           line.setAttribute("x1", String(fromPos.x));
           line.setAttribute("y1", String(fromPos.y));
           line.setAttribute("x2", String(toPos.x));
@@ -4015,11 +4093,10 @@
           line.setAttribute("data-related", isRelated ? "true" : "false");
           line.style.setProperty("--node-color", sourceColor.color);
           line.style.setProperty("--node-color-muted", sourceColor.muted);
-          if (d4State.hoveredNodeId) {
-            if (touchesHover) line.setAttribute("data-emphasis", "hover");
-            else line.removeAttribute("data-emphasis");
-          } else if (touchesSelection) {
+          if (touchesSelection) {
             line.setAttribute("data-emphasis", "selected");
+          } else if (touchesHover) {
+            line.setAttribute("data-emphasis", "hover");
           } else {
             line.removeAttribute("data-emphasis");
           }
@@ -4753,8 +4830,16 @@
       if (searchGroupEl) {
         window.brainDsUI.search.mount(searchGroupEl, {
           nodes: getCurrentNodes(),
+          graphId,
           onSelect: (nodeId) => { selectAndReveal(nodeId); },
           onClear: () => { resetHighlight(); applyVisibility(); },
+          onHighlight: (nodeIds) => {
+            const matchIds = new Set((nodeIds || []).map(String));
+            document.querySelectorAll(".d4-node[data-id], .graph-node[data-id]").forEach((el) => {
+              const isMatch = matchIds.has(String(el.getAttribute("data-id") || ""));
+              el.toggleAttribute("data-search-match", isMatch);
+            });
+          },
         });
       }
 

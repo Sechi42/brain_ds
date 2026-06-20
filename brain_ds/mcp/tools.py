@@ -147,7 +147,11 @@ def validate_secret_handle(store: GraphStore, params: dict[str, Any]) -> dict[st
     entry = catalog.get(handle)
     if entry is None:
         store.log_audit("validate_secret_handle", validated, "error")
-        return {"valid": False, "reason": f"Handle '{handle}' not found"}
+        return {
+            "valid": False,
+            "status": "not_found",
+            "reason": "Secret handle is not registered in this workspace.",
+        }
 
     try:
         from brain_ds.connectors.secrets.providers import get_provider_adapter
@@ -158,11 +162,11 @@ def validate_secret_handle(store: GraphStore, params: dict[str, Any]) -> dict[st
             adapter.probe(entry.handle, entry.metadata)
     except ValidationError as exc:
         store.log_audit("validate_secret_handle", validated, "error")
-        return {"valid": False, "reason": f"{entry.handle}: {exc}"}
+        return {"valid": False, "status": "invalid", "reason": str(exc)}
 
-    reason = f"{entry.handle} is valid and reachable" if validated.get("probe") else f"{entry.handle} is valid (dry-run)"
+    reason = "Secret handle is valid and reachable" if validated.get("probe") else "Secret handle is valid (dry-run)"
     store.log_audit("validate_secret_handle", validated, "ok")
-    return {"valid": True, "reason": reason}
+    return {"valid": True, "status": "ok", "reason": reason}
 
 
 @error_boundary

@@ -143,7 +143,9 @@ class TestValidateSecretHandle:
             )
 
             assert result["valid"] is True
-            assert "warehouse_ro" in result["reason"]
+            assert result["status"] == "ok"
+            assert "Secret handle" in result["reason"]
+            assert "warehouse_ro" not in result["reason"]
             assert _CANARY not in json.dumps(result)
         finally:
             store.close()
@@ -157,7 +159,8 @@ class TestValidateSecretHandle:
             )
 
             assert result["valid"] is False
-            assert "missing" in result["reason"]
+            assert result["status"] == "not_found"
+            assert "missing" not in json.dumps(result)
         finally:
             store.close()
 
@@ -194,7 +197,8 @@ class TestValidateSecretHandle:
             )
 
             assert result["valid"] is False
-            assert "broken_pg" in result["reason"]
+            assert result["status"] == "invalid"
+            assert "broken_pg" not in result["reason"]
             assert "sslmode" in result["reason"]
         finally:
             store.close()

@@ -77,7 +77,7 @@ class TestListSecrets:
         try:
             _seed_catalog(store)
             client = _api_client(store, tmp_path)
-            response = client.get("/api/secrets?graph_id=graph-secrets")
+            response = client.get("/api/secrets?graph_id=graph-secrets&agent_scope=workspace_admin")
 
             assert response.status_code == 200
             data = response.json()
@@ -95,7 +95,7 @@ class TestListSecrets:
         try:
             _seed_catalog(store)
             client = _api_client(store, tmp_path)
-            response = client.get("/api/secrets?graph_id=graph-secrets")
+            response = client.get("/api/secrets?graph_id=graph-secrets&agent_scope=workspace_admin")
 
             assert response.status_code == 200
             body = response.text
@@ -113,7 +113,7 @@ class TestListSecrets:
                 encoding="utf-8",
             )
             client = _api_client(store, tmp_path)
-            response = client.get("/api/secrets?graph_id=graph-secrets")
+            response = client.get("/api/secrets?graph_id=graph-secrets&agent_scope=workspace_admin")
 
             assert response.status_code == 400
             assert "manifest" in response.text.lower() or "schema" in response.text.lower()
@@ -129,7 +129,7 @@ class TestAddSecret:
         try:
             client = _api_client(store, tmp_path)
             response = client.post(
-                "/api/secrets?graph_id=graph-secrets",
+                "/api/secrets?graph_id=graph-secrets&agent_scope=workspace_admin",
                 json={
                     "handle": "sales_q3",
                     "kind": "google-sheets-json",
@@ -161,7 +161,7 @@ class TestAddSecret:
         try:
             client = _api_client(store, tmp_path)
             response = client.post(
-                "/api/secrets?graph_id=graph-secrets",
+                "/api/secrets?graph_id=graph-secrets&agent_scope=workspace_admin",
                 json={"kind": "postgres", "metadata": {"host": "db.local"}},
             )
             assert response.status_code == 422
@@ -191,7 +191,7 @@ class TestAddSecretValidation:
         try:
             client = _api_client(store, tmp_path)
             response = client.post(
-                "/api/secrets?graph_id=graph-secrets",
+                "/api/secrets?graph_id=graph-secrets&agent_scope=workspace_admin",
                 json=self._valid_postgres_payload(kind="unknown-provider"),
             )
             assert response.status_code == 422
@@ -203,7 +203,7 @@ class TestAddSecretValidation:
         try:
             client = _api_client(store, tmp_path)
             response = client.post(
-                "/api/secrets?graph_id=graph-secrets",
+                "/api/secrets?graph_id=graph-secrets&agent_scope=workspace_admin",
                 json=self._valid_postgres_payload(
                     kind="postgres",
                     metadata={"host": "db.local"},
@@ -221,7 +221,7 @@ class TestAddSecretValidation:
             payload = self._valid_postgres_payload()
             payload.pop("raw_value")
             response = client.post(
-                "/api/secrets?graph_id=graph-secrets",
+                "/api/secrets?graph_id=graph-secrets&agent_scope=workspace_admin",
                 json=payload,
             )
             assert response.status_code == 422
@@ -233,7 +233,7 @@ class TestAddSecretValidation:
         try:
             client = _api_client(store, tmp_path)
             response = client.post(
-                "/api/secrets?graph_id=graph-secrets",
+                "/api/secrets?graph_id=graph-secrets&agent_scope=workspace_admin",
                 json=self._valid_postgres_payload(raw_value=""),
             )
             assert response.status_code == 422
@@ -249,10 +249,10 @@ class TestRemoveSecret:
         try:
             _seed_catalog(store)
             client = _api_client(store, tmp_path)
-            response = client.delete("/api/secrets/warehouse_ro?graph_id=graph-secrets")
+            response = client.delete("/api/secrets/warehouse_ro?graph_id=graph-secrets&agent_scope=workspace_admin")
             assert response.status_code == 204
 
-            list_response = client.get("/api/secrets?graph_id=graph-secrets")
+            list_response = client.get("/api/secrets?graph_id=graph-secrets&agent_scope=workspace_admin")
             assert list_response.json()["handles"] == []
         finally:
             store.close()

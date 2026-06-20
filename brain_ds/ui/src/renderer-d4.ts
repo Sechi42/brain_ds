@@ -190,6 +190,11 @@ export function mount(args: D4MountArgs) {
     return map;
   };
   const d4RelatedFor = (focusId: string | null) => (focusId ? new Set(d4Adjacency().get(focusId) || []) : new Set<string>());
+  const d4Union = (...sets: Set<string>[]) => {
+    const out = new Set<string>();
+    sets.forEach((set) => set.forEach((id) => out.add(id)));
+    return out;
+  };
   const d4ColorVars = (node: D4Node) => {
     let hex: string = D4_DEFAULT_COLOR;
     const cid = node && node.component_id;
@@ -205,24 +210,17 @@ export function mount(args: D4MountArgs) {
     return { color: hex, muted: `rgba(${rgb},0.25)` };
   };
 
-  const d4StateForNode = (nodeId: string, related: Set<string>) => {
-    // Hover takes visual priority over selection: while hovering, the selected
-    // node "turns off" and only the hovered node + its neighborhood light up.
-    // Selection is preserved in state and restored visually on blur.
-    if (state.hoveredNodeId) {
-      if (state.hoveredNodeId === nodeId) return 'hover-target';
-      if (related.has(nodeId)) return 'hover-related';
-      return 'default';
-    }
+  const d4StateForNode = (nodeId: string, selectedRelated: Set<string>, hoverRelated: Set<string>) => {
     if (state.selectedNodeIds.has(nodeId)) return 'selected-target';
-    if (state.selectedNodeIds.size > 0 && related.has(nodeId)) return 'selected-related';
+    if (state.selectedNodeIds.size > 0 && selectedRelated.has(nodeId)) return 'selected-related';
+    if (state.hoveredNodeId === nodeId) return 'hover-target';
+    if (hoverRelated.has(nodeId)) return 'hover-related';
     return 'default';
   };
 
   const d4SyncContainerState = () => {
     const hasHover = Boolean(state.hoveredNodeId);
-    // Suppress selection styling while hovering so hover fully dominates.
-    const hasSelection = state.selectedNodeIds.size > 0 && !state.hoveredNodeId;
+    const hasSelection = state.selectedNodeIds.size > 0;
     container.setAttribute('data-has-hover', hasHover ? 'true' : 'false');
     container.setAttribute('data-has-selection', hasSelection ? 'true' : 'false');
     container.classList.toggle('has-hover', hasHover);
@@ -242,6 +240,14 @@ export function mount(args: D4MountArgs) {
     state.popoverEl = pop;
     return pop;
   };
+  const d4AppendMetric = (grid: HTMLElement, label: string, value: string) => {
+    const term = document.createElement('dt');
+    term.textContent = label;
+    const description = document.createElement('dd');
+    description.textContent = value;
+    grid.appendChild(term);
+    grid.appendChild(description);
+  };
   const d4HidePopover = () => {
     if (!state.popoverEl) return;
     state.popoverEl.setAttribute('aria-hidden', 'true');
@@ -256,14 +262,39 @@ export function mount(args: D4MountArgs) {
     pop.style.setProperty('--node-color-muted', color.muted);
     const neighborsCount = d4Adjacency().get(nodeId)?.size ?? 0;
     const componentLabel = node.component_id !== null && node.component_id !== undefined ? String(node.component_id) : '—';
-    pop.innerHTML = `<div class="hover-popover-title"><span class="hover-popover-dot" aria-hidden="true"></span><strong>${resolveNodeLabel(node)}</strong></div>
-<dl class="hover-popover-grid">
-  <dt>Score</dt><dd>${Number(node.score ?? 0).toFixed(2)}</dd>
-  <dt>Vecinos</dt><dd>${neighborsCount}</dd>
-  <dt>Cluster</dt><dd>WCC-${componentLabel}</dd>
-  <dt>Tipo</dt><dd>${node.type ?? 'Node'}</dd>
-</dl>
-<small class="hover-popover-hint">Click para fijar selección</small>`;
+    const clusterLabel = `WCC-${componentLabel}`;
+    if (typeof pop.replaceChildren === 'function') {
+      pop.replaceChildren();
+    } else {
+      pop.innerHTML = '';
+      while (pop.firstChild) pop.removeChild(pop.firstChild);
+      if (Array.isArray((pop as any).children)) (pop as any).children = [];
+    }
+
+    const title = document.createElement('div');
+    title.className = 'hover-popover-title';
+    const dot = document.createElement('span');
+    dot.className = 'hover-popover-dot';
+    dot.setAttribute('aria-hidden', 'true');
+    const strong = document.createElement('strong');
+    strong.textContent = resolveNodeLabel(node);
+    title.appendChild(dot);
+    title.appendChild(strong);
+
+    const grid = document.createElement('dl');
+    grid.className = 'hover-popover-grid';
+    d4AppendMetric(grid, 'Score', Number(node.score ?? 0).toFixed(2));
+    d4AppendMetric(grid, 'Vecinos', String(neighborsCount));
+    d4AppendMetric(grid, 'Cluster', clusterLabel);
+    d4AppendMetric(grid, 'Tipo', String(node.type ?? 'Node'));
+
+    const hint = document.createElement('small');
+    hint.className = 'hover-popover-hint';
+    hint.textContent = 'Click para fijar selección';
+
+    pop.appendChild(title);
+    pop.appendChild(grid);
+    pop.appendChild(hint);
     pop.style.left = `${x + 24}px`;
     pop.style.top = `${y - 14}px`;
     pop.style.display = 'block';
@@ -294,7 +325,9 @@ export function mount(args: D4MountArgs) {
     const nodeRecords = (dataset.get() || []).filter((n) => !n.hidden && !hiddenTypes.has(String(n.type || '')));
     const world = d4ReadPositions();
     const selectedPrimary = state.selectedNodeIds.values().next().value || null;
-    const related = d4RelatedFor(state.hoveredNodeId || selectedPrimary);
+    const selectedRelated = d4RelatedFor(selectedPrimary);
+    const hoverRelated = d4RelatedFor(state.hoveredNodeId);
+    const related = d4Union(selectedRelated, hoverRelated);
     d4SyncContainerState();
 
     // Slice 1 (graph-label-culling): compute overlay label visibility independently
@@ -341,6 +374,17 @@ export function mount(args: D4MountArgs) {
         el.addEventListener('mouseenter', () => { state.hoveredNodeId = id; d4RenderOverlay(); });
         el.addEventListener('mouseleave', () => { state.hoveredNodeId = null; d4HidePopover(); d4RenderOverlay(); });
         el.addEventListener('click', () => {
+          state.selectedNodeIds = new Set([id]);
+          if (typeof onNodeActivate === 'function') {
+            onNodeActivate(id);
+          } else if (typeof network._selectNodeById === 'function') {
+            network._selectNodeById(node.id);
+          }
+          d4RenderOverlay();
+        });
+        el.addEventListener('keydown', (event: KeyboardEvent) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
           state.selectedNodeIds = new Set([id]);
           if (typeof onNodeActivate === 'function') {
             onNodeActivate(id);
@@ -417,12 +461,16 @@ export function mount(args: D4MountArgs) {
         nodeEnterSeq += 1;
       }
       const color = d4ColorVars(node);
-      el.dataset.state = d4StateForNode(id, related);
+      el.dataset.state = d4StateForNode(id, selectedRelated, hoverRelated);
+      el.dataset.selected = state.selectedNodeIds.has(id) ? 'true' : 'false';
+      el.dataset.hover = state.hoveredNodeId === id ? 'true' : 'false';
+      el.dataset.related = related.has(id) ? 'true' : 'false';
       el.style.transform = `translate3d(${pos.x}px, ${pos.y}px, 0) translate(-50%, -50%)`;
       el.style.setProperty('--node-color', color.color);
       el.style.setProperty('--node-color-muted', color.muted);
       // Accessible button aria-label is ALWAYS set — never removed by label policy.
       el.setAttribute('aria-label', resolveNodeAriaLabel(node, id));
+      el.setAttribute('aria-selected', state.selectedNodeIds.has(id) ? 'true' : 'false');
       el.tabIndex = idx === 0 ? 0 : -1;
       // Visual label text is controlled by the label policy (D4 Overlay Independence).
       const label = el.querySelector('.node-label') as HTMLElement | null;
@@ -507,24 +555,19 @@ export function mount(args: D4MountArgs) {
       line.setAttribute('y2', String(toPos.y));
       line.setAttribute('data-source', fromId);
       line.setAttribute('data-target', toId);
-      // Hover dominates selection (mirrors d4StateForNode): while hovering, only
-      // the hovered node's edges are related/emphasized; selection edges recede.
       const touchesHover = Boolean(state.hoveredNodeId) && (fromId === state.hoveredNodeId || toId === state.hoveredNodeId);
       const touchesSelection = state.selectedNodeIds.has(fromId) || state.selectedNodeIds.has(toId);
       let isRelated: boolean;
       if (!hasInteraction) {
         isRelated = true;
-      } else if (state.hoveredNodeId) {
-        isRelated = touchesHover;
       } else {
-        isRelated = touchesSelection;
+        isRelated = touchesSelection || touchesHover;
       }
       line.setAttribute('data-related', isRelated ? 'true' : 'false');
-      if (state.hoveredNodeId) {
-        if (touchesHover) line.setAttribute('data-emphasis', 'hover');
-        else line.removeAttribute('data-emphasis');
-      } else if (touchesSelection) {
+      if (touchesSelection) {
         line.setAttribute('data-emphasis', 'selected');
+      } else if (touchesHover) {
+        line.setAttribute('data-emphasis', 'hover');
       } else {
         line.removeAttribute('data-emphasis');
       }

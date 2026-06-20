@@ -8,10 +8,10 @@ from tests.test_ui_runtime_behavior import _run_node
 
 
 class TestD4OverlayRuntimeContracts(unittest.TestCase):
-    def _render_html_path(self) -> Path:
+    def _render_html_path(self, nodes=None) -> Path:
         context = {
             "meta": {"org": "RuntimeOrg", "node_count": 3, "edge_count": 2, "generated_at": ""},
-            "nodes": [
+            "nodes": nodes or [
                 {"id": "a", "label": "A", "type": "Department", "component_id": 1, "score": 0.9},
                 {"id": "b", "label": "B", "type": "Role", "component_id": 2, "score": 0.7},
                 {"id": "c", "label": "C", "type": "Team", "component_id": 3, "score": 0.5},
@@ -31,8 +31,8 @@ class TestD4OverlayRuntimeContracts(unittest.TestCase):
         html_path.write_text(html, encoding="utf-8")
         return html_path
 
-    def _run_overlay_case(self, extra_js: str) -> dict:
-        html_path = self._render_html_path()
+    def _run_overlay_case(self, extra_js: str, nodes=None) -> dict:
+        html_path = self._render_html_path(nodes=nodes)
         code = r'''
 const fs = require("fs");
 const html = fs.readFileSync(process.argv[1], "utf8");
@@ -181,19 +181,20 @@ console.log(JSON.stringify({
         self.assertEqual(out["hasHover"], "true")
         self.assertEqual(out["hasSelection"], "false")
 
-    def test_hover_dominates_selection_contract(self):
-        # Hover takes visual priority over selection: while a node is hovered,
-        # hover styling wins (even on the selected node) and selection styling is
-        # suppressed (has-selection=false). Selection is preserved in state and
-        # restored on blur (see test_blur_restores_selection_contract).
+    def test_selection_survives_hover_contract(self):
+        # Selection and hover are independent flags: hovering a neighbor adds
+        # hover context without turning off the selected node treatment.
         out = self._run_overlay_case(
             """
 emit("selectNode", { nodes: ["b"] });
-emit("hoverNode", { node: "b" });
+emit("hoverNode", { node: "a" });
 const canvas = byId.get("center-split");
+const nodeA = byId.get("d4-nodes").children.find((n)=>n.dataset && n.dataset.id==="a");
+const nodeB = byId.get("d4-nodes").children.find((n)=>n.dataset && n.dataset.id==="b");
 console.log(JSON.stringify({
-  hoverTarget: stateFor("b"),
-  relatedA: stateFor("a"),
+  hoverTarget: nodeA && nodeA.dataset.hover,
+  selectedTarget: nodeB && nodeB.dataset.selected,
+  selectedRelated: nodeA && nodeA.dataset.related,
   relatedC: stateFor("c"),
   hasSelection: canvas.getAttribute("data-has-selection"),
   edgeEmphasis: firstEdge && firstEdge.getAttribute("data-emphasis"),
@@ -201,12 +202,28 @@ console.log(JSON.stringify({
 }));
 """
         )
-        self.assertEqual(out["hoverTarget"], "hover-target")
-        self.assertEqual(out["relatedA"], "hover-related")
-        self.assertEqual(out["relatedC"], "hover-related")
-        self.assertEqual(out["hasSelection"], "false")
-        self.assertEqual(out["edgeEmphasis"], "hover")
+        self.assertEqual(out["hoverTarget"], "true")
+        self.assertEqual(out["selectedTarget"], "true")
+        self.assertEqual(out["selectedRelated"], "true")
+        self.assertEqual(out["hasSelection"], "true")
+        self.assertEqual(out["edgeEmphasis"], "selected")
         self.assertEqual(out["edgeRelated"], "true")
+
+    def test_keyboard_activation_sets_aria_selected_contract(self):
+        out = self._run_overlay_case(
+            """
+const nodeB = byId.get("d4-nodes").children.find((n)=>n.dataset && n.dataset.id==="b");
+nodeB.dispatch("keydown", { key: "Enter", preventDefault:()=>{} });
+console.log(JSON.stringify({
+  selected: nodeB && nodeB.dataset.selected,
+  ariaSelected: nodeB && nodeB.getAttribute("aria-selected"),
+  state: stateFor("b")
+}));
+"""
+        )
+        self.assertEqual(out["selected"], "true")
+        self.assertEqual(out["ariaSelected"], "true")
+        self.assertEqual(out["state"], "selected-target")
 
     def test_blur_restores_selection_contract(self):
         # After blur, the previously-suppressed selection becomes visible again —
@@ -474,14 +491,49 @@ console.log(JSON.stringify({ motionEnabled: window.brainDsUI.motion.motionEnable
 
         for token in [
             "hover-popover-grid",
-            "<dt>Score</dt>",
-            "<dt>Vecinos</dt>",
-            "<dt>Cluster</dt>",
-            "<dt>Tipo</dt>",
+            "d4AppendMetric(grid, 'Score'",
+            "d4AppendMetric(grid, 'Vecinos'",
+            "d4AppendMetric(grid, 'Cluster'",
+            "d4AppendMetric(grid, 'Tipo'",
             "hover-popover-hint",
         ]:
             self.assertIn(token, source)
         self.assertRegex(source, r"Click para fijar selecci(?:ó|\u00f3|�)n")
+
+    def test_renderer_d4_popover_uses_text_nodes_for_untrusted_values(self):
+        renderer_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src" / "renderer-d4.ts"
+        source = renderer_path.read_text(encoding="utf-8")
+
+        self.assertNotRegex(source, r"pop\.innerHTML\s*=\s*`")
+        self.assertIn("strong.textContent = resolveNodeLabel(node)", source)
+        self.assertIn("description.textContent = value", source)
+        self.assertIn("String(node.type ?? 'Node')", source)
+
+    def test_runtime_popover_treats_mcp_labels_as_text_not_html(self):
+        malicious_nodes = [
+            {"id": "a", "label": "<img src=x onerror=alert(1)>", "type": "<svg onload=alert(2)>", "component_id": "<b>7</b>", "score": 0.9},
+            {"id": "b", "label": "B", "type": "Role", "component_id": 2, "score": 0.7},
+            {"id": "c", "label": "C", "type": "Team", "component_id": 3, "score": 0.5},
+        ]
+        out = self._run_overlay_case(
+            """
+emit("hoverNode", { node: "a" });
+const pop = byId.get("center-split").children.find((el)=>String(el.className || "").includes("hover-popover"));
+const titleText = pop && pop.children[0] && pop.children[0].children[1] && pop.children[0].children[1].textContent;
+const grid = pop && pop.children[1];
+console.log(JSON.stringify({
+  rawHtml: pop && pop.innerHTML,
+  titleText,
+  clusterText: grid && grid.children[5] && grid.children[5].textContent,
+  typeText: grid && grid.children[7] && grid.children[7].textContent
+}));
+""",
+            nodes=malicious_nodes,
+        )
+        self.assertEqual(out["rawHtml"], "")
+        self.assertEqual(out["titleText"], "<img src=x onerror=alert(1)>")
+        self.assertEqual(out["clusterText"], "WCC-<b>7</b>")
+        self.assertEqual(out["typeText"], "<svg onload=alert(2)>")
 
     def test_renderer_d4_popover_fallback_values_contract(self):
         renderer_path = Path(__file__).resolve().parent.parent / "brain_ds" / "ui" / "src" / "renderer-d4.ts"

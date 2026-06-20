@@ -97,12 +97,12 @@ function _renderLoading(el: HTMLElement, nodeId: string): void {
     </div>`;
 }
 
-function _renderReady(el: HTMLElement): void {
-  el.innerHTML = `
+function _renderReady(el: HTMLElement, nodeId: string | null = null): void {
+  _setPanelHtml(el, nodeId, `
     <div class="ai-actions-node-intel__empty" role="status">
       <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
       <span>Abrí Acciones IA para analizar el nodo seleccionado.</span>
-    </div>`;
+    </div>`);
 }
 
 function _renderEmpty(el: HTMLElement): void {
@@ -121,16 +121,28 @@ function _renderNoNode(el: HTMLElement): void {
     </div>`;
 }
 
-function _renderError(el: HTMLElement, message: string): void {
-  el.innerHTML = `
+function _renderError(el: HTMLElement, message: string, nodeId: string | null = null): void {
+  _setPanelHtml(el, nodeId, `
     <div class="ai-actions-node-intel__error" role="alert">
       <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--status-danger)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
       <span>${_escHtml(message)}</span>
-    </div>`;
+    </div>`);
 }
 
 function _escHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function _renderSelectedNodeHeader(nodeId: string): string {
+  return `
+    <header class="ai-actions-node-intel__selected-context">
+      <span class="ai-actions-node-intel__selected-eyebrow">Nodo seleccionado</span>
+      <strong class="ai-actions-node-intel__selected-id">${_escHtml(nodeId)}</strong>
+    </header>`;
+}
+
+function _setPanelHtml(el: HTMLElement, nodeId: string | null, bodyHtml: string): void {
+  el.innerHTML = `${nodeId ? _renderSelectedNodeHeader(nodeId) : ""}${bodyHtml}`;
 }
 
 function _scoreBar(score: number): string {
@@ -142,6 +154,7 @@ function _scoreBar(score: number): string {
 
 function _renderPopulated(
   el: HTMLElement,
+  nodeId: string,
   suggestions: SuggestionsResult,
   completeness: CompletenessResult
 ): void {
@@ -180,7 +193,7 @@ function _renderPopulated(
       ? `${missingCount > 0 ? missingCount + " tipos faltantes" : "Nodos subdetallados"}`
       : `${missingCount} tipo${missingCount !== 1 ? "s" : ""} faltante${missingCount !== 1 ? "s" : ""}`;
 
-  el.innerHTML = `
+  _setPanelHtml(el, nodeId, `
     <section class="ai-actions-node-intel__section" aria-label="Conexiones sugeridas">
       <h4 class="ai-actions-node-intel__heading">
         <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
@@ -199,7 +212,7 @@ function _renderPopulated(
       ${missing.length > 0 ? `<ul class="ai-actions-node-intel__missing-list" aria-label="Tipos faltantes">
         ${missing.map(t => `<li class="ai-actions-node-intel__missing-item">${_escHtml(t)}</li>`).join("")}
       </ul>` : ""}
-    </section>`;
+    </section>`);
 }
 
 // ---------------------------------------------------------------------------
@@ -216,9 +229,9 @@ async function _fetchAndRender(nodeId: string): Promise<void> {
   const cached = _cache.get(nodeId);
   if (cached) {
     if (cached.error) {
-      _renderError(el, cached.error);
+      _renderError(el, cached.error, nodeId);
     } else if (cached.suggestions && cached.completeness) {
-      _renderPopulated(el, cached.suggestions, cached.completeness);
+      _renderPopulated(el, nodeId, cached.suggestions, cached.completeness);
     } else {
       _renderEmpty(el);
     }
@@ -231,7 +244,13 @@ async function _fetchAndRender(nodeId: string): Promise<void> {
   }
 
   _inFlight.add(nodeId);
-  _renderLoading(el, nodeId);
+    _setPanelHtml(el, nodeId, `
+      <div class="ai-actions-node-intel__loading" aria-busy="true" role="status">
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ai-actions-node-intel__spinner">
+          <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+        </svg>
+        <span>Analizando nodo…</span>
+      </div>`);
 
   const base = _opts.apiBase ?? "";
   const graphId = encodeURIComponent(_opts.graphId);
@@ -266,10 +285,10 @@ async function _fetchAndRender(nodeId: string): Promise<void> {
     if (_selectedNodeId === nodeId) {
       if (errorMsg) {
         _cache.set(nodeId, { suggestions: null, completeness: null, error: errorMsg });
-        _renderError(el, errorMsg);
+        _renderError(el, errorMsg, nodeId);
       } else if (suggestions && completeness) {
         _cache.set(nodeId, { suggestions, completeness, error: null });
-        _renderPopulated(el, suggestions, completeness);
+        _renderPopulated(el, nodeId, suggestions, completeness);
       } else {
         _cache.set(nodeId, { suggestions: null, completeness: null, error: null });
         _renderEmpty(el);
@@ -280,7 +299,7 @@ async function _fetchAndRender(nodeId: string): Promise<void> {
     if (_selectedNodeId === nodeId) {
       _cache.set(nodeId, { suggestions: null, completeness: null, error: msg });
       const el2 = _getOrCreateNodeIntel();
-      if (el2) _renderError(el2, msg);
+      if (el2) _renderError(el2, msg, nodeId);
     }
   } finally {
     _inFlight.delete(nodeId);
@@ -318,7 +337,8 @@ export function mount(
       // The actual loading state appears only after onReveal() starts the lazy fetch.
       const el = document.getElementById("ai-actions-node-intel") as HTMLElement | null;
       if (el && nodeId) {
-        _renderReady(el);
+        _renderSelectedNodeHeader(nodeId);
+        _renderReady(el, nodeId);
       } else if (el) {
         _renderNoNode(el);
       }
@@ -330,6 +350,9 @@ export function mount(
         if (el) _renderNoNode(el);
         return;
       }
+      const el = _getOrCreateNodeIntel();
+      _renderSelectedNodeHeader(_selectedNodeId);
+      if (el) _renderReady(el, _selectedNodeId);
       // Lazy: fetch only on reveal (B4-R1/R2)
       _fetchAndRender(_selectedNodeId);
     },

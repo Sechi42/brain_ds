@@ -248,6 +248,22 @@
       border-color: var(--danger, #f87171);
     }
 
+    .workspace-active-ack {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      min-height: 44px;
+      color: var(--text-muted, #71717a);
+      font-size: 0.8125rem;
+      line-height: 1.35;
+    }
+
+    .workspace-active-ack input {
+      width: 1rem;
+      height: 1rem;
+      accent-color: var(--danger, #f87171);
+    }
+
     .workspace-action-status {
       min-height: 1rem;
       font-size: 0.8125rem;
@@ -430,7 +446,10 @@
       function deleteWorkspace(graphId, options) {
         var hard = options && options.hard;
         var body = options && options.body ? options.body : null;
-        var url = "/api/graphs/" + encodeURIComponent(graphId) + (hard ? "?hard=true" : "");
+        var params = [];
+        if (hard) params.push("hard=true");
+        params.push("agent_scope=workspace_admin");
+        var url = "/api/graphs/" + encodeURIComponent(graphId) + "?" + params.join("&");
         return fetch(url, {
           method: "DELETE",
           headers: body ? { "Content-Type": "application/json" } : {},
@@ -462,10 +481,15 @@
           if (!graphId) return;
           button.disabled = true;
           var card = button.closest(".workspace-card") || button.closest("[data-graph-id]");
-          deleteWorkspace(graphId, { hard: false }).then(function (result) {
+          deleteWorkspace(graphId, { hard: false, body: {
+            active_graph_id: button.getAttribute("data-active-graph-id") || "",
+            active_acknowledged: button.getAttribute("data-active-workspace") !== "true"
+          } }).then(function (result) {
             if (result.ok) {
               removeCard(card);
             } else {
+              var statusEl = card && card.querySelector(".workspace-action-status");
+              setStatus(statusEl, (result.payload && result.payload.detail) || "Unable to remove workspace.", true);
               button.disabled = false;
             }
           }).catch(function () {
@@ -478,21 +502,27 @@
         var input = form.querySelector("input[name='typed_confirm']");
         var submit = form.querySelector("button[type='submit']");
         var statusEl = form.querySelector(".workspace-action-status");
+        var activeAck = form.querySelector("input[name='active_acknowledged']");
         var graphId = form.getAttribute("data-graph-id") || form.getAttribute("data-workspace-path") || "";
         var name = form.getAttribute("data-workspace-name") || "";
+        var isActive = form.getAttribute("data-active-workspace") === "true";
 
         function sync() {
           var value = (input && input.value || "").trim();
+          var activeOk = !isActive || !!(activeAck && activeAck.checked);
           if (submit) {
-            submit.disabled = !(value === graphId || value === name);
+            submit.disabled = !(value === graphId || value === name) || !activeOk;
           }
-          setStatus(statusEl, value && value !== graphId && value !== name ? "Type the exact workspace name or id to confirm." : "", true);
+          setStatus(statusEl, value && value !== graphId && value !== name
+            ? "Type the exact workspace name or id to confirm."
+            : (isActive && !activeOk ? "Acknowledge that this is the active workspace before deleting." : ""), true);
         }
 
         if (input) {
           input.addEventListener("input", sync);
           sync();
         }
+        if (activeAck) activeAck.addEventListener("change", sync);
 
         form.addEventListener("submit", function (event) {
           event.preventDefault();
@@ -501,9 +531,17 @@
             setStatus(statusEl, "Confirmation text does not match.", true);
             return;
           }
+          if (isActive && !(activeAck && activeAck.checked)) {
+            setStatus(statusEl, "Acknowledge that this is the active workspace before deleting.", true);
+            return;
+          }
           if (submit) submit.disabled = true;
           var card = form.closest(".workspace-card") || form.closest("[data-graph-id]");
-          deleteWorkspace(graphId, { hard: true, body: { typed_confirm: value } }).then(function (result) {
+          deleteWorkspace(graphId, { hard: true, body: {
+            typed_confirm: value,
+            active_graph_id: form.getAttribute("data-active-graph-id") || "",
+            active_acknowledged: !isActive || !!(activeAck && activeAck.checked)
+          } }).then(function (result) {
             if (result.ok) {
               removeCard(card);
               return;

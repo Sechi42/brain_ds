@@ -28,12 +28,15 @@ export interface SearchNode {
   id: string;
   label: string;
   type: string;
+  score?: number;
 }
 
 export interface SearchDeps {
   nodes: SearchNode[];
+  graphId?: string;
   onSelect: (nodeId: string) => void;
   onClear: () => void;
+  onHighlight?: (nodeIds: string[]) => void;
 }
 
 // ── Module state ────────────────────────────────────────────────────────────
@@ -46,6 +49,7 @@ let _resultsEl: HTMLElement | null = null;
 let _listeners: Array<{ el: EventTarget; type: string; fn: EventListener }> = [];
 let _activeIndex = -1;
 let _activeItems: SearchNode[] = [];
+let _searchSeq = 0;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -59,7 +63,7 @@ function _addListener(el: EventTarget, type: string, fn: EventListener): void {
  * Matching is case- and diacritic-insensitive ("operacion" finds "Operación"),
  * tolerates word order ("ventas sit" finds "SIT — registro de ventas") and
  * falls back to an in-order character subsequence for mild typos.
- * Ranking: exact > prefix > substring > all-tokens > id/type > subsequence.
+ * Ranking: exact > prefix > substring > all terms > id/type > subsequence.
  */
 const _normCache = new Map<string, string>();
 
@@ -80,12 +84,12 @@ function _isSubsequence(query: string, target: string): boolean {
   return qi === query.length;
 }
 
-function _scoreNode(query: string, queryTokens: string[], node: SearchNode): number {
+function _scoreNode(query: string, queryTerms: string[], node: SearchNode): number {
   const label = _normalize(node.label);
   if (label === query) return 100;
   if (label.startsWith(query)) return 80;
   if (label.includes(query)) return 60;
-  if (queryTokens.length > 1 && queryTokens.every((t) => label.includes(t))) return 55;
+  if (queryTerms.length > 1 && queryTerms.every((t) => label.includes(t))) return 55;
   if (_normalize(node.id).includes(query)) return 50;
   if (_normalize(node.type).includes(query)) return 40;
   if (query.length >= 3 && _isSubsequence(query, label)) return 25;
@@ -95,13 +99,48 @@ function _scoreNode(query: string, queryTokens: string[], node: SearchNode): num
 function topMatches(q: string, allNodes: SearchNode[]): SearchNode[] {
   if (!q) return [];
   const query = _normalize(q);
-  const queryTokens = query.split(/\s+/).filter(Boolean);
+  const queryTerms = query.split(/\s+/).filter(Boolean);
   return allNodes
-    .map((n) => ({ node: n, score: _scoreNode(query, queryTokens, n) }))
+    .map((n) => ({ node: n, score: _scoreNode(query, queryTerms, n) }))
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score || a.node.label.localeCompare(b.node.label))
     .slice(0, 10)
     .map((entry) => entry.node);
+}
+
+function _rankByScore(items: SearchNode[]): SearchNode[] {
+  return items
+    .slice()
+    .sort((a, b) => Number(b.score || 0) - Number(a.score || 0) || a.label.localeCompare(b.label));
+}
+
+async function _apiMatches(q: string): Promise<SearchNode[] | null> {
+  if (!_deps?.graphId || !q) return null;
+  const params = new URLSearchParams({ graph_id: _deps.graphId, q });
+  const resp = await fetch(`/api/search?${params.toString()}`, { headers: { Accept: "application/json" } });
+  if (!resp.ok) return null;
+  const body = await resp.json();
+  if (!Array.isArray(body?.results)) return null;
+  return _rankByScore(body.results.map((item: any) => ({
+    id: String(item.id || ""),
+    label: String(item.label || item.id || ""),
+    type: String(item.type || ""),
+    score: Number(item.score || 0),
+  })).filter((item: SearchNode) => item.id));
+}
+
+function _clearResults(): void {
+  if (_inputEl) {
+    _inputEl.setAttribute("aria-expanded", "false");
+    _inputEl.setAttribute("aria-activedescendant", "");
+  }
+  if (_resultsEl) _resultsEl.innerHTML = "";
+  _resultsEl?.classList.remove("is-open");
+  if (_deps && _deps.onHighlight) _deps.onHighlight([]);
+}
+
+function _highlightIds(items: SearchNode[]): void {
+  if (_deps && _deps.onHighlight) _deps.onHighlight(items.map(item => item.id));
 }
 
 /**
@@ -119,7 +158,6 @@ function renderResults(items: SearchNode[], query: string): void {
   if (items.length === 0 && query.length > 0) {
     // REQ-GVP-6.4: zero-results state — "No nodes match '{query}'" in muted color/small font.
     const emptyLi = document.createElement("li");
-    emptyLi.className = "search-empty";
     emptyLi.setAttribute("aria-live", "polite");
     emptyLi.className = "search-empty";
     emptyLi.textContent = `No nodes match "${query}"`;
@@ -142,7 +180,8 @@ function renderResults(items: SearchNode[], query: string): void {
     li.className = "search-option";
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.textContent = `${item.label} (${item.type})`;
+    const scoreText = Number.isFinite(Number(item.score)) ? ` · ${Number(item.score).toFixed(2)}` : "";
+    btn.textContent = `${item.label} (${item.type})${scoreText}`;
     btn.className = "search-option-btn";
     btn.addEventListener("click", () => {
       if (_deps) _deps.onSelect(item.id);
@@ -161,6 +200,26 @@ function renderResults(items: SearchNode[], query: string): void {
 
   _resultsEl.classList.add("is-open");
   if (_inputEl) _inputEl.setAttribute("aria-expanded", "true");
+  _highlightIds(items);
+}
+
+async function _runSearch(q: string): Promise<void> {
+  const seq = ++_searchSeq;
+  if (!q) {
+    renderResults([], "");
+    if (_deps && _deps.onHighlight) _deps.onHighlight([]);
+    return;
+  }
+  renderResults(topMatches(q, _deps!.nodes), q);
+  let items: SearchNode[] | null = null;
+  try {
+    items = await _apiMatches(q);
+  } catch (_e) {
+    items = null;
+  }
+  if (seq !== _searchSeq) return;
+  if (!_inputEl || _inputEl.value.trim() !== q) return;
+  if (items) renderResults(items, q);
 }
 
 function _selectByIndex(idx: number): void {
@@ -224,7 +283,6 @@ export function mount(root: HTMLElement | null, deps: SearchDeps): void {
   if (!root.querySelector(".search-input-wrap")) {
     const wrap = document.createElement("div");
     wrap.className = "search-input-wrap";
-    wrap.className = "search-input-wrap";
 
     // Leading search icon (inline SVG placeholder — sprite pipeline is PR 9)
     const iconSpan = document.createElement("span");
@@ -255,11 +313,9 @@ export function mount(root: HTMLElement | null, deps: SearchDeps): void {
         if (_inputEl) {
           _inputEl.value = "";
           _inputEl.focus();
-          _inputEl.setAttribute("aria-expanded", "false");
-          _inputEl.setAttribute("aria-activedescendant", "");
         }
-        if (_resultsEl) _resultsEl.innerHTML = "";
-        _resultsEl?.classList.remove("is-open");
+        _clearResults();
+        if (_deps) _deps.onClear();
         _updateClearBtn();
       });
   } else {
@@ -272,7 +328,7 @@ export function mount(root: HTMLElement | null, deps: SearchDeps): void {
 
   _addListener(_inputEl, "input", () => {
     const q = _inputEl!.value.trim();
-    renderResults(topMatches(q, _deps!.nodes), q);
+    void _runSearch(q);
     _updateClearBtn();
   });
 
@@ -289,14 +345,9 @@ export function mount(root: HTMLElement | null, deps: SearchDeps): void {
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      const pick = _activeIndex >= 0 ? _activeItems[_activeIndex] : topMatches(_inputEl!.value.trim(), _deps!.nodes)[0];
+      const pick = _activeIndex >= 0 ? _activeItems[_activeIndex] : _activeItems[0];
       if (pick && _deps) _deps.onSelect(pick.id);
-      if (_resultsEl) _resultsEl.innerHTML = "";
-      _resultsEl?.classList.remove("is-open");
-      if (_inputEl) {
-        _inputEl.setAttribute("aria-expanded", "false");
-        _inputEl.setAttribute("aria-activedescendant", "");
-      }
+      _clearResults();
     }
     if (event.key === "Escape") {
       event.preventDefault();
@@ -304,13 +355,8 @@ export function mount(root: HTMLElement | null, deps: SearchDeps): void {
         _inputEl.value = "";
         _inputEl.focus();
       }
-      if (_resultsEl) _resultsEl.innerHTML = "";
-      _resultsEl?.classList.remove("is-open");
+      _clearResults();
       _updateClearBtn();
-      if (_inputEl) {
-        _inputEl.setAttribute("aria-expanded", "false");
-        _inputEl.setAttribute("aria-activedescendant", "");
-      }
       // REQ-GVP-6.8: call onClear so resetHighlight + applyVisibility run in template scope.
       if (_deps) _deps.onClear();
     }

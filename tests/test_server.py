@@ -710,6 +710,42 @@ class TestDeleteApiGraphs(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_delete_requires_workspace_admin_when_scope_is_explicit(self):
+        """PR3: lost workspace_admin between render and submit returns a clear 403."""
+        with tempfile.TemporaryDirectory() as tmp:
+            app, store, root = self._make_app_real_store(tmp)
+            try:
+                with TestClient(app) as client:
+                    graph_id = self._create_graph(client, "PermissionGate")
+                    resp = client.delete(f"/api/graphs/{graph_id}?agent_scope=viewer")
+
+                self.assertEqual(resp.status_code, 403)
+                body = resp.json()
+                self.assertEqual(body.get("status"), "permission_denied")
+                self.assertIn("workspace_admin", body.get("detail", ""))
+            finally:
+                store.close()
+
+    def test_delete_refuses_active_graph_when_active_context_matches(self):
+        """PR3: active workspace deletion is refused unless explicitly acknowledged."""
+        with tempfile.TemporaryDirectory() as tmp:
+            app, store, root = self._make_app_real_store(tmp)
+            try:
+                with TestClient(app) as client:
+                    graph_id = self._create_graph(client, "ActiveGuard")
+                    resp = self._delete_with_body(
+                        client,
+                        f"/api/graphs/{graph_id}",
+                        {"active_graph_id": graph_id},
+                    )
+
+                self.assertEqual(resp.status_code, 409)
+                body = resp.json()
+                self.assertEqual(body.get("status"), "active_workspace")
+                self.assertIn("activa", body.get("detail", "").lower())
+            finally:
+                store.close()
+
     # --- JS wiring check ---
 
     def test_vault_picker_js_calls_graphs_endpoint_not_workspaces(self):

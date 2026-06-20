@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from brain_ds.api.events import EventBus
 from brain_ds.api.server import create_app
+from brain_ds.connectors.secrets.providers import AwsSecretsAdapter
 from brain_ds.store.graph_store import GraphStore
 
 
@@ -79,7 +80,7 @@ class TestProviderScopedRawValueValidation:
         try:
             client = _api_client(store, tmp_path)
             resp = client.post(
-                "/api/secrets?graph_id=g1",
+                "/api/secrets?graph_id=g1&agent_scope=workspace_admin",
                 json={
                     "handle": "aws_db",
                     "kind": "aws-secrets",
@@ -97,7 +98,7 @@ class TestProviderScopedRawValueValidation:
         try:
             client = _api_client(store, tmp_path)
             resp = client.post(
-                "/api/secrets?graph_id=g1",
+                "/api/secrets?graph_id=g1&agent_scope=workspace_admin",
                 json={
                     "handle": "aws_db2",
                     "kind": "aws-secrets",
@@ -114,7 +115,7 @@ class TestProviderScopedRawValueValidation:
         try:
             client = _api_client(store, tmp_path)
             resp = client.post(
-                "/api/secrets?graph_id=g1",
+                "/api/secrets?graph_id=g1&agent_scope=workspace_admin",
                 json={
                     "handle": "pg_db",
                     "kind": "postgres",
@@ -136,7 +137,7 @@ class TestProviderScopedRawValueValidation:
         try:
             client = _api_client(store, tmp_path)
             resp = client.post(
-                "/api/secrets?graph_id=g1",
+                "/api/secrets?graph_id=g1&agent_scope=workspace_admin",
                 json={
                     "handle": "ss_db",
                     "kind": "sqlserver",
@@ -154,7 +155,7 @@ class TestProviderScopedRawValueValidation:
         try:
             client = _api_client(store, tmp_path)
             resp = client.post(
-                "/api/secrets?graph_id=g1",
+                "/api/secrets?graph_id=g1&agent_scope=workspace_admin",
                 json={
                     "handle": "pg_db2",
                     "kind": "postgres",
@@ -176,7 +177,7 @@ class TestAwsSecretsRoundTrip:
             client = _api_client(store, tmp_path)
             # Add handle (no raw_value)
             post_resp = client.post(
-                "/api/secrets?graph_id=g1",
+                "/api/secrets?graph_id=g1&agent_scope=workspace_admin",
                 json={
                     "handle": "aws_prod",
                     "kind": "aws-secrets",
@@ -186,7 +187,7 @@ class TestAwsSecretsRoundTrip:
             assert post_resp.status_code in (200, 201), post_resp.text
 
             # List: handle present, no raw secret material
-            list_resp = client.get("/api/secrets?graph_id=g1")
+            list_resp = client.get("/api/secrets?graph_id=g1&agent_scope=workspace_admin")
             assert list_resp.status_code == 200
             data = list_resp.json()
             handles = {h["handle"] for h in data["handles"]}
@@ -203,6 +204,77 @@ class TestAwsSecretsRoundTrip:
         finally:
             store.close()
 
+
+class TestSecretAdminGateAndValidationStatus:
+    """PR1 — secret API exposes explicit admin/empty/validation states."""
+
+    def test_list_secrets_requires_workspace_admin_scope(self, tmp_path: Path) -> None:
+        store = _store_with_graph(tmp_path)
+        try:
+            client = _api_client(store, tmp_path)
+
+            resp = client.get("/api/secrets?graph_id=g1")
+
+            assert resp.status_code == 403
+            body = resp.json()
+            assert body["status"] == "permission_denied"
+            assert "workspace_admin" in body["detail"]
+            assert "handles" not in body
+        finally:
+            store.close()
+
+    def test_list_secrets_admin_empty_state_is_not_permission_denied(self, tmp_path: Path) -> None:
+        store = _store_with_graph(tmp_path)
+        try:
+            client = _api_client(store, tmp_path)
+
+            resp = client.get("/api/secrets?graph_id=g1&agent_scope=workspace_admin")
+
+            assert resp.status_code == 200
+            assert resp.json() == {
+                "graph_id": "g1",
+                "status": "empty",
+                "handles": [],
+                "message": "No hay secretos configurados en este workspace.",
+            }
+        finally:
+            store.close()
+
+    def test_add_secret_returns_safe_probe_status_without_echoing_handle_or_secret_id(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        store = _store_with_graph(tmp_path)
+        try:
+            calls: list[tuple[str, dict[str, object]]] = []
+            monkeypatch.setattr(
+                AwsSecretsAdapter,
+                "probe",
+                lambda _self, handle, metadata: calls.append((handle, metadata)) or None,
+            )
+            client = _api_client(store, tmp_path)
+
+            resp = client.post(
+                "/api/secrets?graph_id=g1&agent_scope=workspace_admin&probe=true",
+                json={
+                    "handle": "aws_probe",
+                    "kind": "aws-secrets",
+                    "metadata": _AWS_META,
+                },
+            )
+
+            assert resp.status_code == 201, resp.text
+            body = resp.json()
+            assert body["validation"] == {
+                "status": "ok",
+                "connection": "probed",
+                "message": "Validación segura OK; la conexión respondió correctamente.",
+            }
+            assert calls == [("aws_probe", _AWS_META)]
+            assert "aws_probe" not in body["validation"]["message"]
+            assert _AWS_META["secret_id"] not in resp.text
+        finally:
+            store.close()
+
     def test_aws_secrets_manifest_stores_only_region_and_secret_id(
         self, tmp_path: Path
     ) -> None:
@@ -213,7 +285,7 @@ class TestAwsSecretsRoundTrip:
         try:
             client = _api_client(store, tmp_path)
             client.post(
-                "/api/secrets?graph_id=g1",
+                "/api/secrets?graph_id=g1&agent_scope=workspace_admin",
                 json={
                     "handle": "aws_manifest_check",
                     "kind": "aws-secrets",

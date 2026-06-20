@@ -117,6 +117,41 @@ class TestSearchUXContracts(unittest.TestCase):
             "search.ts must invoke deps.onClear on Escape",
         )
 
+    def test_algorithmic_search_uses_api_not_chat_affordances(self):
+        """Search module must call the algorithmic HTTP adapter and expose no chat UI copy."""
+        src = SEARCH_MODULE.read_text(encoding="utf-8")
+        self.assertIn("/api/search", src)
+        for forbidden in ("chat", "prompt", "send button", "streaming", "tokens"):
+            self.assertNotIn(forbidden, src.lower())
+
+    def test_search_results_render_score_and_highlight_callback(self):
+        """Ranked API results must show scores and call highlight callback with ids."""
+        src = SEARCH_MODULE.read_text(encoding="utf-8")
+        self.assertIn("score", src)
+        self.assertIn("onHighlight", src)
+        self.assertRegex(src, r"onHighlight\([^)]*map\([^)]*id")
+
+    def test_clear_removes_search_highlights(self):
+        """Clear action must notify both clear and highlight reset paths."""
+        src = SEARCH_MODULE.read_text(encoding="utf-8")
+        self.assertIn("onClear", src)
+        self.assertRegex(src, r"onHighlight\(\s*\[\s*\]\s*\)")
+
+    def test_run_search_renders_local_results_before_api_await(self):
+        """Keyboard navigation needs local matches synchronously before API enhancement."""
+        src = SEARCH_MODULE.read_text(encoding="utf-8")
+        render_i = src.find("renderResults(topMatches(q, _deps!.nodes), q)")
+        await_i = src.find("await _apiMatches(q)")
+        self.assertGreaterEqual(render_i, 0)
+        self.assertGreaterEqual(await_i, 0)
+        self.assertLess(render_i, await_i)
+
+    def test_search_module_has_no_duplicate_classname_assignments(self):
+        """Cleanup guard for accidental duplicated className writes."""
+        src = SEARCH_MODULE.read_text(encoding="utf-8")
+        self.assertEqual(src.count('emptyLi.className = "search-empty";'), 1)
+        self.assertEqual(src.count('wrap.className = "search-input-wrap";'), 1)
+
 
 class TestMainTsWiring(unittest.TestCase):
     """main.ts must import and expose the search module on window.brainDsUI."""

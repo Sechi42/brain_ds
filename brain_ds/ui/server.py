@@ -13,6 +13,7 @@ from fastapi import Body, FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from brain_ds.api.server import create_app
+from brain_ds.mcp.security import SecurityError, is_workspace_admin
 from brain_ds.ontology import Graph
 from brain_ds.store.errors import GraphNotFoundError
 from brain_ds.store.graph_store import GraphStore
@@ -32,6 +33,40 @@ def _workspace_confirm_matches(workspace_root: Path, typed_confirm: str) -> bool
         return False
     resolved = workspace_root.resolve()
     return candidate in {resolved.name, str(resolved)} or Path(candidate).resolve() == resolved
+
+
+def _ui_permission_denied() -> JSONResponse:
+    return JSONResponse(
+        status_code=403,
+        content={
+            "status": "permission_denied",
+            "detail": "Permisos insuficientes: se requiere workspace_admin para eliminar workspaces.",
+        },
+    )
+
+
+def _explicit_scope_is_denied(agent_scope: str | None) -> bool:
+    if agent_scope is None:
+        return False
+    try:
+        is_workspace_admin({"agent_scope": agent_scope})
+    except SecurityError:
+        return True
+    return False
+
+
+def _active_workspace_conflict(graph_id: str, body: dict[str, Any]) -> JSONResponse | None:
+    active_graph_id = str(body.get("active_graph_id") or "").strip()
+    active_acknowledged = body.get("active_acknowledged") is True
+    if active_graph_id and active_graph_id == graph_id and not active_acknowledged:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status": "active_workspace",
+                "detail": "No se puede eliminar la workspace activa sin reconocer explícitamente ese estado.",
+            },
+        )
+    return None
 
 
 class ServerRuntime:
@@ -139,13 +174,21 @@ def build_ui_app(*, project_root: Path, store: GraphStore) -> FastAPI:
         return JSONResponse(runtime._graphs_payload())
 
     @app.get("/vault-picker")
-    def vault_picker() -> HTMLResponse:
+    def vault_picker(agent_scope: str | None = "workspace_admin") -> HTMLResponse:
         """R8/R9: list all orgs as focusable rows + always-present create-org form."""
         graphs = runtime._graphs_payload()
-        return HTMLResponse(render_vault_picker_html(graphs))
+        active_graph_id = graphs[0]["id"] if graphs else ""
+        can_admin = not _explicit_scope_is_denied(agent_scope)
+        permissions = {item["id"]: {"workspace_admin": can_admin} for item in graphs}
+        return HTMLResponse(render_vault_picker_html(graphs, permissions=permissions, active_graph_id=active_graph_id))
 
     @app.delete("/api/graphs/{graph_id}")
-    def delete_graph_route(graph_id: str, hard: bool = False, body: dict = Body(default={})) -> JSONResponse:
+    def delete_graph_route(
+        graph_id: str,
+        hard: bool = False,
+        agent_scope: str | None = None,
+        body: dict = Body(default={}),
+    ) -> JSONResponse:
         """Soft-delete (default) or hard-delete a graph by UUID.
 
         - ``hard=false`` (default): marks the graph hidden via the ``hidden``
@@ -155,6 +198,11 @@ def build_ui_app(*, project_root: Path, store: GraphStore) -> FastAPI:
           ``{"typed_confirm": "<graph label or id>"}`` in the request body.
         """
         typed_body = body if isinstance(body, dict) else {}
+        if _explicit_scope_is_denied(agent_scope):
+            return _ui_permission_denied()
+        active_conflict = _active_workspace_conflict(graph_id, typed_body)
+        if active_conflict is not None:
+            return active_conflict
 
         if hard:
             # Require a confirm token matching the graph label or id
