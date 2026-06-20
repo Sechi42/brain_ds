@@ -247,11 +247,18 @@ NODE_WRITE_TEMPLATES: dict[str, object] = {
 """,
         "connection_descriptor_note": (
             "To enable read-only exploration via explore_source / query_source, add a "
-            "'connection' key to this node's details: "
+            "'connection' key to this node's details. Supported kinds:\n"
+            "  sqlite/csv (file-path): "
             "{\"kind\": \"sqlite\"|\"csv\", \"path\": \"<project-relative path>\"}. "
-            "The path must be within the project root (same sandbox as import_graph). "
-            "Google Sheets exploration is delegated to the agent layer via MCP Google "
-            "Drive read tools; export to CSV for CsvConnector support."
+            "The path must be within the project root (same sandbox as import_graph).\n"
+            "  aws-postgres (Aurora/RDS via AWS Secrets Manager): "
+            "{\"kind\": \"aws-postgres\", \"secret_handle\": \"<handle-name>\", \"database\": \"<db-name>\"}. "
+            "secret_handle references a registered aws-postgres secret; database is handle metadata "
+            "(not fetched from AWS). The server resolves credentials at connect time.\n"
+            "  aws-google-sheets (Google Sheets via AWS Secrets Manager service account): "
+            "{\"kind\": \"aws-google-sheets\", \"secret_handle\": \"<handle-name>\", "
+            "\"spreadsheet_id\": \"<spreadsheet-id>\", \"sheet_range\": \"<range>\"}. "
+            "secret_handle carries a service-account JSON secret; the server resolves it at connect time."
         ),
     },
     "KPI": {
@@ -396,6 +403,85 @@ CONNECTION_RULES: dict[str, object] = {
         "strong": ">=3 shared tokens",
     },
 }
+
+# Secret connection rules — flat 6-step recipe for non-admin agents to connect to
+# typed data sources (aws-postgres, aws-google-sheets) using only non-admin tools.
+# Design: concrete + example-driven so the simplest model (DeepSeek Flash) follows
+# correctly without clarification. Must NOT require list_secret_handles (admin-only).
+# Mirrors brainds-source-explorer agent docs and skills/brainds-docs/SKILL.md prose.
+SECRET_CONNECTION_RULES: str = """\
+How to connect to a data source that uses a secret (aws-postgres, aws-google-sheets)
+— follow this recipe exactly; do NOT deviate or call admin-only tools.
+
+1. Call list_source_connections(graph_id) to discover which Data Source nodes
+   have explorable connection descriptors. Each result includes a "connection"
+   dict with at minimum {"kind": "<kind>", "secret_handle": "<handle-name>"}.
+   This call requires NO admin permission.
+
+2. Read the "kind" and "secret_handle" fields from the descriptor.
+   - kind tells you which connector to use (e.g. "aws-postgres").
+   - secret_handle is a name (not a credential) that references a registered
+     secret in the workspace vault.
+   You do NOT need the raw secret value. The server resolves it for you.
+
+3. Call explore_source(graph_id=<graph_id>, node_id=<node_id>) to inspect the
+   source. The server internally resolves secret_handle → adapter → connector.
+   You never see or need the ARN or password.
+   - No additional args → describe + containers.
+   - Add container=<name> → tables in that schema.
+   - Add container=<name>, table=<table> → schema + preview.
+
+4. For SQL queries on aws-postgres sources, call query_source(graph_id, node_id,
+   query="SELECT ...") — SELECT only, max 200 rows. Never write.
+
+5. NEVER call list_secret_handles. That tool requires workspace_admin and will
+   return MCP error -32001 for non-admin agents. You do NOT need it: the bound
+   secret_handle in the connection descriptor is sufficient for explore_source
+   and query_source to connect.
+
+6. If list_source_connections returns a source with no connection descriptor (or
+   an empty/null "connection"), the source is not yet bound to a secret. Report
+   it as "not explorable — no connection descriptor" and do NOT guess credentials.
+
+--- Worked example: aws-postgres (Aurora PostgreSQL via AWS Secrets Manager) ---
+
+  # Step 1 — discover
+  list_source_connections(graph_id="grupo-topete")
+  # → [{node_id: "gt-ds-sit-aurora", connection: {kind: "aws-postgres",
+  #      secret_handle: "grupo-topete/sit-aurora", database: "sit_prod"}}]
+
+  # Step 3 — explore (server resolves the secret)
+  explore_source(graph_id="grupo-topete", node_id="gt-ds-sit-aurora")
+  # → {describe: {...}, containers: ["public", "reporting"]}
+
+  explore_source(graph_id="grupo-topete", node_id="gt-ds-sit-aurora",
+                 container="public")
+  # → {tables: ["orders", "customers", "deliveries"]}
+
+  explore_source(graph_id="grupo-topete", node_id="gt-ds-sit-aurora",
+                 container="public", table="orders")
+  # → {schema: [{name: "order_id", type: "integer"}, ...], preview: [...]}
+
+--- Worked example: aws-google-sheets (via AWS Secrets Manager service account) ---
+
+  # Step 1 — discover
+  list_source_connections(graph_id="grupo-topete")
+  # → [{node_id: "gt-ds-erp-dvc", connection: {kind: "aws-google-sheets",
+  #      secret_handle: "grupo-topete/erp-dvc",
+  #      spreadsheet_id: "1AbC...", sheet_range: "Hoja1!A1:Z"}}]
+
+  # Step 3 — explore (server resolves the service-account JSON from AWS)
+  explore_source(graph_id="grupo-topete", node_id="gt-ds-erp-dvc")
+  # → {describe: {title: "ERP DVC", url: "..."}, containers: ["ERP DVC"]}
+
+  explore_source(graph_id="grupo-topete", node_id="gt-ds-erp-dvc",
+                 container="ERP DVC")
+  # → {tables: ["Hoja1", "Hoja2", "Resumen"]}
+
+  explore_source(graph_id="grupo-topete", node_id="gt-ds-erp-dvc",
+                 container="ERP DVC", table="Hoja1")
+  # → {schema: [{name: "Fecha", type: "string"}, ...], preview: [...]}
+"""
 
 # Two-phase mapping — structural skeleton first, cross-cutting semantics second.
 # Mirrored as "Two-Phase Mapping (Mandatory)" in skills/map-connections/SKILL.md
@@ -1077,13 +1163,13 @@ def build_workspace_context(store: Any) -> dict[str, object]:
 
 
 def elicit_context() -> dict[str, object]:
-    """Return the 16-key grounding context payload for run_elicit.
+    """Return the 17-key grounding context payload for run_elicit.
 
     Keys: entity_types, supertypes, expected_sections, relationship_types,
           base_weights, question_bank, org_slug_rules, node_id_format,
           node_write_templates, workflow, source_exploration_contract,
           delegation_protocol, pipeline_stages, intake_paths, artifact_contract,
-          deliverable_contract.
+          deliverable_contract, secret_connection_rules.
     """
     return {
         "entity_types": build_entity_types(),
@@ -1102,16 +1188,17 @@ def elicit_context() -> dict[str, object]:
         "intake_paths": PIPELINE_STAGES[1]["intake_paths"],
         "artifact_contract": ARTIFACT_CONTRACT,
         "deliverable_contract": DELIVERABLE_CONTRACT,
+        "secret_connection_rules": SECRET_CONNECTION_RULES,
     }
 
 
 def map_connections_context() -> dict[str, object]:
-    """Return the 12-key grounding context payload for map_connections.
+    """Return the 14-key grounding context payload for map_connections.
 
     Keys: entity_types, connection_rules, completeness_gate, two_phase_mapping,
           relationship_labels, scoring_factors, retrieval_contract, rag_workflow,
           source_exploration_contract, delegation_protocol, pipeline_stages,
-          intake_paths.
+          intake_paths, artifact_contract, secret_connection_rules.
     scoring_factors comes from ScoringEngine (distinct from connection_rules
     strength heuristics — the skill's own weak/strong labels live in connection_rules).
     """
@@ -1129,16 +1216,17 @@ def map_connections_context() -> dict[str, object]:
         "pipeline_stages": PIPELINE_STAGES,
         "intake_paths": PIPELINE_STAGES[1]["intake_paths"],
         "artifact_contract": ARTIFACT_CONTRACT,
+        "secret_connection_rules": SECRET_CONNECTION_RULES,
     }
 
 
 def generate_brd_context() -> dict[str, object]:
-    """Return the 10-key grounding context payload for generate_brd.
+    """Return the 12-key grounding context payload for generate_brd.
 
     Keys: entity_types, brd_section_order, section_rules,
           completeness_matrix_template, retrieval_contract,
           brd_graph_persistence_contract, strict_mode, delegation_protocol,
-          pipeline_stages, intake_paths.
+          pipeline_stages, intake_paths, artifact_contract, secret_connection_rules.
     """
     return {
         "entity_types": build_entity_types(),
@@ -1152,4 +1240,5 @@ def generate_brd_context() -> dict[str, object]:
         "pipeline_stages": PIPELINE_STAGES,
         "intake_paths": PIPELINE_STAGES[1]["intake_paths"],
         "artifact_contract": ARTIFACT_CONTRACT,
+        "secret_connection_rules": SECRET_CONNECTION_RULES,
     }

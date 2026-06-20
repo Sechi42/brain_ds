@@ -121,7 +121,7 @@ class TestCat2Accessors(unittest.TestCase):
 class TestComposerReturnShapes(unittest.TestCase):
     """Task 1.5 — composer return-shape tests."""
 
-    def test_elicit_context_has_all_16_keys_legacy(self) -> None:
+    def test_elicit_context_has_all_17_keys_legacy(self) -> None:
         result = elicit_context()
         expected_keys = {
             "entity_types",
@@ -140,6 +140,7 @@ class TestComposerReturnShapes(unittest.TestCase):
             "intake_paths",
             "artifact_contract",
             "deliverable_contract",
+            "secret_connection_rules",
         }
         self.assertEqual(set(result.keys()), expected_keys)
 
@@ -158,7 +159,7 @@ class TestComposerReturnShapes(unittest.TestCase):
         self.assertNotIn("topic_key_format", result)
         self.assertNotIn("mem_save_templates", result)
 
-    def test_map_connections_context_has_13_keys_legacy(self) -> None:
+    def test_map_connections_context_has_14_keys_legacy(self) -> None:
         result = map_connections_context()
         expected_keys = {
             "entity_types",
@@ -174,6 +175,7 @@ class TestComposerReturnShapes(unittest.TestCase):
             "pipeline_stages",
             "intake_paths",
             "artifact_contract",
+            "secret_connection_rules",
         }
         self.assertEqual(set(result.keys()), expected_keys)
 
@@ -194,7 +196,7 @@ class TestComposerReturnShapes(unittest.TestCase):
         self.assertIn("Never bulk-read the whole graph", steps)
         self.assertIn("thousands of nodes", cast(str, rag_workflow["scaling_contract"]))
 
-    def test_generate_brd_context_has_11_keys_legacy(self) -> None:
+    def test_generate_brd_context_has_12_keys_legacy(self) -> None:
         result = generate_brd_context()
         expected_keys = {
             "entity_types",
@@ -208,6 +210,7 @@ class TestComposerReturnShapes(unittest.TestCase):
             "pipeline_stages",
             "intake_paths",
             "artifact_contract",
+            "secret_connection_rules",
         }
         self.assertEqual(set(result.keys()), expected_keys)
 
