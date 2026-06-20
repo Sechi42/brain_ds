@@ -164,6 +164,32 @@ function positionMenu(clientX: number, clientY: number): void {
   if (first) first.focus();
 }
 
+// Build a non-interactive node summary header for the context menu.
+function makeNodeHeader(nodeData: any): HTMLElement {
+  const header = document.createElement("div");
+  header.className = "context-menu-header";
+  header.setAttribute("aria-hidden", "true");
+  header.style.pointerEvents = "none";
+
+  const label = nodeData?.label ?? "";
+  const type = nodeData?.type ?? "";
+  const score = nodeData?.score != null ? String(Number(nodeData.score).toFixed(2)) : null;
+  const source = nodeData?.source ?? null;
+
+  let html = `<span class="context-menu-header__label">${label ? label.replace(/</g, "&lt;").replace(/>/g, "&gt;") : ""}</span>`;
+  if (type) {
+    html += `<span class="context-menu-header__type">${type.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>`;
+  }
+  if (score !== null) {
+    html += `<span class="context-menu-header__score">${score}</span>`;
+  }
+  if (source) {
+    html += `<span class="context-menu-header__source">${source.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>`;
+  }
+  header.innerHTML = html;
+  return header;
+}
+
 // Build and show the NODE context menu.
 function openNodeContextMenu(nodeId: any, clientX: number, clientY: number): void {
   if (!_ctxMenuEl || !_deps) return;
@@ -171,6 +197,9 @@ function openNodeContextMenu(nodeId: any, clientX: number, clientY: number): voi
   const nodeData = (_deps.RENDER_CONTEXT.nodes || []).find(
     (n: any) => String(n.id) === String(nodeId)
   );
+
+  // Non-interactive node mini-summary header (B5-R1/R2/R3).
+  _ctxMenuEl.appendChild(makeNodeHeader(nodeData));
 
   // "Focus this node" — recenters viewport on node.
   _ctxMenuEl.appendChild(makeMenuItem("Focus this node", "target", () => {
@@ -200,10 +229,7 @@ function openNodeContextMenu(nodeId: any, clientX: number, clientY: number): voi
     });
   }));
 
-  // "Open detail panel".
-  _ctxMenuEl.appendChild(makeMenuItem("Open detail panel", "info", () => {
-    _deps!.focusNode(nodeId);
-  }));
+  // NOTE: "Open detail panel" removed — it was a duplicate of "Focus this node" (B5-R4).
 
   positionMenu(clientX, clientY);
 }
