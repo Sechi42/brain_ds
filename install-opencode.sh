@@ -14,6 +14,8 @@ WITH_AGENT=false
 REGISTER_PATH=false
 GLOBAL_BIN_ROOT="$HOME/.config/opencode/bin"
 
+# Exit code contract: 0 success, 1 OpenCode missing, 2 Git missing, 3 invalid args, 4 register-path wrapper error.
+
 INSTALL_MODE=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -38,6 +40,10 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
+
+echo "BrainDS :: OpenCode installer"
+echo "Enterprise Data & Knowledge Mapper"
+echo "Deploying project skills, commands, and agent wiring"
 
 if [ -z "$INSTALL_MODE" ]; then
   if [ -t 0 ]; then

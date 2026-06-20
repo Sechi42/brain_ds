@@ -26,10 +26,24 @@ class ProjectDocsCoverageTests(unittest.TestCase):
         for tool in ("assess_completeness", "get_weak_edges"):
             self.assertIn(tool, readme)
 
+    def test_readme_promotes_onboard_as_install_front_door(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn("brain_ds onboard", readme)
+        self.assertIn("setup + install-opencode", readme)
+        self.assertIn("advanced/compat", readme)
+
     def test_install_mentions_twenty_four_tools(self) -> None:
         install = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
         self.assertIn("24 tools", install)
         self.assertNotIn("22 tools", install)
+
+    def test_install_promotes_onboard_as_install_front_door(self) -> None:
+        install = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
+
+        self.assertIn("brain_ds onboard", install)
+        self.assertIn("setup + install-opencode", install)
+        self.assertIn("compatibilidad avanzada", install)
 
     def test_install_covers_workspace_secret_cli(self) -> None:
         install = (ROOT / "INSTALL.md").read_text(encoding="utf-8")

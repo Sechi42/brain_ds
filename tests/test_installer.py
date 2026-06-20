@@ -180,11 +180,21 @@ class InstallerTests(unittest.TestCase):
     def test_script_contains_prompt_and_fallback_contracts(self):
         ps1 = (ROOT / "install-opencode.ps1").read_text(encoding="utf-8")
         sh = (ROOT / "install-opencode.sh").read_text(encoding="utf-8")
+        self.assertIn("BrainDS :: OpenCode installer", ps1)
+        self.assertIn("BrainDS :: OpenCode installer", sh)
         self.assertIn("Install globally [G] or only for this project [P]?", ps1)
         self.assertIn("Install globally [G] or only for this project [P]?", sh)
         self.assertIn("Copy-Item -LiteralPath $source -Destination $destFile -Force", ps1)
         self.assertIn("cp \"$src\" \"$dest\"", sh)
         self.assertIn("$HOME/.config/opencode/skills", sh)
+
+    def test_installer_exit_code_contracts_are_preserved_in_source(self):
+        ps1 = (ROOT / "install-opencode.ps1").read_text(encoding="utf-8")
+        sh = (ROOT / "install-opencode.sh").read_text(encoding="utf-8")
+
+        for code in (0, 1, 2, 3, 4):
+            self.assertIn(f"exit {code}", ps1)
+            self.assertIn(f"exit {code}", sh)
 
     def test_agent_deployed(self):
         cfg = seed_global_opencode(self.home)

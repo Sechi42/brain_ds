@@ -8,6 +8,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Exit code contract: 0 success, 1 OpenCode missing, 2 Git missing, 3 invalid args, 4 register-path wrapper error.
+
 $RootDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $SkillsDir = Join-Path $RootDir 'skills'
 $GlobalBridgeRoot = Join-Path $HOME '.config/opencode/skills'
@@ -169,6 +171,10 @@ if ($Global -and $Project) {
   "Choose only one scope: --global or --project"
   exit 3
 }
+
+"BrainDS :: OpenCode installer"
+"Enterprise Data & Knowledge Mapper"
+"Deploying project skills, commands, and agent wiring"
 
 function Resolve-InstallMode {
   if ($Global) { return 'global' }
@@ -343,6 +349,10 @@ foreach ($w in $warnings) { "Warning: $w" }
 if ($RegisterPath) {
   New-Item -ItemType Directory -Path $GlobalBinRoot -Force | Out-Null
   $globalCmdWrapper = Join-Path $GlobalBinRoot 'brain_ds.cmd'
+  if (-not (Test-Path -LiteralPath $RootDir)) {
+    "Wrapper source root not found: $RootDir"
+    exit 4
+  }
   @"
 @echo off
 setlocal

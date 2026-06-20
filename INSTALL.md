@@ -77,7 +77,19 @@ CI genera ambos artefactos al hacer merge a `main`: el `.exe` (NSIS) en
 
 ---
 
-## 3. Configurar el MCP + harness (elegí UNA forma)
+## 3. Onboarding: MCP + harness + skills (recomendado)
+
+Usá este comando como puerta de entrada:
+
+```powershell
+brain_ds onboard --project-root . --agent both --force
+```
+
+`brain_ds onboard` coordina los motores `setup + install-opencode`: configura
+MCP, crea `.brain_ds/store.db` si falta, espeja skills de OpenCode y puede
+instalar comandos/agentes. Es el camino feliz para humanos.
+
+### compatibilidad avanzada: motores directos
 
 Las tres formas escriben lo mismo: `.mcp.json` (Claude Code) y/o
 `.opencode/opencode.json` (OpenCode), con backup previo y sin tocar otros
