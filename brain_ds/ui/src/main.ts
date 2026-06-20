@@ -16,6 +16,7 @@ import * as tabs from './tabs';
 import * as brdPanel from './panels/brd-panel';
 import * as secretPanel from './panels/secret-panel';
 import * as pipelinePanel from './panels/pipeline-panel';
+import * as aiActionsPanel from './panels/ai-actions-panel';
 
 declare global {
   interface Window {
@@ -32,8 +33,8 @@ declare global {
       tree: typeof tree;
     splitPane: typeof splitPane;
     scoreFilter: typeof scoreFilter;
-    bundleRevision?: string;
-    contextMenu: typeof contextMenu;
+      bundleRevision?: string;
+      contextMenu: typeof contextMenu;
       popover: typeof popover;
       liveSync: typeof liveSync;
       motion: { motionEnabled: typeof motionEnabled };
@@ -43,6 +44,7 @@ declare global {
       brdPanel: typeof brdPanel;
       secretPanel: typeof secretPanel;
       pipelinePanel: typeof pipelinePanel;
+      aiActionsPanel: typeof aiActionsPanel;
   };
   }
 }
@@ -60,7 +62,7 @@ window.brainDsUI = {
   tree,
   splitPane,
   scoreFilter,
-  bundleRevision: "graph-physics-cold-start-pr1-20260619",
+  bundleRevision: "secrets-node-ux-pr3-ai-actions-20260619",
   contextMenu,
   popover,
   liveSync,
@@ -71,6 +73,7 @@ window.brainDsUI = {
   brdPanel,
   secretPanel,
   pipelinePanel,
+  aiActionsPanel,
 };
 
 // Network ownership is template-driven (`graph_viewer.html`) to avoid

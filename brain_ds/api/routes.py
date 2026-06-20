@@ -11,6 +11,7 @@ from brain_ds.api.events import EventBus
 from brain_ds.connectors.secrets import SecretCatalog, SecretEntry, SecretManifestError, get_provider_adapter
 from brain_ds.connectors.secrets.redaction import redact_secrets
 from brain_ds.mcp.security import ValidationError
+from brain_ds.mcp import tools as mcp_tools
 from brain_ds.store.errors import GraphNotFoundError
 from brain_ds.store.graph_store import GraphStore
 
@@ -188,7 +189,7 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except SecretManifestError as exc:
             raise HTTPException(status_code=400, detail=f"Secret manifest error: {exc}") from exc
-        for field in ("handle", "kind", "metadata", "raw_value"):
+        for field in ("handle", "kind", "metadata"):
             if field not in payload:
                 raise HTTPException(status_code=422, detail=f"Missing required field: {field}")
         handle_value = payload["handle"]
@@ -200,9 +201,23 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
         metadata_value = payload["metadata"]
         if not isinstance(metadata_value, dict):
             raise HTTPException(status_code=422, detail="Field 'metadata' must be an object")
-        raw_value = payload.get("raw_value")
-        if not isinstance(raw_value, str) or not raw_value:
-            raise HTTPException(status_code=422, detail="Field 'raw_value' must be a non-empty string")
+
+        # Provider-scoped raw_value validation (A2-D4):
+        # Read requires_raw_value from schema for this kind (default true when absent).
+        # Only providers with requires_raw_value=false (e.g. aws-secrets) may omit raw_value.
+        kind_schema = catalog.schema.get("provider_kinds", {}).get(kind_value, {})
+        provider_requires_raw_value = kind_schema.get("requires_raw_value", True)
+        raw_value: str | None = payload.get("raw_value") or None
+        if provider_requires_raw_value:
+            if not isinstance(raw_value, str) or not raw_value:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Field 'raw_value' (password/credential) must be a non-empty string "
+                        f"for provider kind '{kind_value}'."
+                    ),
+                )
+
         # Fail fast on unknown kinds and invalid metadata so the manifest is never
         # persisted in an inconsistent state. Adapters own the per-kind contract.
         try:
@@ -233,6 +248,44 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
             raise HTTPException(status_code=404, detail=f"Secret handle '{handle}' not found")
         catalog.remove(handle)
         return Response(status_code=204)
+
+    # -------------------------------------------------------------------------
+    # B4 — Read-only AI routes (thin adapters over existing MCP tool handlers)
+    # No new MCP tools registered; CC-2 honored.
+    # -------------------------------------------------------------------------
+
+    @router.get("/ai/suggestions")
+    def ai_suggestions(graph_id: str, node_id: str) -> dict[str, Any]:
+        """GET /api/ai/suggestions?graph_id=&node_id=
+
+        Wraps the existing suggest_connections MCP tool handler server-side so
+        the browser can call it over HTTP.  Read-only; no write side-effects.
+
+        The handler is decorated with @error_boundary, which means tool-level
+        errors (not found, validation) are returned as {"code": ..., "message": ...}
+        dicts rather than raised exceptions.  We detect these and convert them to
+        proper HTTP 4xx responses.
+        """
+        result = mcp_tools.suggest_connections(store, {"graph_id": graph_id, "node_id": node_id})
+        if isinstance(result, dict) and "code" in result and "message" in result and "suggestions" not in result:
+            raise HTTPException(status_code=404, detail=result["message"])
+        return result
+
+    @router.get("/ai/completeness")
+    def ai_completeness(graph_id: str, node_id: str | None = None) -> dict[str, Any]:
+        """GET /api/ai/completeness?graph_id=&node_id=(optional)
+
+        Wraps the existing assess_completeness MCP tool handler server-side.
+        assess_completeness is a graph-level assessment; node_id is accepted for
+        UI context but not forwarded to the handler (the handler does not use it).
+        Read-only; no write side-effects.
+
+        Same error-boundary unwrapping as /ai/suggestions.
+        """
+        result = mcp_tools.assess_completeness(store, {"graph_id": graph_id})
+        if isinstance(result, dict) and "code" in result and "message" in result and "completeness_matrix" not in result:
+            raise HTTPException(status_code=404, detail=result["message"])
+        return result
 
     @router.websocket("/events")
     async def events_stream(websocket: WebSocket) -> None:

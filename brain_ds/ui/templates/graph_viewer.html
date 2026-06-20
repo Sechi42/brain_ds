@@ -1658,6 +1658,12 @@
       .vis-context-menu__separator { border: 0; border-top: 1px solid var(--border-subtle); margin: 0.25rem 0; }
       .menu-item--danger { color: var(--danger); }
       .menu-item--danger:hover, .menu-item--danger.vis-context-menu__item--hovered { background: var(--danger-soft); }
+      /* Node mini-summary header (B5-R1/R2/R3) — non-interactive, sits above action items */
+      .vis-context-menu__header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.5rem; padding: 0.5rem 0.5rem 0.5rem; border-bottom: 1px solid var(--border-subtle); margin-bottom: 0.25rem; pointer-events: none; user-select: none; }
+      .vis-context-menu__header-label { font-weight: var(--fw-semibold); color: var(--text-normal); font-size: 0.875rem; flex: 1 1 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .vis-context-menu__header-type { font-size: 0.75rem; color: var(--text-muted); }
+      .vis-context-menu__header-score { font-size: 0.7rem; color: var(--text-muted); background: var(--bg-active); border-radius: var(--radius-full); padding: 0.05rem 0.4rem; }
+      .vis-context-menu__header-source { font-size: 0.75rem; color: var(--text-muted); }
 
       /* Toolbar overflow (kebab) menu — created by workspaceChrome with class
          .workspace-overflow-menu and an inline min-width:180px. Without an explicit
@@ -1717,7 +1723,7 @@
         max-width: 360px;
         align-self: center;
         margin: 1rem auto;
-        overflow: hidden;
+        overflow-y: auto;
         background: var(--bg-panel);
         border: 1px solid var(--border-subtle);
         border-radius: var(--radius-lg);
@@ -2485,6 +2491,115 @@
       #ai-actions-receipts li.receipt-ok { border-inline-start: 3px solid var(--status-active); }
       #ai-actions-receipts li.receipt-error { border-inline-start: 3px solid var(--status-danger); }
 
+      /* === B4: ai-actions-node-intel — per-node suggest_connections + assess_completeness === */
+      /* Sibling to #ai-actions-receipts; owned exclusively by ai-actions-panel.ts.              */
+      .ai-actions-node-intel {
+        --ai-actions-gap: 0.75rem;
+        --ai-actions-gap-sm: 0.4rem;
+        --ai-actions-gap-xs: 0.3rem;
+        --ai-actions-pad-block: 0.5rem;
+        --ai-actions-pad-inline: 0.4rem;
+        --ai-actions-text: 0.8125rem;
+        --ai-actions-text-sm: 0.8rem;
+        --ai-actions-text-xs: 0.7rem;
+        --ai-actions-score-w: 3rem;
+        --ai-actions-score-h: 0.25rem;
+        display: flex;
+        flex-direction: column;
+        gap: var(--ai-actions-gap);
+        padding: var(--ai-actions-pad-block) 0 0;
+        font-size: var(--ai-actions-text);
+        color: var(--text-normal);
+      }
+      .ai-actions-node-intel__loading,
+      .ai-actions-node-intel__empty,
+      .ai-actions-node-intel__error {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--ai-actions-gap-sm);
+        padding: var(--ai-actions-gap-sm) 0;
+        font-size: var(--ai-actions-text-sm);
+        color: var(--text-muted);
+        line-height: 1.4;
+      }
+      .ai-actions-node-intel__error { color: var(--status-danger); }
+      @keyframes ai-spin {
+        to { transform: rotate(360deg); }
+      }
+      .ai-actions-node-intel__spinner { animation: ai-spin 1s linear infinite; }
+      .ai-actions-node-intel__section { display: flex; flex-direction: column; gap: var(--ai-actions-gap-sm); }
+      .ai-actions-node-intel__section--completeness { border-top: 1px solid var(--border-subtle); padding-top: var(--ai-actions-pad-block); margin-top: var(--ai-actions-score-h); }
+      .ai-actions-node-intel__heading {
+        display: flex;
+        align-items: center;
+        gap: var(--ai-actions-gap-sm);
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin: 0;
+      }
+      .ai-actions-node-intel__count {
+        background: var(--bg-active);
+        border-radius: var(--radius-full);
+        padding: 0.05rem 0.45rem;
+        font-size: var(--ai-actions-text-xs);
+        font-weight: 600;
+        color: var(--text-normal);
+      }
+      .ai-actions-node-intel__suggestions {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: var(--ai-actions-gap-xs);
+      }
+      .ai-actions-node-intel__suggestion-item {
+        display: grid;
+        grid-template-columns: 1.2rem 1fr auto;
+        grid-template-rows: auto auto;
+        align-items: center;
+        gap: 0.1rem var(--ai-actions-gap-sm);
+        padding: var(--ai-actions-gap-xs) var(--ai-actions-pad-inline);
+        border-radius: var(--radius-ui);
+        background: var(--bg-panel-hover);
+      }
+      .ai-actions-node-intel__suggestion-rank {
+        grid-row: 1 / 3;
+        font-size: var(--ai-actions-text-xs);
+        color: var(--text-muted);
+        text-align: center;
+      }
+      .ai-actions-node-intel__suggestion-label { font-weight: 500; font-size: var(--ai-actions-text); color: var(--text-normal); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .ai-actions-node-intel__suggestion-type { font-size: var(--ai-actions-text-xs); color: var(--text-muted); white-space: nowrap; }
+      .ai-actions-node-intel__score-bar {
+        display: inline-block;
+        width: var(--ai-actions-score-w);
+        height: var(--ai-actions-score-h);
+        background: var(--border-subtle);
+        border-radius: var(--ai-actions-score-h);
+        overflow: hidden;
+        vertical-align: middle;
+        grid-column: 3;
+        grid-row: 1 / 3;
+      }
+      .ai-actions-node-intel__score-bar-fill { display: block; height: 100%; background: var(--accent-mora); border-radius: var(--ai-actions-score-h); }
+      .ai-actions-node-intel__suggestion-reason {
+        grid-column: 2 / 3;
+        font-size: var(--ai-actions-text-xs);
+        color: var(--text-muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .ai-actions-node-intel__hint { font-size: var(--ai-actions-text-sm); color: var(--text-muted); margin: 0; }
+      .ai-actions-node-intel__completeness-label { font-size: var(--ai-actions-text); font-weight: 500; margin: 0; color: var(--text-normal); }
+      .ai-actions-node-intel__completeness-detail { font-size: 0.75rem; color: var(--text-muted); margin: 0.2rem 0 0; line-height: 1.4; }
+      .ai-actions-node-intel__missing-list { list-style: none; margin: var(--ai-actions-score-h) 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.2rem; }
+      .ai-actions-node-intel__missing-item { font-size: var(--ai-actions-text-xs); background: var(--bg-active); color: var(--text-muted); padding: 0.1rem var(--ai-actions-gap-sm); border-radius: var(--radius-full); }
+
       /* === Slice 2: Agent Presence Panel === */
       #agent-presence-panel {
         margin: 0;
@@ -3078,6 +3193,10 @@
             </summary>
             <div class="inspector-body">
               <ol id="ai-actions-receipts" aria-live="polite"></ol>
+              <!-- B4: per-node AI intel section — owned by ai-actions-panel.ts.
+                   SEPARATE from #ai-actions-receipts (GII agent-activity feed).
+                   Reconciliation constraint: do NOT render B4 results into #ai-actions-receipts. -->
+              <div id="ai-actions-node-intel" class="ai-actions-node-intel" aria-live="polite" aria-label="Node AI analysis"></div>
             </div>
           </details>
         </div>
@@ -4398,6 +4517,13 @@
         if (window.brainDsUI.splitPaneHandle && typeof window.brainDsUI.splitPaneHandle.refreshForNode === "function") {
           window.brainDsUI.splitPaneHandle.refreshForNode(nodeId);
         }
+        // B4: notify the AI actions panel of the new selected node so it can
+        // invalidate the cache for the previous node. Does NOT trigger a fetch —
+        // fetch happens lazily only on reveal('ai-actions'). Non-blocking.
+        const _aiHandle = window.brainDsUI && window.brainDsUI._aiActionsHandle;
+        if (_aiHandle && typeof _aiHandle.setSelectedNodeId === 'function') {
+          _aiHandle.setSelectedNodeId(nodeId);
+        }
       };
       const clearSelectionState = () => {
         resetHighlight();
@@ -5457,9 +5583,14 @@
         let pipelinePanelHandle = null;
         const pipelinePanelEl = document.getElementById('ai-actions-receipts');
 
-        // Panels that live inside the right-shell and must be toggled for BRD / secrets vs. inspector.
+        // B4: AI actions panel references (managed by the setupAiActionsPanel IIFE below).
+        // These are declared here so reveal('ai-actions') inside this IIFE can call mount/onReveal.
+        let aiActionsPanelHandle = null;
+        const aiActionsPanelEl = document.getElementById('ai-actions-node-intel');
+
+        // Panels that live inside the right-shell and must be toggled for BRD / secrets / AI actions vs. inspector.
         const setActiveRightPanel = (name) => {
-          const active = (name === 'brd' || name === 'settings' || name === 'pipeline') ? name : null;
+          const active = (name === 'brd' || name === 'settings' || name === 'pipeline' || name === 'ai-actions') ? name : null;
           const showDetailPanel = active === null;
           if (brdPanelEl) {
             brdPanelEl.hidden = active !== 'brd';
@@ -5488,7 +5619,9 @@
                 ? 'Configuración de secretos'
                 : active === 'pipeline'
                   ? 'Pipeline'
-                : 'Inspector';
+                  : active === 'ai-actions'
+                    ? 'Acciones IA'
+                    : 'Inspector';
           }
         };
 
@@ -5569,6 +5702,12 @@
           });
         };
 
+        const mountAiActionsPanel = () => {
+          // B4: Delegate to the setupAiActionsPanel IIFE's _mountAiActionsPanel function.
+          // This call path is for when the rail icon triggers reveal('ai-actions').
+          if (typeof _aiActionsMountFn === 'function') _aiActionsMountFn();
+        };
+
         const select = (name) => {
           icons.forEach((btn, idx) => {
             const active = Boolean(name) && btn.getAttribute('data-rail-icon') === name;
@@ -5582,12 +5721,15 @@
             const panel = document.getElementById('detail-panel');
             if (panel && typeof panel.scrollIntoView === 'function') panel.scrollIntoView({ block: 'nearest' });
           } else if (name === 'ai-actions') {
-            setActiveRightPanel(null);
+            setActiveRightPanel('ai-actions');
             const acc = document.querySelector('details[data-accordion-section="ai-actions"]');
             if (acc) {
               acc.open = true;
               if (typeof acc.scrollIntoView === 'function') acc.scrollIntoView({ block: 'nearest' });
             }
+            // B4: lazy mount + trigger fetch for the selected node.
+            // mountAiActionsPanel delegates to the setupAiActionsPanel IIFE's _mount + onReveal.
+            mountAiActionsPanel();
           } else if (name === 'reader') {
             setActiveRightPanel(null);
             const readerBtn = document.getElementById('show-more');
@@ -5633,7 +5775,7 @@
           if (wasActive && isExpanded()) {
             rightCollapseBtn.click();
             select(null);
-            if (name === 'brd' || name === 'settings' || name === 'pipeline') setActiveRightPanel(null);
+            if (name === 'brd' || name === 'settings' || name === 'pipeline' || name === 'ai-actions') setActiveRightPanel(null);
             return;
           }
           if (!isExpanded()) rightCollapseBtn.click();
@@ -5658,6 +5800,59 @@
           syncReaderIcon();
           new MutationObserver(syncReaderIcon).observe(centerSplit, { attributes: true, attributeFilter: ['data-layout'] });
         }
+      }());
+
+      // --- B4: AI actions panel — lazy suggest_connections + assess_completeness. ---
+      // Runs unconditionally (no rail guard) so test harness can trigger it without
+      // the workspace-shell DOM elements present.
+      // Reconciliation: renders into #ai-actions-node-intel, NOT #ai-actions-receipts.
+      (function setupAiActionsPanel() {
+        const panelEl = document.getElementById('ai-actions-node-intel');
+        if (!panelEl) return;
+
+        let mounted = false;
+        let handle = null;
+        let pendingNodeId = null;
+
+        function _mount() {
+          if (mounted || !panelEl) return;
+          if (!window.brainDsUI || !window.brainDsUI.aiActionsPanel) return;
+          mounted = true;
+          const graphId = (
+            typeof meta !== 'undefined' && meta && meta.graph_id
+          ) ? String(meta.graph_id) : '';
+          handle = window.brainDsUI.aiActionsPanel.mount(panelEl, { graphId: graphId });
+          // Publish on brainDsUI so focusNode (in the rendering script) can reach it.
+          if (window.brainDsUI) window.brainDsUI._aiActionsHandle = handle;
+          // Sync pending node (selected before mount)
+          const nodeToSync = pendingNodeId || (typeof selectedNodeId !== 'undefined' ? selectedNodeId : null);
+          if (nodeToSync && handle) handle.setSelectedNodeId(nodeToSync);
+        }
+
+        // Expose so setupRightRail's mountAiActionsPanel delegate can call it
+        window._aiActionsMountFn = function() {
+          _mount();
+          if (handle && typeof handle.onReveal === 'function') handle.onReveal();
+        };
+
+        // brainds:revealAiActions — test harness + programmatic reveal
+        window.addEventListener('brainds:revealAiActions', function() {
+          const acc = document.querySelector('details[data-accordion-section="ai-actions"]');
+          if (acc) acc.open = true;
+          _mount();
+          if (handle && typeof handle.onReveal === 'function') handle.onReveal();
+        });
+
+        // brainds:nodeSelected — test harness + future event bus integration
+        window.addEventListener('brainds:nodeSelected', function(event) {
+          const nodeId = event && event.detail && event.detail.nodeId ? String(event.detail.nodeId) : null;
+          if (!nodeId) return;
+          pendingNodeId = nodeId;
+          const acc = document.querySelector('details[data-accordion-section="ai-actions"]');
+          if (acc && acc.open) _mount();
+          if (handle && typeof handle.setSelectedNodeId === 'function') handle.setSelectedNodeId(nodeId);
+          if (acc && acc.open && handle && typeof handle.onReveal === 'function') handle.onReveal();
+        });
       }());
 
       // --- Side-panel resize: drag (or arrow-key) the handle to mutate the grid

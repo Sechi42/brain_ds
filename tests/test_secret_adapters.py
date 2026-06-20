@@ -95,29 +95,40 @@ class TestSqlServerAdapter:
 
 
 class TestAwsSecretsAdapter:
-    """2.3: AWS Secrets Manager adapter validates region/secret_id."""
+    """2.3: AWS Secrets Manager adapter validates secret_id; region is optional.
 
-    def test_validate_rejects_missing_region(self) -> None:
+    PR2 (A2): boto3 is now used for live resolution; region is OPTIONAL per A2-R3.
+    Legacy env-var resolution removed.  See tests/test_aws_secrets_adapter.py for
+    full error-mapping coverage.
+    """
+
+    def test_validate_rejects_missing_secret_id(self) -> None:
         adapter = AwsSecretsAdapter()
         with pytest.raises(ValidationError) as excinfo:
-            adapter.validate({"secret_id": "prod/db/password"})
+            adapter.validate({"region": "us-east-1"})  # secret_id missing
 
-        assert "region" in str(excinfo.value)
+        assert "secret_id" in str(excinfo.value)
 
     def test_validate_accepts_complete_metadata(self) -> None:
         adapter = AwsSecretsAdapter()
         adapter.validate({"region": "us-east-1", "secret_id": "prod/db/password"})
 
-    def test_resolve_returns_env_value(self) -> None:
+    def test_validate_accepts_metadata_without_region(self) -> None:
+        """region is optional (A2-R3); validate must succeed without it."""
         adapter = AwsSecretsAdapter()
-        metadata = {"region": "us-east-1", "secret_id": "prod/db/password", "secret_ref": "BRAINDS_AWS_SECRET"}
+        adapter.validate({"secret_id": "prod/db/password"})  # no region — OK
 
-        with mock.patch.dict(os.environ, {"BRAINDS_AWS_SECRET": "aws-secret-value"}, clear=False):
-            result = adapter.resolve("aws_db", metadata)
+    def test_resolve_requires_boto3_when_not_installed(self) -> None:
+        """resolve() raises a friendly ValidationError when boto3 is absent (A2-R4)."""
+        import sys
+        adapter = AwsSecretsAdapter()
+        metadata = {"region": "us-east-1", "secret_id": "prod/db/password"}
 
-        assert result["region"] == "us-east-1"
-        assert result["secret_id"] == "prod/db/password"
-        assert result["secret_value"] == "aws-secret-value"
+        with mock.patch.dict(sys.modules, {"boto3": None}):
+            with pytest.raises(ValidationError) as excinfo:
+                adapter.resolve("aws_db", metadata)
+
+        assert "boto3" in str(excinfo.value).lower()
 
 
 class TestGoogleSheetsAdapter:

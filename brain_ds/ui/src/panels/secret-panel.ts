@@ -18,9 +18,18 @@ interface SecretHandle {
   metadata: Record<string, unknown>;
 }
 
+interface SecretKindContract {
+  required: string[];
+  types: Record<string, string>;
+  requires_raw_value?: boolean;
+  descriptions?: Record<string, string>;
+  placeholders?: Record<string, string>;
+  enums?: Record<string, string[]>;
+}
+
 interface SecretSchema {
   schema_version: string;
-  provider_kinds: Record<string, { required: string[]; types: Record<string, string> }>;
+  provider_kinds: Record<string, SecretKindContract>;
 }
 
 // ── Module state ───────────────────────────────────────────────────────────
@@ -206,7 +215,7 @@ function _renderAddForm(): HTMLElement {
       </select>
     </div>
     <div id="secret-kind-fields" class="secret-kind-fields"></div>
-    <div class="secret-field-row">
+    <div id="secret-raw-value-row" class="secret-field-row">
       <label for="secret-new-value">Valor de credencial</label>
       <input id="secret-new-value" class="secret-input" type="password" autocomplete="off" placeholder="••••" required />
     </div>
@@ -215,6 +224,25 @@ function _renderAddForm(): HTMLElement {
     </button>
   `;
   return form;
+}
+
+function _updateRawValueVisibility(form: HTMLElement, kind: string): void {
+  const rawValueRow = form.querySelector('#secret-raw-value-row') as HTMLElement | null;
+  const rawValueInput = form.querySelector('#secret-new-value') as HTMLInputElement | null;
+  if (!rawValueRow || !rawValueInput) return;
+
+  const contract = _schema?.provider_kinds[kind];
+  // requires_raw_value defaults to true when absent
+  const requiresRawValue = !contract || contract.requires_raw_value !== false;
+
+  if (requiresRawValue) {
+    rawValueRow.style.display = '';
+    rawValueInput.required = true;
+  } else {
+    rawValueRow.style.display = 'none';
+    rawValueInput.required = false;
+    rawValueInput.value = '';
+  }
 }
 
 function _updateKindFields(container: HTMLElement, kind: string): void {
@@ -228,14 +256,37 @@ function _updateKindFields(container: HTMLElement, kind: string): void {
     return;
   }
   const required = new Set(contract.required);
+  const descriptions = contract.descriptions ?? {};
+  const placeholders = contract.placeholders ?? {};
+  const enums = contract.enums ?? {};
+
   const fields = Object.entries(contract.types)
     .map(([name, type]) => {
       const isRequired = required.has(name);
-      const inputType = type === 'integer' || type === 'number' ? 'number' : 'text';
+      const description = descriptions[name];
+      const placeholder = placeholders[name];
+      const enumValues = enums[name];
+
+      let fieldHtml: string;
+      if (enumValues && enumValues.length > 0) {
+        // Render as <select> with enum options
+        const optionsHtml = enumValues
+          .map((v) => `<option value="${_escapeHtml(v)}">${_escapeHtml(v)}</option>`)
+          .join('');
+        const titleAttr = description ? ` title="${_escapeHtml(description)}"` : '';
+        fieldHtml = `<select id="secret-field-${name}" class="secret-input secret-kind-field" data-field-name="${_escapeHtml(name)}" ${isRequired ? 'required' : ''}${titleAttr}>${optionsHtml}</select>`;
+      } else {
+        // Render as <input>
+        const inputType = type === 'integer' || type === 'number' ? 'number' : 'text';
+        const placeholderAttr = placeholder ? ` placeholder="${_escapeHtml(placeholder)}"` : '';
+        const titleAttr = description ? ` title="${_escapeHtml(description)}"` : '';
+        fieldHtml = `<input id="secret-field-${name}" class="secret-input secret-kind-field" data-field-name="${_escapeHtml(name)}" type="${inputType}" ${isRequired ? 'required' : ''}${placeholderAttr}${titleAttr} />`;
+      }
+
       return `
         <div class="secret-field-row">
           <label for="secret-field-${name}">${_escapeHtml(name)}${isRequired ? ' *' : ''}</label>
-          <input id="secret-field-${name}" class="secret-input secret-kind-field" data-field-name="${_escapeHtml(name)}" type="${inputType}" ${isRequired ? 'required' : ''} />
+          ${fieldHtml}
         </div>
       `;
     })
@@ -286,7 +337,10 @@ function _renderPanel(): void {
   const kindSelect = form.querySelector('#secret-new-kind') as HTMLSelectElement | null;
   const fieldsContainer = form.querySelector('#secret-kind-fields') as HTMLElement | null;
   if (kindSelect && fieldsContainer) {
-    _on(kindSelect, 'change', () => _updateKindFields(fieldsContainer, kindSelect.value));
+    _on(kindSelect, 'change', () => {
+      _updateKindFields(fieldsContainer, kindSelect.value);
+      _updateRawValueVisibility(form, kindSelect.value);
+    });
   }
 
   _on(form, 'submit', async (event) => {
@@ -294,14 +348,19 @@ function _renderPanel(): void {
     const handleInput = form.querySelector('#secret-new-handle') as HTMLInputElement | null;
     const kindInput = form.querySelector('#secret-new-kind') as HTMLSelectElement | null;
     const valueInput = form.querySelector('#secret-new-value') as HTMLInputElement | null;
-    if (!handleInput || !kindInput || !valueInput) return;
+    if (!handleInput || !kindInput) return;
 
-    const payload = {
+    const contract = _schema?.provider_kinds[kindInput.value];
+    const requiresRawValue = !contract || contract.requires_raw_value !== false;
+
+    const payload: Record<string, unknown> = {
       handle: handleInput.value.trim(),
       kind: kindInput.value,
       metadata: _collectMetadata(form),
-      raw_value: valueInput.value,
     };
+    if (requiresRawValue && valueInput) {
+      payload.raw_value = valueInput.value;
+    }
 
     const ok = await _addSecret(payload);
     const status = _renderStatus(ok ? 'Secreto agregado' : 'No se pudo agregar el secreto', !ok);
@@ -309,7 +368,7 @@ function _renderPanel(): void {
     if (ok) {
       handleInput.value = '';
       kindInput.value = '';
-      valueInput.value = '';
+      if (valueInput) valueInput.value = '';
       if (fieldsContainer) fieldsContainer.innerHTML = '';
       await _refreshPanel();
       setTimeout(() => status.remove(), 2000);

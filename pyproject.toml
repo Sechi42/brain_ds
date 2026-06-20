@@ -18,6 +18,9 @@ simple = [
 embeddings = [
   "fastembed>=0.3",
 ]
+aws = [
+  "boto3",
+]
 
 [project.scripts]
 brain_ds = "brain_ds.ui.__main__:main"
