@@ -160,7 +160,7 @@ test("accordion: ai-actions and pipeline are distinct DOM nodes", async ({ page 
   expect(sameNode).toBe(false);
 });
 
-test("accordion: clicking pipeline icon opens pipeline section, ai-actions state unaffected", async ({ page }) => {
+test("accordion: rail icons are EXCLUSIVE tabs — clicking pipeline hides ai-actions and vice versa", async ({ page }) => {
   await mountGraphViewer(page);
 
   const aiActionsIcon = page.locator('[data-rail-icon="ai-actions"]');
@@ -168,18 +168,18 @@ test("accordion: clicking pipeline icon opens pipeline section, ai-actions state
   const aiActionsSection = page.locator('[data-accordion-section="ai-actions"]');
   const pipelineSection = page.locator('[data-accordion-section="pipeline"]');
 
-  // Open AI actions first
+  // Click AI actions: its section is shown+open, pipeline is hidden.
   await aiActionsIcon.click();
-  const aiOpenBefore = await aiActionsSection.evaluate((el) => (el as HTMLDetailsElement).open);
+  expect(await aiActionsSection.evaluate((el) => (el as HTMLDetailsElement).hidden)).toBe(false);
+  expect(await aiActionsSection.evaluate((el) => (el as HTMLDetailsElement).open)).toBe(true);
+  expect(await pipelineSection.evaluate((el) => (el as HTMLDetailsElement).hidden)).toBe(true);
 
-  // Now click pipeline — pipeline section must open, ai-actions MUST NOT change state
+  // Click pipeline: now pipeline is shown+open and ai-actions is HIDDEN.
+  // (Before the fix both stayed visible in the same panel — the reported bug.)
   await pipelineIcon.click();
-  const pipelineOpen = await pipelineSection.evaluate((el) => (el as HTMLDetailsElement).open);
-  const aiOpenAfter = await aiActionsSection.evaluate((el) => (el as HTMLDetailsElement).open);
-
-  expect(pipelineOpen).toBe(true);
-  // ai-actions state unchanged from clicking pipeline
-  expect(aiOpenAfter).toBe(aiOpenBefore);
+  expect(await pipelineSection.evaluate((el) => (el as HTMLDetailsElement).hidden)).toBe(false);
+  expect(await pipelineSection.evaluate((el) => (el as HTMLDetailsElement).open)).toBe(true);
+  expect(await aiActionsSection.evaluate((el) => (el as HTMLDetailsElement).hidden)).toBe(true);
 });
 
 test("accordion: pipeline section is separate details element from ai-actions", async ({ page }) => {

@@ -5726,6 +5726,19 @@
             stub.setAttribute('aria-hidden', String(!showStub));
             stub.hidden = !showStub;
           }
+          // ai-actions and pipeline are EXCLUSIVE rail tabs: each owns its own
+          // <details> inside the shared stub. Route them like brd/settings —
+          // the inactive one is hidden, so clicking one never shows the other.
+          const aiAcc = document.querySelector('details[data-accordion-section="ai-actions"]');
+          if (aiAcc) {
+            aiAcc.hidden = active !== 'ai-actions';
+            if (active === 'ai-actions') aiAcc.open = true;
+          }
+          const pipeAcc = document.querySelector('details[data-accordion-section="pipeline"]');
+          if (pipeAcc) {
+            pipeAcc.hidden = active !== 'pipeline';
+            if (active === 'pipeline') pipeAcc.open = true;
+          }
           const detailPanel = document.getElementById('detail-panel');
           if (detailPanel) {
             detailPanel.setAttribute('aria-hidden', String(!showDetailPanel));
