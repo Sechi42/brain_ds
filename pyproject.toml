@@ -21,6 +21,9 @@ embeddings = [
 aws = [
   "boto3",
 ]
+postgres = [
+  "psycopg[binary]>=3.1",
+]
 
 [project.scripts]
 brain_ds = "brain_ds.ui.__main__:main"
