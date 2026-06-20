@@ -83,6 +83,44 @@ When writing a Data Source node, the `Columns / Fields` section MUST use this ex
 
 Mark vague columns with `[needs clarification]` in the Notes cell — never omit them.
 
+## Connecting to Typed Data Sources (aws-postgres, aws-google-sheets)
+
+Data Source nodes with typed secret connections (kind `aws-postgres` or `aws-google-sheets`)
+are explored via `explore_source` / `query_source` — the server resolves the bound secret handle
+server-side. The agent never needs to handle credentials.
+
+### Discovery flow (non-admin, always use this)
+
+1. Call `list_source_connections(graph_id)` — returns nodes whose `details.connection` has
+   `{kind, secret_handle}`. No admin permission required.
+2. Read `kind` and `secret_handle` from the descriptor. Do NOT call `list_secret_handles`
+   (admin-only, returns MCP error -32001 for non-admin agents — you do NOT need it).
+3. Call `explore_source(graph_id, node_id)` — the server resolves `secret_handle → adapter →
+   connector` internally. Use `container` and `table` args to drill down.
+4. For SQL queries on `aws-postgres`: use `query_source(graph_id, node_id, query="SELECT ...")`.
+   SELECT-only, max 200 rows.
+
+### Connection descriptor shapes
+
+```jsonc
+// aws-postgres (Aurora/RDS)
+{"kind": "aws-postgres", "secret_handle": "grupo-topete/sit-aurora", "database": "sit_prod"}
+
+// aws-google-sheets (service account via AWS Secrets Manager)
+{"kind": "aws-google-sheets", "secret_handle": "grupo-topete/erp-dvc",
+ "spreadsheet_id": "1AbC...", "sheet_range": "Hoja1!A1:Z"}
+
+// sqlite / csv (existing, file-path model)
+{"kind": "sqlite", "path": "data/store.db"}
+{"kind": "csv", "path": "data/export.csv"}
+```
+
+### Rule: NEVER call list_secret_handles
+
+`list_secret_handles` is admin-only. Non-admin documenter and explorer agents MUST NOT call it.
+Use `list_source_connections` instead — it already exposes the bound `secret_handle` (a name,
+not a credential) in redacted form so `explore_source` can resolve the connection.
+
 ## Change Detection (re-documentation decision)
 
 At `level==table`, `explore_source` returns a `change_detection` block with a `verdict`. Use it to decide HOW to document a Data Source — never blindly rewrite:
