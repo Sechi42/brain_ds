@@ -1839,6 +1839,33 @@
       .secret-remove-btn:hover { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
       .secret-remove-btn:focus-visible { outline: 2px solid var(--accent-mora); outline-offset: 2px; }
       .secret-remove-btn[disabled] { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+      /* Probe connection row — sits between details accordion and remove button */
+      .secret-probe-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        padding: 0.25rem 0 0;
+      }
+      .secret-probe-btn {
+        font-size: 0.78rem;
+        min-height: 32px;
+        padding: 0.25rem 0.6rem;
+      }
+      .secret-probe-btn[disabled] { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+      .secret-probe-badge {
+        font-size: 0.78rem;
+        padding: 0.1rem 0.5rem;
+        border-radius: var(--radius-full, 9999px);
+      }
+      .secret-probe-badge--ok {
+        color: var(--status-active);
+        background: color-mix(in srgb, var(--status-active) 12%, transparent);
+      }
+      .secret-probe-badge--error {
+        color: var(--status-danger, var(--danger));
+        background: color-mix(in srgb, var(--status-danger, var(--danger)) 12%, transparent);
+      }
       .secret-form {
         flex: 0 0 auto;
         border-top: 1px solid var(--border-subtle);
@@ -3239,7 +3266,7 @@
         </aside>
         <!-- Inspector sections are runtime-rendered; accordion classes satisfy _shared.css contract -->
         <div class="inspector-stub-scroll" aria-hidden="true">
-          <!-- AI Actions accordion (section-2 pattern) renders runtime receipts; MCP bridge is a separate phase -->
+          <!-- AI Actions accordion — owns the per-node intel panel (B4). Independent of pipeline. -->
           <details class="inspector-accordion" data-accordion-section="ai-actions">
             <summary class="inspector-summary" aria-label="Toggle AI actions section">
               <span>Acciones IA</span>
@@ -3253,7 +3280,15 @@
                      Reconciliation constraint: do NOT render B4 results into #ai-actions-receipts. -->
                 <div id="ai-actions-node-intel" class="ai-actions-node-intel" aria-live="polite" aria-label="Node AI analysis"></div>
               </section>
-              <hr class="rail-section-divider" aria-hidden="true" />
+            </div>
+          </details>
+          <!-- Pipeline accordion — owns the agent-activity feed (#ai-actions-receipts). Independent of ai-actions. -->
+          <details class="inspector-accordion" data-accordion-section="pipeline">
+            <summary class="inspector-summary" aria-label="Toggle pipeline section">
+              <span>Pipeline</span>
+              <svg class="chevron" aria-hidden="true" width="16" height="16"><use href="#icon-chevron-right"/></svg>
+            </summary>
+            <div class="inspector-body">
               <section class="rail-section-group rail-section-group--pipeline" aria-labelledby="pipeline-stage-heading">
                 <h3 id="pipeline-stage-heading" class="rail-section-heading">Pipeline stage</h3>
                 <ol id="ai-actions-receipts" aria-live="polite"></ol>
@@ -5691,6 +5726,19 @@
             stub.setAttribute('aria-hidden', String(!showStub));
             stub.hidden = !showStub;
           }
+          // ai-actions and pipeline are EXCLUSIVE rail tabs: each owns its own
+          // <details> inside the shared stub. Route them like brd/settings —
+          // the inactive one is hidden, so clicking one never shows the other.
+          const aiAcc = document.querySelector('details[data-accordion-section="ai-actions"]');
+          if (aiAcc) {
+            aiAcc.hidden = active !== 'ai-actions';
+            if (active === 'ai-actions') aiAcc.open = true;
+          }
+          const pipeAcc = document.querySelector('details[data-accordion-section="pipeline"]');
+          if (pipeAcc) {
+            pipeAcc.hidden = active !== 'pipeline';
+            if (active === 'pipeline') pipeAcc.open = true;
+          }
           const detailPanel = document.getElementById('detail-panel');
           if (detailPanel) {
             detailPanel.setAttribute('aria-hidden', String(!showDetailPanel));
@@ -5838,7 +5886,7 @@
             }
           } else if (name === 'pipeline') {
             setActiveRightPanel('pipeline');
-            const acc = document.querySelector('details[data-accordion-section="ai-actions"]');
+            const acc = document.querySelector('details[data-accordion-section="pipeline"]');
             if (acc) {
               acc.open = true;
               if (typeof acc.scrollIntoView === 'function') acc.scrollIntoView({ block: 'nearest' });

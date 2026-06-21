@@ -290,6 +290,33 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
             "provider_kinds": catalog.schema["provider_kinds"],
         }
 
+    @router.post("/secrets/validate")
+    def probe_secret(
+        graph_id: str,
+        handle: str,
+        agent_scope: str | None = None,
+    ) -> Any:
+        """Probe a registered secret handle's live connection.
+
+        Admin-scoped endpoint that runs the provider's probe() method and returns
+        an ephemeral validation result (not persisted to the catalog). Used by the
+        UI per-row "Probar conexión" button.
+        """
+        denied = _require_workspace_admin(agent_scope)
+        if denied is not None:
+            return denied
+        try:
+            catalog = _load_secret_catalog(store, graph_id)
+        except GraphNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except SecretManifestError as exc:
+            raise HTTPException(status_code=400, detail=f"Secret manifest error: {exc}") from exc
+        entry = catalog.get(handle)
+        if entry is None:
+            raise HTTPException(status_code=404, detail=f"Secret handle '{handle}' not found")
+        validation = _validate_secret_entry(catalog, entry, probe=True)
+        return {"graph_id": graph_id, "handle": handle, **validation}
+
     @router.post("/secrets", status_code=201)
     def add_secret(
         graph_id: str,

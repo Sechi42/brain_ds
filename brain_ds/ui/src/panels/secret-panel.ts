@@ -58,6 +58,9 @@ let _listMessage = '';
 let _schema: SecretSchema | null = null;
 let _abort: AbortController | null = null;
 
+// Ephemeral per-session probe status map: handle → badge state (not persisted)
+const _probeStatus: Map<string, { ok: boolean; message: string }> = new Map();
+
 // ── Icons (Lucide line style) ──────────────────────────────────────────────
 
 const GEAR_ICON = `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.82-.33 1.7 1.7 0 0 0-1 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.56 1.7 1.7 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .33-1.82 1.7 1.7 0 0 0-1.56-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1 1.7 1.7 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.82.33h.01a1.7 1.7 0 0 0 1-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.56h.01a1.7 1.7 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.33 1.82v.01a1.7 1.7 0 0 0 1.56 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1Z"/></svg>`;
@@ -175,6 +178,32 @@ async function _removeSecret(handle: string): Promise<boolean> {
   }
 }
 
+// ── Probe connection ───────────────────────────────────────────────────────
+
+/** Returns true when the secret kind supports live probing (AWS-backed kinds). */
+function _kindSupportsProbe(kind: string): boolean {
+  return kind.startsWith('aws-');
+}
+
+interface ProbeResult {
+  ok: boolean;
+  message: string;
+}
+
+async function _probeSecret(handle: string): Promise<ProbeResult> {
+  if (!_deps) return { ok: false, message: 'Panel no inicializado.' };
+  const url = `${_apiUrl('/secrets/validate')}?graph_id=${encodeURIComponent(_deps.graphId)}&handle=${encodeURIComponent(handle)}&agent_scope=workspace_admin`;
+  try {
+    const res = await fetch(url, { method: 'POST', signal: _abort?.signal ?? null });
+    const data = (await res.json().catch(() => ({}))) as { status?: string; message?: string };
+    const ok = res.ok && data.status === 'ok';
+    const message = data.message ?? (ok ? 'Conectado.' : 'Error de conexión.');
+    return { ok, message };
+  } catch (_e) {
+    return { ok: false, message: 'No se pudo conectar: error de red.' };
+  }
+}
+
 // ── Rendering ──────────────────────────────────────────────────────────────
 
 function _renderHeader(): HTMLElement {
@@ -207,6 +236,33 @@ function _renderLoadError(): HTMLElement {
   return error;
 }
 
+function _renderProbeActions(handle: SecretHandle): string {
+  if (!_kindSupportsProbe(handle.kind)) return '';
+
+  const escaped = _escapeHtml(handle.handle);
+  const probeState = _probeStatus.get(handle.handle);
+
+  let badgeHtml = '';
+  if (probeState !== undefined) {
+    const badgeClass = probeState.ok
+      ? 'secret-probe-badge secret-probe-badge--ok'
+      : 'secret-probe-badge secret-probe-badge--error';
+    badgeHtml = `<span class="${badgeClass}" data-probe-status="${escaped}" role="status" aria-live="polite">${_escapeHtml(probeState.message)}</span>`;
+  } else {
+    // Render an empty badge placeholder so the DOM attribute is stable for tests
+    badgeHtml = `<span class="secret-probe-badge" data-probe-status="${escaped}" role="status" aria-live="polite" hidden></span>`;
+  }
+
+  return `
+    <div class="secret-probe-row">
+      <button type="button" class="secret-probe-btn pill-btn btn-outline" data-probe-handle="${escaped}" aria-label="Probar conexión de ${escaped}">
+        Probar conexión
+      </button>
+      ${badgeHtml}
+    </div>
+  `;
+}
+
 function _renderList(): HTMLElement {
   const list = document.createElement('ul');
   list.className = 'secret-list';
@@ -234,6 +290,7 @@ function _renderList(): HTMLElement {
           ${_renderMeta(handle.metadata)}
         </div>
       </details>
+      ${_renderProbeActions(handle)}
       <button type="button" class="secret-remove-btn" data-secret-handle="${_escapeHtml(handle.handle)}" aria-label="Eliminar secreto ${_escapeHtml(handle.handle)}">
         Eliminar
       </button>
@@ -440,7 +497,35 @@ function _renderPanel(): void {
     _on(btn, 'click', async () => {
        if (!window.confirm(`¿Eliminar el secreto "${handle}"?`)) return;
       await _removeSecret(handle);
+      _probeStatus.delete(handle);
       await _refreshPanel();
+    });
+  });
+
+  // Wire probe buttons — update badge in-place (no full re-render)
+  _panelEl.querySelectorAll('.secret-probe-btn').forEach((btn) => {
+    const handle = (btn as HTMLElement).getAttribute('data-probe-handle');
+    if (!handle) return;
+    _on(btn, 'click', async () => {
+      const probeBtn = btn as HTMLButtonElement;
+      probeBtn.disabled = true;
+      probeBtn.textContent = 'Probando…';
+
+      const result = await _probeSecret(handle);
+      _probeStatus.set(handle, { ok: result.ok, message: result.message });
+
+      // Update the badge in-place without re-rendering the list
+      const badge = _panelEl?.querySelector<HTMLElement>(`[data-probe-status="${CSS.escape(handle)}"]`);
+      if (badge) {
+        badge.hidden = false;
+        badge.className = result.ok
+          ? 'secret-probe-badge secret-probe-badge--ok'
+          : 'secret-probe-badge secret-probe-badge--error';
+        badge.textContent = result.message;
+      }
+
+      probeBtn.disabled = false;
+      probeBtn.textContent = 'Probar conexión';
     });
   });
 }
@@ -458,6 +543,7 @@ export async function mount(panelEl: HTMLElement, deps: SecretPanelDeps): Promis
   _schema = null;
   _listeners = [];
   _abort = new AbortController();
+  _probeStatus.clear();
 
   _schema = await _loadSchema();
   await _loadHandles();
@@ -480,6 +566,7 @@ export async function mount(panelEl: HTMLElement, deps: SecretPanelDeps): Promis
       _handles = [];
       _listStatus = 'empty';
       _listMessage = '';
+      _probeStatus.clear();
     },
   };
 }
