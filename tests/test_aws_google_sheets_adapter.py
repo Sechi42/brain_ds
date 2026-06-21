@@ -432,36 +432,42 @@ class TestAwsGoogleSheetsAdapterLazyImports(unittest.TestCase):
     """Absent boto3 or gspread -> actionable error naming the missing [gsheets] extra."""
 
     def test_boto3_absent_raises_actionable_error(self):
-        """If boto3 is not installed, resolve() raises a ValidationError with install hint."""
-        # Temporarily remove boto3 from sys.modules to simulate missing package
-        boto3_real = sys.modules.pop("boto3", None)
-        botocore_real = sys.modules.pop("botocore", None)
-        botocore_exc_real = sys.modules.pop("botocore.exceptions", None)
+        """If boto3 is not installed, resolve() raises a ValidationError with install hint.
 
+        Robustly simulates absence by blocking the boto3/botocore import at the
+        __import__ level, so the test is deterministic whether or not boto3 is
+        actually installed (e.g. when the [gsheets] extra is present).
+        """
+        import builtins
+
+        real_import = builtins.__import__
+
+        def blocked_import(name, *args, **kwargs):
+            if name == "boto3" or name.startswith("botocore"):
+                raise ImportError(f"No module named {name!r} (simulated for test)")
+            return real_import(name, *args, **kwargs)
+
+        # Drop any cached boto3/botocore so the lazy import re-runs through __import__.
+        removed = {
+            m: sys.modules.pop(m)
+            for m in list(sys.modules)
+            if m == "boto3" or m.startswith("botocore")
+        }
         try:
-            # Force re-import of _lazy_boto3 with boto3 gone
-            from brain_ds.connectors.secrets.providers import aws_google_sheets as mod
-            import importlib
-            importlib.reload(mod)
+            with mock.patch.object(builtins, "__import__", side_effect=blocked_import):
+                from brain_ds.connectors.secrets.providers import aws_google_sheets as mod
 
-            adapter = mod.AwsGoogleSheetsAdapter()
-            with self.assertRaises((ValidationError, ImportError)) as ctx:
-                adapter.resolve("handle", _VALID_METADATA)
+                adapter = mod.AwsGoogleSheetsAdapter()
+                with self.assertRaises((ValidationError, ImportError)) as ctx:
+                    adapter.resolve("handle", _VALID_METADATA)
 
             err_msg = str(ctx.exception)
-            # Should mention boto3 or the install extra
             self.assertTrue(
                 "boto3" in err_msg or "gsheets" in err_msg or "aws" in err_msg,
                 f"Error should mention boto3 or install extra, got: {err_msg!r}",
             )
         finally:
-            # Restore boto3
-            if boto3_real is not None:
-                sys.modules["boto3"] = boto3_real
-            if botocore_real is not None:
-                sys.modules["botocore"] = botocore_real
-            if botocore_exc_real is not None:
-                sys.modules["botocore.exceptions"] = botocore_exc_real
+            sys.modules.update(removed)
 
 
 # ===========================================================================
