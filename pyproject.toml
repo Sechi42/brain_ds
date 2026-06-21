@@ -69,6 +69,9 @@ dev = [
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = ["-ra"]
+markers = [
+    "postgres_live: live PostgreSQL integration tests (requires psycopg + reachable Postgres)",
+]
 
 [tool.coverage.run]
 source = ["brain_ds"]
