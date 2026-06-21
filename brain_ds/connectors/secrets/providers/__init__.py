@@ -4,6 +4,7 @@ from __future__ import annotations
 from brain_ds.mcp.security import ValidationError
 
 from ..base import SecretProviderAdapter
+from .aws_postgres import AwsPostgresAdapter
 from .aws_secrets import AwsSecretsAdapter
 from .google_sheets import GoogleSheetsJsonAdapter
 from .iam_credential import IamCredentialAdapter
@@ -15,6 +16,7 @@ from .sqlite_secret import SqliteAdapter
 from .sqlserver import SqlServerAdapter
 
 __all__ = [
+    "AwsPostgresAdapter",
     "AwsSecretsAdapter",
     "GoogleSheetsJsonAdapter",
     "IamCredentialAdapter",
@@ -28,6 +30,7 @@ __all__ = [
 ]
 
 _ADAPTERS: dict[str, type] = {
+    AwsPostgresAdapter.kind: AwsPostgresAdapter,
     PostgresAdapter.kind: PostgresAdapter,
     SqlServerAdapter.kind: SqlServerAdapter,
     AwsSecretsAdapter.kind: AwsSecretsAdapter,
