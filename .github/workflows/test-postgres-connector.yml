@@ -4,9 +4,10 @@ name: test-postgres-connector
 # service container. Triggered on any PR or push that touches the connector,
 # tools wiring, or the adapter.
 #
-# Local note: live tests are marked @pytest.mark.postgres_live and are skipped
-# when psycopg is not installed or 127.0.0.1:5432 is unreachable, so
-# `uv run pytest` stays green without Docker.
+# Local note: live tests are marked @pytest.mark.postgres_live and are opt-in
+# behind the BRAINDS_POSTGRES_LIVE=1 env var (set below for this job), so
+# `uv run pytest` stays green locally even with psycopg installed and an
+# unrelated Postgres listening on 5432.
 
 on:
   push:
@@ -37,6 +38,8 @@ concurrency:
 
 env:
   UV_NO_PROGRESS: "1"
+  # Opt in to the live postgres_live tests for this job (seeded service below).
+  BRAINDS_POSTGRES_LIVE: "1"
 
 jobs:
   postgres-connector:

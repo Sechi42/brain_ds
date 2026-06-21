@@ -12,6 +12,7 @@ import brain_ds.mcp.grounding as grounding
 import brain_ds.scoring.similarity as similarity
 import brain_ds.workspaces as workspace_registry
 from brain_ds.connectors import CsvConnector, PostgresConnector, SQLiteConnector
+from brain_ds.connectors.google_sheets_connector import GoogleSheetsConnector
 from brain_ds.connectors.change_detection import (
     build_change_detection,
     scope_baseline_for_table,
@@ -747,8 +748,11 @@ def _get_node_connection(store: GraphStore, graph_id: str, node_id: str) -> dict
                 f"Node '{node_id}' has no 'connection' descriptor in details. "
                 "Supported descriptors: "
                 "{{kind: 'sqlite'|'csv'|'tsv', path: '...'}} for file-based sources, "
-                "or {{kind: 'aws-postgres', secret_handle: '...', database: '...'}} "
-                "for AWS RDS Postgres sources."
+                "{{kind: 'aws-postgres', secret_handle: '...', database: '...'}} "
+                "for AWS RDS Postgres sources, "
+                "or {{kind: 'aws-google-sheets', secret_handle: '...', "
+                "spreadsheet_id: '...', sheet_range: '...'}} "
+                "for Google Sheets sources."
             ),
         )
     return connection
@@ -838,6 +842,57 @@ def _resolve_connector(connection: dict[str, Any], project_root: Path):
             ) from exc
 
         return PostgresConnector(params)
+
+    # ------------------------------------------------------------------
+    # aws-google-sheets — dispatch through AwsGoogleSheetsAdapter
+    # ------------------------------------------------------------------
+    if kind == "aws-google-sheets":
+        secret_handle = connection.get("secret_handle")
+        if not secret_handle:
+            raise ValidationError(
+                code=-32000,
+                message=(
+                    "aws-google-sheets connection descriptor missing 'secret_handle'. "
+                    "Set details.connection.secret_handle to the registered secret handle name."
+                ),
+            )
+
+        # Load the SecretCatalog from the workspace root
+        catalog = SecretCatalog(project_root)
+        try:
+            catalog.load()
+        except SecretManifestError as exc:
+            raise ValidationError(
+                code=-32000,
+                message=f"Failed to load secret catalog: {exc}",
+            ) from exc
+
+        entry = catalog.get(secret_handle)
+        if entry is None:
+            raise ValidationError(
+                code=-32000,
+                message=(
+                    f"Secret handle {secret_handle!r} not found in the workspace secret catalog. "
+                    "Register it first via the Secrets panel or validate_secret_handle."
+                ),
+            )
+
+        from brain_ds.connectors.secrets.providers.aws_google_sheets import (
+            AwsGoogleSheetsAdapter,
+        )
+
+        adapter = AwsGoogleSheetsAdapter()
+        try:
+            params = adapter.resolve(secret_handle, entry.metadata)
+        except ValidationError:
+            raise
+        except Exception as exc:
+            raise ValidationError(
+                code=-32000,
+                message=f"Failed to resolve aws-google-sheets secret '{secret_handle}': {exc}",
+            ) from exc
+
+        return GoogleSheetsConnector(params)
 
     # ------------------------------------------------------------------
     # File-based kinds — require path within project_root sandbox

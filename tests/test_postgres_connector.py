@@ -11,6 +11,7 @@ PR2b-T2: _resolve_connector dispatches aws-postgres kind to PostgresConnector
 """
 from __future__ import annotations
 
+import os
 import sys
 import types
 import unittest
@@ -812,7 +813,16 @@ class TestResolveConnectorAwsPostgresDispatch(unittest.TestCase):
 # ===========================================================================
 
 def _postgres_reachable() -> bool:
-    """Return True if psycopg is installed AND a local Postgres is reachable on 5432."""
+    """Return True only when the live Postgres integration tests are opted in.
+
+    Gated behind the explicit BRAINDS_POSTGRES_LIVE env var (set by the CI
+    postgres:16 service job that seeds test_db/test_user) — NOT by mere socket
+    reachability. A developer machine may have an unrelated Postgres on 5432;
+    auto-running these tests against it would fail on the seeded credentials.
+    Opt-in keeps local `uv run pytest` deterministic.
+    """
+    if os.environ.get("BRAINDS_POSTGRES_LIVE") != "1":
+        return False
     try:
         import psycopg  # noqa: F401
     except ImportError:
@@ -826,7 +836,10 @@ def _postgres_reachable() -> bool:
 
 
 @pytest.mark.postgres_live
-@pytest.mark.skipif(not _postgres_reachable(), reason="psycopg not installed or no Postgres reachable on 5432")
+@pytest.mark.skipif(
+    not _postgres_reachable(),
+    reason="set BRAINDS_POSTGRES_LIVE=1 with a seeded Postgres on 5432 (CI docker job)",
+)
 class TestPostgresConnectorLiveIntegration(unittest.TestCase):
     """Live integration tests — require a real Postgres at 127.0.0.1:5432.
 
