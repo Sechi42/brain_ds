@@ -22,9 +22,13 @@ aws = [
   "boto3",
 ]
 postgres = [
+  # AWS-backed compound kind: needs boto3 to fetch the ARN AND psycopg to connect.
+  "boto3",
   "psycopg[binary]>=3.1",
 ]
 gsheets = [
+  # AWS-backed compound kind: needs boto3 to fetch the ARN AND gspread to read.
+  "boto3",
   "gspread>=6",
   "google-auth>=2",
 ]
