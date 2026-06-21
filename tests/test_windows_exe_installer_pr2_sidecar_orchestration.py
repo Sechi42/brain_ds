@@ -49,12 +49,18 @@ class WindowsExeInstallerPr2SidecarOrchestrationTests(unittest.TestCase):
 
         content = spec_file.read_text(encoding="utf-8")
         self.assertIn("name='brain_ds'", content)
-        self.assertIn("hiddenimports=[", content)
+        self.assertIn("hiddenimports", content)
         self.assertIn("uvicorn.loops.auto", content)
         self.assertIn("brain_ds.ui", content)
         self.assertIn("onefile", content.lower())
         self.assertIn('"brain_ds" / "__main__.py"', content)
         self.assertNotIn('"brain_ds" / "ui" / "__main__.py"', content)
+        # Optional connection backends are lazy-imported, so the spec must
+        # collect them explicitly or the frozen exe raises "boto3 is not
+        # installed" at secret-validation time.
+        self.assertIn("collect_all", content)
+        for pkg in ("boto3", "psycopg", "gspread"):
+            self.assertIn(pkg, content, f"spec must bundle optional backend {pkg!r}")
 
     def test_build_script_has_preflight_and_bundled_build_contract(self) -> None:
         script = ROOT / "scripts" / "build-windows-exe.ps1"
@@ -114,7 +120,9 @@ class WindowsExeInstallerPr2SidecarOrchestrationTests(unittest.TestCase):
 
         self.assertIn('uv venv --python 3.13', content)
         self.assertIn('pyinstaller==6.11.1', content)
-        self.assertIn('uv pip install --python $venvPath -e .', content)
+        # Editable install MUST include the connection extras so boto3/psycopg/
+        # gspread land in the build venv and get bundled into the sidecar.
+        self.assertIn('uv pip install --python $venvPath -e ".[aws,postgres,gsheets]"', content)
 
     def test_build_script_has_deterministic_preflight_for_incompatible_python(self) -> None:
         script = ROOT / "scripts" / "build-windows-exe.ps1"

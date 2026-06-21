@@ -61,7 +61,10 @@ python_version="$($venv_python -c 'import sys; print(f"{sys.version_info.major}.
 
 uv pip install --python "$venv_path" pyinstaller==6.11.1
 pushd "$repo_root" >/dev/null
-uv pip install --python "$venv_path" -e .
+# Install WITH the connection extras (aws/postgres/gsheets) so boto3, psycopg,
+# and gspread are present in the build venv and bundled into the sidecar.
+# Without them the frozen app raises "boto3 is not installed" at secret time.
+uv pip install --python "$venv_path" -e ".[aws,postgres,gsheets]"
 popd >/dev/null
 
 "$venv_python" -m PyInstaller --noconfirm --clean --distpath "$dist_stage" --workpath "$work_path" "$spec_path"

@@ -86,7 +86,10 @@ if (-not $pythonVersion.StartsWith("3.13.")) {
 uv pip install --python $venvPath pyinstaller==6.11.1
 Push-Location -LiteralPath $repoRoot
 try {
-  uv pip install --python $venvPath -e .
+  # Install WITH the connection extras (aws/postgres/gsheets) so boto3, psycopg,
+  # and gspread are present in the build venv and get bundled into the sidecar.
+  # Without them the frozen exe raises "boto3 is not installed" at secret time.
+  uv pip install --python $venvPath -e ".[aws,postgres,gsheets]"
 }
 finally {
   Pop-Location
