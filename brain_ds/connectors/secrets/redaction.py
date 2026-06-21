@@ -16,8 +16,16 @@ REDACTION_TOKENS: list[str] = [
     "service_account.private_key",
 ]
 
+# Keys that match a redaction token by substring but are NOT secret values —
+# they are references/labels safe to expose. ``secret_handle`` is the NAME an
+# agent reads from a connection descriptor to drive explore_source; the real
+# secret lives in AWS Secrets Manager, never in the handle name.
+REDACTION_EXEMPT_KEYS: frozenset[str] = frozenset({"secret_handle"})
+
 
 def _is_secret_key(key: str) -> bool:
+    if key in REDACTION_EXEMPT_KEYS:
+        return False
     lower = key.lower()
     return any(token in lower for token in REDACTION_TOKENS)
 

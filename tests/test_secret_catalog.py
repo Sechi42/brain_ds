@@ -312,6 +312,23 @@ class TestRedaction:
         result = redact_secrets({"passwd": _CANARY})
         assert result["passwd"] == "***"
 
+    def test_secret_handle_is_exempt_not_masked(self) -> None:
+        # secret_handle is a reference/label the agent reads from a connection
+        # descriptor — the real secret lives in AWS, never in the handle name.
+        # It must NOT be masked even though "secret" is a redaction substring.
+        result = redact_secrets(
+            {"kind": "aws-postgres", "secret_handle": "grupo-topete/sit-aurora", "database": "SIT"}
+        )
+        assert result["secret_handle"] == "grupo-topete/sit-aurora"
+        assert result["kind"] == "aws-postgres"
+        assert result["database"] == "SIT"
+
+    def test_secret_id_still_masked(self) -> None:
+        # The ARN (secret_id) is admin-side metadata, not part of the agent-facing
+        # descriptor — it stays redacted.
+        result = redact_secrets({"secret_id": _CANARY})
+        assert result["secret_id"] == "***"
+
 
 class TestGroundingConstants:
     """Task 1.6: Category-2 constants for secret handle schema and provider kinds."""
