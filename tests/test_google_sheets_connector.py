@@ -80,8 +80,8 @@ def _make_fake_gspread(
                 FakeWorksheet(t, worksheet_rows) for t in worksheet_titles
             ]
 
-        @property
         def worksheets(self):
+            # gspread API: worksheets() is a method, not a property.
             return self._worksheets
 
         def get_worksheet(self, index: int) -> FakeWorksheet:

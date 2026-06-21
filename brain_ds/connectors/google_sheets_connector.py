@@ -121,7 +121,8 @@ class GoogleSheetsConnector(ReadOnlyConnector):
     def list_tables(self, container: str) -> list[str]:
         """Return worksheet tab titles within the spreadsheet."""
         ss = self._open_spreadsheet()
-        return [ws.title for ws in ss.worksheets]
+        # gspread: Spreadsheet.worksheets() is a method, not a property.
+        return [ws.title for ws in ss.worksheets()]
 
     def get_table_schema(self, container: str, table: str) -> dict[str, Any]:
         """Return schema from the worksheet's header row.
