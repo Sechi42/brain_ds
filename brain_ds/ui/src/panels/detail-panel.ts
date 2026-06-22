@@ -6,8 +6,8 @@
  * Design binding: §1.2 — mount(root, deps) / unmount() shape.
  * No React, no lifecycle library — vanilla TS function with teardown.
  *
- * PR 3: extraction-only. Zero new visual behaviour vs. graph_viewer.html baseline.
- * All DOM construction logic is moved verbatim from the template inline script.
+ * DDS-3 (PR3): read-only card_sections are rendered as markdown using renderMarkdown
+ * from markdown-mini.ts. Edit source stays as textarea (plain markdown preserved).
  *
  * Deps shape (passed from template via mount()):
  *   editedDetailIndex: Record<string, DetailEntry>
@@ -19,6 +19,8 @@
  *   motionEnabled: () => boolean
  */
 
+import { renderMarkdown } from "./markdown-mini";
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export interface NodeItem {
@@ -28,6 +30,7 @@ export interface NodeItem {
   supertype: string;
   color?: string;
   editable_fields?: string[];
+  connection?: Record<string, unknown>;
 }
 
 export interface EvidenceItem {
@@ -221,6 +224,16 @@ function appendScoreChip(container: Element, node: NodeItem): void {
   container.appendChild(chip);
 }
 
+function appendExplorableBadge(container: Element, node: NodeItem): void {
+  if (node.type !== "Data Source" || !node.connection) return;
+  const badge = document.createElement("span");
+  badge.className = "detail-explorable-badge";
+  badge.setAttribute("role", "status");
+  badge.setAttribute("aria-live", "polite");
+  badge.textContent = "now explorable";
+  container.appendChild(badge);
+}
+
 function wrapInAccordion(title: string, content: Element, open = false): HTMLDetailsElement {
   const details = document.createElement("details");
   details.className = "inspector-accordion";
@@ -392,6 +405,7 @@ export function renderDetailPanel(nodeId: string | null): void {
   _detailMeta.textContent = `${detail.node.type} · ${detail.node.supertype}`;
   _detailBody.innerHTML = "";
   appendScoreChip(_detailBody, detail.node);
+  appendExplorableBadge(_detailBody, detail.node);
 
   const sections = detail.sections ?? [];
   let rendered = false;
@@ -410,10 +424,15 @@ export function renderDetailPanel(nodeId: string | null): void {
     }
     const heading = document.createElement("h3");
     heading.textContent = section.title ?? "Section";
-    const content = document.createElement("p");
-    content.textContent = section.is_gap
-      ? "[Information Missing / Pending Capture]"
-      : (section.content ?? "");
+    const content = document.createElement("div");
+    content.className = "section-content";
+    if (section.is_gap) {
+      content.textContent = "[Information Missing / Pending Capture]";
+    } else {
+      // DDS-3: render card_sections as markdown so pipe tables show as <table>, not raw | text.
+      // Edit source stays as textarea (plain markdown preserved) in renderDetailPanelEditable.
+      content.innerHTML = renderMarkdown(section.content ?? "");
+    }
     article.appendChild(heading);
     article.appendChild(content);
     _detailBody!.appendChild(article);
@@ -458,6 +477,7 @@ export function renderDetailPanelEditable(nodeId: string): void {
   _detailMeta.textContent = `${detail.node.type} · ${detail.node.supertype}`;
   _detailBody.innerHTML = "";
   appendScoreChip(_detailBody, detail.node);
+  appendExplorableBadge(_detailBody, detail.node);
 
   const titleWrap = document.createElement("div");
   titleWrap.className = "detail-card";

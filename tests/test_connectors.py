@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import inspect
 import sqlite3
 import tempfile
 import unittest
@@ -264,6 +265,19 @@ class TestCsvConnectorBasic(unittest.TestCase):
     def test_file_not_found_raises(self) -> None:
         with self.assertRaises(FileNotFoundError):
             CsvConnector("/nonexistent/file.csv")
+
+
+class TestConnectorMockShapeDrift(unittest.TestCase):
+    def test_gspread_spreadsheet_worksheets_is_method_not_property(self) -> None:
+        try:
+            import gspread  # type: ignore[import-untyped]
+        except ImportError:
+            self.skipTest("gspread not installed; install brain_ds[gsheets] to run mock-shape drift guard")
+
+        descriptor = inspect.getattr_static(gspread.Spreadsheet, "worksheets")
+
+        self.assertFalse(isinstance(descriptor, property))
+        self.assertTrue(callable(descriptor))
 
 
 class TestFTS5SearchIntegration(unittest.TestCase):

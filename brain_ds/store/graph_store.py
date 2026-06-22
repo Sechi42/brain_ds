@@ -29,6 +29,32 @@ _CONTRACT_VERSION = "1.0.0"
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Per-process migration cache
+# ---------------------------------------------------------------------------
+# Maps resolved absolute DB path -> (schema_version, file_mtime) that were
+# current after the last successful apply_pending() call for that path.  When
+# a new GraphStore is opened against an already-seen path, we skip
+# apply_pending only when BOTH the cached version equals len(MIGRATIONS) AND
+# the file's current mtime matches the cached mtime.  A changed mtime means
+# the DB file was replaced (deleted+recreated, backup restore) — in that case
+# we invalidate the cache entry and re-run apply_pending.
+#
+# This is a module-level dict so it survives across multiple GraphStore
+# instances within the same Python process, eliminating redundant migration
+# checks during test runs (and normal server usage).
+#
+# Thread safety note: dict reads/writes in CPython are GIL-protected for
+# simple key lookups and assignments, which is sufficient here because the
+# worst-case race is two concurrent first-opens, both calling apply_pending
+# and then writing the same version to the cache — idempotent and harmless.
+#
+# Caller note: callers should pass resolved (absolute) paths to avoid symlink
+# aliasing — two distinct symlinks to the same inode would produce two cache
+# entries but refer to the same DB.  resolve_store_path() in the workspace
+# registry always canonicalizes, so production paths are safe.
+_migrated_paths: dict[str, tuple[int, float]] = {}
+
 
 class GraphStore:
     def __init__(self, path: str, *, read_only: bool = False, allow_cross_thread: bool = False):
@@ -41,7 +67,7 @@ class GraphStore:
             if read_only:
                 self._assert_read_only_schema_compatible()
             else:
-                apply_pending(self.conn)
+                self._apply_pending_cached(path)
         except Exception:
             self.conn.close()
             raise
@@ -54,6 +80,46 @@ class GraphStore:
         self.embedding_repo = EmbeddingRepository(self.conn)
         self.audit_repo = AuditRepository(self.conn)
         self.outbox_repo = OutboxRepository(self.conn)
+
+    def _apply_pending_cached(self, path: str) -> None:
+        """Run apply_pending once per process per DB path.
+
+        The first open for a given absolute path runs apply_pending() normally
+        and records the current schema version in the module-level
+        `_migrated_paths` cache.  Subsequent opens with the same path skip
+        apply_pending entirely when the cached version matches the number of
+        known MIGRATIONS (i.e. schema is fully up-to-date for this process).
+
+        In-memory databases (``path == ":memory:"``) are never cached because
+        each connection creates a distinct, ephemeral database.
+        """
+        if path == ":memory:":
+            apply_pending(self.conn)
+            return
+
+        canonical = str(Path(path).resolve())
+        expected_version = len(MIGRATIONS)
+
+        # Capture mtime BEFORE opening/writing so we have the "identity stamp"
+        # of the file as it existed when this open began.
+        p = Path(canonical)
+        open_mtime: float | None = p.stat().st_mtime if p.exists() else None
+        cached = _migrated_paths.get(canonical)
+
+        if (
+            cached is not None
+            and cached[0] == expected_version
+            and cached[1] == open_mtime
+        ):
+            # Schema fully migrated and file identity unchanged — skip.
+            return
+
+        # First open, or mtime changed (file replaced/restored) — re-run.
+        apply_pending(self.conn)
+        # Flush WAL so the mtime we record reflects the post-migration state.
+        self.conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+        settled_mtime: float | None = p.stat().st_mtime if p.exists() else open_mtime
+        _migrated_paths[canonical] = (expected_version, settled_mtime)
 
     def _connect(self, *, path: str, read_only: bool, allow_cross_thread: bool) -> sqlite3.Connection:
         check_same_thread = not allow_cross_thread

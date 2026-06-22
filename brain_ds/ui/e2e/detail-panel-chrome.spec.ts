@@ -72,3 +72,52 @@ test("detail panel opens without clipping the selected node header", async ({ pa
   expect(cardBox.y).toBeGreaterThan(panelBox.y + 80);
   expect(cardBox.height).toBeGreaterThanOrEqual(44);
 });
+
+// DDS-3: card_sections with markdown pipe tables MUST render as <table>, not raw | text
+test("card_sections markdown pipe tables render as HTML tables not raw pipe characters", async ({ page }) => {
+  await page.setContent(renderStaticTemplate(), { waitUntil: "domcontentloaded" });
+  await page.addScriptTag({ path: BUNDLE_JS_PATH });
+
+  await page.evaluate(() => {
+    const detailEntry = {
+      node: { id: "src-1", label: "Warehouse DB", type: "Data Source", supertype: "data" },
+      sections: [
+        {
+          title: "Columns / Fields",
+          content: "| Column | Type | Meaning |\n|---|---|---|\n| id | int | Primary key |",
+          order: 1,
+          icon: "table",
+          accent_color: null,
+          is_gap: false,
+        },
+      ],
+      relationships: { incoming: [], outgoing: [] },
+      evidence: [],
+    };
+
+    window.brainDsUI!.detailPanel.mount(document.getElementById("detail-panel") as HTMLElement, {
+      editedDetailIndex: { "src-1": detailEntry },
+      editedData: { nodes: [{ id: "src-1", label: "Warehouse DB", type: "Data Source", supertype: "data" }] },
+      network: { on() {}, selectedNodeIds: new Set<string>(), clearSelection() {} },
+      originalNodes: new Map([["src-1", { id: "src-1", label: "Warehouse DB", type: "Data Source", supertype: "data" }]]),
+      RENDER_CONTEXT: { nodes: [{ id: "src-1", label: "Warehouse DB", type: "Data Source", supertype: "data" }], edges: [] },
+      adjacency: {},
+      motionEnabled: () => false,
+    });
+
+    window.brainDsUI!.detailPanel.renderDetailPanel("src-1");
+  });
+
+  // DDS-S2: a <table> element must be present (not raw pipe text)
+  const table = page.locator("#detail-body table.md-table").first();
+  await expect(table).toBeVisible();
+
+  // The raw | characters must NOT appear as plain text
+  const body = page.locator("#detail-body");
+  const innerText = await body.innerText();
+  expect(innerText).not.toContain("| id | int |");
+
+  // Table cells must contain the column data
+  const cells = page.locator("#detail-body table.md-table td");
+  await expect(cells.first()).toContainText("id");
+});

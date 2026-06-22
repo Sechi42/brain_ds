@@ -349,11 +349,11 @@ if $REGISTER_PATH; then
 fi
 
 if check_cmd uv; then
-  echo "Python deps: running uv sync"
-  if uv sync --project "$ROOT_DIR"; then
+  echo "Python deps: running uv sync --extra aws --extra postgres --extra gsheets"
+  if uv sync --extra aws --extra postgres --extra gsheets --project "$ROOT_DIR"; then
     echo "Python deps: uv sync completed"
   else
-    echo "Warning: uv sync failed. Run manually in repo root: uv sync"
+    echo "Warning: uv sync failed. Run manually in repo root: uv sync --extra aws --extra postgres --extra gsheets"
   fi
 else
   echo "Warning: uv not found. Install: https://docs.astral.sh/uv/getting-started/installation/"

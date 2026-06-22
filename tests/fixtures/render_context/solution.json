@@ -27,6 +27,7 @@
           "dark": "#059669",
           "light": "#047857"
         },
+        "connection": null,
         "id": "solution-1",
         "label": "Bot",
         "supertype": "solution",
@@ -58,6 +59,7 @@
           "dark": "#2563eb",
           "light": "#1d4ed8"
         },
+        "connection": null,
         "id": "solution-2",
         "label": "Team",
         "supertype": "actor",

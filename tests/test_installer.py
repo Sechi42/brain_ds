@@ -188,6 +188,16 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("cp \"$src\" \"$dest\"", sh)
         self.assertIn("$HOME/.config/opencode/skills", sh)
 
+    def test_installers_preserve_connector_extras_during_uv_sync(self):
+        ps1 = (ROOT / "install-opencode.ps1").read_text(encoding="utf-8")
+        sh = (ROOT / "install-opencode.sh").read_text(encoding="utf-8")
+        expected_extras = "--extra aws --extra postgres --extra gsheets"
+
+        self.assertIn(f"uv sync {expected_extras}", ps1)
+        self.assertIn(f"uv sync {expected_extras}", sh)
+        self.assertIn(f"Run manually in repo root: uv sync {expected_extras}", ps1)
+        self.assertIn(f"Run manually in repo root: uv sync {expected_extras}", sh)
+
     def test_installer_exit_code_contracts_are_preserved_in_source(self):
         ps1 = (ROOT / "install-opencode.ps1").read_text(encoding="utf-8")
         sh = (ROOT / "install-opencode.sh").read_text(encoding="utf-8")

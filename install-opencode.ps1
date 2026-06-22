@@ -371,12 +371,12 @@ exit /b %ERRORLEVEL%
 }
 
 if (Test-CommandExists 'uv') {
-  "Python deps: running uv sync"
+  "Python deps: running uv sync --extra aws --extra postgres --extra gsheets"
   try {
-    & uv sync --project $RootDir
+    & uv sync --extra aws --extra postgres --extra gsheets --project $RootDir
     "Python deps: uv sync completed"
   } catch {
-    "Warning: uv sync failed. Run manually in repo root: uv sync"
+    "Warning: uv sync failed. Run manually in repo root: uv sync --extra aws --extra postgres --extra gsheets"
   }
 } else {
   "Warning: uv not found. Install: https://docs.astral.sh/uv/getting-started/installation/"

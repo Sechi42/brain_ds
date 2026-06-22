@@ -417,6 +417,27 @@ class GroundingPipelineContractTests(unittest.TestCase):
         drift = _sweep_constant("RECON_SOURCE_TYPES", grounding.RECON_SOURCE_TYPES)
         self.assertEqual(drift, [])
 
+    # DDS-7: SOURCE_DOCUMENTATION_BUNDLE_CONTRACT is discovered, NOT exempt, sweeps clean.
+    def test_source_documentation_bundle_contract_discovered_and_not_exempt(self) -> None:
+        discovered = _discover_category2_constants()
+        self.assertIn(
+            "SOURCE_DOCUMENTATION_BUNDLE_CONTRACT",
+            discovered,
+            "SOURCE_DOCUMENTATION_BUNDLE_CONTRACT must be auto-discovered by the drift guard sweep",
+        )
+        self.assertNotIn(
+            "SOURCE_DOCUMENTATION_BUNDLE_CONTRACT",
+            CATEGORY2_EXEMPT,
+            "SOURCE_DOCUMENTATION_BUNDLE_CONTRACT must NOT be in CATEGORY2_EXEMPT — it must sweep clean",
+        )
+
+    def test_source_documentation_bundle_contract_sweeps_clean(self) -> None:
+        drift = _sweep_constant(
+            "SOURCE_DOCUMENTATION_BUNDLE_CONTRACT",
+            grounding.SOURCE_DOCUMENTATION_BUNDLE_CONTRACT,
+        )
+        self.assertEqual(drift, [], f"SOURCE_DOCUMENTATION_BUNDLE_CONTRACT drift: {drift}")
+
     def test_source_exploration_flow_has_four_substeps(self) -> None:
         steps = grounding.DELEGATION_PROTOCOL["source_exploration_flow"]
         self.assertEqual(len(steps), 4)

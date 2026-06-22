@@ -164,7 +164,11 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "list_workspaces": {
         "type": "object",
         "required": [],
-        "properties": {},
+        "properties": {
+            "limit": {"type": "integer"},
+            "offset": {"type": "integer"},
+            "compact": {"type": "boolean"},
+        },
         "additionalProperties": False,
     },
     "open_workspace": {
@@ -181,6 +185,9 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "required": [],
         "properties": {
             "graph_id": {"type": "string"},
+            "limit": {"type": "integer"},
+            "offset": {"type": "integer"},
+            "compact": {"type": "boolean"},
         },
         "additionalProperties": False,
     },
@@ -192,6 +199,7 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "node_id": {"type": "string"},
             "container": {"type": "string"},
             "table": {"type": "string"},
+            "level": {"type": "string", "enum": ["source", "container", "table", "documentation"]},
         },
         "additionalProperties": False,
     },
@@ -212,6 +220,9 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "required": [],
         "properties": {
             "agent_scope": {"type": "string"},
+            "limit": {"type": "integer"},
+            "offset": {"type": "integer"},
+            "compact": {"type": "boolean"},
         },
         "additionalProperties": False,
     },

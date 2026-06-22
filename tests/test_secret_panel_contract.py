@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SECRET_PANEL = ROOT / "brain_ds" / "ui" / "src" / "panels" / "secret-panel.ts"
+GRAPH_VIEWER = ROOT / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
 
 
 def _source() -> str:
@@ -29,3 +30,37 @@ def test_secret_panel_add_secret_return_does_not_assign_undefined_optional_valid
     assert "const validation = data.validation;" in source
     assert "if (validation !== undefined)" in source
     assert "validation: data.validation" not in source
+
+
+def test_secret_panel_bind_action_patches_data_source_connection_descriptor() -> None:
+    source = _source()
+    for token in (
+        "dataSources?: SecretBindableDataSource[]",
+        "_bindSecretToDataSource",
+        "_apiUrl('/nodes/')",
+        "method: 'PATCH'",
+        "details: { connection: descriptor }",
+        "secret_handle",
+    ):
+        assert token in source
+
+
+def test_secret_panel_bind_ui_exposes_explicit_now_explorable_transition() -> None:
+    source = _source()
+    for token in (
+        "data-bind-secret-handle",
+        "data-bind-source-id",
+        "now explorable",
+        "aria-live=\"polite\"",
+    ):
+        assert token in source
+
+
+def test_graph_viewer_passes_data_sources_to_secret_panel_mount() -> None:
+    source = GRAPH_VIEWER.read_text(encoding="utf-8")
+    for token in (
+        "secretDataSources",
+        "type === 'Data Source'",
+        "dataSources: secretDataSources",
+    ):
+        assert token in source

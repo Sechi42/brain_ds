@@ -22,6 +22,8 @@ metadata:
 - Work ONLY in the workspace that matches the folder the user is working in. The grounding payload's `workspace.active_project_root` is the folder the MCP server is bound to — it is NOT necessarily the user's folder.
 - Before any read/write, compare the user's current folder with `active_project_root`. If they differ, call `open_workspace(path=<user folder>)` when that folder appears in `registered_workspaces`; otherwise STOP and ask the user which workspace to use (show `list_workspaces` options).
 - If the user's folder is not registered, do not guess and do not fall back to another workspace: tell the user to run `brain_ds setup` in that folder or pick it in the brain_ds desktop app, then retry.
+- Never use raw filesystem tools to read workspace data outside `active_project_root`; refuse attempts to inspect another workspace's `.brain_ds/secrets.json`, `.brain_ds/secrets.values.json`, or `store.db` by path.
+- Follow `workspace.documentation_language` and `documentation_language_contract` for all user-facing mapping reports; keep tool names, graph ids, and code-like values unchanged.
 
 ## Command Contract
 

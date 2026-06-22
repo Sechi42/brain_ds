@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -38,7 +39,7 @@ _FRONTMATTER_NAME_RE = re.compile(r"^\s*name\s*:\s*(.+?)\s*$", re.MULTILINE)
 @dataclass(frozen=True)
 class CheckResult:
     name: str
-    status: str  # PASS | FAIL | SKIP
+    status: str  # PASS | FAIL | WARNING | SKIP
     detail: str
 
 
@@ -137,6 +138,57 @@ def check_skills_mirror(project_root: Path) -> list[CheckResult]:
             )
         ]
     return [CheckResult("skills-mirror-parity", "PASS", "skills/ == .opencode/skills/ (byte-identical)")]
+
+
+def _default_deployed_skills_root() -> Path:
+    override = os.environ.get("BRAIN_DS_OPENCODE_SKILLS_ROOT")
+    if override:
+        return Path(override)
+    return Path.home() / ".config" / "opencode" / "skills"
+
+
+def _first_repo_only_snippet(repo_text: str, deployed_text: str) -> str:
+    deployed_lines = {line.strip() for line in deployed_text.splitlines() if line.strip()}
+    for line in repo_text.splitlines():
+        snippet = line.strip()
+        if snippet and snippet not in deployed_lines:
+            return snippet[:140]
+    return "content differs"
+
+
+def check_deployed_skill_freshness(
+    project_root: Path,
+    *,
+    deployed_skills_root: Path | None = None,
+) -> list[CheckResult]:
+    """Warn when repo skill files are newer than the deployed OpenCode copies."""
+    canonical = project_root / "skills"
+    deployed_root = deployed_skills_root or _default_deployed_skills_root()
+    if not canonical.is_dir():
+        return [CheckResult("deployed-skill-freshness", "SKIP", "no skills/ folder in this project")]
+    if not deployed_root.is_dir():
+        return [CheckResult("deployed-skill-freshness", "SKIP", f"deployed skills root not found: {deployed_root}")]
+
+    stale: list[str] = []
+    for skill_file in sorted(canonical.glob("*/SKILL.md")):
+        deployed_file = deployed_root / skill_file.parent.name / "SKILL.md"
+        if not deployed_file.is_file():
+            stale.append(f"{skill_file.parent.name}: missing deployed SKILL.md")
+            continue
+        repo_text = skill_file.read_text(encoding="utf-8-sig")
+        deployed_text = deployed_file.read_text(encoding="utf-8-sig")
+        if repo_text != deployed_text:
+            stale.append(f"{skill_file.parent.name}: repo-only snippet '{_first_repo_only_snippet(repo_text, deployed_text)}'")
+
+    if stale:
+        return [
+            CheckResult(
+                "deployed-skill-freshness",
+                "WARNING",
+                "deployed OpenCode skill stale vs repo: " + "; ".join(stale),
+            )
+        ]
+    return [CheckResult("deployed-skill-freshness", "PASS", f"deployed skills fresh: {deployed_root}")]
 
 
 def _parse_agent_frontmatter(path: Path) -> dict[str, object]:
@@ -272,21 +324,23 @@ def check_agent_files(project_root: Path) -> list[CheckResult]:
 
 def _run_all_checks(project_root: Path) -> list[CheckResult]:
     results: list[CheckResult] = []
-    for check in (check_project_mcp_entries, check_skills_mirror, check_agent_files):
+    for check in (check_project_mcp_entries, check_skills_mirror, check_deployed_skill_freshness, check_agent_files):
         results.extend(check(project_root))
     return results
 
 
-def _summarize_statuses(results: Iterable[CheckResult]) -> tuple[int, int, int]:
-    passed = failed = skipped = 0
+def _summarize_statuses(results: Iterable[CheckResult]) -> tuple[int, int, int, int]:
+    passed = failed = warnings = skipped = 0
     for result in results:
         if result.status == "PASS":
             passed += 1
         elif result.status == "FAIL":
             failed += 1
+        elif result.status == "WARNING":
+            warnings += 1
         else:
             skipped += 1
-    return passed, failed, skipped
+    return passed, failed, warnings, skipped
 
 
 def harness_check_main(project_root: Path) -> int:
@@ -295,6 +349,6 @@ def harness_check_main(project_root: Path) -> int:
     for result in results:
         print(f"[{result.status}] {result.name}: {result.detail}")
 
-    passed, failed, skipped = _summarize_statuses(results)
-    print(f"Summary: {passed} PASS, {failed} FAIL, {skipped} SKIP")
+    passed, failed, warnings, skipped = _summarize_statuses(results)
+    print(f"Summary: {passed} PASS, {failed} FAIL, {warnings} WARNING, {skipped} SKIP")
     return 1 if failed else 0

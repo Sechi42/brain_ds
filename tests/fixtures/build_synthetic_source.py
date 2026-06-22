@@ -1,14 +1,39 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 
 
 FIXTURE_PATH = Path(__file__).with_name("synthetic_source.db")
 
+# Environment variable that prevents build_synthetic_source() from rewriting
+# the checked-in seed.  Set automatically by the conftest `synthetic_source_path`
+# fixture so that normal test runs never mutate the tracked file.
+_ENV_GUARD = "BRAIN_DS_NO_SEED_REBUILD"
+
 
 def build_synthetic_source(target: Path | None = None) -> Path:
-    db_path = (target or FIXTURE_PATH).resolve()
+    """Build (or return) the synthetic SQLite source fixture.
+
+    When called WITHOUT a `target`:
+    - If the seed already exists AND the guard env-var is set (i.e. we are
+      inside a pytest session), return the seed path unchanged to preserve
+      the byte-for-byte hash that isolation tests assert.
+    - Otherwise (first-time checkout or explicit rebuild from the CLI /
+      ``__main__`` block), write the seed as before.
+
+    When called WITH a `target`, always write to that path (the caller owns it).
+    """
+    if target is None:
+        seed = FIXTURE_PATH.resolve()
+        if seed.exists() and os.environ.get(_ENV_GUARD):
+            # Inside a test session — seed exists, do NOT rewrite it.
+            return seed
+        db_path = seed
+    else:
+        db_path = target.resolve()
+
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     with sqlite3.connect(db_path) as conn:

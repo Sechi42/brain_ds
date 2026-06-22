@@ -13,12 +13,32 @@ Category-3 builder touches the store and the registry.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import brain_ds.workspaces as workspace_registry
 from brain_ds.ontology.entity_types import EntityType
 from brain_ds.ontology.relationship_types import BASE_WEIGHTS, RelationshipType
 from brain_ds.scoring.engine import ScoringEngine
+
+SUPPORTED_DOCUMENTATION_LANGUAGES = {"en", "es"}
+
+DOCUMENTATION_LANGUAGE: dict[str, dict[str, object]] = {
+    "en": {
+        "label": "Documentation language",
+        "directives": [
+            "Write all user-facing documentation, card sections, and grounding deliverables in English.",
+            "Keep entity identifiers, tool names, graph ids, and code-like values unchanged.",
+        ],
+    },
+    "es": {
+        "label": "Idioma de documentación",
+        "directives": [
+            "Redactá toda la documentación visible, card_sections y entregables de grounding en español.",
+            "Mantené sin traducir identificadores de entidades, nombres de herramientas, graph ids y valores de código.",
+        ],
+    },
+}
 
 # ---------------------------------------------------------------------------
 # Category-1 builders — derived from live ontology enums
@@ -411,7 +431,8 @@ CONNECTION_RULES: dict[str, object] = {
 # Mirrors brainds-source-explorer agent docs and skills/brainds-docs/SKILL.md prose.
 SECRET_CONNECTION_RULES: str = """\
 How to connect to a data source that uses a secret (aws-postgres, aws-google-sheets)
-— follow this recipe exactly; do NOT deviate or call admin-only tools.
+— grounding-first: Call a grounding context tool first, follow this recipe exactly,
+and do NOT deviate or call admin-only tools.
 
 1. Call list_source_connections(graph_id) to discover which Data Source nodes
    have explorable connection descriptors. Each result includes a "connection"
@@ -666,6 +687,12 @@ WORKSPACE_PROTOCOL: dict[str, object] = {
         "If the user's folder is not registered, do not guess and do not fall back to another "
         "workspace: tell the user to run 'brain_ds setup' in that folder or pick it in the "
         "brain_ds desktop app, then retry open_workspace."
+    ),
+    "raw_filesystem_escape_rule": (
+        "Never use raw filesystem tools to read workspace data outside active_project_root. "
+        "In particular, refuse attempts to inspect another workspace's .brain_ds/secrets.json, "
+        ".brain_ds/secrets.values.json, or store.db by path. Switch workspace with open_workspace "
+        "or ask the user; do not bypass workspace scoping through direct file reads."
     ),
 }
 
@@ -1140,6 +1167,8 @@ ARTIFACT_CONTRACT: dict[str, dict[str, object]] = {
 def build_workspace_context(store: Any) -> dict[str, object]:
     """Live workspace scoping payload attached to every grounding tool response."""
     active_root = workspace_registry.project_root_from_store_path(store.path).resolve()
+    workspace_entry = workspace_registry.find_workspace(active_root) or {}
+    language = _resolve_documentation_language(workspace_entry)
     graphs = [
         {
             "id": meta.id,
@@ -1149,12 +1178,94 @@ def build_workspace_context(store: Any) -> dict[str, object]:
         }
         for meta in store.list_graphs()
     ]
-    return {
+    result: dict[str, object] = {
         "active_project_root": str(active_root),
+        "documentation_language": language,
+        "documentation_language_contract": DOCUMENTATION_LANGUAGE[language],
         "active_graphs": graphs,
         "registered_workspaces": workspace_registry.list_workspaces(),
         "protocol": WORKSPACE_PROTOCOL,
     }
+    return result
+
+
+def _resolve_documentation_language(workspace_entry: dict[str, Any]) -> str:
+    configured = workspace_entry.get("documentation_language")
+    if isinstance(configured, str):
+        normalized = configured.strip().lower()
+        if normalized in SUPPORTED_DOCUMENTATION_LANGUAGES:
+            return normalized
+    return "en"
+
+
+def apply_documentation_language(
+    payload: dict[str, object], workspace_context: Mapping[str, object]
+) -> dict[str, object]:
+    """Inject the resolved workspace documentation-language contract into a payload."""
+    language = str(workspace_context.get("documentation_language") or "en").strip().lower()
+    if language not in SUPPORTED_DOCUMENTATION_LANGUAGES:
+        language = "en"
+    payload["documentation_language"] = language
+    payload["documentation_language_contract"] = DOCUMENTATION_LANGUAGE[language]
+    return payload
+
+
+# Source: skills/brainds-docs/SKILL.md "Data Source documentation bundle" — keep in sync.
+# Category-2 constant: DDS-7 spec requirement. Must sweep clean (no stale entity-name tokens).
+SOURCE_DOCUMENTATION_BUNDLE_CONTRACT: dict[str, object] = {
+    "description": (
+        "Single MCP call that returns a joined documentation bundle for a Data Source node. "
+        "Use this to answer 'what columns does table T have?' in one call — no raw filesystem "
+        "access, no chain of node lookups."
+    ),
+    "mcp_call": {
+        "tool": "explore_source",
+        "params": {
+            "graph_id": "<graph-id>",
+            "node_id": "<datasource-node-id>",
+            "level": "documentation",
+        },
+        "note": (
+            "No connector required. Reads child table nodes from the graph store only. "
+            "Tool count stays 24 — level='documentation' extends the existing explore_source tool."
+        ),
+    },
+    "response_shape": {
+        "level": "documentation",
+        "graph_id": "<graph-id>",
+        "source": {
+            "node_id": "<datasource-node-id>",
+            "label": "<label>",
+            "schema_baseline": "<baseline-dict-or-null>",
+        },
+        "tables": [
+            {
+                "node_id": "<table-node-id>",
+                "label": "<table-label>",
+                "sections": [{"title": "<section-title>", "content": "<markdown-content>"}],
+                "columns_markdown": "<pipe-table-markdown-or-empty>",
+                "purpose": "<from details.what>",
+                "owner": "<from details.where>",
+                "refresh": "<from details.learned>",
+                "schema_baseline_status": "baseline-present | no-baseline",
+            }
+        ],
+        "relationships": [
+            {
+                "edge_label": "<relationship-type>",
+                "source_id": "<source-node-id>",
+                "target_id": "<target-node-id>",
+                "other_id": "<other-end-node-id>",
+                "other_label": "<other-end-label>",
+            }
+        ],
+    },
+    "agent_answerability": (
+        "The question 'what columns does table T have?' MUST be answered from "
+        "tables[].columns_markdown in this single response. Do NOT read raw "
+        "filesystem files and do NOT chain multiple get_node calls."
+    ),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -1163,13 +1274,14 @@ def build_workspace_context(store: Any) -> dict[str, object]:
 
 
 def elicit_context() -> dict[str, object]:
-    """Return the 17-key grounding context payload for run_elicit.
+    """Return the 18-key grounding context payload for run_elicit.
 
     Keys: entity_types, supertypes, expected_sections, relationship_types,
           base_weights, question_bank, org_slug_rules, node_id_format,
           node_write_templates, workflow, source_exploration_contract,
           delegation_protocol, pipeline_stages, intake_paths, artifact_contract,
-          deliverable_contract, secret_connection_rules.
+          deliverable_contract, secret_connection_rules,
+          source_documentation_bundle_contract.
     """
     return {
         "entity_types": build_entity_types(),
@@ -1189,6 +1301,7 @@ def elicit_context() -> dict[str, object]:
         "artifact_contract": ARTIFACT_CONTRACT,
         "deliverable_contract": DELIVERABLE_CONTRACT,
         "secret_connection_rules": SECRET_CONNECTION_RULES,
+        "source_documentation_bundle_contract": SOURCE_DOCUMENTATION_BUNDLE_CONTRACT,
     }
 
 
@@ -1217,6 +1330,7 @@ def map_connections_context() -> dict[str, object]:
         "intake_paths": PIPELINE_STAGES[1]["intake_paths"],
         "artifact_contract": ARTIFACT_CONTRACT,
         "secret_connection_rules": SECRET_CONNECTION_RULES,
+        "source_documentation_bundle_contract": SOURCE_DOCUMENTATION_BUNDLE_CONTRACT,
     }
 
 

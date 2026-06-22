@@ -160,6 +160,36 @@ class TestRenderContextContract(unittest.TestCase):
         self.assertEqual(by_id["a"]["neighbor_count"], len(context["adjacency"]["a"]))
         self.assertEqual(by_id["b"]["neighbor_count"], len(context["adjacency"]["b"]))
 
+    def test_data_source_detail_node_exposes_connection_for_explorable_badge(self):
+        graph = Graph.from_v1(
+            {
+                "org": "Acme",
+                "generated_at": "2026-03-01T08:00:00Z",
+                "nodes": [
+                    {
+                        "id": "source-1",
+                        "label": "Warehouse",
+                        "type": "Data Source",
+                        "details": {
+                            "connection": {
+                                "kind": "aws-postgres",
+                                "secret_handle": "warehouse/prod",
+                                "database": "orders",
+                            }
+                        },
+                    }
+                ],
+                "edges": [],
+                "evidence": [],
+            }
+        )
+
+        context = build_render_context(graph)
+
+        detail_node = context["detail_index"]["source-1"]["node"]
+        self.assertEqual(detail_node["connection"]["kind"], "aws-postgres")
+        self.assertEqual(detail_node["connection"]["secret_handle"], "warehouse/prod")
+
     def test_history_payload_is_bounded_and_trims_overflow(self):
         history = [f"acme/graph-{idx}.json" for idx in range(HISTORY_MAX_ENTRIES + 5)]
         raw = json.dumps(history)
@@ -209,3 +239,102 @@ class TestRenderContextContract(unittest.TestCase):
         self.assertEqual(len(tabs), 1)
         self.assertIsInstance(tabs[0], TabModel)
         self.assertFalse(should_reset)
+
+
+def _datasource_graph_payload() -> dict:
+    """Graph with one Data Source and two child table-level nodes."""
+    return {
+        "org": "Acme",
+        "generated_at": "2026-06-01T00:00:00Z",
+        "nodes": [
+            {
+                "id": "ds-1",
+                "label": "Warehouse DB",
+                "type": "Data Source",
+                "parent_id": None,
+                "details": {"connection": {"kind": "aws-postgres", "secret_handle": "wh/prod", "database": "wh"}},
+            },
+            {
+                "id": "tbl-orders",
+                "label": "orders",
+                "type": "Unknown",
+                "parent_id": "ds-1",
+                "card_sections": [
+                    {"title": "Columns / Fields", "content": "| col | type |\n|---|---|\n| id | int |", "icon": "table", "order": 1},
+                    {"title": "Purpose", "content": "Order tracking.", "icon": "info", "order": 2},
+                ],
+            },
+            {
+                "id": "tbl-customers",
+                "label": "customers",
+                "type": "Unknown",
+                "parent_id": "ds-1",
+                "card_sections": [
+                    {"title": "Columns / Fields", "content": "| col | type |\n|---|---|\n| cid | int |", "icon": "table", "order": 1},
+                ],
+            },
+        ],
+        "edges": [
+            {"source": "ds-1", "target": "tbl-orders", "label": "uses"},
+            {"source": "ds-1", "target": "tbl-customers", "label": "uses"},
+        ],
+        "evidence": [],
+    }
+
+
+class TestDocumentationDigestContract(unittest.TestCase):
+    """DDS-1/DDS-2: Data Source detail index must expose documentation_digest."""
+
+    def _context(self):
+        return build_render_context(Graph.from_v1(_datasource_graph_payload()))
+
+    def test_data_source_detail_has_documentation_digest_key(self):
+        ctx = self._context()
+        detail = ctx["detail_index"]["ds-1"]
+        self.assertIn("documentation_digest", detail)
+
+    def test_documentation_digest_contains_tables_list(self):
+        ctx = self._context()
+        digest = ctx["detail_index"]["ds-1"]["documentation_digest"]
+        self.assertIn("tables", digest)
+
+    def test_documentation_digest_tables_count(self):
+        ctx = self._context()
+        digest = ctx["detail_index"]["ds-1"]["documentation_digest"]
+        self.assertEqual(len(digest["tables"]), 2)
+
+    def test_documentation_digest_table_entry_has_required_keys(self):
+        ctx = self._context()
+        digest = ctx["detail_index"]["ds-1"]["documentation_digest"]
+        for entry in digest["tables"]:
+            with self.subTest(table=entry.get("node_id")):
+                self.assertIn("node_id", entry)
+                self.assertIn("label", entry)
+                self.assertIn("sections", entry)
+
+    def test_documentation_digest_columns_section_present(self):
+        """Each table entry must expose a columns_markdown key from its card_sections."""
+        ctx = self._context()
+        digest = ctx["detail_index"]["ds-1"]["documentation_digest"]
+        orders = next(t for t in digest["tables"] if t["node_id"] == "tbl-orders")
+        self.assertIn("columns_markdown", orders)
+        self.assertIn("| id | int |", orders["columns_markdown"])
+
+    def test_documentation_digest_non_datasource_node_has_no_digest(self):
+        """Table-level nodes themselves must NOT get a documentation_digest key."""
+        ctx = self._context()
+        detail = ctx["detail_index"]["tbl-orders"]
+        self.assertNotIn("documentation_digest", detail)
+
+    def test_documentation_digest_empty_for_datasource_with_no_children(self):
+        """A Data Source with no child table nodes gets an empty tables list."""
+        payload = {
+            "org": "Acme",
+            "generated_at": "2026-06-01T00:00:00Z",
+            "nodes": [{"id": "ds-only", "label": "Empty DS", "type": "Data Source"}],
+            "edges": [],
+            "evidence": [],
+        }
+        ctx = build_render_context(Graph.from_v1(payload))
+        digest = ctx["detail_index"]["ds-only"]["documentation_digest"]
+        self.assertEqual(digest["tables"], [])

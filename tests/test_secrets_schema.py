@@ -8,10 +8,7 @@ Covers: A1-R1/R2/R3/R4/R5/R6/R7, A3-R3/R4/R5/R6, CC-1
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
-
-import pytest
 
 SCHEMA_PATH = Path(__file__).parent.parent / "brain_ds" / "connectors" / "secrets" / "schema.json"
 
@@ -53,6 +50,18 @@ class TestSchemaBackwardCompat:
         assert "required" in aws
         for field in ("region", "secret_id"):
             assert field in aws["required"]
+
+    def test_aws_secrets_kind_remains_valid_for_existing_handles(self):
+        schema = _load_schema()
+        assert "aws-secrets" in schema["provider_kinds"]
+        aws = schema["provider_kinds"]["aws-secrets"]
+        assert aws["requires_raw_value"] is False
+
+    def test_aws_secrets_is_hidden_from_new_handle_picker(self):
+        schema = _load_schema()
+        picker = schema["provider_kinds"]["aws-secrets"].get("picker", {})
+        assert picker["visible"] is False
+        assert "existing handles only" in picker["label"].lower()
 
     def test_provider_kinds_without_new_keys_are_valid(self):
         """Providers that lack descriptions/placeholders/enums must still load cleanly."""

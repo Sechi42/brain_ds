@@ -19,6 +19,8 @@ from brain_ds.mcp.tools import (
     list_data_sources,
     list_graphs,
     list_nodes,
+    list_source_connections,
+    list_workspaces,
     map_connections,
     run_elicit,
     search_graph,
@@ -665,6 +667,241 @@ class MCPToolsTests(unittest.TestCase):
         search_graph(self.store, {"graph_id": self.graph_id, "query": "alpha"})
         after = self._audit_count()
         self.assertEqual(before, after)
+
+
+class PaginatedListToolTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.temp_dir.name) / ".brain_ds" / "store.db"
+        self.db_path.parent.mkdir(parents=True)
+        self.store = GraphStore(str(self.db_path))
+        self.graph_id = "paginated-tools"
+        self.store.meta_repo.save_graph_meta(
+            graph_id=self.graph_id,
+            workspace_root=self.temp_dir.name,
+            workspace_path=self.temp_dir.name,
+            project="project-tools",
+            org="org-tools",
+            schema_version="2.0.0",
+            contract_version="1.0.0",
+            node_count=0,
+            edge_count=0,
+            imported_from=None,
+            generated_at="",
+        )
+
+    def tearDown(self) -> None:
+        self.store.close()
+        self.temp_dir.cleanup()
+
+    def test_list_source_connections_returns_bounded_page_with_next_offset(self) -> None:
+        for index in range(25):
+            update_node(
+                self.store,
+                {
+                    "graph_id": self.graph_id,
+                    "node_id": f"DS-{index:02d}",
+                    "label": f"Source {index:02d}",
+                    "type": "Data Source",
+                    "details": {"connection": {"kind": "sqlite", "path": f"data/{index}.db"}},
+                },
+            )
+
+        page = list_source_connections(self.store, {"graph_id": self.graph_id, "limit": 10, "offset": 5})
+
+        self.assertEqual(page["limit"], 10)
+        self.assertEqual(page["offset"], 5)
+        self.assertEqual(page["next_offset"], 15)
+        self.assertEqual(len(page["connections"]), 10)
+        self.assertEqual(page["connections"][0]["node_id"], "DS-05")
+
+    def test_list_source_connections_compact_mode_omits_connection_payload(self) -> None:
+        update_node(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "node_id": "DS-1",
+                "label": "Source 1",
+                "type": "Data Source",
+                "details": {"connection": {"kind": "sqlite", "path": "data/source.db"}},
+            },
+        )
+
+        page = list_source_connections(self.store, {"graph_id": self.graph_id, "compact": True})
+
+        self.assertEqual(page["connections"], [{"graph_id": self.graph_id, "node_id": "DS-1", "label": "Source 1"}])
+
+    def test_list_workspaces_schema_accepts_pagination_and_compact(self) -> None:
+        params = validate_tool_input(
+            "list_workspaces",
+            {"limit": 20, "offset": 0, "compact": True},
+        )
+
+        self.assertEqual(params["limit"], 20)
+        self.assertTrue(params["compact"])
+
+    def test_list_workspaces_returns_page_metadata(self) -> None:
+        page = list_workspaces(self.store, {"limit": 1, "offset": 0, "compact": True})
+
+        self.assertIn("workspaces", page)
+        self.assertEqual(page["limit"], 1)
+        self.assertEqual(page["offset"], 0)
+        self.assertIn("total", page)
+
+
+class ExploreSourceDocumentationLevelTests(unittest.TestCase):
+    """DDS-4/DDS-5: explore_source level='documentation' returns joined doc bundle."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        store_dir = Path(self.temp_dir.name) / ".brain_ds"
+        store_dir.mkdir(parents=True)
+        self.store = GraphStore(str(store_dir / "store.db"))
+        self.graph_id = "ds-docs-graph"
+        self.store.meta_repo.save_graph_meta(
+            graph_id=self.graph_id,
+            workspace_root=self.temp_dir.name,
+            workspace_path=self.temp_dir.name,
+            project="project-docs",
+            org="org-docs",
+            schema_version="2.0.0",
+            contract_version="1.0.0",
+            node_count=0,
+            edge_count=0,
+            imported_from=None,
+            generated_at="",
+        )
+        # Data Source node
+        self.store.upsert_node(
+            self.graph_id,
+            {
+                "id": "ds-1",
+                "label": "Warehouse DB",
+                "type": "Data Source",
+                "details": {
+                    "what": "Main warehouse",
+                    "connection": {"kind": "sqlite", "path": "data/store.db"},
+                },
+            },
+        )
+        # Child table-level node with columns card section
+        self.store.upsert_node(
+            self.graph_id,
+            {
+                "id": "tbl-orders",
+                "label": "orders",
+                "type": "Unknown",
+                "parent_id": "ds-1",
+                "card_sections": [
+                    {
+                        "title": "Columns / Fields",
+                        "content": "| col | type |\n|---|---|\n| id | int |",
+                        "icon": "table",
+                        "order": 1,
+                    },
+                    {
+                        "title": "Purpose",
+                        "content": "Order tracking table.",
+                        "icon": "info",
+                        "order": 2,
+                    },
+                ],
+            },
+        )
+        # Add an edge to create a relationship
+        self.store.upsert_edge(
+            self.graph_id,
+            {"source": "ds-1", "target": "tbl-orders", "label": "uses", "weight": 0.9},
+        )
+
+    def tearDown(self) -> None:
+        self.store.close()
+        self.temp_dir.cleanup()
+
+    def test_explore_source_documentation_level_returns_bundle(self):
+        from brain_ds.mcp.tools import explore_source
+
+        result = explore_source(
+            self.store,
+            {"graph_id": self.graph_id, "node_id": "ds-1", "level": "documentation"},
+        )
+        self.assertNotIn("code", result, f"Expected success, got error: {result}")
+        self.assertEqual(result["level"], "documentation")
+
+    def test_explore_source_documentation_level_contains_tables(self):
+        from brain_ds.mcp.tools import explore_source
+
+        result = explore_source(
+            self.store,
+            {"graph_id": self.graph_id, "node_id": "ds-1", "level": "documentation"},
+        )
+        self.assertIn("tables", result)
+        self.assertEqual(len(result["tables"]), 1)
+
+    def test_explore_source_documentation_level_table_entry_has_columns_markdown(self):
+        from brain_ds.mcp.tools import explore_source
+
+        result = explore_source(
+            self.store,
+            {"graph_id": self.graph_id, "node_id": "ds-1", "level": "documentation"},
+        )
+        orders = result["tables"][0]
+        self.assertEqual(orders["node_id"], "tbl-orders")
+        self.assertIn("columns_markdown", orders)
+        self.assertIn("| id | int |", orders["columns_markdown"])
+
+    def test_explore_source_documentation_level_tool_count_unchanged(self):
+        """DDS-4: tool count MUST stay 24 after adding level='documentation'."""
+        self.assertEqual(len(TOOL_REGISTRY), 24)
+
+    def test_explore_source_schema_accepts_level_param(self):
+        """DDS-4: explore_source schema must accept optional level string."""
+        from brain_ds.mcp.security import TOOL_SCHEMAS, validate_tool_input
+
+        result = validate_tool_input(
+            "explore_source",
+            {
+                "graph_id": self.graph_id,
+                "node_id": "ds-1",
+                "level": "documentation",
+            },
+            TOOL_SCHEMAS["explore_source"],
+        )
+        self.assertEqual(result["level"], "documentation")
+
+
+class SourceDocumentationBundleContractTests(unittest.TestCase):
+    """DDS-7: SOURCE_DOCUMENTATION_BUNDLE_CONTRACT must be registered in grounding."""
+
+    def test_constant_exists(self):
+        from brain_ds.mcp import grounding
+
+        self.assertTrue(hasattr(grounding, "SOURCE_DOCUMENTATION_BUNDLE_CONTRACT"))
+
+    def test_constant_is_dict(self):
+        from brain_ds.mcp import grounding
+
+        self.assertIsInstance(grounding.SOURCE_DOCUMENTATION_BUNDLE_CONTRACT, dict)
+
+    def test_constant_has_required_keys(self):
+        from brain_ds.mcp import grounding
+
+        contract = grounding.SOURCE_DOCUMENTATION_BUNDLE_CONTRACT
+        for key in ("description", "mcp_call", "response_shape", "agent_answerability"):
+            with self.subTest(key=key):
+                self.assertIn(key, contract)
+
+    def test_constant_in_elicit_context(self):
+        from brain_ds.mcp import grounding
+
+        ctx = grounding.elicit_context()
+        self.assertIn("source_documentation_bundle_contract", ctx)
+
+    def test_constant_in_map_connections_context(self):
+        from brain_ds.mcp import grounding
+
+        ctx = grounding.map_connections_context()
+        self.assertIn("source_documentation_bundle_contract", ctx)
 
 
 if __name__ == "__main__":

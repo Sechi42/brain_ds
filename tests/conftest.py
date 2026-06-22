@@ -30,20 +30,55 @@ from tests.fixtures.delegation import FakeDelegator
 @pytest.fixture(autouse=True, scope="session")
 def _isolated_brain_ds_home():
     with tempfile.TemporaryDirectory() as home:
-        previous = os.environ.get("BRAIN_DS_HOME")
+        previous_home = os.environ.get("BRAIN_DS_HOME")
+        previous_guard = os.environ.get("BRAIN_DS_NO_SEED_REBUILD")
         os.environ["BRAIN_DS_HOME"] = home
+        # Tell build_synthetic_source() not to rewrite the checked-in seed for
+        # any call that omits a target — isolation tests depend on hash stability.
+        os.environ["BRAIN_DS_NO_SEED_REBUILD"] = "1"
         try:
             yield
         finally:
-            if previous is None:
+            if previous_home is None:
                 os.environ.pop("BRAIN_DS_HOME", None)
             else:
-                os.environ["BRAIN_DS_HOME"] = previous
+                os.environ["BRAIN_DS_HOME"] = previous_home
+            if previous_guard is None:
+                os.environ.pop("BRAIN_DS_NO_SEED_REBUILD", None)
+            else:
+                os.environ["BRAIN_DS_NO_SEED_REBUILD"] = previous_guard
 
 
 @pytest.fixture(scope="session")
 def synthetic_source_path() -> Path:
-    return build_synthetic_source()
+    """Return the checked-in seed path.
+
+    The seed file is read-only by contract — tests that need to write must use
+    `writable_synthetic_source_path` instead.  We verify the seed exists and is
+    valid but do NOT rebuild it here; that would mutate the tracked file and
+    break xdist-safe isolation.
+    """
+    from tests.fixtures.build_synthetic_source import FIXTURE_PATH
+
+    seed = FIXTURE_PATH.resolve()
+    if not seed.exists():
+        # Seed missing (e.g. first checkout without git-lfs) — rebuild once.
+        build_synthetic_source(target=seed)
+    return seed
+
+
+@pytest.fixture
+def writable_synthetic_source_path(tmp_path: Path, synthetic_source_path: Path) -> Path:
+    """Return a per-test writable copy of the seed SQLite fixture.
+
+    Each invocation creates a fresh copy inside pytest's `tmp_path` directory,
+    so tests that write to the DB cannot interfere with each other or with the
+    checked-in seed.  The copy is automatically cleaned up by pytest after the
+    test.
+    """
+    copy = tmp_path / "synthetic_source.db"
+    shutil.copy2(synthetic_source_path, copy)
+    return copy
 
 
 def _artifact_body(title: str, payload: dict) -> str:

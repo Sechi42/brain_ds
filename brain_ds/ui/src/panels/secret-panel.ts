@@ -9,6 +9,14 @@
 export interface SecretPanelDeps {
   graphId: string;
   apiBase?: string;
+  dataSources?: SecretBindableDataSource[];
+  onBound?: (sourceId: string, connection: Record<string, unknown>) => void;
+}
+
+export interface SecretBindableDataSource {
+  id: string;
+  label: string;
+  type: string;
 }
 
 interface SecretHandle {
@@ -57,6 +65,7 @@ let _listStatus: SecretListStatus = 'empty';
 let _listMessage = '';
 let _schema: SecretSchema | null = null;
 let _abort: AbortController | null = null;
+let _bindStatus: { handle: string; sourceId: string; ok: boolean; message: string } | null = null;
 
 // Ephemeral per-session probe status map: handle → badge state (not persisted)
 const _probeStatus: Map<string, { ok: boolean; message: string }> = new Map();
@@ -204,6 +213,47 @@ async function _probeSecret(handle: string): Promise<ProbeResult> {
   }
 }
 
+function _connectionDescriptorForSecret(handle: SecretHandle): Record<string, unknown> {
+  const descriptor: Record<string, unknown> = {
+    kind: handle.kind,
+    secret_handle: handle.handle,
+  };
+  if (handle.kind === 'aws-postgres') {
+    descriptor.database = handle.metadata.database;
+  }
+  if (handle.kind === 'aws-google-sheets') {
+    descriptor.spreadsheet_id = handle.metadata.spreadsheet_id;
+    descriptor.sheet_range = handle.metadata.sheet_range;
+  }
+  if (handle.kind === 'sqlite') {
+    descriptor.path = handle.metadata.path;
+  }
+  return descriptor;
+}
+
+async function _bindSecretToDataSource(handle: SecretHandle, sourceId: string): Promise<{ ok: boolean; message: string; connection?: Record<string, unknown> }> {
+  if (!_deps) return { ok: false, message: 'Panel no inicializado.' };
+  const descriptor = _connectionDescriptorForSecret(handle);
+  const url = `${_apiUrl('/nodes/')}${encodeURIComponent(sourceId)}`;
+  const changes = { details: { connection: descriptor } };
+  try {
+    const res = await fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph_id: _deps.graphId,
+        changes,
+      }),
+      signal: _abort?.signal ?? null,
+    });
+    if (!res.ok) return { ok: false, message: 'No se pudo vincular el secreto al Data Source.' };
+    _deps.onBound?.(sourceId, descriptor);
+    return { ok: true, message: 'Data Source now explorable.', connection: descriptor };
+  } catch (_e) {
+    return { ok: false, message: 'No se pudo vincular: error de red.' };
+  }
+}
+
 // ── Rendering ──────────────────────────────────────────────────────────────
 
 function _renderHeader(): HTMLElement {
@@ -263,6 +313,34 @@ function _renderProbeActions(handle: SecretHandle): string {
   `;
 }
 
+function _renderBindActions(handle: SecretHandle): string {
+  const dataSources = _deps?.dataSources ?? [];
+  if (!dataSources.length) return '';
+
+  const escapedHandle = _escapeHtml(handle.handle);
+  const selectId = `secret-bind-source-${escapedHandle}`;
+  const status = _bindStatus?.handle === handle.handle ? _bindStatus : null;
+  const options = dataSources
+    .map((source) => `<option value="${_escapeHtml(source.id)}">${_escapeHtml(source.label || source.id)}</option>`)
+    .join('');
+  const statusHtml = status
+    ? `<span class="secret-bind-badge ${status.ok ? 'secret-bind-badge--ok' : 'secret-bind-badge--error'}" role="status" aria-live="polite">${_escapeHtml(status.message)}</span>`
+    : '<span class="secret-bind-badge" role="status" aria-live="polite" hidden></span>';
+
+  return `
+    <div class="secret-bind-row">
+      <label class="secret-bind-label" for="${selectId}">Bind to Data Source</label>
+      <select id="${selectId}" class="secret-input secret-bind-select" data-bind-secret-handle="${escapedHandle}" aria-label="Data Source para ${escapedHandle}">
+        ${options}
+      </select>
+      <button type="button" class="secret-bind-btn pill-btn btn-outline" data-bind-secret-handle="${escapedHandle}" data-bind-source-id="" aria-label="Bind ${escapedHandle} to selected Data Source">
+        Bind to Data Source
+      </button>
+      ${statusHtml}
+    </div>
+  `;
+}
+
 function _renderList(): HTMLElement {
   const list = document.createElement('ul');
   list.className = 'secret-list';
@@ -291,6 +369,7 @@ function _renderList(): HTMLElement {
         </div>
       </details>
       ${_renderProbeActions(handle)}
+      ${_renderBindActions(handle)}
       <button type="button" class="secret-remove-btn" data-secret-handle="${_escapeHtml(handle.handle)}" aria-label="Eliminar secreto ${_escapeHtml(handle.handle)}">
         Eliminar
       </button>
@@ -502,6 +581,34 @@ function _renderPanel(): void {
     });
   });
 
+  _panelEl.querySelectorAll('.secret-bind-btn').forEach((btn) => {
+    const handleName = (btn as HTMLElement).getAttribute('data-bind-secret-handle');
+    const handle = _handles.find((item) => item.handle === handleName);
+    if (!handle) return;
+    _on(btn, 'click', async () => {
+      const bindBtn = btn as HTMLButtonElement;
+      const row = bindBtn.closest('.secret-bind-row');
+      const select = row?.querySelector('.secret-bind-select') as HTMLSelectElement | null;
+      const sourceId = select?.value || '';
+      bindBtn.setAttribute('data-bind-source-id', sourceId);
+      if (!sourceId) return;
+      bindBtn.disabled = true;
+      bindBtn.textContent = 'Vinculando…';
+      const result = await _bindSecretToDataSource(handle, sourceId);
+      _bindStatus = { handle: handle.handle, sourceId, ok: result.ok, message: result.message };
+      const badge = row?.querySelector<HTMLElement>('.secret-bind-badge');
+      if (badge) {
+        badge.hidden = false;
+        badge.className = result.ok
+          ? 'secret-bind-badge secret-bind-badge--ok'
+          : 'secret-bind-badge secret-bind-badge--error';
+        badge.textContent = result.message;
+      }
+      bindBtn.disabled = false;
+      bindBtn.textContent = 'Bind to Data Source';
+    });
+  });
+
   // Wire probe buttons — update badge in-place (no full re-render)
   _panelEl.querySelectorAll('.secret-probe-btn').forEach((btn) => {
     const handle = (btn as HTMLElement).getAttribute('data-probe-handle');
@@ -544,6 +651,7 @@ export async function mount(panelEl: HTMLElement, deps: SecretPanelDeps): Promis
   _listeners = [];
   _abort = new AbortController();
   _probeStatus.clear();
+  _bindStatus = null;
 
   _schema = await _loadSchema();
   await _loadHandles();
@@ -567,6 +675,7 @@ export async function mount(panelEl: HTMLElement, deps: SecretPanelDeps): Promis
       _listStatus = 'empty';
       _listMessage = '';
       _probeStatus.clear();
+      _bindStatus = null;
     },
   };
 }

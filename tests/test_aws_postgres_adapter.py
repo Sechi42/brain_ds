@@ -13,6 +13,7 @@ Design invariants verified:
 from __future__ import annotations
 
 import json
+import os
 import sys
 from unittest import mock
 
@@ -89,6 +90,9 @@ _VALID_METADATA = {
     "secret_id": "arn:aws:secretsmanager:us-east-2:123456789012:secret:prod/db",
     "database": "prod_app",  # handle metadata — the one source of truth
 }
+
+_LIVE_AWS_SECRET_ID = os.getenv("BRAINDS_POSTGRES_LIVE_SECRET_ID")
+_LIVE_POSTGRES_DATABASE = os.getenv("BRAINDS_POSTGRES_LIVE_DATABASE")
 
 
 # ---------------------------------------------------------------------------
@@ -448,3 +452,25 @@ class TestAwsPostgresAdapterRegistry:
 
         adapter = get_provider_adapter("aws-postgres")
         assert isinstance(adapter, AwsPostgresAdapter)
+
+
+@pytest.mark.postgres_live
+@pytest.mark.skipif(
+    not _LIVE_AWS_SECRET_ID or not _LIVE_POSTGRES_DATABASE,
+    reason="BRAINDS_POSTGRES_LIVE_SECRET_ID + BRAINDS_POSTGRES_LIVE_DATABASE not set",
+)
+def test_live_aws_postgres_adapter_resolve_and_connector_describe() -> None:
+    from brain_ds.connectors.postgres_connector import PostgresConnector
+    from brain_ds.connectors.secrets.providers.aws_postgres import AwsPostgresAdapter
+
+    metadata = {
+        "secret_id": _LIVE_AWS_SECRET_ID,
+        "database": _LIVE_POSTGRES_DATABASE,
+        "region": os.getenv("BRAINDS_POSTGRES_LIVE_REGION"),
+    }
+    params = AwsPostgresAdapter().resolve("live-postgres", metadata)
+    description = PostgresConnector(params).describe()
+
+    assert description["kind"] == "postgres"
+    assert description["database"] == _LIVE_POSTGRES_DATABASE
+    assert "password" not in description

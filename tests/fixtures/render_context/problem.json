@@ -27,6 +27,7 @@
           "dark": "#dc2626",
           "light": "#b91c1c"
         },
+        "connection": null,
         "id": "problem-1",
         "label": "Churn",
         "supertype": "problem",
@@ -58,6 +59,7 @@
           "dark": "#6b7280",
           "light": "#475569"
         },
+        "connection": null,
         "id": "problem-2",
         "label": "Unknown",
         "supertype": "problem",

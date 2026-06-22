@@ -8,9 +8,11 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 from brain_ds.harness_check import (
     check_agent_files,
+    check_deployed_skill_freshness,
     check_project_mcp_entries,
     check_skills_mirror,
     harness_check_main,
@@ -73,6 +75,49 @@ class HarnessCheckTests(unittest.TestCase):
         results = check_skills_mirror(self.project)
         self.assertEqual(results[0].status, "FAIL")
         self.assertIn("generate-brd", results[0].detail)
+
+    def test_deployed_skill_freshness_warns_when_deployed_copy_is_stale(self) -> None:
+        canonical = self.project / "skills" / "elicit-context"
+        deployed = self.tmp / "deployed-skills" / "elicit-context"
+        canonical.mkdir(parents=True)
+        deployed.mkdir(parents=True)
+        (canonical / "SKILL.md").write_text("repo string: SOURCE_DOCUMENTATION_BUNDLE_CONTRACT", encoding="utf-8")
+        (deployed / "SKILL.md").write_text("old deployed string", encoding="utf-8")
+
+        results = check_deployed_skill_freshness(self.project, deployed_skills_root=deployed.parent)
+
+        self.assertEqual(results[0].status, "WARNING")
+        self.assertEqual(results[0].name, "deployed-skill-freshness")
+        self.assertIn("elicit-context", results[0].detail)
+        self.assertIn("SOURCE_DOCUMENTATION_BUNDLE_CONTRACT", results[0].detail)
+
+    def test_harness_check_main_reports_warning_without_failing(self) -> None:
+        _write_json(
+            self.project / ".mcp.json",
+            {"mcpServers": {"brain_ds": {"args": ["mcp", "--project-root", "."]}}},
+        )
+        _write_json(
+            self.project / ".opencode" / "opencode.json",
+            {"mcp": {"brain_ds": {"command": ["exe", "mcp", "--project-root", "."]}}},
+        )
+        self._write_passing_agent_files(self.project)
+        canonical = self.project / "skills" / "map-connections"
+        mirror = self.project / ".opencode" / "skills" / "map-connections"
+        deployed = self.tmp / "deployed-skills" / "map-connections"
+        canonical.mkdir(parents=True)
+        mirror.mkdir(parents=True)
+        deployed.mkdir(parents=True)
+        (canonical / "SKILL.md").write_text("repo-only freshness marker", encoding="utf-8")
+        (mirror / "SKILL.md").write_text("repo-only freshness marker", encoding="utf-8")
+        (deployed / "SKILL.md").write_text("old marker", encoding="utf-8")
+
+        stdout = io.StringIO()
+        with patch.dict("os.environ", {"BRAIN_DS_OPENCODE_SKILLS_ROOT": str(deployed.parent)}):
+            with redirect_stdout(stdout):
+                exit_code = harness_check_main(self.project)
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("[WARNING] deployed-skill-freshness", stdout.getvalue())
 
     def _write_passing_agent_files(self, project_root: Path) -> None:
         """Write minimal passing agent .md files so check_agent_files returns PASS."""

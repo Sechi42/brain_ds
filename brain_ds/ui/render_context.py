@@ -290,13 +290,19 @@ def _build_detail_index(graph: Graph) -> tuple[dict[str, dict[str, Any]], dict[s
         outgoing_by_source[edge.source].append(relation)
         incoming_by_target[edge.target].append(relation)
 
+    # Build a lookup of child nodes grouped by parent_id for digest aggregation
+    children_by_parent: dict[str, list[Any]] = defaultdict(list)
+    for node in graph.nodes:
+        if node.id and node.parent_id:
+            children_by_parent[node.parent_id].append(node)
+
     detail_index: dict[str, dict[str, Any]] = {}
     for node in graph.nodes:
         if not node.id:
             continue
         entity_type = _entity_type(node.type)
 
-        detail_index[node.id] = {
+        entry: dict[str, Any] = {
             "node": {
                 "id": node.id,
                 "label": node.label or node.id,
@@ -307,6 +313,7 @@ def _build_detail_index(graph: Graph) -> tuple[dict[str, dict[str, Any]], dict[s
                     "dark": color_for_type(entity_type.value, "dark"),
                     "light": color_for_type(entity_type.value, "light"),
                 },
+                "connection": (node.details or {}).get("connection") if entity_type.value == "Data Source" else None,
             },
             "sections": _node_sections(node.details or {}, node.card_sections, entity_type),
             # Free-form per-node notes stored in details.notes (string).
@@ -324,6 +331,15 @@ def _build_detail_index(graph: Graph) -> tuple[dict[str, dict[str, Any]], dict[s
             },
             "editable_fields": node.editable_fields or [],
         }
+
+        # DDS-1/DDS-2: aggregate child table nodes into a documentation digest
+        # for Data Source nodes only. Child nodes are identified by parent_id.
+        if entity_type.value == "Data Source":
+            entry["documentation_digest"] = _build_documentation_digest(
+                node.id, children_by_parent, outgoing_by_source
+            )
+
+        detail_index[node.id] = entry
 
     return detail_index, evidence_records
 
@@ -405,6 +421,68 @@ def _node_sections(details: dict[str, Any], card_sections: list[Any] | None, ent
                 }
             )
     return fallback_sections
+
+
+def _build_documentation_digest(
+    source_id: str,
+    children_by_parent: dict[str, list[Any]],
+    outgoing_by_source: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    """DDS-1/DDS-2: Build a documentation digest for a Data Source node.
+
+    Aggregates child table-level nodes' card_sections to expose per-table
+    columns/fields markdown, relationships, risks, and schema_baseline status
+    in a single payload — enabling one-call agent answerability (DDS-5).
+    """
+    child_nodes = children_by_parent.get(source_id, [])
+
+    tables: list[dict[str, Any]] = []
+    for child in sorted(child_nodes, key=lambda n: (n.label or n.id or "").lower()):
+        sections = child.card_sections or []
+        columns_markdown = ""
+        section_list: list[dict[str, Any]] = []
+        for section in sorted(sections, key=lambda s: s.order):
+            section_list.append(
+                {
+                    "title": section.title,
+                    "content": section.content,
+                }
+            )
+            if section.title.strip().lower() in ("columns / fields", "columns/fields", "columns", "fields"):
+                columns_markdown = section.content or ""
+
+        child_details = child.details or {}
+        tables.append(
+            {
+                "node_id": child.id,
+                "label": child.label or child.id or "",
+                "sections": section_list,
+                "columns_markdown": columns_markdown,
+                "purpose": child_details.get("what", ""),
+                "owner": child_details.get("where", ""),
+                "refresh": child_details.get("learned", ""),
+                "schema_baseline_status": (
+                    "baseline-present"
+                    if isinstance(child_details.get("schema_baseline"), dict)
+                    else "no-baseline"
+                ),
+            }
+        )
+
+    # Collect outgoing relationships from the source node for the digest
+    relationships = [
+        {
+            "edge_label": rel["edge_label"],
+            "target_id": rel["target_id"],
+            "target_label": rel["target_label"],
+        }
+        for rel in outgoing_by_source.get(source_id, [])
+    ]
+
+    return {
+        "tables": tables,
+        "relationships": relationships,
+    }
 
 
 def _compute_components(graph: Graph) -> dict[str, int]:

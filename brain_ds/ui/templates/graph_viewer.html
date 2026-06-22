@@ -1511,12 +1511,26 @@
       .detail-section h3 { margin: 0; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); }
       .detail-section-heading { display: inline-flex; align-items: center; gap: 0.5rem; }
       .detail-score-chip { display: inline-flex; align-items: center; justify-self: start; background: var(--accent-mora-muted); color: var(--accent-mora); border-radius: 999px; padding: 0.15rem 0.5rem; font-size: 0.78rem; font-weight: 600; }
+      .detail-explorable-badge { display: inline-flex; align-items: center; justify-self: start; background: color-mix(in srgb, var(--status-active) 14%, transparent); color: var(--status-active); border-radius: 999px; padding: 0.15rem 0.5rem; font-size: 0.78rem; font-weight: 700; }
       .detail-ellipsis { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
       .relationship-group { border-top: 1px solid var(--border-subtle); padding-top: 0.5rem; }
       .relationship-group h4 { margin: 0 0 0.25rem; font-size: 0.8rem; color: var(--text-muted); }
       .relationship-list { margin: 0; padding-left: 1rem; display: grid; gap: 0.25rem; }
       .section--gap { border-style: dashed; }
       .section--gap p { color: var(--text-muted); font-style: italic; }
+      /* DDS-3: markdown table styles for rendered card_sections content */
+      .section-content .md-table { border-collapse: collapse; width: 100%; font-size: 0.82rem; margin: 0.4rem 0; }
+      .section-content .md-table th, .section-content .md-table td { border: 1px solid var(--border-subtle); padding: 0.25rem 0.45rem; text-align: left; }
+      .section-content .md-table th { background: var(--bg-panel-hover); font-weight: 600; color: var(--text-muted); }
+      .section-content .md-table tr:nth-child(even) td { background: color-mix(in srgb, var(--bg-panel) 60%, transparent); }
+      .section-content .md-code { background: var(--bg-sidebar); border-radius: 4px; padding: 0.4rem 0.6rem; font-size: 0.82rem; overflow-x: auto; }
+      .section-content p { margin: 0.2rem 0; }
+      .section-content ul, .section-content ol { margin: 0.2rem 0; padding-left: 1.2rem; }
+      /* DDS-1: documentation digest accordion for Data Source nodes */
+      .documentation-digest { margin-top: 0.5rem; }
+      .digest-table-entry { border-top: 1px solid var(--border-subtle); padding: 0.5rem 0; }
+      .digest-table-label { font-size: 0.82rem; font-weight: 600; color: var(--text-bright); margin-bottom: 0.3rem; }
+      .digest-columns { font-size: 0.8rem; }
       .relationship-reasons, .relationship-evidence { margin: 0.25rem 0 0; color: var(--text-muted); font-size: 0.8rem; }
       .evidence-list { display: grid; gap: 0.5rem; }
       .evidence-item { border: 1px solid var(--border-subtle); border-radius: var(--radius-ui); background: var(--bg-main); }
@@ -1863,6 +1877,29 @@
         background: color-mix(in srgb, var(--status-active) 12%, transparent);
       }
       .secret-probe-badge--error {
+        color: var(--status-danger, var(--danger));
+        background: color-mix(in srgb, var(--status-danger, var(--danger)) 12%, transparent);
+      }
+      .secret-bind-row {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0.4rem;
+        padding-top: 0.35rem;
+      }
+      .secret-bind-label { font-size: 0.78rem; color: var(--text-muted); }
+      .secret-bind-select { min-height: 36px; }
+      .secret-bind-btn { justify-self: start; min-height: 36px; font-size: 0.78rem; }
+      .secret-bind-badge {
+        justify-self: start;
+        font-size: 0.78rem;
+        padding: 0.1rem 0.5rem;
+        border-radius: var(--radius-full, 9999px);
+      }
+      .secret-bind-badge--ok {
+        color: var(--status-active);
+        background: color-mix(in srgb, var(--status-active) 12%, transparent);
+      }
+      .secret-bind-badge--error {
         color: var(--status-danger, var(--danger));
         background: color-mix(in srgb, var(--status-danger, var(--danger)) 12%, transparent);
       }
@@ -5820,8 +5857,24 @@
           if (!window.brainDsUI || !window.brainDsUI.secretPanel) return;
           secretMounted = true;
           const secretGraphId = (meta && meta.graph_id) ? String(meta.graph_id) : '';
+          const live = (typeof liveDataStore !== 'undefined' && liveDataStore) ? liveDataStore : null;
+          const secretNodes = live ? live.getNodes() : ((RENDER_CONTEXT && RENDER_CONTEXT.nodes) ? RENDER_CONTEXT.nodes : []);
+          const secretDetailIndex = live ? live.getDetailIndex() : ((RENDER_CONTEXT && RENDER_CONTEXT.detail_index) ? RENDER_CONTEXT.detail_index : {});
+          const secretDataSources = secretNodes
+            .filter((node) => node && node.type === 'Data Source')
+            .map((node) => ({ id: String(node.id), label: String(node.label || node.id), type: String(node.type) }));
           secretPanelHandle = await window.brainDsUI.secretPanel.mount(secretPanelEl, {
             graphId: secretGraphId,
+            dataSources: secretDataSources,
+            onBound: (sourceId, connection) => {
+              if (secretDetailIndex && secretDetailIndex[sourceId] && secretDetailIndex[sourceId].node) {
+                secretDetailIndex[sourceId].node.connection = connection;
+              }
+              if (window.brainDsUI && window.brainDsUI.detailPanel) {
+                const selected = window.brainDsUI.detailPanel.getSelectedNodeId && window.brainDsUI.detailPanel.getSelectedNodeId();
+                if (selected === sourceId) window.brainDsUI.detailPanel.renderDetailPanel(sourceId);
+              }
+            },
           });
         };
 

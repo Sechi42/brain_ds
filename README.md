@@ -198,3 +198,21 @@ Then open your client in this repo and confirm `/mcp` shows `brain_ds` connected
 | `uv run mypy brain_ds tests` | Python typing |
 | `pnpm --dir brain_ds/ui exec playwright test` | UI E2E |
 | `cargo test --manifest-path src-tauri/Cargo.toml` | Rust tests |
+
+## Test profiles
+
+Use named profiles for fast feedback during development and full gates at merge:
+
+| Profile | Command | When |
+|---------|---------|------|
+| `fast` | `uv run python scripts/test_profiles.py fast` | TDD loops; PR-slice verify on unit-only changes (< 20 s) |
+| `changed` | `uv run python scripts/test_profiles.py changed` | Focused verify for changed modules; auto-escalates for global files |
+| `full` | `uv run python scripts/test_profiles.py full` | Merge gates, config/global changes, archive step (~135 s) |
+| `live` | `uv run python scripts/test_profiles.py live` | Final acceptance requiring live external services |
+| `e2e` | `uv run python scripts/test_profiles.py e2e` | Playwright UI end-to-end tests |
+
+Each profile prints a skip report at exit (`skipped: <layers>`) so SDD verify
+reports can name every layer that was deferred.  See `CONTRIBUTING.md` for
+marker definitions, profile selection policy, direct pytest equivalents, and
+parallelization conventions (`-n auto` / `-n 4` are supported and safe —
+fixtures are isolated and the seed DB is immutable).

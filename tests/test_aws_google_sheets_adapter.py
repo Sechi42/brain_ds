@@ -13,6 +13,7 @@ Design invariants verified:
 from __future__ import annotations
 
 import json
+import os
 import sys
 import types
 import unittest
@@ -92,6 +93,27 @@ _VALID_METADATA: dict = {
     "sheet_range": "Sheet1!A1:Z100",
     "region": "us-east-2",
 }
+
+_LIVE_GSHEETS_AWS_SECRET_ID = os.getenv("BRAINDS_GSHEETS_LIVE_ARN")
+
+
+@pytest.mark.gsheets_live
+@pytest.mark.skipif(
+    not _LIVE_GSHEETS_AWS_SECRET_ID,
+    reason="BRAINDS_GSHEETS_LIVE_ARN not set — skip live AWS Google Sheets adapter resolve",
+)
+def test_live_aws_google_sheets_adapter_resolve_skips_without_credentials() -> None:
+    from brain_ds.connectors.secrets.providers.aws_google_sheets import AwsGoogleSheetsAdapter
+
+    metadata = {
+        "secret_id": _LIVE_GSHEETS_AWS_SECRET_ID,
+        "spreadsheet_id": os.getenv("BRAINDS_GSHEETS_LIVE_SPREADSHEET_ID", "placeholder"),
+        "sheet_range": os.getenv("BRAINDS_GSHEETS_LIVE_SHEET_RANGE", "Sheet1!A1:Z"),
+    }
+    result = AwsGoogleSheetsAdapter().resolve("live-gsheets", metadata)
+
+    assert result["spreadsheet_id"] == metadata["spreadsheet_id"]
+    assert "service_account_info" in result
 
 
 # ---------------------------------------------------------------------------

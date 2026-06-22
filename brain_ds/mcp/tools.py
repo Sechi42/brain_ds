@@ -57,6 +57,22 @@ def _receipt_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+_DEFAULT_LIST_LIMIT = 50
+_MAX_LIST_LIMIT = 200
+
+
+def _pagination_params(params: dict[str, Any]) -> tuple[int, int, bool]:
+    limit = int(params.get("limit") or _DEFAULT_LIST_LIMIT)
+    offset = int(params.get("offset") or 0)
+    return min(max(limit, 1), _MAX_LIST_LIMIT), max(offset, 0), bool(params.get("compact", False))
+
+
+def _page(items: list[dict[str, Any]], *, limit: int, offset: int) -> tuple[list[dict[str, Any]], int | None]:
+    page = items[offset: offset + limit]
+    next_offset = offset + limit if offset + limit < len(items) else None
+    return page, next_offset
+
+
 def _project_root_from_store_path(store_path: str) -> Path:
     path = Path(store_path)
     if path.parent.name == ".brain_ds":
@@ -108,27 +124,29 @@ def _load_secret_catalog(store: GraphStore) -> SecretCatalog:
 @error_boundary
 def list_secret_handles(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     """List workspace secret handles and redacted metadata (admin only)."""
-    validate_tool_input("list_secret_handles", params, TOOL_SCHEMAS["list_secret_handles"])
+    validated = validate_tool_input("list_secret_handles", params, TOOL_SCHEMAS["list_secret_handles"])
     try:
         is_workspace_admin(params)
     except SecurityError:
         store.log_audit("list_secret_handles", params, "error")
         raise
     catalog = _load_secret_catalog(store)
+    limit, offset, compact = _pagination_params(validated)
 
     handles = []
     for entry in catalog.list_handles():
-        handles.append(
-            {
+        item = {
                 "handle": entry.handle,
                 "kind": entry.kind,
                 "created_at": entry.created_at,
-                "metadata": redact_secrets(entry.metadata),
             }
-        )
+        if not compact:
+            item["metadata"] = redact_secrets(entry.metadata)
+        handles.append(item)
 
     store.log_audit("list_secret_handles", params, "ok")
-    return {"handles": handles}
+    page, next_offset = _page(handles, limit=limit, offset=offset)
+    return {"handles": page, "total": len(handles), "limit": limit, "offset": offset, "next_offset": next_offset}
 
 
 @error_boundary
@@ -679,7 +697,8 @@ def assess_completeness(store: GraphStore, params: dict[str, Any]) -> dict[str, 
 
 @error_boundary
 def list_workspaces(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
-    validate_tool_input("list_workspaces", params, TOOL_SCHEMAS["list_workspaces"])
+    validated = validate_tool_input("list_workspaces", params, TOOL_SCHEMAS["list_workspaces"])
+    limit, offset, compact = _pagination_params(validated)
     active_root = _project_root_from_store_path(store.path).resolve()
     active_key = workspace_registry.normalize_root(active_root)
 
@@ -688,12 +707,20 @@ def list_workspaces(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]
     for entry in workspace_registry.list_workspaces():
         is_active = workspace_registry.normalize_root(entry["path"]) == active_key
         active_registered = active_registered or is_active
-        entries.append({**entry, "active": is_active})
+        item = {"path": entry["path"], "name": entry.get("name", ""), "active": is_active}
+        if not compact:
+            item = {**entry, "active": is_active}
+        entries.append(item)
+    page, next_offset = _page(entries, limit=limit, offset=offset)
 
     return {
         "active_project_root": str(active_root),
         "active_registered": active_registered,
-        "workspaces": entries,
+        "workspaces": page,
+        "total": len(entries),
+        "limit": limit,
+        "offset": offset,
+        "next_offset": next_offset,
     }
 
 
@@ -712,7 +739,9 @@ def open_workspace(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
 def run_elicit(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     validate_tool_input("run_elicit", params, TOOL_SCHEMAS["run_elicit"])
     payload = grounding.elicit_context()
-    payload["workspace"] = grounding.build_workspace_context(store)
+    workspace = grounding.build_workspace_context(store)
+    payload["workspace"] = workspace
+    grounding.apply_documentation_language(payload, workspace)
     return payload
 
 
@@ -720,7 +749,9 @@ def run_elicit(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
 def map_connections(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     validate_tool_input("map_connections", params, TOOL_SCHEMAS["map_connections"])
     payload = grounding.map_connections_context()
-    payload["workspace"] = grounding.build_workspace_context(store)
+    workspace = grounding.build_workspace_context(store)
+    payload["workspace"] = workspace
+    grounding.apply_documentation_language(payload, workspace)
     return payload
 
 
@@ -728,7 +759,9 @@ def map_connections(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]
 def generate_brd(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     validate_tool_input("generate_brd", params, TOOL_SCHEMAS["generate_brd"])
     payload = grounding.generate_brd_context()
-    payload["workspace"] = grounding.build_workspace_context(store)
+    workspace = grounding.build_workspace_context(store)
+    payload["workspace"] = workspace
+    grounding.apply_documentation_language(payload, workspace)
     return payload
 
 
@@ -938,6 +971,7 @@ def list_source_connections(store: GraphStore, params: dict[str, Any]) -> list[d
             return []
 
         graph_ids = [validated["graph_id"]] if validated.get("graph_id") else all_graphs
+        limit, offset, compact = _pagination_params(validated)
         result: list[dict[str, Any]] = []
 
         for gid in graph_ids:
@@ -949,22 +983,125 @@ def list_source_connections(store: GraphStore, params: dict[str, Any]) -> list[d
                 details = row.details or {}
                 connection = details.get("connection")
                 if connection and isinstance(connection, dict):
-                    result.append({
+                    item = {
                         "graph_id": gid,
                         "node_id": row.id,
                         "label": row.label,
-                        "connection": redact_secrets(connection),
-                    })
+                    }
+                    if not compact:
+                        item["connection"] = redact_secrets(connection)
+                    result.append(item)
     except Exception as exc:
         raise ValidationError(code=-32000, message=str(exc)) from exc
 
-    return result
+    page, next_offset = _page(result, limit=limit, offset=offset)
+    return {"connections": page, "total": len(result), "limit": limit, "offset": offset, "next_offset": next_offset}
+
+
+def _build_doc_bundle(store: GraphStore, graph_id: str, node_id: str) -> dict[str, Any]:
+    """DDS-4/DDS-5: Build a joined documentation bundle from child table nodes.
+
+    Returns a compact bundle with per-table columns/fields markdown, sections,
+    relationships, and schema_baseline status — no connector needed, no raw FS.
+    """
+    try:
+        all_nodes = store.query_nodes(graph_id)
+    except Exception as exc:
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+
+    node_lookup = {n.id: n for n in all_nodes if n.id}
+    source_node = node_lookup.get(node_id)
+    if source_node is None:
+        raise ValidationError(code=-32000, message=f"Node '{node_id}' not found in graph '{graph_id}'")
+
+    # Collect child nodes (table-level) by parent_id
+    child_nodes = sorted(
+        [n for n in all_nodes if n.parent_id == node_id],
+        key=lambda n: (n.label or n.id or "").lower(),
+    )
+
+    tables: list[dict[str, Any]] = []
+    for child in child_nodes:
+        sections = child.card_sections or []
+        columns_markdown = ""
+        section_list: list[dict[str, Any]] = []
+
+        def _section_order(s: Any) -> int:
+            if isinstance(s, dict):
+                return int(s.get("order", 0))
+            return int(getattr(s, "order", 0))
+
+        def _section_field(s: Any, field: str) -> str:
+            if isinstance(s, dict):
+                return str(s.get(field) or "")
+            return str(getattr(s, field, "") or "")
+
+        for section in sorted(sections, key=_section_order):
+            title = _section_field(section, "title")
+            content = _section_field(section, "content")
+            section_list.append({"title": title, "content": content})
+            title_norm = title.strip().lower()
+            if title_norm in ("columns / fields", "columns/fields", "columns", "fields"):
+                columns_markdown = content
+
+        child_details = child.details or {}
+        tables.append(
+            {
+                "node_id": child.id,
+                "label": child.label or child.id or "",
+                "sections": section_list,
+                "columns_markdown": columns_markdown,
+                "purpose": child_details.get("what", ""),
+                "owner": child_details.get("where", ""),
+                "refresh": child_details.get("learned", ""),
+                "schema_baseline_status": (
+                    "baseline-present"
+                    if isinstance(child_details.get("schema_baseline"), dict)
+                    else "no-baseline"
+                ),
+            }
+        )
+
+    # Collect edges incident to source node for relationships summary
+    try:
+        all_edges = store.query_edges(graph_id)
+    except Exception:
+        all_edges = []
+
+    relationships: list[dict[str, Any]] = []
+    for edge in all_edges:
+        if edge.source == node_id or edge.target == node_id:
+            other_id = edge.target if edge.source == node_id else edge.source
+            other_node = node_lookup.get(other_id)
+            relationships.append(
+                {
+                    "edge_label": edge.label or "",
+                    "source_id": edge.source,
+                    "target_id": edge.target,
+                    "other_id": other_id,
+                    "other_label": other_node.label if other_node else other_id,
+                }
+            )
+
+    source_details = source_node.details or {}
+    return {
+        "level": "documentation",
+        "graph_id": graph_id,
+        "source": {
+            "node_id": node_id,
+            "label": source_node.label or node_id,
+            "schema_baseline": source_details.get("schema_baseline"),
+        },
+        "tables": tables,
+        "relationships": relationships,
+    }
 
 
 @error_boundary
 def explore_source(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     """Explore a connected data source by dispatching to the right connector.
 
+    - level='documentation': returns joined doc bundle from child nodes (no connector needed)
     - No container/table args: describe + list_containers
     - container only: list_tables(container)
     - container + table: schema + 5-row preview
@@ -974,6 +1111,12 @@ def explore_source(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     node_id = validated["node_id"]
     container = validated.get("container")
     table = validated.get("table")
+    level = validated.get("level")
+
+    # DDS-4: documentation level is handled before connector resolution —
+    # it reads child nodes from the graph store (no raw FS, no connector).
+    if level == "documentation":
+        return _build_doc_bundle(store, graph_id, node_id)
 
     # Get the raw (unredacted) connection descriptor — _resolve_connector needs
     # the real secret_handle value for aws-postgres dispatch. The connector

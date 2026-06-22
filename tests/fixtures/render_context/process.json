@@ -27,6 +27,7 @@
           "dark": "#4f46e5",
           "light": "#4338ca"
         },
+        "connection": null,
         "id": "process-1",
         "label": "Sprint",
         "supertype": "process",
@@ -58,6 +59,7 @@
           "dark": "#0f766e",
           "light": "#0f766e"
         },
+        "connection": null,
         "id": "process-2",
         "label": "Decision",
         "supertype": "process",

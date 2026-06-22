@@ -183,6 +183,17 @@ class TestDetailPanelContentExtraction(unittest.TestCase):
             "detail-panel.ts must contain collapse/expand logic",
         )
 
+    def test_data_source_connection_renders_now_explorable_badge(self):
+        """A Data Source with details.connection must show an explicit explorable state."""
+        self._require()
+        for token in (
+            "detail-explorable-badge",
+            "now explorable",
+            "connection",
+            "role", "status",
+        ):
+            self.assertIn(token, self.text)
+
 
 # ---------------------------------------------------------------------------
 # 3. Wiring — main.ts exposes the module on window.brainDsUI
@@ -456,6 +467,60 @@ class TestCardAccentProperty(unittest.TestCase):
             2,
             f"setProperty('--card-accent', ...) must appear at least 2 times; found {count}",
         )
+
+
+class TestMarkdownMiniModule(unittest.TestCase):
+    """DDS-3: markdown-mini.ts must export renderMarkdown used in detail-panel."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mm_path = PANELS_DIR / "markdown-mini.ts"
+        cls.mm_exists = cls.mm_path.exists()
+        cls.mm_text = cls.mm_path.read_text(encoding="utf-8") if cls.mm_exists else ""
+        cls.dp_path = PANELS_DIR / "detail-panel.ts"
+        cls.dp_exists = cls.dp_path.exists()
+        cls.dp_text = cls.dp_path.read_text(encoding="utf-8") if cls.dp_exists else ""
+
+    def test_markdown_mini_exports_renderMarkdown(self):
+        """markdown-mini.ts must export renderMarkdown function."""
+        self.assertTrue(self.mm_exists, "markdown-mini.ts must exist")
+        self.assertIn("export function renderMarkdown", self.mm_text)
+
+    def test_markdown_mini_renders_pipe_tables(self):
+        """DDS-S2: pipe tables must produce <table> output, not raw | characters."""
+        self.assertTrue(self.mm_exists, "markdown-mini.ts must exist")
+        self.assertIn("md-table", self.mm_text, "renderMarkdown must produce md-table class tables")
+        self.assertIn("<table", self.mm_text)
+
+    def test_detail_panel_imports_renderMarkdown(self):
+        """detail-panel.ts must import renderMarkdown from markdown-mini."""
+        self.assertTrue(self.dp_exists, "detail-panel.ts must exist")
+        self.assertRegex(
+            self.dp_text,
+            r"import\s+.*renderMarkdown.*from.*markdown-mini",
+            "detail-panel.ts must import renderMarkdown from markdown-mini",
+        )
+
+    def test_detail_panel_uses_renderMarkdown_for_read_only_content(self):
+        """DDS-3: read-only section content must go through renderMarkdown (innerHTML), not textContent."""
+        self.assertTrue(self.dp_exists, "detail-panel.ts must exist")
+        self.assertIn(
+            "renderMarkdown",
+            self.dp_text,
+            "detail-panel.ts must call renderMarkdown for section content",
+        )
+        # The read-only div must use innerHTML to render markdown
+        self.assertIn(
+            "innerHTML",
+            self.dp_text,
+            "detail-panel.ts must set innerHTML (not textContent) for rendered markdown sections",
+        )
+
+    def test_detail_panel_edit_mode_still_uses_textarea(self):
+        """DDS-3: edit source must remain a textarea (plain markdown), not rendered HTML."""
+        self.assertTrue(self.dp_exists, "detail-panel.ts must exist")
+        self.assertIn("textarea", self.dp_text)
+        self.assertIn("textarea.value", self.dp_text)
 
 
 if __name__ == "__main__":

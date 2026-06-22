@@ -27,6 +27,7 @@
           "dark": "#2563eb",
           "light": "#1d4ed8"
         },
+        "connection": null,
         "id": "actor-1",
         "label": "Ops",
         "supertype": "actor",
@@ -58,6 +59,7 @@
           "dark": "#16a34a",
           "light": "#166534"
         },
+        "connection": null,
         "id": "actor-2",
         "label": "Lead",
         "supertype": "actor",

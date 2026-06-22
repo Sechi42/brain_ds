@@ -61,6 +61,7 @@ dev = [
     "mypy>=2.1.0",
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
+    "pytest-xdist>=3.6",
     "ruff>=0.15.16",
 ]
 
@@ -78,8 +79,15 @@ pythonpath = ["."]
 testpaths = ["tests"]
 addopts = ["-ra"]
 markers = [
+    "slow: tests that are intentionally slow (excluded from the fast profile)",
+    "integration: tests that cross module/process boundaries (excluded from the fast profile)",
+    "live: tests that require live external services (excluded from fast/full profiles)",
+    "e2e: end-to-end UI/Playwright tests (excluded from all Python profiles)",
     "postgres_live: live PostgreSQL integration tests (requires psycopg + reachable Postgres)",
     "gsheets_live: live Google Sheets integration tests (requires BRAINDS_GSHEETS_LIVE_ARN env var + real SA)",
+]
+filterwarnings = [
+    "error::pytest.PytestUnknownMarkWarning",
 ]
 
 [tool.coverage.run]

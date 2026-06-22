@@ -27,6 +27,7 @@
           "dark": "#b91c1c",
           "light": "#991b1b"
         },
+        "connection": null,
         "id": "risk-1",
         "label": "Outage",
         "supertype": "risk",
@@ -58,6 +59,7 @@
           "dark": "#0f766e",
           "light": "#0f766e"
         },
+        "connection": null,
         "id": "risk-2",
         "label": "Mitigation",
         "supertype": "process",

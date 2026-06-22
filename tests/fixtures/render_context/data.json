@@ -10,6 +10,16 @@
   "contract_version": "1.0.0",
   "detail_index": {
     "data-1": {
+      "documentation_digest": {
+        "relationships": [
+          {
+            "edge_label": "shared-with",
+            "target_id": "data-2",
+            "target_label": "Tacit"
+          }
+        ],
+        "tables": []
+      },
       "editable_fields": [],
       "evidence": [
         {
@@ -27,6 +37,7 @@
           "dark": "#7c3aed",
           "light": "#6d28d9"
         },
+        "connection": null,
         "id": "data-1",
         "label": "CRM",
         "supertype": "data",
@@ -58,6 +69,7 @@
           "dark": "#0ea5e9",
           "light": "#0e7490"
         },
+        "connection": null,
         "id": "data-2",
         "label": "Tacit",
         "supertype": "data",

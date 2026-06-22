@@ -73,6 +73,21 @@ def _save_registry(payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def _prune_registry(payload: dict[str, Any]) -> dict[str, Any]:
+    latest_by_key: dict[str, dict[str, Any]] = {}
+    for entry in payload.get("workspaces", []):
+        raw_path = str(entry.get("path", ""))
+        if not raw_path:
+            continue
+        root = Path(raw_path)
+        if not root.exists():
+            continue
+        latest_by_key[normalize_root(root)] = entry
+    pruned = _empty_registry()
+    pruned["workspaces"] = list(latest_by_key.values())
+    return pruned
+
+
 def _workspace_store_path(root: str | Path) -> Path:
     return Path(root).resolve() / ".brain_ds" / "store.db"
 
@@ -157,9 +172,13 @@ def delete_workspace_store(root: str | Path, *, confirm_token: str | None) -> No
 
 
 def list_workspaces() -> list[dict[str, Any]]:
-    """All registered workspaces with a live `store_exists` flag (no pruning)."""
+    """All registered workspaces with a live `store_exists` flag, pruning dead duplicates."""
+    payload = _load_registry()
+    pruned = _prune_registry(payload)
+    if pruned != payload:
+        _save_registry(pruned)
     entries: list[dict[str, Any]] = []
-    for entry in _load_registry()["workspaces"]:
+    for entry in pruned["workspaces"]:
         raw_path = str(entry.get("path", ""))
         store_exists = bool(raw_path) and (Path(raw_path) / ".brain_ds" / "store.db").exists()
         entries.append({**entry, "store_exists": store_exists})

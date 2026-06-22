@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 from typing import Any, cast
+from unittest.mock import patch
 
 from brain_ds.ontology.entity_types import EntityType
 from brain_ds.ontology.relationship_types import RelationshipType
@@ -16,6 +17,7 @@ from brain_ds.mcp.grounding import (
     NODE_WRITE_TEMPLATES,
     CONNECTION_RULES,
     SECRET_CONNECTION_RULES,
+    DOCUMENTATION_LANGUAGE,
     BRD_SECTION_ORDER,
     SECTION_RULES,
     COMPLETENESS_MATRIX_TEMPLATE,
@@ -27,10 +29,20 @@ from brain_ds.mcp.grounding import (
     build_base_weights,
     build_relationship_labels,
     build_scoring_factors,
+    build_workspace_context,
+    apply_documentation_language,
     elicit_context,
     map_connections_context,
     generate_brd_context,
 )
+
+
+class _WorkspaceStoreStub:
+    def __init__(self, path: str) -> None:
+        self.path = path
+
+    def list_graphs(self) -> list[Any]:
+        return []
 
 
 class TestCat1Builders(unittest.TestCase):
@@ -121,7 +133,7 @@ class TestCat2Accessors(unittest.TestCase):
 class TestComposerReturnShapes(unittest.TestCase):
     """Task 1.5 — composer return-shape tests."""
 
-    def test_elicit_context_has_all_17_keys_legacy(self) -> None:
+    def test_elicit_context_has_all_18_keys_legacy(self) -> None:
         result = elicit_context()
         expected_keys = {
             "entity_types",
@@ -141,6 +153,7 @@ class TestComposerReturnShapes(unittest.TestCase):
             "artifact_contract",
             "deliverable_contract",
             "secret_connection_rules",
+            "source_documentation_bundle_contract",
         }
         self.assertEqual(set(result.keys()), expected_keys)
 
@@ -159,7 +172,7 @@ class TestComposerReturnShapes(unittest.TestCase):
         self.assertNotIn("topic_key_format", result)
         self.assertNotIn("mem_save_templates", result)
 
-    def test_map_connections_context_has_14_keys_legacy(self) -> None:
+    def test_map_connections_context_has_15_keys_legacy(self) -> None:
         result = map_connections_context()
         expected_keys = {
             "entity_types",
@@ -176,6 +189,7 @@ class TestComposerReturnShapes(unittest.TestCase):
             "intake_paths",
             "artifact_contract",
             "secret_connection_rules",
+            "source_documentation_bundle_contract",
         }
         self.assertEqual(set(result.keys()), expected_keys)
 
@@ -269,24 +283,65 @@ class TestComposerReturnShapes(unittest.TestCase):
 
     # T1-3/T1-4/T1-8: bump key counts 14→16, 12→13, 10→11 (artifact_contract + deliverable_contract injected)
     # PR4-T1: counts bumped again 16→17, 13→14, 11→12 (secret_connection_rules injected)
-    def test_elicit_context_has_all_17_keys(self) -> None:
+    # PR3-DDS-7: counts bumped 17→18, 14→15 (source_documentation_bundle_contract injected)
+    def test_elicit_context_has_all_18_keys(self) -> None:
         result = elicit_context()
         self.assertIn("artifact_contract", result)
         self.assertIn("deliverable_contract", result)
         self.assertIn("secret_connection_rules", result)
-        self.assertEqual(len(result), 17)
+        self.assertIn("source_documentation_bundle_contract", result)
+        self.assertEqual(len(result), 18)
 
-    def test_map_connections_context_has_14_keys(self) -> None:
+    def test_map_connections_context_has_15_keys(self) -> None:
         result = map_connections_context()
         self.assertIn("artifact_contract", result)
         self.assertIn("secret_connection_rules", result)
-        self.assertEqual(len(result), 14)
+        self.assertIn("source_documentation_bundle_contract", result)
+        self.assertEqual(len(result), 15)
 
     def test_generate_brd_context_has_12_keys(self) -> None:
         result = generate_brd_context()
         self.assertIn("artifact_contract", result)
         self.assertIn("secret_connection_rules", result)
         self.assertEqual(len(result), 12)
+
+    def test_workspace_context_defaults_documentation_language_to_english(self) -> None:
+        store = _WorkspaceStoreStub(str(Path.cwd() / ".brain_ds" / "store.db"))
+        with patch("brain_ds.mcp.grounding.workspace_registry.find_workspace", return_value=None):
+            result = build_workspace_context(store)
+        self.assertEqual(result["documentation_language"], "en")
+        self.assertEqual(result["documentation_language_contract"], DOCUMENTATION_LANGUAGE["en"])
+
+    def test_workspace_context_reads_configured_spanish_documentation_language(self) -> None:
+        store = _WorkspaceStoreStub(str(Path.cwd() / ".brain_ds" / "store.db"))
+        with patch(
+            "brain_ds.mcp.grounding.workspace_registry.find_workspace",
+            return_value={"documentation_language": "es"},
+        ):
+            result = build_workspace_context(store)
+        self.assertEqual(result["documentation_language"], "es")
+        contract = cast(dict[str, Any], result["documentation_language_contract"])
+        self.assertIn("Redactá", " ".join(cast(list[str], contract["directives"])))
+
+    def test_documentation_language_is_injected_into_all_grounding_payloads(self) -> None:
+        workspace: dict[str, object] = {
+            "documentation_language": "es",
+            "documentation_language_contract": DOCUMENTATION_LANGUAGE["es"],
+        }
+        for payload in (elicit_context(), map_connections_context(), generate_brd_context()):
+            with self.subTest(keys=sorted(payload)):
+                result = apply_documentation_language(payload, workspace)
+                self.assertEqual(result["documentation_language"], "es")
+                contract = cast(dict[str, Any], result["documentation_language_contract"])
+                self.assertIn("Idioma", contract["label"])
+
+    def test_workspace_protocol_forbids_raw_fs_reads_outside_active_root(self) -> None:
+        from brain_ds.mcp.grounding import WORKSPACE_PROTOCOL
+
+        protocol_text = " ".join(cast(str, value) for value in WORKSPACE_PROTOCOL.values())
+        self.assertIn("raw filesystem", protocol_text)
+        self.assertIn("outside active_project_root", protocol_text)
+        self.assertIn(".brain_ds/secrets.json", protocol_text)
 
 
 class TestArtifactContract(unittest.TestCase):
@@ -348,6 +403,11 @@ class TestSecretConnectionRules(unittest.TestCase):
         self.assertIn("list_secret_handles", SECRET_CONNECTION_RULES)
         # Rule must forbid it (keyword "NEVER" or "NOT" or "admin-only" nearby)
         self.assertIn("NEVER", SECRET_CONNECTION_RULES.upper())
+
+    def test_secret_connection_rules_are_explicitly_grounding_first(self) -> None:
+        """Agents must consult grounding rules before admin-only secret tools."""
+        self.assertIn("grounding-first", SECRET_CONNECTION_RULES)
+        self.assertIn("Call a grounding context tool first", SECRET_CONNECTION_RULES)
 
     def test_secret_connection_rules_teaches_list_source_connections(self) -> None:
         """Must teach list_source_connections as the discovery step."""

@@ -175,6 +175,28 @@ The `details` object feeds `card_sections` generation. Keep each field under 3 s
 4. Ownership & process (owner, cadence, review cycle).
 5. Quality & risks (known issues, gaps, caveats) — only when relevant.
 
+## Documentation Bundle — One-Call Discoverability
+
+To answer "what columns does table T have?" in a single MCP call — no raw filesystem
+reads, no chain of `get_node` calls — use `explore_source` with `level="documentation"`:
+
+```jsonc
+// Single call: returns joined doc bundle for a Data Source node
+explore_source({
+  "graph_id": "<graph-id>",
+  "node_id": "<datasource-node-id>",
+  "level": "documentation"
+})
+// → { level: "documentation", source: {...}, tables: [{node_id, label, columns_markdown, sections, ...}], relationships: [...] }
+```
+
+Rules:
+- `tables[].columns_markdown` is the pipe-table markdown from the `Columns / Fields` card section.
+- No connector is required — reads child nodes from the graph store only.
+- Tool count stays 24: `level="documentation"` extends the existing `explore_source` tool.
+- After using this bundle to document a table, write the baseline back via `update_node`
+  under `details.schema_baseline` as described in the Change Detection section above.
+
 ## Commands
 
 ```bash

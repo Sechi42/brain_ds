@@ -171,6 +171,48 @@ class TestApiLive(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_patch_node_sets_data_source_connection_without_dropping_existing_details(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = GraphStore(str(root / "store.db"), allow_cross_thread=True)
+            try:
+                _seed_graph(store, graph_id="g-bind")
+                store.upsert_node(
+                    "g-bind",
+                    {
+                        "id": "source-1",
+                        "label": "Warehouse",
+                        "type": "Data Source",
+                        "details": {"what": "orders warehouse", "owner": "Data"},
+                    },
+                )
+                app = create_app(project_root=root, store=store)
+
+                with TestClient(app) as client:
+                    response = client.patch(
+                        "/api/nodes/source-1",
+                        json={
+                            "graph_id": "g-bind",
+                            "changes": {
+                                "details": {
+                                    "connection": {
+                                        "kind": "aws-postgres",
+                                        "secret_handle": "warehouse/prod",
+                                        "database": "orders",
+                                    }
+                                }
+                            },
+                        },
+                    )
+
+                    self.assertEqual(response.status_code, 200)
+                    details = response.json()["node"]["details"]
+                    self.assertEqual(details["what"], "orders warehouse")
+                    self.assertEqual(details["connection"]["secret_handle"], "warehouse/prod")
+                    self.assertEqual(details["connection"]["database"], "orders")
+            finally:
+                store.close()
+
     def test_patch_missing_4xx_no_event(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
