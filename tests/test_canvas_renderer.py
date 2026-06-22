@@ -173,6 +173,10 @@ class TestCanvasRendererContracts(unittest.TestCase):
         self.assertRegex(self.js_text, r"egoEdge")
         self.assertRegex(self.js_text, r"#7c3aed")
 
+    def test_data_internal_entity_colors_present(self):
+        self.assertIn('"DataContainer": this._readCssVar("--entity-data-container-fill", "#6d28d9")', self.js_text)
+        self.assertIn('"DataField": this._readCssVar("--entity-data-field-fill", "#8b5cf6")', self.js_text)
+
     def test_w5_canvas_mouseleave_clears_hover_contract_present(self):
         self.assertRegex(self.js_text, r"addEventListener\(['\"]mouseleave['\"]")
         self.assertRegex(self.js_text, r"hoveredNodeId\s*=\s*null")

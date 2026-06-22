@@ -732,6 +732,8 @@
         "Department": this._readCssVar("--entity-department-fill", "#2563eb"),
         "Role": this._readCssVar("--entity-role-fill", "#16a34a"),
         "Data Source": this._readCssVar("--entity-data-source-fill", "#7c3aed"),
+        "DataContainer": this._readCssVar("--entity-data-container-fill", "#6d28d9"),
+        "DataField": this._readCssVar("--entity-data-field-fill", "#8b5cf6"),
         "Heuristic": this._readCssVar("--entity-heuristic-fill", "#f59e0b"),
         "Tacit Knowledge": this._readCssVar("--entity-tacit-knowledge-fill", "#0ea5e9"),
         "Problem / Improvement Area": this._readCssVar("--entity-problem-improvement-area-fill", "#dc2626"),

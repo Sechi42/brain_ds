@@ -57,6 +57,7 @@
       },
       "editable_fields": [],
       "evidence": [],
+      "internal_subtree": [],
       "node": {
         "color": {
           "background": "#7c3aed",

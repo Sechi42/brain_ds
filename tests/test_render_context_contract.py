@@ -338,3 +338,99 @@ class TestDocumentationDigestContract(unittest.TestCase):
         ctx = build_render_context(Graph.from_v1(payload))
         digest = ctx["detail_index"]["ds-only"]["documentation_digest"]
         self.assertEqual(digest["tables"], [])
+
+
+class TestDataSourceInternalSubtreeContract(unittest.TestCase):
+    def test_data_source_detail_exposes_existing_internal_subtree(self):
+        payload = {
+            "org": "Acme",
+            "generated_at": "2026-06-01T00:00:00Z",
+            "nodes": [
+                {"id": "ds-1", "label": "Warehouse DB", "type": "Data Source"},
+                {
+                    "id": "schema-sales",
+                    "label": "sales",
+                    "type": "DataContainer",
+                    "parent_id": "ds-1",
+                    "depth": 1,
+                    "details": {"kind": "schema"},
+                },
+                {
+                    "id": "table-orders",
+                    "label": "orders",
+                    "type": "DataContainer",
+                    "parent_id": "schema-sales",
+                    "depth": 2,
+                    "details": {"kind": "table"},
+                },
+                {
+                    "id": "field-order-id",
+                    "label": "order_id",
+                    "type": "DataField",
+                    "parent_id": "table-orders",
+                    "depth": 3,
+                    "details": {"kind": "column", "data_type": "integer"},
+                },
+            ],
+            "edges": [],
+            "evidence": [],
+        }
+
+        ctx = build_render_context(Graph.from_v1(payload))
+        subtree = ctx["detail_index"]["ds-1"]["internal_subtree"]
+
+        self.assertEqual(subtree[0]["id"], "schema-sales")
+        self.assertEqual(subtree[0]["details"]["kind"], "schema")
+        table = subtree[0]["children"][0]
+        self.assertEqual(table["id"], "table-orders")
+        self.assertEqual(table["details"]["kind"], "table")
+        self.assertEqual(table["children"][0]["id"], "field-order-id")
+        self.assertEqual(table["children"][0]["details"]["kind"], "column")
+
+    def test_legacy_documentation_digest_remains_unchanged_when_subtree_is_added(self):
+        graph = Graph.from_v1(_datasource_graph_payload())
+
+        ctx = build_render_context(graph)
+        detail = ctx["detail_index"]["ds-1"]
+
+        self.assertEqual(len(detail["documentation_digest"]["tables"]), 2)
+        self.assertEqual(detail["documentation_digest"]["tables"][0]["node_id"], "tbl-customers")
+        self.assertEqual(detail["documentation_digest"]["tables"][1]["node_id"], "tbl-orders")
+        self.assertIn("internal_subtree", detail)
+
+    def test_lazy_derivation_from_legacy_digest_is_idempotent_and_deterministic(self):
+        graph = Graph.from_v1(_datasource_graph_payload())
+
+        first = build_render_context(graph)["detail_index"]["ds-1"]["internal_subtree"]
+        second = build_render_context(graph)["detail_index"]["ds-1"]["internal_subtree"]
+
+        self.assertEqual(second, first)
+        self.assertEqual([item["id"] for item in first], ["ds-1-table-customers", "ds-1-table-orders"])
+        orders = next(item for item in first if item["id"] == "ds-1-table-orders")
+        self.assertEqual(orders["details"]["kind"], "table")
+        self.assertEqual([child["id"] for child in orders["children"]], ["ds-1-table-orders-column-id"])
+        self.assertEqual(orders["children"][0]["details"]["kind"], "column")
+
+    def test_non_data_source_parent_id_is_ignored_for_digest_and_internal_subtree(self):
+        payload = {
+            "org": "Acme",
+            "generated_at": "2026-06-01T00:00:00Z",
+            "nodes": [
+                {"id": "dept-1", "label": "Ops", "type": "Department"},
+                {
+                    "id": "role-1",
+                    "label": "Analyst",
+                    "type": "Role",
+                    "parent_id": "dept-1",
+                    "depth": 1,
+                    "card_sections": [{"title": "Columns / Fields", "content": "| col | type |", "order": 1}],
+                },
+            ],
+            "edges": [],
+            "evidence": [],
+        }
+
+        ctx = build_render_context(Graph.from_v1(payload))
+
+        self.assertNotIn("documentation_digest", ctx["detail_index"]["dept-1"])
+        self.assertNotIn("internal_subtree", ctx["detail_index"]["dept-1"])

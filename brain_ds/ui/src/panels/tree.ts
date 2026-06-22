@@ -2,6 +2,7 @@ type TreeNode = {
   id: string;
   label?: string;
   type?: string;
+  supertype?: string;
   parent_id?: string | null;
   depth?: number;
 };
@@ -16,6 +17,10 @@ type MountDeps = {
 
 const listeners: Array<() => void> = [];
 const expandedGroups = new Set<string>();
+
+function isInternalNode(node: TreeNode): boolean {
+  return node.supertype === "data-internal" || node.type === "DataContainer" || node.type === "DataField";
+}
 
 export function unmount(): void {
   while (listeners.length) {
@@ -114,7 +119,7 @@ export function mount(root: HTMLElement | null, deps: MountDeps): void {
 
   const byParent = new Map<string | null, TreeNode[]>();
   nodes.forEach((node) => {
-    const pid = node.parent_id == null ? null : String(node.parent_id);
+    const pid = isInternalNode(node) && node.parent_id != null ? String(node.parent_id) : null;
     if (!byParent.has(pid)) byParent.set(pid, []);
     byParent.get(pid)!.push(node);
   });

@@ -4,6 +4,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 import logging
 from pathlib import Path
+import re
 from typing import Any
 
 from brain_ds.ontology import EntityType, Graph, RelationshipType
@@ -296,6 +297,8 @@ def _build_detail_index(graph: Graph) -> tuple[dict[str, dict[str, Any]], dict[s
         if node.id and node.parent_id:
             children_by_parent[node.parent_id].append(node)
 
+    internal_subtrees_by_source = _build_internal_subtrees(graph.nodes, children_by_parent)
+
     detail_index: dict[str, dict[str, Any]] = {}
     for node in graph.nodes:
         if not node.id:
@@ -338,6 +341,7 @@ def _build_detail_index(graph: Graph) -> tuple[dict[str, dict[str, Any]], dict[s
             entry["documentation_digest"] = _build_documentation_digest(
                 node.id, children_by_parent, outgoing_by_source
             )
+            entry["internal_subtree"] = internal_subtrees_by_source.get(node.id, [])
 
         detail_index[node.id] = entry
 
@@ -434,7 +438,11 @@ def _build_documentation_digest(
     columns/fields markdown, relationships, risks, and schema_baseline status
     in a single payload — enabling one-call agent answerability (DDS-5).
     """
-    child_nodes = children_by_parent.get(source_id, [])
+    child_nodes = [
+        child
+        for child in children_by_parent.get(source_id, [])
+        if _entity_type(child.type).supertype != "data-internal"
+    ]
 
     tables: list[dict[str, Any]] = []
     for child in sorted(child_nodes, key=lambda n: (n.label or n.id or "").lower()):
@@ -483,6 +491,132 @@ def _build_documentation_digest(
         "tables": tables,
         "relationships": relationships,
     }
+
+
+def _build_internal_subtrees(nodes: list[Any], children_by_parent: dict[str, list[Any]]) -> dict[str, list[dict[str, Any]]]:
+    node_lookup = {node.id: node for node in nodes if node.id}
+    source_ids = [node.id for node in nodes if node.id and _entity_type(node.type) == EntityType.DATA_SOURCE]
+    explicit_by_source = {source_id: _explicit_internal_subtree(source_id, node_lookup) for source_id in source_ids}
+    return {
+        source_id: subtree if subtree else _derive_internal_subtree(source_id, children_by_parent)
+        for source_id, subtree in explicit_by_source.items()
+    }
+
+
+def _explicit_internal_subtree(source_id: str, node_lookup: dict[str, Any]) -> list[dict[str, Any]]:
+    internal_nodes = [
+        node
+        for node in node_lookup.values()
+        if _entity_type(node.type).supertype == "data-internal"
+        and _descends_from_source(node.id, source_id, node_lookup)
+    ]
+    children_by_parent: dict[str, list[Any]] = defaultdict(list)
+    for node in internal_nodes:
+        children_by_parent[node.parent_id].append(node)
+    for children in children_by_parent.values():
+        children.sort(key=lambda item: (item.depth, (item.label or item.id or "").lower(), item.id or ""))
+
+    def build(node: Any) -> dict[str, Any]:
+        item = _internal_node_payload(node)
+        item["children"] = [build(child) for child in children_by_parent.get(node.id, [])]
+        return item
+
+    return [build(node) for node in children_by_parent.get(source_id, [])]
+
+
+def _derive_internal_subtree(source_id: str, children_by_parent: dict[str, list[Any]]) -> list[dict[str, Any]]:
+    subtree: list[dict[str, Any]] = []
+    legacy_children = [
+        child
+        for child in children_by_parent.get(source_id, [])
+        if _entity_type(child.type).supertype != "data-internal"
+    ]
+    for child in sorted(legacy_children, key=lambda item: ((item.label or item.id or "").lower(), item.id or "")):
+        table_label = child.label or child.id or "table"
+        table_id = f"{source_id}-table-{_slugify(table_label)}"
+        table_item = {
+            "id": table_id,
+            "label": table_label,
+            "type": EntityType.DATA_CONTAINER.value,
+            "details": {"kind": "table", "source_node_id": child.id},
+            "supertype": EntityType.DATA_CONTAINER.supertype,
+            "parent_id": source_id,
+            "depth": 1,
+            "children": [],
+            "ephemeral": True,
+        }
+        for column_name, data_type in _extract_columns_from_sections(child.card_sections or []):
+            table_item["children"].append(
+                {
+                    "id": f"{table_id}-column-{_slugify(column_name)}",
+                    "label": column_name,
+                    "type": EntityType.DATA_FIELD.value,
+                    "details": {"kind": "column", "data_type": data_type, "source_node_id": child.id},
+                    "supertype": EntityType.DATA_FIELD.supertype,
+                    "parent_id": table_id,
+                    "depth": 2,
+                    "children": [],
+                    "ephemeral": True,
+                }
+            )
+        subtree.append(table_item)
+    return subtree
+
+
+def _descends_from_source(node_id: str | None, source_id: str, node_lookup: dict[str, Any]) -> bool:
+    current_id = node_id
+    visited: set[str] = set()
+    while current_id:
+        if current_id in visited:
+            return False
+        visited.add(current_id)
+        if current_id == source_id:
+            return True
+        node = node_lookup.get(current_id)
+        if node is None:
+            return False
+        current_id = node.parent_id
+    return False
+
+
+def _internal_node_payload(node: Any) -> dict[str, Any]:
+    entity_type = _entity_type(node.type)
+    return {
+        "id": node.id,
+        "label": node.label or node.id,
+        "type": entity_type.value,
+        "details": node.details or {},
+        "supertype": node.supertype or entity_type.supertype,
+        "parent_id": node.parent_id,
+        "depth": node.depth,
+    }
+
+
+def _extract_columns_from_sections(card_sections: list[Any]) -> list[tuple[str, str]]:
+    columns: list[tuple[str, str]] = []
+    for section in card_sections:
+        if section.title.strip().lower() not in ("columns / fields", "columns/fields", "columns", "fields"):
+            continue
+        columns.extend(_extract_markdown_table_columns(section.content or ""))
+    return columns
+
+
+def _extract_markdown_table_columns(markdown: str) -> list[tuple[str, str]]:
+    columns: list[tuple[str, str]] = []
+    for raw_line in markdown.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("|") or "---" in line:
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if not cells or cells[0].lower() in {"col", "column", "field", "name"}:
+            continue
+        columns.append((cells[0], cells[1] if len(cells) > 1 else ""))
+    return columns
+
+
+def _slugify(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return slug or "item"
 
 
 def _compute_components(graph: Graph) -> dict[str, int]:

@@ -22,6 +22,13 @@ class TestTreePanelModuleContracts(unittest.TestCase):
         src = TREE_MODULE.read_text(encoding="utf-8")
         self.assertIn("depth", src)
 
+    def test_tree_module_scopes_parent_grouping_to_data_internal_nodes(self):
+        src = TREE_MODULE.read_text(encoding="utf-8")
+        self.assertIn("supertype?: string", src)
+        self.assertRegex(src, r"function\s+isInternalNode\(")
+        self.assertIn('node.supertype === "data-internal"', src)
+        self.assertIn("isInternalNode(node)", src)
+
     def test_tree_module_has_expand_collapse_toggle(self):
         src = TREE_MODULE.read_text(encoding="utf-8")
         self.assertTrue("aria-expanded" in src or "expand" in src.lower())
