@@ -47,12 +47,16 @@ Canonical source of truth: `brain_ds.ontology.EntityType`.
 | Department | Business area involved in a workflow | Operations, Finance |
 | Role | Human responsibility and decision owner | Fleet Manager, Data Analyst |
 | Data Source | System/file/API feeding decisions | PostgreSQL table, Excel sheet |
+| DataContainer | Data Source-internal structural nodes (schema, table, worksheet, endpoint, file) | `fleet.schema.deliveries` table |
+| DataField | Data Source-internal field nodes (column or API field) | `delivery_id` column |
 | Heuristic | Rule-of-thumb used in practice | "If delay > 20 min, reroute manually" |
 | Tacit Knowledge | Important undocumented know-how | "Vendor quality drops on Fridays" |
 | Problem / Improvement Area | Problem, bottleneck, workaround, confusion, or opportunity to improve | Duplicate entry in two tools |
 | KPI | Measurable business outcome and target gap | On-Time Delivery % |
 | Solution | WHAT operational improvement is proposed/implemented | Auto-reroute dispatch queue |
 | Decision | WHY a strategic/product/architecture choice was made | Adopt event-driven notifications |
+
+`DataContainer` and `DataField` are Data Source-internal structural nodes. Do not elicit them as standalone interview entities; capture them through the Data Source structure and Columns / Fields details.
 
 ## Workspace Scope (Mandatory)
 

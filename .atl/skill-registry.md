@@ -41,6 +41,7 @@ Pre-digested rules per skill. Delegators copy matching blocks into sub-agent pro
 - Ask Data Source questions before Department/Role whenever coverage is missing.
 - Before confirmation, evaluate all 10 entity types and show `Remaining Gaps / Follow-up Needed` with explicit status (Covered / Missing / Underspecified) for each.
 - Data Source MUST have: system name, database/table name, file/workbook/sheet name, and owner. Mark as Underspecified if any identifier is vague ("an Excel", "the database").
+- `DataContainer` and `DataField` are Data Source-internal structural nodes, not standalone interview entities; capture them through Data Source structure and Columns/Fields.
 - Persist confirmed entities via MCP SQLite (`create_graph` → `update_node` → `add_edge`). Do NOT use `mem_save` for domain entities.
 - Node id format: `<org-slug>-<entity-type-slug>-<short-name-slug>`. Organization itself: `<org-slug>-organization-<org-slug>`.
 - Save `session/active-org` in Engram via `mem_save` as session state only — not domain truth.
@@ -64,6 +65,7 @@ Pre-digested rules per skill. Delegators copy matching blocks into sub-agent pro
 - Default is read-only mode. Persist only when command explicitly includes `--save`.
 - Resolve org first: `--org` > `session/active-org` > `default`. Echo resolution.
 - Use `list_nodes` (typed per entity family) as primary retrieval. Never `mem_search` for org domain data.
+- Treat `DataContainer` and `DataField` as Data Source-internal structure, not standalone domain entities, missing knowledge, or top-level relationship endpoints.
 - Never mix multiple graph IDs in one report.
 - If graph returns zero nodes, emit: "No domain knowledge captured yet. Run `/elicit-context` first."
 - Sparse entities (missing `Where`) are flagged with `[sparse: no Where]` — never silently skipped or promoted to strong links.
@@ -219,6 +221,7 @@ Pre-digested rules per skill. Delegators copy matching blocks into sub-agent pro
 ### brainds-docs
 - Apply when writing or editing `details` objects or `card_sections` for any graph node.
 - Always use entity-type section order: Data Source → Overview, Structure, Columns/Fields, Purpose, Owner, Refresh Cadence.
+- Data Source-internal section orders: `DataContainer` → Overview, Structure, Fields, Purpose; `DataField` → Overview, Data Type, Meaning, Quality.
 - Columns/Fields MUST be a markdown table with columns: Column/Field | Type | Meaning | Notes.
 - Mark vague columns with `[needs clarification]` in Notes — never omit them.
 - Wikilinks use `[[node-id|Label]]` syntax — node-id must be an existing node in the same graph.
@@ -229,6 +232,7 @@ Pre-digested rules per skill. Delegators copy matching blocks into sub-agent pro
 ### brainds-registry
 - Trigger after any change to: `entity_types.py`, `relationship_types.py`, `tools.py` TOOL_REGISTRY, `scoring/engine.py`, any `SKILL.md`.
 - EntityType added/renamed: update QUESTION_BANK in `grounding.py` AND ELICIT_EXEMPT_TYPES in drift guard test.
+- Data Source-internal EntityTypes (`DataContainer`, `DataField`) stay exempt from elicitation/completeness and must be mirrored in elicit-context, brainds-docs, map-connections, SHARED_CONTEXT, and this registry.
 - RelationshipType added/renamed: review CONNECTION_RULES prose in `grounding.py`; update map-connections SKILL.md edge label tables.
 - MCP tool count changed: update CLAUDE.md tool count + inventory table AND any test assertion that pins `len(tools)`.
 - Skill prose changed: update mirrored Category-2 constants in `grounding.py`; sync `.opencode/skills/` mirror; run `/share-brainds`.

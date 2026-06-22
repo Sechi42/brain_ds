@@ -29,6 +29,7 @@ Run every check that applies to your change type. Never skip a check silently.
 
 - [ ] Add a `QUESTION_BANK` entry in `brain_ds/mcp/grounding.py` for each new type (or add to `ELICIT_EXEMPT_TYPES` if the type is not elicited via interview).
 - [ ] Add the type to `ELICIT_EXEMPT_TYPES` in `tests/test_grounding_drift_guard.py` if it is exempt — the drift guard goes red otherwise.
+- [ ] For Data Source-internal types (`DataContainer`, `DataField`), verify they stay exempt from elicitation and completeness, and document that they are scoped under a Data Source rather than standalone domain entities.
 - [ ] Review `NODE_WRITE_TEMPLATES` and `COMPLETENESS_MATRIX_TEMPLATE["dataset_fingerprint_order"]` in `grounding.py` — both reference entity names by string value.
 - [ ] Update the entity table in `skills/elicit-context/SKILL.md` and `.opencode/skills/elicit-context/SKILL.md`.
 - [ ] Update the Entity-Type Section Map in `skills/brainds-docs/SKILL.md` if the new type needs canonical card_sections.

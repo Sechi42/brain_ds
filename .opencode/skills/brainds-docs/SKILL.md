@@ -37,6 +37,8 @@ Each entity type has canonical expected sections. Always include sections in thi
 | Entity Type | Expected Sections (in order) |
 |---|---|
 | Data Source | Overview, Structure, Columns / Fields, Purpose, Owner, Refresh Cadence |
+| DataContainer | Overview, Structure, Fields, Purpose |
+| DataField | Overview, Data Type, Meaning, Quality |
 | KPI | Overview, Current vs Target, Formula, Owner, Data Source, Linked Problems |
 | Solution | Overview, Expected Impact, Status & Effort, Owner, Linked KPIs, Linked Decisions |
 | Decision | Overview, Rationale, Alternatives Considered, Supersedes, Authorized Solutions |

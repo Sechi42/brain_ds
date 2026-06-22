@@ -72,6 +72,7 @@ Rules:
 4. Never mix multiple graph IDs in one report.
 5. If the resolved graph returns zero nodes, emit: `No domain knowledge captured yet in SQLite. Run /elicit-context first to populate the organization graph.`
 6. typed SQL filters are not equivalent to Engram substring search. validate the difference on a seeded vault before assuming parity.
+7. `DataContainer` and `DataField` are Data Source-internal structural nodes, not standalone domain entities. Use them only to explain a Data Source's internal structure (`internal_subtree`, `details.kind`, or targeted `list_nodes` filters); do not count them as missing knowledge or map them as top-level relationship endpoints.
 
 ## Completeness Gate (Mandatory)
 
