@@ -7,7 +7,7 @@ from brain_ds.ui import simple_renderer
 
 class TestEntityType(unittest.TestCase):
     def test_entity_members_count(self):
-        self.assertEqual(len(EntityType), 13)
+        self.assertEqual(len(EntityType), 15)
 
     def test_domain_types_have_expected_supertypes(self):
         expected = {
@@ -15,6 +15,8 @@ class TestEntityType(unittest.TestCase):
             EntityType.DEPARTMENT: "actor",
             EntityType.ROLE: "actor",
             EntityType.DATA_SOURCE: "data",
+            EntityType.DATA_CONTAINER: "data-internal",
+            EntityType.DATA_FIELD: "data-internal",
             EntityType.HEURISTIC: "process",
             EntityType.TACIT_KNOWLEDGE: "data",
             EntityType.PROBLEM_IMPROVEMENT_AREA: "problem",
@@ -34,6 +36,8 @@ class TestEntityType(unittest.TestCase):
     def test_from_string_backward_compat_and_fallback(self):
         self.assertEqual(EntityType.from_string("Department"), EntityType.DEPARTMENT)
         self.assertEqual(EntityType.from_string("data_source"), EntityType.DATA_SOURCE)
+        self.assertEqual(EntityType.from_string("data_container"), EntityType.DATA_CONTAINER)
+        self.assertEqual(EntityType.from_string("data-field"), EntityType.DATA_FIELD)
         self.assertEqual(
             EntityType.from_string("Problem / Improvement Area"),
             EntityType.PROBLEM_IMPROVEMENT_AREA,
@@ -48,6 +52,12 @@ class TestEntityType(unittest.TestCase):
     def test_organization_expected_sections_contains_core_fields(self):
         self.assertIn("Overview", EntityType.ORGANIZATION.expected_sections)
         self.assertIn("Mission", EntityType.ORGANIZATION.expected_sections)
+
+    def test_data_internal_expected_sections_describe_structure(self):
+        self.assertIn("Structure", EntityType.DATA_CONTAINER.expected_sections)
+        self.assertIn("Fields", EntityType.DATA_CONTAINER.expected_sections)
+        self.assertIn("Data Type", EntityType.DATA_FIELD.expected_sections)
+        self.assertIn("Meaning", EntityType.DATA_FIELD.expected_sections)
 
 
 class TestRelationshipType(unittest.TestCase):

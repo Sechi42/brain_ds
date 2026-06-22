@@ -28,7 +28,9 @@ RECOMMEND_PROCEED = "proceed_with_gaps"
 # BRD-relevant types, in dataset fingerprint order (mirrors
 # COMPLETENESS_MATRIX_TEMPLATE["dataset_fingerprint_order"] plus Organization).
 ASSESSED_TYPES: tuple[str, ...] = tuple(
-    e.value for e in EntityType if e is not EntityType.UNKNOWN
+    e.value
+    for e in EntityType
+    if e is not EntityType.UNKNOWN and e.supertype != "data-internal"
 )
 
 
@@ -37,6 +39,8 @@ def assess_graph_completeness(nodes: list[NodeRow]) -> dict[str, Any]:
     for node in nodes:
         entity = EntityType.from_string(node.type)
         if entity is EntityType.UNKNOWN:
+            continue
+        if entity.value not in by_type:
             continue
         by_type[entity.value].append(node)
 

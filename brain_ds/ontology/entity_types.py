@@ -19,6 +19,18 @@ class EntityType(Enum):
         "#7c3aed",
         ("Overview", "Structure", "Columns / Fields", "Purpose", "Owner", "Refresh Cadence"),
     )
+    DATA_CONTAINER = (
+        "DataContainer",
+        "data-internal",
+        "#6d28d9",
+        ("Overview", "Structure", "Fields", "Purpose"),
+    )
+    DATA_FIELD = (
+        "DataField",
+        "data-internal",
+        "#8b5cf6",
+        ("Overview", "Data Type", "Meaning", "Quality"),
+    )
     HEURISTIC = ("Heuristic", "process", "#f59e0b", ("Overview", "Inputs", "Logic"))
     TACIT_KNOWLEDGE = ("Tacit Knowledge", "data", "#0ea5e9", ("Overview", "Context", "Capture Notes"))
     PROBLEM_IMPROVEMENT_AREA = ("Problem / Improvement Area", "problem", "#dc2626", ("Overview", "Impact", "Current State"))
@@ -67,6 +79,10 @@ class EntityType(Enum):
             "role": cls.ROLE,
             "data source": cls.DATA_SOURCE,
             "datasource": cls.DATA_SOURCE,
+            "data container": cls.DATA_CONTAINER,
+            "datacontainer": cls.DATA_CONTAINER,
+            "data field": cls.DATA_FIELD,
+            "datafield": cls.DATA_FIELD,
             "heuristic": cls.HEURISTIC,
             "tacit knowledge": cls.TACIT_KNOWLEDGE,
             "problem / improvement area": cls.PROBLEM_IMPROVEMENT_AREA,
