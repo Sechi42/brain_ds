@@ -128,6 +128,13 @@ class HarnessCheckTests(unittest.TestCase):
             "brainds-graph-mapper": ["mcp__brain_ds__update_node", "mcp__brain_ds__add_edge"],
             "brainds-connection-mapper": ["Write"],
             "brainds-brd-writer": ["Write", "mcp__brain_ds__generate_brd"],
+            "brainds-semantic-verifier": [
+                "Read",
+                "mcp__brain_ds__get_node",
+                "mcp__brain_ds__list_nodes",
+                "mcp__brain_ds__search_graph",
+                "mcp__plugin_engram_engram__mem_save",
+            ],
         }
         for slug, tools in _agent_stubs.items():
             tools_yaml = "\n".join(f"  - {t}" for t in tools)
@@ -190,6 +197,16 @@ class AgentFileCheckTests(unittest.TestCase):
         "brainds-brd-writer": {
             "name": "brainds-brd-writer",
             "tools": ["Write", "mcp__brain_ds__generate_brd"],
+        },
+        "brainds-semantic-verifier": {
+            "name": "brainds-semantic-verifier",
+            "tools": [
+                "Read",
+                "mcp__brain_ds__get_node",
+                "mcp__brain_ds__list_nodes",
+                "mcp__brain_ds__search_graph",
+                "mcp__plugin_engram_engram__mem_save",
+            ],
         },
     }
 

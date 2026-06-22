@@ -18,6 +18,7 @@ SUBAGENT_NAMES: tuple[str, ...] = (
     "brainds-graph-mapper",
     "brainds-connection-mapper",
     "brainds-brd-writer",
+    "brainds-semantic-verifier",
 )
 
 CLAUDE_AGENT_FILES: dict[str, str] = {
@@ -26,11 +27,18 @@ CLAUDE_AGENT_FILES: dict[str, str] = {
 
 # Required tool grants per agent.
 # graph-mapper intentionally has NO Write (encoded by absence — no negative assertion).
+# semantic-verifier intentionally has NO Write, NO update_node, NO add_edge (read-only advisory).
 REQUIRED_AGENT_GRANTS: dict[str, set[str]] = {
     "brainds-connection-mapper": {"Write"},
     "brainds-brd-writer": {"Write", "mcp__brain_ds__generate_brd"},
     "brainds-source-explorer": {"Write", "mcp__brain_ds__explore_source"},
     "brainds-graph-mapper": {"mcp__brain_ds__update_node", "mcp__brain_ds__add_edge"},
+    "brainds-semantic-verifier": {
+        "mcp__brain_ds__get_node",
+        "mcp__brain_ds__list_nodes",
+        "mcp__brain_ds__search_graph",
+        "mcp__plugin_engram_engram__mem_save",
+    },
 }
 
 _FRONTMATTER_NAME_RE = re.compile(r"^\s*name\s*:\s*(.+?)\s*$", re.MULTILINE)

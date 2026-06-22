@@ -12,6 +12,7 @@
 | Sub-agente: mapeador/pusheador al grafo | `.claude/agents/brainds-graph-mapper.md` | `brainds-graph-mapper` | repo |
 | Sub-agente: mapeador de conexiones | `.claude/agents/brainds-connection-mapper.md` | `brainds-connection-mapper` | repo |
 | Sub-agente: escritor de BRD | `.claude/agents/brainds-brd-writer.md` | `brainds-brd-writer` | repo |
+| Sub-agente: verificador semántico | `.claude/agents/brainds-semantic-verifier.md` | `brainds-semantic-verifier` | repo |
 | Sub-agente: consultor del grafo | `.claude/agents/brainds-query-consultant.md` | — (pendiente) | repo |
 | Skills de dominio | `skills/*/SKILL.md` | `.opencode/skills/*/SKILL.md` (espejo byte-idéntico) | `skills/` |
 | Comandos slash | — | `~/.config/opencode/commands/*.md` (desplegados por installer) | `commands/` |
@@ -39,6 +40,7 @@ Usuario ──► Orquestador (la MENTE: pregunta, decide, coordina)
                │  [brd]     brainds-brd-writer (BRD 14 secciones)
                ├──► brainds-brd-writer        (BRD 14 secciones → nodo brd-<slug> + Engram)
                │  [verify]  compliance gate → verify-<slug>-<fecha>.md
+               │              └──► brainds-semantic-verifier (juez de coherencia/consistencia, advisory)
                │  [archive] mover artefactos si verify pasó
                └──► brainds-query-consultant  (preguntas sobre el grafo)
                ▲
@@ -126,7 +128,7 @@ wikilinks, edición inline, autosave (`PATCH /api/nodes/:id` →
 - `install-opencode.ps1 -Global -Agent` / `install-opencode.sh --global --agent` —
   despliega skills, comandos, orquestador + 4 sub-agentes con allowlist en el
   config global de OpenCode.
-- **`brain_ds check`** — checker de paridad (17 checks): entradas MCP de ambos
+- **`brain_ds check`** — checker de paridad (20 checks): entradas MCP de ambos
   clientes alineadas, mirror de skills byte-idéntico, agentes de Claude
   presentes con grants correctos, orquestador/sub-agentes/comandos globales sin drift. Exit 1 si
   algo falla. Guard de CI: `tests/test_harness_check.py`.

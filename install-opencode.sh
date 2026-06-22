@@ -87,6 +87,7 @@ subagent_names = [
     "brainds-graph-mapper",
     "brainds-connection-mapper",
     "brainds-brd-writer",
+    "brainds-semantic-verifier",
 ]
 
 task_permission = {"*": "deny"}

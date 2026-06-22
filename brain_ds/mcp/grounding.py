@@ -958,8 +958,11 @@ PIPELINE_STAGES: list[dict[str, object]] = [
     },
     {
         "stage": "verify",
-        "description": "run the compliance gate on all elicit artifacts and write the verify report",
-        "agents": ["brainds-orchestrator"],
+        "description": (
+            "run the compliance gate on all elicit artifacts and write the verify report, "
+            "then delegate the advisory semantic coherence judge to brainds-semantic-verifier"
+        ),
+        "agents": ["brainds-orchestrator", "brainds-semantic-verifier"],
     },
     {
         "stage": "archive",
