@@ -31,6 +31,7 @@ from brain_ds.mcp.security import (
     validate_tool_input,
 )
 from brain_ds.scoring.embedder import get_default_model, node_text
+from brain_ds.ontology.entity_types import EntityType
 from brain_ds.store.errors import CorruptVectorError, GraphAlreadyExistsError, GraphNotFoundError, StoreError
 from brain_ds.store.graph_store import GraphStore
 
@@ -51,6 +52,133 @@ def _normalize_optional_filter(value: Any) -> Any:
     if isinstance(value, str) and value.strip() == "":
         return None
     return value
+
+
+_INTERNAL_NODE_TYPES = {EntityType.DATA_CONTAINER.value, EntityType.DATA_FIELD.value}
+_CONTAINER_KINDS = {"schema", "table", "view", "workbook", "spreadsheet", "worksheet", "range", "endpoint", "stream", "file"}
+_FIELD_KINDS = {"column", "field"}
+
+
+def _is_internal_type(node_type: str | None) -> bool:
+    return node_type in _INTERNAL_NODE_TYPES
+
+
+def _row_type(row: Any) -> str | None:
+    if isinstance(row, dict):
+        return row.get("type")
+    return getattr(row, "type", None)
+
+
+def _row_parent_id(row: Any) -> str | None:
+    if isinstance(row, dict):
+        return row.get("parent_id")
+    return getattr(row, "parent_id", None)
+
+
+def _node_descends_from_source(rows_by_id: dict[str, Any], *, node_id: str, source_id: str) -> bool:
+    current_id: str | None = node_id
+    visited: set[str] = set()
+    while current_id:
+        if current_id in visited:
+            return False
+        visited.add(current_id)
+        if current_id == source_id:
+            return True
+        row = rows_by_id.get(current_id)
+        if row is None:
+            return False
+        current_id = _row_parent_id(row)
+    return False
+
+
+def _validate_internal_kind(node_type: str, details: Any) -> str:
+    if not isinstance(details, dict):
+        raise ValidationError(code=-32602, message=f"{node_type} details.kind is required")
+    kind = details.get("kind")
+    if not isinstance(kind, str) or not kind.strip():
+        raise ValidationError(code=-32602, message=f"{node_type} details.kind is required")
+    kind = kind.strip()
+    if node_type == EntityType.DATA_CONTAINER.value and kind not in _CONTAINER_KINDS:
+        allowed = ", ".join(sorted(_CONTAINER_KINDS))
+        raise ValidationError(code=-32602, message=f"DataContainer details.kind must be one of: {allowed}")
+    if node_type == EntityType.DATA_FIELD.value and kind not in _FIELD_KINDS:
+        allowed = ", ".join(sorted(_FIELD_KINDS))
+        raise ValidationError(code=-32602, message=f"DataField details.kind must be one of: {allowed}")
+    return kind
+
+
+def _assert_data_source_ancestor(rows_by_id: dict[str, Any], parent_id: str) -> None:
+    current_id: str | None = parent_id
+    visited: set[str] = set()
+    while current_id:
+        if current_id in visited:
+            raise ValidationError(code=-32000, message="scope_violation: parent chain cycle before Data Source ancestor")
+        visited.add(current_id)
+        parent = rows_by_id.get(current_id)
+        if parent is None:
+            raise ValidationError(code=-32000, message="scope_violation: internal nodes require a Data Source ancestor")
+        if _row_type(parent) == EntityType.DATA_SOURCE.value:
+            return
+        current_id = _row_parent_id(parent)
+    raise ValidationError(code=-32000, message="scope_violation: internal nodes require a Data Source ancestor")
+
+
+def _validate_internal_node_payload(
+    *,
+    rows: list[Any],
+    node_id: str,
+    payload: dict[str, Any],
+) -> None:
+    rows_by_id = {row.id: row for row in rows}
+    existing = rows_by_id.get(node_id)
+    node_type = payload.get("type") or (existing.type if existing is not None else None)
+    if not _is_internal_type(node_type):
+        return
+
+    details = payload.get("details") if "details" in payload else (existing.details if existing is not None else None)
+    _validate_internal_kind(str(node_type), details)
+
+    parent_id = payload.get("parent_id") if "parent_id" in payload else (existing.parent_id if existing is not None else None)
+    if not isinstance(parent_id, str) or not parent_id.strip():
+        raise ValidationError(code=-32000, message="scope_violation: internal nodes require parent_id under a Data Source")
+
+    depth = payload.get("depth") if "depth" in payload else (existing.depth if existing is not None else None)
+    if not isinstance(depth, int) or depth < 1:
+        raise ValidationError(code=-32602, message="Internal node depth must be an integer >= 1")
+
+    rows_by_id[node_id] = {"type": node_type, "parent_id": parent_id}
+    _assert_data_source_ancestor(rows_by_id, parent_id)
+
+
+def _source_kind_from_node(node: dict[str, Any]) -> str:
+    details = node.get("details") or {}
+    if isinstance(details.get("source_kind"), str):
+        return details["source_kind"]
+    connection = details.get("connection")
+    if isinstance(connection, dict):
+        return str(connection.get("kind") or "")
+    return ""
+
+
+def _build_internal_subtree(rows: list[Any], source_id: str) -> list[dict[str, Any]]:
+    rows_by_id = {row.id: row for row in rows}
+    internal_rows = [
+        row
+        for row in rows
+        if _is_internal_type(row.type) and _node_descends_from_source(rows_by_id, node_id=row.id, source_id=source_id)
+    ]
+    children_by_parent: dict[str | None, list[Any]] = {}
+    for row in internal_rows:
+        children_by_parent.setdefault(row.parent_id, []).append(row)
+    for children in children_by_parent.values():
+        children.sort(key=lambda row: (row.depth, row.label.lower(), row.id))
+
+    def _build(row: Any) -> dict[str, Any]:
+        item = _node_to_dict(row)
+        item["children"] = [_build(child) for child in children_by_parent.get(row.id, [])]
+        return item
+
+    return [_build(row) for row in children_by_parent.get(source_id, [])]
 
 
 def _receipt_now() -> str:
@@ -243,6 +371,14 @@ def list_nodes(store: GraphStore, params: dict[str, Any]) -> list[dict[str, Any]
             supertype=_normalize_optional_filter(validated.get("supertype")),
             parent_id=_normalize_optional_filter(validated.get("parent_id")),
         )
+        details_kind = _normalize_optional_filter(validated.get("details_kind"))
+        if details_kind is not None:
+            rows = [row for row in rows if (row.details or {}).get("kind") == details_kind]
+        source_id = _normalize_optional_filter(validated.get("source_id"))
+        if source_id is not None:
+            all_rows = store.query_nodes(validated["graph_id"])
+            rows_by_id = {row.id: row for row in all_rows}
+            rows = [row for row in rows if _node_descends_from_source(rows_by_id, node_id=row.id, source_id=source_id)]
     except GraphNotFoundError as exc:
         raise ValidationError(code=-32000, message=str(exc)) from exc
     return [_node_to_dict(row) for row in rows]
@@ -396,9 +532,12 @@ def update_node(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
                 raise
 
         payload = {"id": node_id}
-        for field in ("label", "type", "details", "card_sections", "supertype"):
+        for field in ("label", "type", "details", "card_sections", "supertype", "parent_id", "depth"):
             if field in validated:
                 payload[field] = validated[field]
+
+        rows = store.query_nodes(graph_id)
+        _validate_internal_node_payload(rows=rows, node_id=node_id, payload=payload)
 
         store.upsert_node(graph_id, payload)
         result = get_node.__wrapped__(store, {"graph_id": graph_id, "node_id": node_id})
@@ -425,7 +564,11 @@ def update_node(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
             graph_id,
             result,
         )
-        changed_fields = [field for field in ("label", "type", "details", "card_sections", "supertype") if field in validated]
+        changed_fields = [
+            field
+            for field in ("label", "type", "details", "card_sections", "supertype", "parent_id", "depth")
+            if field in validated
+        ]
         _enqueue_tool_receipt(
             store,
             graph_id=graph_id,
@@ -1097,6 +1240,32 @@ def _build_doc_bundle(store: GraphStore, graph_id: str, node_id: str) -> dict[st
     }
 
 
+def _build_internal_bundle(store: GraphStore, graph_id: str, node_id: str) -> dict[str, Any]:
+    try:
+        rows = store.query_nodes(graph_id)
+    except GraphNotFoundError as exc:
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+    source = next((row for row in rows if row.id == node_id), None)
+    if source is None:
+        raise ValidationError(code=-32000, message=f"Node '{node_id}' not found in graph '{graph_id}'")
+    if source.type != EntityType.DATA_SOURCE.value:
+        raise ValidationError(code=-32000, message=f"Node '{node_id}' is not a Data Source")
+
+    source_dict = _node_to_dict(source)
+    source_kind = _source_kind_from_node(source_dict)
+    return {
+        "level": "internal",
+        "graph_id": graph_id,
+        "source": {
+            "node_id": node_id,
+            "label": source.label or node_id,
+            "details": source.details or {},
+        },
+        "template": grounding.source_kind_hierarchy_template(source_kind),
+        "internal_subtree": _build_internal_subtree(rows, node_id),
+    }
+
+
 @error_boundary
 def explore_source(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     """Explore a connected data source by dispatching to the right connector.
@@ -1117,6 +1286,8 @@ def explore_source(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     # it reads child nodes from the graph store (no raw FS, no connector).
     if level == "documentation":
         return _build_doc_bundle(store, graph_id, node_id)
+    if level == "internal":
+        return _build_internal_bundle(store, graph_id, node_id)
 
     # Get the raw (unredacted) connection descriptor — _resolve_connector needs
     # the real secret_handle value for aws-postgres dispatch. The connector

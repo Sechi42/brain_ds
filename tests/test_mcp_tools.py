@@ -13,6 +13,7 @@ from brain_ds.mcp.tools import (
     TOOL_REGISTRY,
     add_edge,
     create_graph,
+    explore_source,
     generate_brd,
     get_node,
     import_graph,
@@ -868,6 +869,281 @@ class ExploreSourceDocumentationLevelTests(unittest.TestCase):
             TOOL_SCHEMAS["explore_source"],
         )
         self.assertEqual(result["level"], "documentation")
+
+
+class DataSourceInternalHierarchyToolTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.temp_dir.name) / ".brain_ds" / "store.db"
+        self.db_path.parent.mkdir(parents=True)
+        self.store = GraphStore(str(self.db_path))
+        self.graph_id = "internal-hierarchy"
+        self.store.meta_repo.save_graph_meta(
+            graph_id=self.graph_id,
+            workspace_root=self.temp_dir.name,
+            workspace_path=self.temp_dir.name,
+            project="project-internal",
+            org="org-internal",
+            schema_version="2.0.0",
+            contract_version="1.0.0",
+            node_count=0,
+            edge_count=0,
+            imported_from=None,
+            generated_at="",
+        )
+        update_node(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "node_id": "ds-1",
+                "label": "Warehouse",
+                "type": "Data Source",
+                "supertype": "data",
+                "details": {"connection": {"kind": "sqlite", "path": "warehouse.db"}},
+            },
+        )
+        update_node(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "node_id": "ds-2",
+                "label": "Reporting",
+                "type": "Data Source",
+                "supertype": "data",
+                "details": {"connection": {"kind": "csv", "path": "reporting.csv"}},
+            },
+        )
+
+    def tearDown(self) -> None:
+        self.store.close()
+        self.temp_dir.cleanup()
+
+    def test_update_node_accepts_parent_id_depth_for_internal_child_under_data_source(self) -> None:
+        created = update_node(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "node_id": "schema-main",
+                "label": "main",
+                "type": "DataContainer",
+                "parent_id": "ds-1",
+                "depth": 1,
+                "details": {"kind": "schema"},
+            },
+        )
+
+        self.assertEqual(created["parent_id"], "ds-1")
+        self.assertEqual(created["depth"], 1)
+        self.assertEqual(created["details"]["kind"], "schema")
+
+    def test_update_node_allows_internal_descendant_with_data_source_ancestor(self) -> None:
+        update_node(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "node_id": "schema-main",
+                "label": "main",
+                "type": "DataContainer",
+                "parent_id": "ds-1",
+                "depth": 1,
+                "details": {"kind": "schema"},
+            },
+        )
+
+        field = update_node(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "node_id": "field-order-id",
+                "label": "order_id",
+                "type": "DataField",
+                "parent_id": "schema-main",
+                "depth": 2,
+                "details": {"kind": "column"},
+            },
+        )
+
+        self.assertEqual(field["parent_id"], "schema-main")
+        self.assertEqual(field["details"]["kind"], "column")
+
+    def test_update_node_rejects_internal_child_without_data_source_ancestor(self) -> None:
+        result = update_node(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "node_id": "orphan-table",
+                "label": "orders",
+                "type": "DataContainer",
+                "parent_id": "missing-parent",
+                "depth": 1,
+                "details": {"kind": "table"},
+            },
+        )
+
+        self.assertEqual(result["code"], -32000)
+        self.assertIn("scope_violation", result["message"])
+
+    def test_update_node_rejects_internal_child_whose_parent_chain_cycles(self) -> None:
+        self.store.upsert_node(
+            self.graph_id,
+            {
+                "id": "cycle-a",
+                "label": "cycle a",
+                "type": "DataContainer",
+                "parent_id": "cycle-b",
+                "depth": 1,
+                "details": {"kind": "schema"},
+            },
+        )
+        self.store.upsert_node(
+            self.graph_id,
+            {
+                "id": "cycle-b",
+                "label": "cycle b",
+                "type": "DataContainer",
+                "parent_id": "cycle-a",
+                "depth": 1,
+                "details": {"kind": "table"},
+            },
+        )
+
+        result = update_node(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "node_id": "cycle-field",
+                "label": "field",
+                "type": "DataField",
+                "parent_id": "cycle-a",
+                "depth": 2,
+                "details": {"kind": "column"},
+            },
+        )
+
+        self.assertEqual(result["code"], -32000)
+        self.assertIn("scope_violation", result["message"])
+        self.assertIn("cycle", result["message"])
+
+    def test_update_node_validates_container_and_field_detail_kinds(self) -> None:
+        bad_container = update_node(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "node_id": "bad-container",
+                "label": "bad",
+                "type": "DataContainer",
+                "parent_id": "ds-1",
+                "depth": 1,
+                "details": {"kind": "column"},
+            },
+        )
+        bad_field = update_node(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "node_id": "bad-field",
+                "label": "bad",
+                "type": "DataField",
+                "parent_id": "ds-1",
+                "depth": 1,
+                "details": {"kind": "table"},
+            },
+        )
+
+        self.assertEqual(bad_container["code"], -32602)
+        self.assertIn("DataContainer details.kind", bad_container["message"])
+        self.assertEqual(bad_field["code"], -32602)
+        self.assertIn("DataField details.kind", bad_field["message"])
+
+    def test_list_nodes_filters_internal_nodes_by_details_kind_and_source_id(self) -> None:
+        for node_id, source_id, kind in (
+            ("ds1-orders", "ds-1", "table"),
+            ("ds1-customers", "ds-1", "view"),
+            ("ds2-orders", "ds-2", "table"),
+        ):
+            update_node(
+                self.store,
+                {
+                    "graph_id": self.graph_id,
+                    "node_id": node_id,
+                    "label": node_id,
+                    "type": "DataContainer",
+                    "parent_id": source_id,
+                    "depth": 1,
+                    "details": {"kind": kind},
+                },
+            )
+
+        rows = list_nodes(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "type": "DataContainer",
+                "details_kind": "table",
+                "source_id": "ds-1",
+            },
+        )
+
+        self.assertEqual([row["id"] for row in rows], ["ds1-orders"])
+
+    def test_explore_source_internal_returns_source_template_and_nested_subtree(self) -> None:
+        update_node(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "node_id": "schema-main",
+                "label": "main",
+                "type": "DataContainer",
+                "parent_id": "ds-1",
+                "depth": 1,
+                "details": {"kind": "schema"},
+            },
+        )
+        update_node(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "node_id": "table-orders",
+                "label": "orders",
+                "type": "DataContainer",
+                "parent_id": "schema-main",
+                "depth": 2,
+                "details": {"kind": "table"},
+            },
+        )
+        update_node(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "node_id": "column-id",
+                "label": "id",
+                "type": "DataField",
+                "parent_id": "table-orders",
+                "depth": 3,
+                "details": {"kind": "column"},
+            },
+        )
+
+        result = explore_source(
+            self.store,
+            {"graph_id": self.graph_id, "node_id": "ds-1", "level": "internal"},
+        )
+
+        self.assertEqual(result["level"], "internal")
+        self.assertEqual(result["source"]["node_id"], "ds-1")
+        self.assertEqual(result["template"]["source_kind"], "relational-db")
+        self.assertEqual(result["internal_subtree"][0]["id"], "schema-main")
+        self.assertEqual(result["internal_subtree"][0]["children"][0]["id"], "table-orders")
+        self.assertEqual(result["internal_subtree"][0]["children"][0]["children"][0]["id"], "column-id")
+
+    def test_source_kind_hierarchy_templates_are_derived_into_grounding_context(self) -> None:
+        from brain_ds.mcp import grounding
+
+        templates = grounding.SOURCE_KIND_HIERARCHY_TEMPLATES
+        self.assertEqual(templates["relational-db"][0]["kind"], "schema")
+        self.assertIn("column", templates["relational-db"][1]["children"][0]["children"])
+        self.assertIn("Data Source Hierarchy Documentation", grounding.NODE_WRITE_TEMPLATES["Data Source"]["hierarchy_template"])
+        self.assertIn("relational-db", grounding.NODE_WRITE_TEMPLATES["Data Source"]["hierarchy_template"])
 
 
 class SourceDocumentationBundleContractTests(unittest.TestCase):

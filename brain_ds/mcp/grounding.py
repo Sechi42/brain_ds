@@ -166,6 +166,90 @@ NODE_ID_FORMAT: str = (
 )
 
 # Source: skills/elicit-context/SKILL.md "SQLite MCP write contracts" — keep in sync.
+SOURCE_KIND_ALIASES: dict[str, str] = {
+    "sqlite": "relational-db",
+    "postgres": "relational-db",
+    "postgresql": "relational-db",
+    "mysql": "relational-db",
+    "sqlserver": "relational-db",
+    "mssql": "relational-db",
+    "relational-db": "relational-db",
+    "xlsx": "excel",
+    "xls": "excel",
+    "excel": "excel",
+    "sheets": "google-sheets",
+    "google-sheets": "google-sheets",
+    "aws-google-sheets": "google-sheets",
+    "flat-file": "csv",
+    "csv": "csv",
+    "tsv": "csv",
+    "api": "api",
+    "rest": "api",
+    "graphql": "api",
+    "webhook": "event-stream",
+    "event-stream": "event-stream",
+    "stream": "event-stream",
+}
+
+SOURCE_KIND_HIERARCHY_TEMPLATES: dict[str, list[dict[str, object]]] = {
+    "relational-db": [
+        {"kind": "schema", "children": ["table", "view"]},
+        {"kind": "table", "children": [{"kind": "column", "children": ["column"]}]},
+        {"kind": "view", "children": [{"kind": "column", "children": ["column"]}]},
+    ],
+    "excel": [
+        {"kind": "workbook", "children": ["worksheet"]},
+        {"kind": "worksheet", "children": ["table", "range"]},
+        {"kind": "table", "children": [{"kind": "column", "children": ["column"]}]},
+        {"kind": "range", "children": [{"kind": "column", "children": ["column"]}]},
+    ],
+    "google-sheets": [
+        {"kind": "spreadsheet", "children": ["worksheet"]},
+        {"kind": "worksheet", "children": ["range", "table"]},
+        {"kind": "range", "children": [{"kind": "column", "children": ["column"]}]},
+        {"kind": "table", "children": [{"kind": "column", "children": ["column"]}]},
+    ],
+    "csv": [
+        {"kind": "file", "children": ["column"]},
+        {"kind": "column", "children": []},
+    ],
+    "api": [
+        {"kind": "endpoint", "children": ["field"]},
+        {"kind": "field", "children": []},
+    ],
+    "event-stream": [
+        {"kind": "stream", "children": ["field"]},
+        {"kind": "field", "children": []},
+    ],
+}
+
+
+def normalize_source_kind(kind: str | None) -> str:
+    normalized = (kind or "").strip().lower()
+    return SOURCE_KIND_ALIASES.get(normalized, normalized or "relational-db")
+
+
+def source_kind_hierarchy_template(kind: str | None) -> dict[str, object]:
+    source_kind = normalize_source_kind(kind)
+    template = SOURCE_KIND_HIERARCHY_TEMPLATES.get(source_kind, SOURCE_KIND_HIERARCHY_TEMPLATES["relational-db"])
+    return {"source_kind": source_kind, "shape": template}
+
+
+def build_source_kind_hierarchy_prose() -> str:
+    lines = ["## Data Source Hierarchy Documentation", ""]
+    for source_kind, shape in SOURCE_KIND_HIERARCHY_TEMPLATES.items():
+        paths = []
+        for item in shape:
+            children = item.get("children") or []
+            child_labels = [child.get("kind") if isinstance(child, dict) else str(child) for child in children]
+            paths.append(f"{item['kind']} -> {', '.join(child_labels) if child_labels else 'leaf'}")
+        lines.append(f"### {source_kind}")
+        lines.extend(f"- {path}" for path in paths)
+        lines.append("")
+    lines.append("Capture each internal element as DataContainer/DataField with parent_id, depth, and details.kind.")
+    return "\n".join(lines)
+
+
 NODE_WRITE_TEMPLATES: dict[str, object] = {
     "generic": {
         "create_graph": {
@@ -224,47 +308,7 @@ NODE_WRITE_TEMPLATES: dict[str, object] = {
             "in a 'Columns / Fields' card section: | Column/Field | Type | Meaning | Notes |. "
             "The viewer renders markdown tables in the reader."
         ),
-        "hierarchy_template": """\
-## Data Source Hierarchy Documentation
-
-### db kind (relational-db / nosql / sqlite)
-- **Database**: <name>
-  - **Schema**: <schema name or 'main'>
-    - **Table**: <table name>
-      - purpose: <what this table represents>
-      - owner/who-to-ask: <person or team>
-      - columns:
-        | Column | Type | Meaning | Quality Notes |
-        |--------|------|---------|---------------|
-        | <col>  | <type> | <business meaning> | <nulls?, trust level, known issues> |
-      - refresh cadence: <real-time | daily | weekly | manual | unknown>
-      - known gaps: <missing data, stale fields, unreliable columns>
-
-### sheets kind (Excel / Google Sheets / CSV)
-- **Workbook**: <file name or URL>
-  - **Sheet**: <sheet name>
-    - role: <storage | dashboard | calc>
-    - owner/who-to-ask: <person or team>
-    - columns/ranges:
-      | Column/Range | Type | Meaning | Quality Notes |
-      |-------------|------|---------|---------------|
-      | <col>       | <type> | <business meaning> | <known issues> |
-    - refresh cadence: <cadence>
-    - known gaps: <missing data, unreliable ranges>
-
-### api kind (REST / GraphQL / SaaS webhook)
-- **Base URL / Service**: <URL or product name>
-  - **Endpoint**: <path or operation name>
-    - method: <GET | POST | etc.>
-    - purpose: <what it returns or triggers>
-    - owner/who-to-ask: <person or team>
-    - fields:
-      | Field | Type | Meaning | Quality Notes |
-      |-------|------|---------|---------------|
-      | <field> | <type> | <business meaning> | <optional, versioned, deprecated?> |
-    - rate limits / SLA: <limits or SLA>
-    - known gaps: <undocumented fields, version drift>
-""",
+        "hierarchy_template": build_source_kind_hierarchy_prose(),
         "connection_descriptor_note": (
             "To enable read-only exploration via explore_source / query_source, add a "
             "'connection' key to this node's details. Supported kinds:\n"

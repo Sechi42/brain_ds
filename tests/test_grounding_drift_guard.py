@@ -40,6 +40,8 @@ ELICIT_EXEMPT_TYPES: frozenset[str] = frozenset(
     {
         "Project",  # captured via map/brd synthesis, not the elicit interview
         "Risk",  # derived during mapping, not directly elicited
+        "DataContainer",  # Data Source-internal structural node, not elicited directly
+        "DataField",  # Data Source-internal structural node, not elicited directly
         "Unknown",  # fallback bucket, never elicited
     }
 )
@@ -570,6 +572,42 @@ class GroundingPipelineMirrorParityTests(unittest.TestCase):
                     f"{canonical_file.parent.name} SKILL.md must be byte-identical in .opencode/skills/",
                 )
 
+    def test_data_source_internal_types_are_mirrored_in_skill_prose(self) -> None:
+        expected_by_path = {
+            "skills/elicit-context/SKILL.md": (
+                "DataContainer",
+                "DataField",
+                "Data Source-internal structural nodes",
+            ),
+            "skills/brainds-docs/SKILL.md": (
+                "| DataContainer | Overview, Structure, Fields, Purpose |",
+                "| DataField | Overview, Data Type, Meaning, Quality |",
+            ),
+            "skills/map-connections/SKILL.md": (
+                "DataContainer",
+                "DataField",
+                "Data Source-internal",
+                "not standalone domain entities",
+            ),
+            "skills/brainds-registry/SKILL.md": (
+                "DataContainer",
+                "DataField",
+                "Data Source-internal",
+            ),
+            "skills/SHARED_CONTEXT.md": (
+                "DataContainer",
+                "DataField",
+            ),
+            ".atl/skill-registry.md": (
+                "DataContainer",
+                "DataField",
+                "Data Source-internal",
+            ),
+        }
+        for relative_path, must_have in expected_by_path.items():
+            with self.subTest(path=relative_path):
+                self._assert_tokens(self._read(relative_path), must_have=must_have)
+
 
 def _node(node_id: str, label: str, type_: str, details: dict | None = None) -> NodeRow:
     return NodeRow(
@@ -694,6 +732,17 @@ class AssessCompletenessTests(unittest.TestCase):
         result = assess_graph_completeness(nodes)
         self.assertEqual(result["pre_mapping_recommendation"], "proceed_with_gaps")
         self.assertEqual(result["missing_for_brd"], [])
+
+    def test_data_internal_types_are_not_assessed_for_brd_completeness(self) -> None:
+        from brain_ds.mcp.completeness import ASSESSED_TYPES, assess_graph_completeness
+
+        self.assertNotIn("DataContainer", ASSESSED_TYPES)
+        self.assertNotIn("DataField", ASSESSED_TYPES)
+
+        nodes = [_node("DS-1", "Warehouse", "Data Source")]
+        result = assess_graph_completeness(nodes)
+        self.assertNotIn("DataContainer", result["missing_for_brd"])
+        self.assertNotIn("DataField", result["missing_for_brd"])
 
 
 if __name__ == "__main__":
