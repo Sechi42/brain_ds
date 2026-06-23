@@ -15,12 +15,13 @@ from .errors import GraphAlreadyExistsError, GraphNotFoundError, IncompatibleSto
 from .migrations import MIGRATIONS, apply_pending, configure_connection
 from .models import ClusterRow, EdgeRow, EvidenceRow, GraphMeta, NearestHit, NodeRow
 from .repository import (
-    ClusterRepository,
     AuditRepository,
-    EmbeddingRepository,
+    ClusterRepository,
     EdgeRepository,
+    EmbeddingRepository,
     EvidenceRepository,
     GraphMetaRepository,
+    LedgerRepository,
     NodeRepository,
     OutboxRepository,
 )
@@ -80,6 +81,7 @@ class GraphStore:
         self.embedding_repo = EmbeddingRepository(self.conn)
         self.audit_repo = AuditRepository(self.conn)
         self.outbox_repo = OutboxRepository(self.conn)
+        self.ledger_repo = LedgerRepository(self.conn)
 
     def _apply_pending_cached(self, path: str) -> None:
         """Run apply_pending once per process per DB path.
@@ -604,3 +606,27 @@ class GraphStore:
             (graph_id, graph_id, graph_id),
         )
         self.conn.commit()
+
+    # ------------------------------------------------------------------
+    # Ledger pass-throughs (thin delegation to LedgerRepository)
+    # ------------------------------------------------------------------
+
+    def append_ledger(self, graph_id: str, **kwargs) -> int:
+        """Append one row to confidence_ledger for graph_id.
+
+        Calls _ensure_writable() before delegating so read-only stores raise
+        consistently.  The ledger commit is advisory-isolated from any prior
+        edge write.
+        """
+        self._ensure_writable()
+        return self.ledger_repo.append(graph_id, **kwargs)
+
+    def query_ledger_latest(self, graph_id: str, **kwargs):
+        """Return the latest ledger row per target_id for graph_id."""
+        self._assert_graph_exists(graph_id)
+        return self.ledger_repo.query_latest_per_target(graph_id, **kwargs)
+
+    def query_ledger(self, graph_id: str, *, status: str | None = None, **kwargs):
+        """Return full ledger history for graph_id (all rows, optional status filter)."""
+        self._assert_graph_exists(graph_id)
+        return self.ledger_repo.query_by_graph(graph_id, status=status, **kwargs)

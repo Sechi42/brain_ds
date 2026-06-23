@@ -122,6 +122,38 @@ CREATE INDEX IF NOT EXISTS idx_evidence_graph_source ON evidence(graph_id, sourc
 CREATE INDEX IF NOT EXISTS idx_cluster_members_node ON cluster_members(graph_id, node_id);
 CREATE INDEX IF NOT EXISTS idx_embeddings_target ON embeddings(graph_id, target_type, target_id, model);
 CREATE INDEX IF NOT EXISTS idx_outbox_published ON event_outbox(published);
+
+CREATE TABLE IF NOT EXISTS confidence_ledger (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    graph_id            TEXT NOT NULL,
+    target_type         TEXT NOT NULL DEFAULT 'edge'
+                        CHECK(target_type IN ('edge','node')),
+    target_id           TEXT NOT NULL,
+    status              TEXT NOT NULL
+                        CHECK(status IN (
+                            'inferred','needs-confirmation',
+                            'confirmed','invalidated','abstain'
+                        )),
+    initial_confidence  REAL,
+    current_confidence  REAL,
+    relationship_label  TEXT,
+    source_node_id      TEXT,
+    target_node_id      TEXT,
+    source_node_type    TEXT,
+    target_node_type    TEXT,
+    evidence_ids        TEXT,
+    captured_by         TEXT,
+    captured_at         TEXT NOT NULL,
+    confirmed_at        TEXT,
+    confirmed_by        TEXT,
+    flagged_reason      TEXT,
+    gold_rationale      TEXT,
+    provenance          TEXT NOT NULL
+                        CHECK(provenance IN ('seed','hand_labeled','generated')),
+    FOREIGN KEY (graph_id) REFERENCES graphs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_ledger_graph_status ON confidence_ledger(graph_id, status);
+CREATE INDEX IF NOT EXISTS idx_ledger_latest ON confidence_ledger(graph_id, target_type, target_id, id);
 """
 
 TABLES = (
@@ -134,6 +166,7 @@ TABLES = (
     "cluster_members",
     "embeddings",
     "event_outbox",
+    "confidence_ledger",
 )
 
 INDICES = (
@@ -147,4 +180,6 @@ INDICES = (
     "idx_cluster_members_node",
     "idx_embeddings_target",
     "idx_outbox_published",
+    "idx_ledger_graph_status",
+    "idx_ledger_latest",
 )

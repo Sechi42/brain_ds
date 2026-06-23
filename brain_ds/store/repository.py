@@ -17,6 +17,7 @@ from .models import (
     EmbeddingRow,
     EvidenceRow,
     GraphMeta,
+    LedgerRow,
     NearestHit,
     NodeRow,
 )
@@ -975,3 +976,211 @@ class EmbeddingRepository:
             (graph_id, model, dimensions, target_id),
         ).fetchall()
         return [EmbeddingRow(*row) for row in rows]
+
+
+class LedgerRepository:
+    """Append-only repository for the confidence_ledger table.
+
+    Constructed with a sqlite3.Connection that already has PRAGMA foreign_keys=ON
+    (set by configure_connection / GraphStore.__init__).  No connection lifecycle
+    of its own — the caller owns the connection.
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.conn = conn
+
+    # ------------------------------------------------------------------
+    # Write
+    # ------------------------------------------------------------------
+
+    def append(
+        self,
+        graph_id: str,
+        *,
+        target_id: str,
+        status: str,
+        provenance: str,
+        captured_at: str,
+        target_type: str = "edge",
+        initial_confidence: float | None = None,
+        current_confidence: float | None = None,
+        relationship_label: str | None = None,
+        source_node_id: str | None = None,
+        target_node_id: str | None = None,
+        source_node_type: str | None = None,
+        target_node_type: str | None = None,
+        evidence_ids: list | None = None,
+        captured_by: str | None = None,
+        confirmed_at: str | None = None,
+        confirmed_by: str | None = None,
+        flagged_reason: str | None = None,
+        gold_rationale: str | None = None,
+    ) -> int:
+        """Insert one row and return its auto-incremented id.
+
+        Pure INSERT — never ON CONFLICT/REPLACE.  JSON-encodes evidence_ids.
+        Auto-commits after the insert (own advisory commit, isolated from any
+        prior upsert_edge commit).
+        """
+        cursor = self.conn.execute(
+            """
+            INSERT INTO confidence_ledger(
+                graph_id, target_type, target_id, status,
+                initial_confidence, current_confidence,
+                relationship_label,
+                source_node_id, target_node_id,
+                source_node_type, target_node_type,
+                evidence_ids, captured_by, captured_at,
+                confirmed_at, confirmed_by,
+                flagged_reason, gold_rationale,
+                provenance
+            ) VALUES (
+                ?, ?, ?, ?,
+                ?, ?,
+                ?,
+                ?, ?,
+                ?, ?,
+                ?, ?, ?,
+                ?, ?,
+                ?, ?,
+                ?
+            )
+            """,
+            (
+                graph_id,
+                target_type,
+                target_id,
+                status,
+                initial_confidence,
+                current_confidence,
+                relationship_label,
+                source_node_id,
+                target_node_id,
+                source_node_type,
+                target_node_type,
+                encode_json(evidence_ids) if evidence_ids is not None else None,
+                captured_by,
+                captured_at,
+                confirmed_at,
+                confirmed_by,
+                flagged_reason,
+                gold_rationale,
+                provenance,
+            ),
+        )
+        self.conn.commit()
+        return cursor.lastrowid  # type: ignore[return-value]
+
+    # ------------------------------------------------------------------
+    # Read
+    # ------------------------------------------------------------------
+
+    def query_by_graph(
+        self,
+        graph_id: str,
+        *,
+        status: str | None = None,
+        target_type: str = "edge",
+    ) -> list[LedgerRow]:
+        """Return all rows for graph_id, ordered by id ASC.
+
+        Optional status filter.  Includes ALL historical rows (full audit trail).
+        """
+        sql = """
+            SELECT
+                id, graph_id, target_type, target_id, status,
+                initial_confidence, current_confidence,
+                relationship_label,
+                source_node_id, target_node_id,
+                source_node_type, target_node_type,
+                evidence_ids, captured_by, captured_at,
+                confirmed_at, confirmed_by,
+                flagged_reason, gold_rationale,
+                provenance
+              FROM confidence_ledger
+             WHERE graph_id = ?
+               AND target_type = ?
+        """
+        params: list[object] = [graph_id, target_type]
+        if status is not None:
+            sql += " AND status = ?"
+            params.append(status)
+        sql += " ORDER BY id ASC"
+        rows = self.conn.execute(sql, params).fetchall()
+        return [self._row_to_model(r) for r in rows]
+
+    def query_latest_per_target(
+        self,
+        graph_id: str,
+        *,
+        target_type: str = "edge",
+    ) -> list[LedgerRow]:
+        """Return the latest (highest id) row per target_id.
+
+        Uses a correlated MAX(id) subquery so the idx_ledger_latest composite
+        index (graph_id, target_type, target_id, id) can resolve recency without
+        a full-table scan.
+        """
+        sql = """
+            SELECT
+                id, graph_id, target_type, target_id, status,
+                initial_confidence, current_confidence,
+                relationship_label,
+                source_node_id, target_node_id,
+                source_node_type, target_node_type,
+                evidence_ids, captured_by, captured_at,
+                confirmed_at, confirmed_by,
+                flagged_reason, gold_rationale,
+                provenance
+              FROM confidence_ledger
+             WHERE id IN (
+                 SELECT MAX(id)
+                   FROM confidence_ledger
+                  WHERE graph_id = ?
+                    AND target_type = ?
+                  GROUP BY target_id
+             )
+             ORDER BY id ASC
+        """
+        rows = self.conn.execute(sql, (graph_id, target_type)).fetchall()
+        return [self._row_to_model(r) for r in rows]
+
+    def query_by_status(
+        self,
+        graph_id: str,
+        statuses: list[str],
+        *,
+        target_type: str = "edge",
+    ) -> list[LedgerRow]:
+        """Return latest rows per target_id where the latest status is in statuses."""
+        latest = self.query_latest_per_target(graph_id, target_type=target_type)
+        return [r for r in latest if r.status in statuses]
+
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _row_to_model(row: tuple) -> LedgerRow:
+        return LedgerRow(
+            id=row[0],
+            graph_id=row[1],
+            target_type=row[2],
+            target_id=row[3],
+            status=row[4],
+            initial_confidence=row[5],
+            current_confidence=row[6],
+            relationship_label=row[7],
+            source_node_id=row[8],
+            target_node_id=row[9],
+            source_node_type=row[10],
+            target_node_type=row[11],
+            evidence_ids=decode_json(row[12]),
+            captured_by=row[13],
+            captured_at=row[14],
+            confirmed_at=row[15],
+            confirmed_by=row[16],
+            flagged_reason=row[17],
+            gold_rationale=row[18],
+            provenance=row[19],
+        )

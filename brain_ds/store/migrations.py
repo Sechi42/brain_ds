@@ -151,7 +151,68 @@ def v5_graphs_hidden(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE graphs ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")
 
 
-MIGRATIONS: Sequence[Migration] = (v1_initial_schema, v2_tools_audit, v3_event_outbox, v4_fts5_nodes, v5_graphs_hidden)
+def v6_confidence_ledger(conn: sqlite3.Connection) -> None:
+    """Create the append-only confidence_ledger table and its indices (v6).
+
+    Purely additive: IF NOT EXISTS guards make this idempotent.
+    The FK ON DELETE CASCADE ties ledger rows to the parent graph lifetime.
+    PRAGMA foreign_keys=ON (set by configure_connection) activates the cascade.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS confidence_ledger (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            graph_id            TEXT NOT NULL,
+            target_type         TEXT NOT NULL DEFAULT 'edge'
+                                CHECK(target_type IN ('edge','node')),
+            target_id           TEXT NOT NULL,
+            status              TEXT NOT NULL
+                                CHECK(status IN (
+                                    'inferred','needs-confirmation',
+                                    'confirmed','invalidated','abstain'
+                                )),
+            initial_confidence  REAL,
+            current_confidence  REAL,
+            relationship_label  TEXT,
+            source_node_id      TEXT,
+            target_node_id      TEXT,
+            source_node_type    TEXT,
+            target_node_type    TEXT,
+            evidence_ids        TEXT,
+            captured_by         TEXT,
+            captured_at         TEXT NOT NULL,
+            confirmed_at        TEXT,
+            confirmed_by        TEXT,
+            flagged_reason      TEXT,
+            gold_rationale      TEXT,
+            provenance          TEXT NOT NULL
+                                CHECK(provenance IN ('seed','hand_labeled','generated')),
+            FOREIGN KEY (graph_id) REFERENCES graphs(id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_ledger_graph_status
+        ON confidence_ledger(graph_id, status)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_ledger_latest
+        ON confidence_ledger(graph_id, target_type, target_id, id)
+        """
+    )
+
+
+MIGRATIONS: Sequence[Migration] = (
+    v1_initial_schema,
+    v2_tools_audit,
+    v3_event_outbox,
+    v4_fts5_nodes,
+    v5_graphs_hidden,
+    v6_confidence_ledger,
+)
 
 
 def _current_schema_version(conn: sqlite3.Connection) -> int:

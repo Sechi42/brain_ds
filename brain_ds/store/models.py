@@ -99,3 +99,34 @@ class EmbeddingRow:
 class NearestHit:
     target_id: str
     score: float
+
+
+@dataclass(slots=True)
+class LedgerRow:
+    """One append-only row in confidence_ledger.
+
+    target_type is always 'edge' in Brick A; the column is forward-compatible
+    with 'node' (future brick).  id defaults to None for new (un-inserted) rows;
+    the repository sets it from lastrowid after INSERT.
+    """
+
+    id: int | None
+    graph_id: str
+    target_type: str          # 'edge' | 'node'
+    target_id: str            # edge_id (or node id for future use)
+    status: str               # inferred | needs-confirmation | confirmed | invalidated | abstain
+    initial_confidence: float | None
+    current_confidence: float | None
+    relationship_label: str | None
+    source_node_id: str | None
+    target_node_id: str | None
+    source_node_type: str | None
+    target_node_type: str | None
+    evidence_ids: list | None  # stored as JSON in DB
+    captured_by: str | None   # 'mapper' | 'verifier' | 'human' | 'import'
+    captured_at: str           # UTC ISO-8601
+    confirmed_at: str | None
+    confirmed_by: str | None
+    flagged_reason: str | None
+    gold_rationale: str | None
+    provenance: str            # 'seed' | 'hand_labeled' | 'generated'
