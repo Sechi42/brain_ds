@@ -1,3 +1,11 @@
+from .edge_rollout import (
+    DEFAULT_POLICY,
+    GateReason,
+    RolloutGateResult,
+    RolloutPolicy,
+    RolloutStatus,
+    evaluate_rollout_gates,
+)
 from .elicit_compliance import Finding, check_elicit_compliance
 from .semantic_verify import (
     CoherenceResult,
@@ -23,4 +31,11 @@ __all__ = [
     "build_semantic_report",
     "score_brd_coherence",
     "score_graph_faithfulness",
+    # Edge judge rollout gate — ADDITIVE, pure, advisory-only
+    "DEFAULT_POLICY",
+    "GateReason",
+    "RolloutGateResult",
+    "RolloutPolicy",
+    "RolloutStatus",
+    "evaluate_rollout_gates",
 ]
