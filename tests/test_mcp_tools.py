@@ -25,6 +25,7 @@ from brain_ds.mcp.tools import (
     map_connections,
     run_elicit,
     search_graph,
+    snapshot_edges,
     update_node,
 )
 from brain_ds.store.graph_store import GraphStore
@@ -206,8 +207,9 @@ class MCPToolsTests(unittest.TestCase):
         self.assertEqual(invalid["code"], -32602)
         self.assertIn("Expected string for query", invalid["message"])
 
-    def test_tool_registry_and_schema_inventory_match_twenty_four_tools(self) -> None:
-        self.assertEqual(len(TOOL_REGISTRY), 24)
+    def test_tool_registry_and_schema_inventory_match_twenty_five_tools(self) -> None:
+        self.assertEqual(len(TOOL_REGISTRY), 25)
+        self.assertEqual(TOOL_REGISTRY["snapshot_edges"]["rw"], "read")
 
     def test_update_node_partial_update_audit_and_read_only_rejection(self) -> None:
         before = self.store.query_nodes(self.graph_id, type="Task")[0]
@@ -624,9 +626,9 @@ class MCPToolsTests(unittest.TestCase):
         typed = self._expect_rows(list_nodes(self.store, {"graph_id": self.graph_id, "type": "Data Source"}))
         self.assertEqual(result, typed)
 
-    def test_registry_has_twenty_four_tools_and_reads_do_not_audit(self) -> None:
+    def test_registry_has_twenty_five_tools_and_reads_do_not_audit(self) -> None:
         names = sorted(TOOL_REGISTRY.keys())
-        self.assertEqual(len(names), 24)
+        self.assertEqual(len(names), 25)
         self.assertEqual(
             names,
             [
@@ -651,6 +653,7 @@ class MCPToolsTests(unittest.TestCase):
                 "query_source",
                 "run_elicit",
                 "search_graph",
+                "snapshot_edges",
                 "suggest_connections",
                 "update_node",
                 "validate_secret_handle",
@@ -852,8 +855,50 @@ class ExploreSourceDocumentationLevelTests(unittest.TestCase):
         self.assertIn("| id | int |", orders["columns_markdown"])
 
     def test_explore_source_documentation_level_tool_count_unchanged(self):
-        """DDS-4: tool count MUST stay 24 after adding level='documentation'."""
-        self.assertEqual(len(TOOL_REGISTRY), 24)
+        """DDS-4: explore_source did not add a tool; later snapshot_edges moved count to 25."""
+        self.assertEqual(len(TOOL_REGISTRY), 25)
+
+    def test_snapshot_edges_defaults_to_bounded_stable_page(self) -> None:
+        self.store.upsert_edge(
+            self.graph_id,
+            {"source": "N-1", "target": "N-2", "label": "alpha", "weight": 0.2, "evidence_ids": ["e-1"]},
+        )
+        self.store.upsert_edge(
+            self.graph_id,
+            {"source": "N-1", "target": "N-3", "label": "alpha", "weight": 0.8, "evidence_ids": []},
+        )
+
+        result = snapshot_edges(self.store, {"graph_id": self.graph_id, "limit": 2})
+
+        self.assertEqual(result["graph_id"], self.graph_id)
+        self.assertEqual(result["mode"], "sample")
+        self.assertEqual(result["limit"], 2)
+        self.assertEqual([edge["edge_id"] for edge in result["edges"]], ["N-1->N-2#1", "N-1->N-3#1"])
+        self.assertIsNotNone(result["next_cursor"])
+
+    def test_snapshot_edges_filters_and_rejects_invalid_depth(self) -> None:
+        self.store.upsert_edge(
+            self.graph_id,
+            {"source": "N-1", "target": "N-2", "label": "uses", "weight": 0.7, "evidence_ids": ["e-1"]},
+        )
+        self.store.upsert_edge(
+            self.graph_id,
+            {"source": "N-2", "target": "N-3", "label": "depends-on", "weight": 0.3, "evidence_ids": []},
+        )
+
+        filtered = snapshot_edges(
+            self.store,
+            {"graph_id": self.graph_id, "label": ["uses"], "min_weight": 0.5, "has_evidence": True},
+        )
+        self.assertEqual([edge["label"] for edge in filtered["edges"]], ["uses"])
+
+        invalid = snapshot_edges(
+            self.store,
+            {"graph_id": self.graph_id, "neighborhood": {"node_id": "N-1", "depth": 4, "direction": "both"}},
+        )
+        self.assertIsInstance(invalid, dict)
+        self.assertEqual(invalid["code"], -32602)
+        self.assertIn("depth", invalid["message"])
 
     def test_explore_source_schema_accepts_level_param(self):
         """DDS-4: explore_source schema must accept optional level string."""

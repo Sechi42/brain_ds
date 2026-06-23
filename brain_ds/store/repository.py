@@ -469,6 +469,13 @@ class EdgeRepository:
         *,
         source: str | None = None,
         target: str | None = None,
+        labels: list[str] | None = None,
+        min_weight: float | None = None,
+        max_weight: float | None = None,
+        has_evidence: bool | None = None,
+        order_by: str = "edge_id",
+        limit: int | None = None,
+        cursor: tuple[str, str] | None = None,
     ) -> list[EdgeRow]:
         sql = """
             SELECT graph_id, edge_id, source, target, label, weight, reasons, evidence_ids, created_at
@@ -482,7 +489,31 @@ class EdgeRepository:
         if target is not None:
             sql += " AND target = ?"
             params.append(target)
-        sql += " ORDER BY edge_id ASC"
+        if labels:
+            placeholders = ", ".join("?" for _ in labels)
+            sql += f" AND label IN ({placeholders})"
+            params.extend(labels)
+        if min_weight is not None:
+            sql += " AND weight >= ?"
+            params.append(min_weight)
+        if max_weight is not None:
+            sql += " AND weight <= ?"
+            params.append(max_weight)
+        if has_evidence is True:
+            sql += " AND evidence_ids IS NOT NULL AND evidence_ids != '[]'"
+        elif has_evidence is False:
+            sql += " AND (evidence_ids IS NULL OR evidence_ids = '[]')"
+        if cursor is not None:
+            last_label, last_edge_id = cursor
+            sql += " AND (label > ? OR (label = ? AND edge_id > ?))"
+            params.extend([last_label, last_label, last_edge_id])
+        if order_by == "label_edge_id":
+            sql += " ORDER BY label ASC, edge_id ASC"
+        else:
+            sql += " ORDER BY edge_id ASC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(max(int(limit), 0))
         rows = self.conn.execute(sql, params).fetchall()
         return [
             EdgeRow(

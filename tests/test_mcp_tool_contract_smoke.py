@@ -28,7 +28,7 @@ def _params(name: str, tmp_path: Path) -> dict[str, Any]:
         "list_nodes": base, "list_data_sources": base, "get_node": {**base, "node_id": "N1"}, "search_graph": {**base, "query": "contract"},
         "update_node": {**base, "node_id": "N2", "label": "Updated"}, "add_edge": {**base, "source": "N1", "target": "N2", "label": "feeds"},
         "delete_node": {**base, "node_id": "missing"}, "delete_edge": {**base, "source": "N1", "target": "N2"}, "suggest_connections": {**base, "node_id": "N1"},
-        "assess_completeness": base, "get_weak_edges": base, "list_workspaces": {}, "open_workspace": {"path": str(tmp_path)},
+        "assess_completeness": base, "get_weak_edges": base, "snapshot_edges": base, "list_workspaces": {}, "open_workspace": {"path": str(tmp_path)},
         "run_elicit": {}, "map_connections": {}, "generate_brd": {}, "list_source_connections": base, "explore_source": {**base, "node_id": "N1"},
         "query_source": {**base, "node_id": "N1", "sql": "SELECT 1", "limit": 1}, "list_secret_handles": {"agent_scope": "workspace_admin"},
         "validate_secret_handle": {"handle": "contract_pg", "agent_scope": "workspace_admin"},

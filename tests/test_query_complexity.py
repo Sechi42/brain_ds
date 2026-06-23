@@ -214,16 +214,16 @@ class TestProseContractMirror(unittest.TestCase):
         self.assertIn("suggest_connections", text)
 
 
-class TestNoMcpToolAdded(unittest.TestCase):
-    """Phase 4.1 — QC-NO-MCP-TOOL: TOOL_REGISTRY count must stay at 24."""
+class TestNoClassifyQueryMcpToolAdded(unittest.TestCase):
+    """Phase 4.1 — QC-NO-MCP-TOOL: classify_query must not add another MCP tool."""
 
     def test_tool_registry_count(self):
         from brain_ds.mcp.tools import TOOL_REGISTRY
 
         self.assertEqual(
             len(TOOL_REGISTRY),
-            24,
-            msg=f"TOOL_REGISTRY has {len(TOOL_REGISTRY)} tools; expected 24. "
+            25,
+            msg=f"TOOL_REGISTRY has {len(TOOL_REGISTRY)} tools; expected 25. "
             "Do NOT register classify_query as an MCP tool.",
         )
 

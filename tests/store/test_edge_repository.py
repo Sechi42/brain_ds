@@ -63,3 +63,50 @@ class EdgeRepositoryTests(unittest.TestCase):
 
         edge = self.edges.query_edges("graph-e", source="N2")[0]
         self.assertIsNone(edge.weight)
+
+    def test_query_edges_filters_order_limit_and_cursor(self) -> None:
+        self.edges.save_edges(
+            "graph-e",
+            [
+                {"source": "A", "target": "B", "label": "uses", "weight": 0.2, "edge_id": "e-3", "evidence_ids": ["ev"]},
+                {"source": "A", "target": "C", "label": "uses", "weight": 0.8, "edge_id": "e-2", "evidence_ids": []},
+                {"source": "B", "target": "C", "label": "depends-on", "weight": 0.6, "edge_id": "e-1", "evidence_ids": ["ev"]},
+            ],
+        )
+
+        first_page = self.edges.query_edges(
+            "graph-e",
+            labels=["uses"],
+            min_weight=0.1,
+            max_weight=0.9,
+            has_evidence=True,
+            order_by="label_edge_id",
+            limit=1,
+        )
+        second_page = self.edges.query_edges(
+            "graph-e",
+            labels=["uses"],
+            min_weight=0.1,
+            max_weight=0.9,
+            has_evidence=True,
+            order_by="label_edge_id",
+            limit=1,
+            cursor=(first_page[-1].label, first_page[-1].edge_id),
+        )
+
+        self.assertEqual([edge.edge_id for edge in first_page], ["e-3"])
+        self.assertEqual(second_page, [])
+
+    def test_query_edges_orders_by_label_then_edge_id(self) -> None:
+        self.edges.save_edges(
+            "graph-e",
+            [
+                {"source": "A", "target": "B", "label": "uses", "edge_id": "z"},
+                {"source": "A", "target": "C", "label": "depends-on", "edge_id": "m"},
+                {"source": "B", "target": "C", "label": "uses", "edge_id": "a"},
+            ],
+        )
+
+        ordered = self.edges.query_edges("graph-e", order_by="label_edge_id")
+
+        self.assertEqual([edge.edge_id for edge in ordered], ["m", "a", "z"])

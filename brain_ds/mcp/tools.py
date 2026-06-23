@@ -34,6 +34,7 @@ from brain_ds.scoring.embedder import get_default_model, node_text
 from brain_ds.ontology.entity_types import EntityType
 from brain_ds.store.errors import CorruptVectorError, GraphAlreadyExistsError, GraphNotFoundError, StoreError
 from brain_ds.store.graph_store import GraphStore
+from brain_ds.verify.edge_snapshot import build_edge_snapshot, decode_cursor, normalize_limit, validate_neighborhood
 
 
 def _node_to_dict(node: Any) -> dict[str, Any]:
@@ -867,6 +868,62 @@ def list_workspaces(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]
     }
 
 
+def _normalize_edge_labels(value: Any) -> list[str] | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return value
+    raise ValidationError(code=-32602, message="label must be a string or array of strings")
+
+
+def _cursor_tuple(raw_cursor: Any) -> tuple[str, str] | None:
+    if raw_cursor is None:
+        return None
+    decoded = decode_cursor(str(raw_cursor))
+    return str(decoded["last_label"]), str(decoded["last_edge_id"])
+
+
+@error_boundary
+def snapshot_edges(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    validated = validate_tool_input("snapshot_edges", params, TOOL_SCHEMAS["snapshot_edges"])
+    graph_id = validated["graph_id"]
+    mode = str(validated.get("mode") or "sample")
+    if mode not in {"sample", "evidence_ranked", "anomaly", "suspicious", "calibration"}:
+        raise ValidationError(code=-32602, message="mode must be sample, evidence_ranked, anomaly, suspicious, or calibration")
+    if mode == "anomaly":
+        mode = "suspicious"
+    try:
+        limit = normalize_limit(validated.get("limit"))
+        validate_neighborhood(validated.get("neighborhood"))
+        labels = _normalize_edge_labels(validated.get("label"))
+        cursor = _cursor_tuple(validated.get("cursor"))
+        edges = store.query_edges(
+            graph_id,
+            source=validated.get("source"),
+            target=validated.get("target"),
+            labels=labels,
+            min_weight=validated.get("min_weight"),
+            max_weight=validated.get("max_weight"),
+            has_evidence=validated.get("has_evidence"),
+            order_by="label_edge_id",
+            limit=limit + 1,
+            cursor=cursor,
+        )
+        return build_edge_snapshot(
+            graph_id=graph_id,
+            edges=edges,
+            mode=mode,
+            limit=limit,
+            neighborhood=validated.get("neighborhood"),
+        )
+    except GraphNotFoundError as exc:
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+    except ValueError as exc:
+        raise ValidationError(code=-32602, message=str(exc)) from exc
+
+
 @error_boundary
 def open_workspace(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     # The store swap lives in the MCP server session (brain_ds/mcp/server.py);
@@ -1487,6 +1544,13 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "handler": get_weak_edges,
         "schema": TOOL_SCHEMAS["get_weak_edges"],
         "description": "List edges with confidence below max_confidence (default 0.4) for periodic audit",
+        "rw": "read",
+        "requires_ai_agent": False,
+    },
+    "snapshot_edges": {
+        "handler": snapshot_edges,
+        "schema": TOOL_SCHEMAS["snapshot_edges"],
+        "description": "Read a bounded, retrieval-shaped snapshot of graph edges",
         "rw": "read",
         "requires_ai_agent": False,
     },

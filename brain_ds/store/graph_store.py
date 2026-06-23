@@ -292,9 +292,27 @@ class GraphStore:
         *,
         source: str | None = None,
         target: str | None = None,
+        labels: list[str] | None = None,
+        min_weight: float | None = None,
+        max_weight: float | None = None,
+        has_evidence: bool | None = None,
+        order_by: str = "edge_id",
+        limit: int | None = None,
+        cursor: tuple[str, str] | None = None,
     ) -> list[EdgeRow]:
         self._assert_graph_exists(graph_id)
-        return self.edge_repo.query_edges(graph_id, source=source, target=target)
+        return self.edge_repo.query_edges(
+            graph_id,
+            source=source,
+            target=target,
+            labels=labels,
+            min_weight=min_weight,
+            max_weight=max_weight,
+            has_evidence=has_evidence,
+            order_by=order_by,
+            limit=limit,
+            cursor=cursor,
+        )
 
     def query_clusters(self, graph_id: str) -> list[ClusterRow]:
         self._assert_graph_exists(graph_id)

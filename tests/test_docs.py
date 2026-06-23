@@ -16,14 +16,15 @@ ROOT = Path(__file__).resolve().parents[1]
 class ProjectDocsCoverageTests(unittest.TestCase):
     """Guards for README.md and INSTALL.md coverage."""
 
-    def test_readme_mentions_twenty_four_tools(self) -> None:
+    def test_readme_mentions_twenty_five_tools(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn("24 tools", readme)
+        self.assertIn("25 tools", readme)
+        self.assertNotIn("24 tools", readme)
         self.assertNotIn("22 tools", readme)
 
     def test_readme_mcp_table_includes_all_graph_tools(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        for tool in ("assess_completeness", "get_weak_edges"):
+        for tool in ("assess_completeness", "get_weak_edges", "snapshot_edges"):
             self.assertIn(tool, readme)
 
     def test_readme_promotes_onboard_as_install_front_door(self) -> None:
@@ -33,9 +34,10 @@ class ProjectDocsCoverageTests(unittest.TestCase):
         self.assertIn("setup + install-opencode", readme)
         self.assertIn("advanced/compat", readme)
 
-    def test_install_mentions_twenty_four_tools(self) -> None:
+    def test_install_mentions_twenty_five_tools(self) -> None:
         install = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
-        self.assertIn("24 tools", install)
+        self.assertIn("25 tools", install)
+        self.assertNotIn("24 tools", install)
         self.assertNotIn("22 tools", install)
 
     def test_install_promotes_onboard_as_install_front_door(self) -> None:

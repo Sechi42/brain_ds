@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from brain_ds.harness_check import (
+    REQUIRED_AGENT_GRANTS,
     check_agent_files,
     check_deployed_skill_freshness,
     check_project_mcp_entries,
@@ -133,6 +134,7 @@ class HarnessCheckTests(unittest.TestCase):
                 "mcp__brain_ds__get_node",
                 "mcp__brain_ds__list_nodes",
                 "mcp__brain_ds__search_graph",
+                "mcp__brain_ds__snapshot_edges",
                 "mcp__plugin_engram_engram__mem_save",
             ],
         }
@@ -205,10 +207,23 @@ class AgentFileCheckTests(unittest.TestCase):
                 "mcp__brain_ds__get_node",
                 "mcp__brain_ds__list_nodes",
                 "mcp__brain_ds__search_graph",
+                "mcp__brain_ds__snapshot_edges",
                 "mcp__plugin_engram_engram__mem_save",
             ],
         },
     }
+
+    def test_semantic_verifier_required_grants_are_read_only_with_snapshot_edges(self) -> None:
+        grants = REQUIRED_AGENT_GRANTS["brainds-semantic-verifier"]
+
+        self.assertIn("mcp__brain_ds__snapshot_edges", grants)
+        self.assertIn("mcp__brain_ds__get_node", grants)
+        self.assertIn("mcp__brain_ds__list_nodes", grants)
+        self.assertIn("mcp__brain_ds__search_graph", grants)
+        self.assertNotIn("mcp__brain_ds__update_node", grants)
+        self.assertNotIn("mcp__brain_ds__add_edge", grants)
+        self.assertNotIn("mcp__brain_ds__delete_node", grants)
+        self.assertNotIn("mcp__brain_ds__delete_edge", grants)
 
     def _make_agent_dir(self, tmp: Path) -> Path:
         agent_dir = tmp / ".claude" / "agents"

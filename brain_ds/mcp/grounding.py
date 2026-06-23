@@ -1274,7 +1274,7 @@ SOURCE_DOCUMENTATION_BUNDLE_CONTRACT: dict[str, object] = {
         },
         "note": (
             "No connector required. Reads child table nodes from the graph store only. "
-            "Tool count stays 24 — level='documentation' extends the existing explore_source tool."
+            "Tool count stayed unchanged for level='documentation'; the current MCP inventory has 25 tools after snapshot_edges."
         ),
     },
     "response_shape": {

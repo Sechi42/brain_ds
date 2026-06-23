@@ -12,7 +12,8 @@ The orchestrator hands you:
 
 1. Read the BRD via `get_node(brd_node_id)` — the BRD markdown lives in `card_sections[0].content`.
 2. Use `list_nodes(graph_id, type)` and `search_graph(graph_id, query)` to verify entity references and cross-section consistency.
-3. Never call `update_node`, `add_edge`, `delete_node`, or any mutation tool.
+3. Read bounded relationship evidence via `snapshot_edges(graph_id, mode="suspicious", limit=50)` first; add focused follow-up calls with `source`, `target`, `label`, or `has_evidence` filters only when needed.
+4. Never call `update_node`, `add_edge`, `delete_node`, `delete_edge`, or any mutation tool.
 
 ## Coherence rubric
 
@@ -34,13 +35,40 @@ Apply two dimensions to the BRD:
 
 Combine your rubric judgment with the deterministic faithfulness findings in `semantic_report_ref`.
 
+## Edge judgment rubric
+
+Judge each edge in the bounded `snapshot_edges` response. Use deterministic flags as evidence, but do not override them silently.
+
+Verdicts:
+- `supported`: source, target, relationship label, and cited evidence agree.
+- `unsupported`: the edge is not semantically justified by the source/target details.
+- `contradicted`: cited evidence says the opposite of the edge.
+- `insufficient_evidence`: the edge may be plausible, but available evidence cannot support it.
+
+Edge finding shape:
+
+```
+severity: SUGGESTION | WARNING
+dimension: edge_compatibility | edge_semantics | edge_evidence | edge_calibration
+edge_id: <edge id from snapshot_edges>
+verdict: supported | unsupported | contradicted | insufficient_evidence
+rationale: <why, max 280 chars>
+cited_evidence_ids: <subset of the edge evidence_ids; empty only for insufficient_evidence>
+```
+
+Rules:
+- Cite at least one `cited_evidence_ids` entry for `supported` or `contradicted` when the edge has evidence.
+- Use `WARNING` for `contradicted`, `unsupported`, or deterministic `invalid` compatibility.
+- Use `SUGGESTION` for missing evidence, out-of-range weight, `suspect` compatibility, or abstain-band uncertainty.
+- Edge findings are advisory only; they never trigger graph mutation or archive blocking.
+
 ## Tiered finding shape
 
 Emit findings using the `SemanticFinding` shape consistent with v1:
 
 ```
 severity: SUGGESTION | WARNING | CRITICAL
-dimension: section-coherence | cross-section-consistency
+dimension: section-coherence | cross-section-consistency | edge_compatibility | edge_semantics | edge_evidence | edge_calibration
 message: <human-readable explanation>
 locator: <section name or field path>
 ```

@@ -37,6 +37,7 @@ REQUIRED_AGENT_GRANTS: dict[str, set[str]] = {
         "mcp__brain_ds__get_node",
         "mcp__brain_ds__list_nodes",
         "mcp__brain_ds__search_graph",
+        "mcp__brain_ds__snapshot_edges",
         "mcp__plugin_engram_engram__mem_save",
     },
 }
