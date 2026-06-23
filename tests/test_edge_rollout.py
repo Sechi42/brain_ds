@@ -626,5 +626,132 @@ class RolloutGateResultShapeTests(unittest.TestCase):
         self.assertFalse(hasattr(module, "update_node"))
 
 
+class AdvisoryContractTests(unittest.TestCase):
+    """Task 5.1 RED → GREEN: pre-calibration findings must never block archive/mutate.
+
+    The edge judge is advisory-only by spec (section E).  These tests bind that
+    contract explicitly: a ``RolloutGateResult`` with ``status="advisory_only"``
+    MUST NOT carry any ``CRITICAL`` severity, and calling code MUST be able to
+    proceed with archive/mutate operations regardless of gate status.
+    """
+
+    def test_advisory_only_result_never_has_critical_severity(self) -> None:
+        """Pre-calibration ``advisory_only`` status carries no CRITICAL severity code.
+
+        The valid severities for edge findings are SUGGESTION and WARNING.
+        The gate result itself only surfaces structured GateReasons — none of
+        which are CRITICAL.  This test makes the contract explicit so that any
+        future change that adds a CRITICAL-equivalent enum value or field fails
+        loudly here.
+        """
+        records = load_gold_set(GOLD_SET_PATH, min_examples_per_type=5)
+        report = calibrate_edges(records, run_id="advisory-contract")
+
+        result = evaluate_rollout_gates(
+            report,
+            records,
+            consecutive_passing_runs=1,
+            human_reviewed_abstain_count=0,
+        )
+
+        self.assertEqual(result.status, "advisory_only")
+        # No field on RolloutGateResult is named or typed "CRITICAL".
+        # Verify the result fields only carry GateReason enums (advisory severity).
+        for reason in result.failing_reasons:
+            self.assertIsInstance(reason, GateReason)
+        for reason in result.advisory_notes:
+            self.assertIsInstance(reason, GateReason)
+        # No GateReason value contains the word "critical" (case-insensitive).
+        all_reason_values = [r.value for r in result.failing_reasons] + [
+            r.value for r in result.advisory_notes
+        ]
+        for value in all_reason_values:
+            self.assertNotIn("critical", value.lower(), f"Found critical-severity reason: {value}")
+
+    def test_pre_calibration_findings_do_not_block_operations(self) -> None:
+        """``advisory_only`` means callers can proceed; nothing is raised or blocked.
+
+        This test verifies the advisory-first rollout contract: archive, update_node,
+        add_edge, etc. are not prevented by a failing gate result.  The gate returns
+        a verdict — the caller decides what to do.  The helper itself MUST NOT raise
+        an exception, call any MCP tool, or block any operation.
+        """
+        records = load_gold_set(GOLD_SET_PATH, min_examples_per_type=5)
+        report = calibrate_edges(records, run_id="no-block-contract")
+
+        # This should complete without raising even under worst-case advisory state.
+        result = evaluate_rollout_gates(
+            report,
+            records,
+            consecutive_passing_runs=0,
+            human_reviewed_abstain_count=0,
+        )
+
+        # Gate says advisory_only — the function returned normally, nothing blocked.
+        self.assertEqual(result.status, "advisory_only")
+        # The caller can freely read the result and proceed with any operation.
+        # (No archive/mutate call needed here — the point is no exception was raised.)
+        self.assertIsInstance(result.failing_reasons, tuple)
+        self.assertIsInstance(result.advisory_notes, tuple)
+
+    def test_gate_result_carries_no_mcp_mutation_side_effect(self) -> None:
+        """The rollout gate helper imports NO MCP mutation tools.
+
+        Confirmed by inspecting the module namespace: add_edge, delete_edge,
+        update_node, delete_node must be absent from edge_rollout.
+        """
+        import brain_ds.verify.edge_rollout as module
+
+        mutation_names = ["add_edge", "delete_edge", "update_node", "delete_node", "archive"]
+        for name in mutation_names:
+            self.assertFalse(
+                hasattr(module, name),
+                f"edge_rollout must not import MCP mutation tool '{name}'",
+            )
+
+    def test_warning_severity_findings_are_the_maximum_allowed(self) -> None:
+        """Edge findings severity ceiling is WARNING, not CRITICAL.
+
+        Deterministic flags in a snapshot use SUGGESTION.  Compatibility matrix
+        issues use WARNING.  No finding from the edge judge pipeline should ever
+        be CRITICAL until all rollout gates pass.  This test pins the allowed
+        set for the rollout gate phase.
+        """
+        from brain_ds.verify.edge_snapshot import build_edge_snapshot
+        from brain_ds.store.models import EdgeRow
+
+        def _edge(eid: str, label: str, weight: float | None, evidence_ids: list[str] | None = None) -> EdgeRow:
+            return EdgeRow(
+                graph_id="g",
+                edge_id=eid,
+                source="s",
+                target="t",
+                label=label,
+                weight=weight,
+                reasons=[],
+                evidence_ids=evidence_ids,
+                created_at="now",
+            )
+
+        snapshot = build_edge_snapshot(
+            graph_id="g",
+            edges=[
+                _edge("no-ev", "rel", 0.5, []),
+                _edge("bad-w", "rel", 1.5, ["e1"]),
+            ],
+            mode="sample",
+            limit=10,
+        )
+        allowed_severities = {"SUGGESTION", "WARNING"}
+        for edge in snapshot["edges"]:
+            for flag in edge["deterministic_flags"]:
+                self.assertIn(
+                    flag["severity"],
+                    allowed_severities,
+                    f"Severity {flag['severity']!r} on edge {edge['edge_id']!r} "
+                    f"exceeds advisory ceiling",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

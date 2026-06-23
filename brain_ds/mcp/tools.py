@@ -34,7 +34,14 @@ from brain_ds.scoring.embedder import get_default_model, node_text
 from brain_ds.ontology.entity_types import EntityType
 from brain_ds.store.errors import CorruptVectorError, GraphAlreadyExistsError, GraphNotFoundError, StoreError
 from brain_ds.store.graph_store import GraphStore
-from brain_ds.verify.edge_snapshot import build_edge_snapshot, decode_cursor, normalize_limit, validate_neighborhood
+from brain_ds.verify.edge_snapshot import (
+    build_edge_snapshot,
+    decode_cursor,
+    enforce_large_graph_guard,
+    enforce_payload_size_guard,
+    normalize_limit,
+    validate_neighborhood,
+)
 
 
 def _node_to_dict(node: Any) -> dict[str, Any]:
@@ -889,7 +896,8 @@ def _cursor_tuple(raw_cursor: Any) -> tuple[str, str] | None:
 def snapshot_edges(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     validated = validate_tool_input("snapshot_edges", params, TOOL_SCHEMAS["snapshot_edges"])
     graph_id = validated["graph_id"]
-    mode = str(validated.get("mode") or "sample")
+    raw_mode = validated.get("mode")
+    mode = str(raw_mode or "sample")
     if mode not in {"sample", "evidence_ranked", "anomaly", "suspicious", "calibration"}:
         raise ValidationError(code=-32602, message="mode must be sample, evidence_ranked, anomaly, suspicious, or calibration")
     if mode == "anomaly":
@@ -899,6 +907,29 @@ def snapshot_edges(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
         validate_neighborhood(validated.get("neighborhood"))
         labels = _normalize_edge_labels(validated.get("label"))
         cursor = _cursor_tuple(validated.get("cursor"))
+
+        # Large-graph guard: detect whether the caller supplied any narrowing signal.
+        # An explicit limit, explicit mode, or any filter bypasses the guard.
+        has_explicit_limit = validated.get("limit") is not None
+        has_explicit_mode = raw_mode is not None
+        has_filter = any([
+            validated.get("source") is not None,
+            validated.get("target") is not None,
+            bool(labels),
+            validated.get("min_weight") is not None,
+            validated.get("max_weight") is not None,
+            validated.get("has_evidence") is not None,
+            validated.get("neighborhood") is not None,
+        ])
+        if not has_explicit_limit and not has_explicit_mode and not has_filter:
+            total_edge_count = store.get_graph_edge_count(graph_id)
+            enforce_large_graph_guard(
+                total_edge_count,
+                has_explicit_limit=has_explicit_limit,
+                has_explicit_mode=has_explicit_mode,
+                has_filter=has_filter,
+            )
+
         edges = store.query_edges(
             graph_id,
             source=validated.get("source"),
@@ -911,13 +942,15 @@ def snapshot_edges(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
             limit=limit + 1,
             cursor=cursor,
         )
-        return build_edge_snapshot(
+        snapshot = build_edge_snapshot(
             graph_id=graph_id,
             edges=edges,
             mode=mode,
             limit=limit,
             neighborhood=validated.get("neighborhood"),
         )
+        enforce_payload_size_guard(snapshot)
+        return snapshot
     except GraphNotFoundError as exc:
         raise ValidationError(code=-32000, message=str(exc)) from exc
     except ValueError as exc:

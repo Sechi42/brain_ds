@@ -257,6 +257,28 @@ class GraphStore:
     def list_graphs(self) -> list[GraphMeta]:
         return self._guard_closed(lambda: self.meta_repo.list_graphs())
 
+    def get_graph_edge_count(self, graph_id: str) -> int:
+        """Return the cached edge count for *graph_id* from the graphs table.
+
+        This is a fast single-row lookup against the ``edge_count`` column that
+        is maintained by ``import_graph`` and ``refresh_graph_counts``.  It does
+        NOT require a full ``COUNT(*)`` scan of the edges table, making it safe
+        to call as a pre-flight check on large graphs.
+
+        Raises :exc:`~brain_ds.store.models.GraphNotFoundError` when *graph_id*
+        is not registered.
+        """
+        def _fetch() -> int:
+            row = self.conn.execute(
+                "SELECT edge_count FROM graphs WHERE id = ?",
+                (graph_id,),
+            ).fetchone()
+            if row is None:
+                raise GraphNotFoundError(f"Graph '{graph_id}' not found")
+            return int(row[0])
+
+        return self._guard_closed(_fetch)
+
     def hide_graph(self, graph_id: str) -> None:
         """Soft-delete: mark the graph hidden so list_graphs excludes it.
 

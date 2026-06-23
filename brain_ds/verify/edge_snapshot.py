@@ -10,6 +10,13 @@ MAX_EDGE_SNAPSHOT_LIMIT = 500
 DEFAULT_EDGE_SNAPSHOT_LIMIT = 50
 EDGE_SNAPSHOT_ORDER = "label ASC, edge_id ASC"
 
+# Large-graph guard: graphs with more than this many edges require an explicit
+# limit, mode, or filter when called without any narrowing signal.
+LARGE_GRAPH_EDGE_THRESHOLD = 100_000
+
+# Payload cap: snapshot responses must not exceed 256 KiB.
+MAX_SNAPSHOT_PAYLOAD_BYTES = 256 * 1024  # 256 KiB
+
 
 def encode_cursor(*, mode: str, last_label: str, last_edge_id: str) -> str:
     payload = {
@@ -46,6 +53,62 @@ def validate_neighborhood(neighborhood: dict[str, Any] | None) -> None:
     depth = int(neighborhood.get("depth", 1))
     if depth < 1 or depth > 3:
         raise ValueError("neighborhood depth must be between 1 and 3")
+
+
+def enforce_large_graph_guard(
+    total_edge_count: int,
+    *,
+    has_explicit_limit: bool,
+    has_explicit_mode: bool,
+    has_filter: bool,
+) -> None:
+    """Raise ValueError('limit_required') for unbounded large-graph calls.
+
+    When a graph has more than ``LARGE_GRAPH_EDGE_THRESHOLD`` edges (>100k),
+    calls that provide no explicit ``limit``, no explicit ``mode``, and no
+    narrowing filter are rejected with ``ValueError('limit_required')`` so the
+    MCP layer can map this to a ``400 limit_required`` response.
+
+    Callers with any of the three narrowing signals are allowed through.
+
+    Parameters
+    ----------
+    total_edge_count:
+        Total number of edges in the graph (before any filter is applied).
+    has_explicit_limit:
+        True when the caller supplied a ``limit`` parameter explicitly.
+    has_explicit_mode:
+        True when the caller supplied a ``mode`` parameter explicitly (i.e. not
+        relying on the default ``"sample"`` fallback).
+    has_filter:
+        True when the caller supplied at least one narrowing filter (``source``,
+        ``target``, ``label``, ``min_weight``, ``max_weight``, ``has_evidence``,
+        or ``neighborhood``).
+    """
+    if (
+        total_edge_count > LARGE_GRAPH_EDGE_THRESHOLD
+        and not has_explicit_limit
+        and not has_explicit_mode
+        and not has_filter
+    ):
+        raise ValueError("limit_required")
+
+
+def enforce_payload_size_guard(payload: dict[str, Any]) -> None:
+    """Raise ValueError('payload_too_large') when the serialised payload exceeds 256 KiB.
+
+    The snapshot payload is serialised to JSON and its byte length is checked
+    against ``MAX_SNAPSHOT_PAYLOAD_BYTES`` (256 KiB).  If the serialised size
+    exceeds the cap this helper raises so the MCP layer can truncate or reject.
+
+    Parameters
+    ----------
+    payload:
+        The snapshot dict that will be returned to the caller.
+    """
+    serialised = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    if len(serialised) > MAX_SNAPSHOT_PAYLOAD_BYTES:
+        raise ValueError("payload_too_large")
 
 
 def _edge_to_snapshot(edge: EdgeRow) -> dict[str, Any]:
