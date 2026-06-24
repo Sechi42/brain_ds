@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import datetime, timezone
 import json
+import logging
 import unicodedata
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,10 @@ from brain_ds.verify.edge_snapshot import (
     normalize_limit,
     validate_neighborhood,
 )
+from brain_ds.verify.ledger_calibration import _should_flag_for_confirmation
+
+
+logger = logging.getLogger(__name__)
 
 
 def _node_to_dict(node: Any) -> dict[str, Any]:
@@ -599,14 +604,14 @@ def add_edge(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
 
     try:
         try:
-            get_node.__wrapped__(store, {"graph_id": graph_id, "node_id": validated["source"]})
+            source_node = get_node.__wrapped__(store, {"graph_id": graph_id, "node_id": validated["source"]})
         except ValidationError as exc:
             if exc.message.startswith("Graph '"):
                 raise
             raise ValidationError(code=-32000, message=f"Source node '{validated['source']}' not found")
 
         try:
-            get_node.__wrapped__(store, {"graph_id": graph_id, "node_id": validated["target"]})
+            target_node = get_node.__wrapped__(store, {"graph_id": graph_id, "node_id": validated["target"]})
         except ValidationError as exc:
             if exc.message.startswith("Graph '"):
                 raise
@@ -636,6 +641,37 @@ def add_edge(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
 
         store.upsert_edge(graph_id, edge_input)
         edge = store.query_edges(graph_id, source=validated["source"], target=validated["target"])[-1]
+        try:
+            flagged_reason = _should_flag_for_confirmation(
+                label=edge.label,
+                source_type=source_node.get("type"),
+                target_type=target_node.get("type"),
+                weight=edge.weight,
+            )
+            store.append_ledger(
+                graph_id,
+                target_id=edge.edge_id,
+                target_type="edge",
+                status="needs-confirmation" if flagged_reason else "inferred",
+                initial_confidence=edge.weight,
+                current_confidence=edge.weight,
+                relationship_label=edge.label,
+                source_node_id=edge.source,
+                target_node_id=edge.target,
+                source_node_type=source_node.get("type"),
+                target_node_type=target_node.get("type"),
+                evidence_ids=edge.evidence_ids or [],
+                captured_by="import" if edge.weight is None else "mapper",
+                captured_at=datetime.now(timezone.utc).isoformat(),
+                flagged_reason=flagged_reason,
+                provenance="seed",
+            )
+        except Exception:
+            logger.warning(
+                "confidence_ledger side-write failed for %s; edge persisted",
+                edge.edge_id,
+                exc_info=True,
+            )
         store.log_audit("add_edge", validated, "ok")
         result = _edge_to_dict(edge)
         store.enqueue_event(
