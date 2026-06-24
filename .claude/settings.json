@@ -1,5 +1,20 @@
 {
   "enabledPlugins": {
     "frontend-design@claude-plugins-official": true
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run python scripts/sync_mirrors_hook.py",
+            "timeout": 30,
+            "statusMessage": "Syncing brain_ds mirrors..."
+          }
+        ]
+      }
+    ]
   }
 }

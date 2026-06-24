@@ -33,5 +33,32 @@
         "BRAIN_DS_PROJECT_ROOT": "C:\\Users\\sergi\\Documents\\brain_ds"
       }
     }
+  },
+  "experimental": {
+    "hook": {
+      "file_edited": {
+        "skills/*/SKILL.md": [
+          { "command": ["uv", "run", "python", "scripts/sync_mirrors_hook.py", "$FILE"] }
+        ],
+        ".claude/agents/brainds-*.md": [
+          { "command": ["uv", "run", "python", "scripts/sync_mirrors_hook.py", "$FILE"] }
+        ],
+        "prompts/brainds-*.md": [
+          { "command": ["uv", "run", "python", "scripts/sync_mirrors_hook.py", "$FILE"] }
+        ],
+        "brain_ds/mcp/grounding.py": [
+          { "command": ["uv", "run", "python", "scripts/sync_mirrors_hook.py", "$FILE"] }
+        ],
+        "CLAUDE.md": [
+          { "command": ["uv", "run", "python", "scripts/sync_mirrors_hook.py", "$FILE"] }
+        ],
+        "README.md": [
+          { "command": ["uv", "run", "python", "scripts/sync_mirrors_hook.py", "$FILE"] }
+        ],
+        "INSTALL.md": [
+          { "command": ["uv", "run", "python", "scripts/sync_mirrors_hook.py", "$FILE"] }
+        ]
+      }
+    }
   }
 }
