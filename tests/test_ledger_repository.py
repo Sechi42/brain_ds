@@ -36,16 +36,16 @@ def _create_graph(store: GraphStore, graph_id: str = "g1") -> str:
 # ---------------------------------------------------------------------------
 
 def test_v6_migration_upgrades_schema():
-    """After migrations, schema version must be 6 and confidence_ledger must exist."""
+    """After all migrations, schema version must be 7 and confidence_ledger must exist."""
     store = _open_store()
     conn = store.conn
 
-    # schema version must be 6
+    # schema version must be 7 (v7 adds node-fact descriptor columns)
     row = conn.execute(
         "SELECT value FROM store_meta WHERE key = 'schema_version'"
     ).fetchone()
     assert row is not None, "store_meta has no schema_version row"
-    assert int(row[0]) == 6, f"Expected schema_version=6, got {row[0]}"
+    assert int(row[0]) == 7, f"Expected schema_version=7, got {row[0]}"
 
     # confidence_ledger table must exist
     tbl = conn.execute(
@@ -331,6 +331,104 @@ def test_graph_store_exposes_ledger_pass_throughs():
 # ---------------------------------------------------------------------------
 # P1-T12 — MCP tool count unchanged (R-MCP-01, R-MCP-02)
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# P1-T13  RED — target_type='node' append and query_latest_per_target scoping
+#          (R-NF-01, R-NF-02, SCEN-NF-01, SCEN-CL-01)
+# ---------------------------------------------------------------------------
+
+def test_append_node_target_type_and_scoping():
+    """Appending target_type='node' rows and querying with target_type='node'
+    must return only node rows; querying with target_type='edge' excludes them.
+
+    Also verifies that the new fact descriptor fields round-trip correctly.
+    """
+    from brain_ds.store.repository import LedgerRepository
+
+    store = _open_store()
+    _create_graph(store)
+    repo = LedgerRepository(store.conn)
+
+    # Append a node-fact row with descriptor fields
+    node_id = repo.append(
+        graph_id="g1",
+        target_id="n7",
+        target_type="node",
+        status="inferred",
+        provenance="generated",
+        captured_at=datetime.now(timezone.utc).isoformat(),
+        fact_label="department",
+        fact_path="node.department",
+        fact_value="Engineering",
+        fact_subject_type="Role",
+    )
+
+    # Also append an edge row
+    edge_id = repo.append(
+        graph_id="g1",
+        target_id="e1",
+        target_type="edge",
+        status="inferred",
+        provenance="seed",
+        captured_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+    # query_latest_per_target with target_type='node' must return only the node row
+    node_latest = repo.query_latest_per_target("g1", target_type="node")
+    assert len(node_latest) == 1, f"Expected 1 node row, got {len(node_latest)}"
+    assert node_latest[0].target_id == "n7"
+    assert node_latest[0].target_type == "node"
+
+    # fact descriptor fields must round-trip
+    assert node_latest[0].fact_label == "department", "fact_label must round-trip"
+    assert node_latest[0].fact_path == "node.department", "fact_path must round-trip"
+    assert node_latest[0].fact_value == "Engineering", "fact_value must round-trip"
+    assert node_latest[0].fact_subject_type == "Role", "fact_subject_type must round-trip"
+
+    # query_latest_per_target with target_type='edge' (default) excludes node rows
+    edge_latest = repo.query_latest_per_target("g1", target_type="edge")
+    target_ids = {r.target_id for r in edge_latest}
+    assert "n7" not in target_ids, "Node row must not appear in edge query"
+    assert "e1" in target_ids, "Edge row must appear in edge query"
+
+    # query_by_graph also scopes by target_type (default='edge')
+    edge_rows = repo.query_by_graph("g1", target_type="edge")
+    assert all(r.target_type == "edge" for r in edge_rows)
+
+    node_rows = repo.query_by_graph("g1", target_type="node")
+    assert all(r.target_type == "node" for r in node_rows)
+    assert len(node_rows) == 1
+
+    store.close()
+
+
+def test_node_fact_descriptors_null_for_edge_rows():
+    """Edge rows must have NULL fact descriptor fields (backwards compatible)."""
+    from brain_ds.store.repository import LedgerRepository
+
+    store = _open_store()
+    _create_graph(store)
+    repo = LedgerRepository(store.conn)
+
+    row_id = repo.append(
+        graph_id="g1",
+        target_id="e99",
+        target_type="edge",
+        status="inferred",
+        provenance="seed",
+        captured_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+    rows = repo.query_by_graph("g1", target_type="edge")
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.fact_label is None
+    assert row.fact_path is None
+    assert row.fact_value is None
+    assert row.fact_subject_type is None
+
+    store.close()
+
 
 def test_tool_count_unchanged():
     """TOOL_REGISTRY must still have exactly 25 tools after PR1 changes."""

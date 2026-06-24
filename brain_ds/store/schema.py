@@ -150,6 +150,10 @@ CREATE TABLE IF NOT EXISTS confidence_ledger (
     gold_rationale      TEXT,
     provenance          TEXT NOT NULL
                         CHECK(provenance IN ('seed','hand_labeled','generated')),
+    fact_label          TEXT,
+    fact_path           TEXT,
+    fact_value          TEXT,
+    fact_subject_type   TEXT,
     FOREIGN KEY (graph_id) REFERENCES graphs(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_ledger_graph_status ON confidence_ledger(graph_id, status);

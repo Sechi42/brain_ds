@@ -26,6 +26,9 @@ _VERDICT_BY_STATUS: dict[str, GoldVerdict] = {
 }
 
 
+_SENSITIVE_NODE_TYPES = {"Role", "Person"}
+
+
 def _should_flag_for_confirmation(
     *,
     label: str,
@@ -33,8 +36,20 @@ def _should_flag_for_confirmation(
     target_type: str | None,
     weight: float | None,
     verifier_findings: Sequence[dict] | None = None,
+    target_kind: str = "edge",
+    fact_subject_type: str | None = None,
 ) -> str | None:
-    """Return a reason when an inferred edge needs human confirmation."""
+    """Return a reason when an inferred fact needs human confirmation.
+
+    target_kind='node': evaluates node-fact sensitivity rules.
+    target_kind='edge' (default): evaluates edge sensitivity rules (unchanged).
+    """
+    if target_kind == "node":
+        if fact_subject_type in _SENSITIVE_NODE_TYPES:
+            return "sensitive_node_fact"
+        return None
+
+    # Edge path (original behavior preserved exactly)
     normalized_label = label.lower()
     if normalized_label in _SENSITIVE_OWNERSHIP_LABELS and "Role" in {source_type, target_type}:
         return "sensitive_ownership_transition"
@@ -68,7 +83,7 @@ def ledger_to_gold_records(rows: Iterable[LedgerRow]) -> list[EdgeGoldRecord]:
             EdgeGoldRecord(
                 edge_id=row.target_id,
                 graph_id=row.graph_id,
-                label=row.relationship_label or "",
+                label=row.relationship_label or getattr(row, "fact_label", None) or "",
                 source_type=row.source_node_type or "",
                 target_type=row.target_node_type or "",
                 weight=max(0.0, min(1.0, weight)),

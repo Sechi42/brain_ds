@@ -647,6 +647,7 @@ def add_edge(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
                 source_type=source_node.get("type"),
                 target_type=target_node.get("type"),
                 weight=edge.weight,
+                target_kind="edge",
             )
             store.append_ledger(
                 graph_id,

@@ -93,8 +93,8 @@ class TestMigrations(unittest.TestCase):
             migrations_module.MIGRATIONS = original
             second = apply_pending(conn)
             # v3 (event_outbox), v4 (nodes_fts), v5 (graphs.hidden),
-            # v6 (confidence_ledger) are applied
-            self.assertEqual(second, [3, 4, 5, 6])
+            # v6 (confidence_ledger), v7 (node_fact_descriptors) are applied
+            self.assertEqual(second, [3, 4, 5, 6, 7])
         finally:
             migrations_module.MIGRATIONS = original
 
@@ -112,6 +112,53 @@ class TestMigrations(unittest.TestCase):
 
         fts_columns = conn.execute("PRAGMA table_info(nodes_fts)").fetchall()
         self.assertEqual([row[1] for row in fts_columns], ["graph_id", "node_id", "label", "details_text", "sections_text"])
+
+
+    def test_v7_migration_adds_node_fact_descriptor_columns(self):
+        """v7 must add fact_label, fact_path, fact_value, fact_subject_type and
+        set schema_version=7.  Migration must be idempotent (run twice is safe)."""
+        conn = sqlite3.connect(":memory:")
+        self.addCleanup(conn.close)
+
+        applied = apply_pending(conn)
+        version = conn.execute(
+            "SELECT value FROM store_meta WHERE key = 'schema_version'"
+        ).fetchone()[0]
+        self.assertEqual(int(version), 7, f"Expected schema_version=7, got {version}")
+        self.assertIn(7, applied)
+
+        # All four descriptor columns must be present in confidence_ledger
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(confidence_ledger)").fetchall()}
+        for col in ("fact_label", "fact_path", "fact_value", "fact_subject_type"):
+            self.assertIn(col, cols, f"Column '{col}' missing from confidence_ledger after v7")
+
+        # Idempotency: second apply_pending is a no-op and columns still there
+        second = apply_pending(conn)
+        self.assertEqual(second, [])
+        cols_after = {row[1] for row in conn.execute("PRAGMA table_info(confidence_ledger)").fetchall()}
+        for col in ("fact_label", "fact_path", "fact_value", "fact_subject_type"):
+            self.assertIn(col, cols_after, f"Column '{col}' missing after idempotency re-run")
+
+        # Existing rows (NULL descriptors) are still retrievable
+        conn.execute(
+            "INSERT INTO graphs(id, workspace_root, workspace_path, project, org, "
+            "schema_version, contract_version, node_count, edge_count, "
+            "created_at, updated_at) VALUES "
+            "('g1','/','/','p','o','7','1',0,0,'2026-01-01','2026-01-01')"
+        )
+        conn.execute(
+            "INSERT INTO confidence_ledger"
+            "(graph_id, target_type, target_id, status, captured_at, provenance) "
+            "VALUES ('g1','edge','e1','inferred','2026-01-01','seed')"
+        )
+        row = conn.execute(
+            "SELECT fact_label, fact_path, fact_value, fact_subject_type "
+            "FROM confidence_ledger WHERE target_id='e1'"
+        ).fetchone()
+        self.assertIsNone(row[0], "fact_label should default to NULL for existing rows")
+        self.assertIsNone(row[1], "fact_path should default to NULL for existing rows")
+        self.assertIsNone(row[2], "fact_value should default to NULL for existing rows")
+        self.assertIsNone(row[3], "fact_subject_type should default to NULL for existing rows")
 
 
 if __name__ == "__main__":

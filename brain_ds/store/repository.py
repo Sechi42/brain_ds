@@ -1015,6 +1015,11 @@ class LedgerRepository:
         confirmed_by: str | None = None,
         flagged_reason: str | None = None,
         gold_rationale: str | None = None,
+        # Node-fact descriptor fields (v7); NULL for edge rows.
+        fact_label: str | None = None,
+        fact_path: str | None = None,
+        fact_value: str | None = None,
+        fact_subject_type: str | None = None,
     ) -> int:
         """Insert one row and return its auto-incremented id.
 
@@ -1033,7 +1038,8 @@ class LedgerRepository:
                 evidence_ids, captured_by, captured_at,
                 confirmed_at, confirmed_by,
                 flagged_reason, gold_rationale,
-                provenance
+                provenance,
+                fact_label, fact_path, fact_value, fact_subject_type
             ) VALUES (
                 ?, ?, ?, ?,
                 ?, ?,
@@ -1043,7 +1049,8 @@ class LedgerRepository:
                 ?, ?, ?,
                 ?, ?,
                 ?, ?,
-                ?
+                ?,
+                ?, ?, ?, ?
             )
             """,
             (
@@ -1066,6 +1073,10 @@ class LedgerRepository:
                 flagged_reason,
                 gold_rationale,
                 provenance,
+                fact_label,
+                fact_path,
+                fact_value,
+                fact_subject_type,
             ),
         )
         self.conn.commit()
@@ -1096,7 +1107,8 @@ class LedgerRepository:
                 evidence_ids, captured_by, captured_at,
                 confirmed_at, confirmed_by,
                 flagged_reason, gold_rationale,
-                provenance
+                provenance,
+                fact_label, fact_path, fact_value, fact_subject_type
               FROM confidence_ledger
              WHERE graph_id = ?
                AND target_type = ?
@@ -1131,7 +1143,8 @@ class LedgerRepository:
                 evidence_ids, captured_by, captured_at,
                 confirmed_at, confirmed_by,
                 flagged_reason, gold_rationale,
-                provenance
+                provenance,
+                fact_label, fact_path, fact_value, fact_subject_type
               FROM confidence_ledger
              WHERE id IN (
                  SELECT MAX(id)
@@ -1183,4 +1196,8 @@ class LedgerRepository:
             flagged_reason=row[17],
             gold_rationale=row[18],
             provenance=row[19],
+            fact_label=row[20] if len(row) > 20 else None,
+            fact_path=row[21] if len(row) > 21 else None,
+            fact_value=row[22] if len(row) > 22 else None,
+            fact_subject_type=row[23] if len(row) > 23 else None,
         )

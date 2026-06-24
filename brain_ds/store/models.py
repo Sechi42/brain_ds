@@ -130,3 +130,8 @@ class LedgerRow:
     flagged_reason: str | None
     gold_rationale: str | None
     provenance: str            # 'seed' | 'hand_labeled' | 'generated'
+    # Node-fact descriptor fields (v7); NULL for edge rows.
+    fact_label: str | None = None
+    fact_path: str | None = None
+    fact_value: str | None = None
+    fact_subject_type: str | None = None

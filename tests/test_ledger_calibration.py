@@ -41,9 +41,81 @@ def _ledger_row(
     )
 
 
+def _node_fact_ledger_row(
+    target_id: str,
+    status: str,
+    *,
+    row_id: int = 1,
+    fact_label: str | None = "department",
+    fact_subject_type: str | None = "Role",
+    provenance: str = "generated",
+) -> LedgerRow:
+    """Construct a node-fact LedgerRow for testing."""
+    return LedgerRow(
+        id=row_id,
+        graph_id="g1",
+        target_type="node",
+        target_id=target_id,
+        status=status,
+        initial_confidence=None,
+        current_confidence=None,
+        relationship_label=None,
+        source_node_id=None,
+        target_node_id=None,
+        source_node_type=None,
+        target_node_type=None,
+        evidence_ids=None,
+        captured_by="mapper",
+        captured_at="2026-01-01T00:00:00+00:00",
+        confirmed_at=None,
+        confirmed_by=None,
+        flagged_reason=None,
+        gold_rationale=None,
+        provenance=provenance,
+        fact_label=fact_label,
+        fact_subject_type=fact_subject_type,
+    )
+
+
+def test_ledger_to_gold_records_node_fact_confirmed_uses_fact_label():
+    """A confirmed node-fact row must become a gold record using fact_label as label.
+
+    SCEN-CW-04 / R-CW-05: confirmed node rows must flow through ledger_to_gold_records.
+    fact_label is used as the label fallback (relationship_label is NULL for node facts).
+    """
+    from brain_ds.verify.ledger_calibration import ledger_to_gold_records
+
+    rows = [
+        _node_fact_ledger_row("n1", "confirmed", row_id=1, fact_label="department"),
+        _node_fact_ledger_row("n2", "invalidated", row_id=2, fact_label="cost_center"),
+        _node_fact_ledger_row("n3", "inferred", row_id=3, fact_label="team"),
+        _node_fact_ledger_row("n4", "needs-confirmation", row_id=4, fact_label="level"),
+        _node_fact_ledger_row("n5", "abstain", row_id=5, fact_label="region"),
+    ]
+
+    records = ledger_to_gold_records(rows)
+
+    # Only verdict-bearing statuses: confirmed, invalidated, abstain
+    result_ids = [r.edge_id for r in records]
+    assert "n1" in result_ids, "confirmed node-fact must produce a gold record"
+    assert "n2" in result_ids, "invalidated node-fact must produce a gold record"
+    assert "n5" in result_ids, "abstain node-fact must produce a gold record"
+    assert "n3" not in result_ids, "inferred node-fact must be skipped"
+    assert "n4" not in result_ids, "needs-confirmation node-fact must be skipped"
+
+    # fact_label fallback: when relationship_label is None, fact_label must be used
+    by_id = {r.edge_id: r for r in records}
+    assert by_id["n1"].label == "department", (
+        "fact_label='department' must be used as label when relationship_label is None"
+    )
+    assert by_id["n2"].label == "cost_center"
+    assert by_id["n5"].label == "region"
+
+
 def test_should_flag_for_confirmation_truth_table():
     from brain_ds.verify.ledger_calibration import _should_flag_for_confirmation
 
+    # --- existing edge cases (must remain byte-identical) ---
     assert _should_flag_for_confirmation(
         label="owns",
         source_type="Role",
@@ -76,6 +148,66 @@ def test_should_flag_for_confirmation_truth_table():
         weight=0.9,
         verifier_findings=[{"severity": "WARNING"}],
     ) is None
+
+    # --- new node-fact cases ---
+    # Role node-fact with any label must be flagged
+    assert _should_flag_for_confirmation(
+        label="department",
+        source_type=None,
+        target_type=None,
+        weight=None,
+        target_kind="node",
+        fact_subject_type="Role",
+    ) == "sensitive_node_fact", "Role node-fact must be flagged"
+
+    # Person node-fact must also be flagged
+    assert _should_flag_for_confirmation(
+        label="cost_center",
+        source_type=None,
+        target_type=None,
+        weight=None,
+        target_kind="node",
+        fact_subject_type="Person",
+    ) == "sensitive_node_fact", "Person node-fact must be flagged"
+
+    # DataSource node-fact must NOT be flagged on its own (only Role/Person)
+    assert _should_flag_for_confirmation(
+        label="description",
+        source_type=None,
+        target_type=None,
+        weight=None,
+        target_kind="node",
+        fact_subject_type="Data Source",
+    ) is None, "DataSource node-fact with non-sensitive label must not be flagged"
+
+    # Explicit target_kind='edge' must behave identically to the default (no target_kind)
+    assert _should_flag_for_confirmation(
+        label="owns",
+        source_type="Role",
+        target_type="Data Source",
+        weight=0.9,
+        target_kind="edge",
+    ) == "sensitive_ownership_transition", (
+        "owns edge with target_kind='edge' must flag sensitive_ownership_transition"
+    )
+
+    # Node-fact with non-sensitive subject type must not be flagged
+    assert _should_flag_for_confirmation(
+        label="name",
+        source_type=None,
+        target_type=None,
+        weight=None,
+        target_kind="node",
+        fact_subject_type="Team",
+    ) is None, "Team node-fact must not be flagged"
+
+    # Default (no target_kind) stays as edge path — backwards compat
+    assert _should_flag_for_confirmation(
+        label="owns",
+        source_type="Role",
+        target_type="Data Source",
+        weight=0.8,
+    ) == "sensitive_ownership_transition", "Default (no target_kind) must use edge path"
 
 
 def test_ledger_to_gold_records_maps_verdict_statuses_and_skips_pre_verdicts():

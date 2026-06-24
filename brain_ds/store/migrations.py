@@ -205,6 +205,27 @@ def v6_confidence_ledger(conn: sqlite3.Connection) -> None:
     )
 
 
+def v7_node_fact_descriptors(conn: sqlite3.Connection) -> None:
+    """Add nullable node-fact descriptor columns to confidence_ledger (v7).
+
+    Purely additive and idempotent: each ALTER TABLE ADD COLUMN is guarded by
+    a PRAGMA table_info check so re-running the migration is safe.
+    Existing rows keep NULL values in all new columns.
+    """
+    existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(confidence_ledger)").fetchall()}
+    new_columns = [
+        ("fact_label",        "TEXT"),
+        ("fact_path",         "TEXT"),
+        ("fact_value",        "TEXT"),
+        ("fact_subject_type", "TEXT"),
+    ]
+    for col_name, col_type in new_columns:
+        if col_name not in existing_cols:
+            conn.execute(
+                f"ALTER TABLE confidence_ledger ADD COLUMN {col_name} {col_type}"
+            )
+
+
 MIGRATIONS: Sequence[Migration] = (
     v1_initial_schema,
     v2_tools_audit,
@@ -212,6 +233,7 @@ MIGRATIONS: Sequence[Migration] = (
     v4_fts5_nodes,
     v5_graphs_hidden,
     v6_confidence_ledger,
+    v7_node_fact_descriptors,
 )
 
 
