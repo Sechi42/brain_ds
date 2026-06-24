@@ -10,7 +10,7 @@
 
 1. Install dependencies: `uv sync`
 2. Run the branded front door: `brain_ds onboard --project-root . --agent both --force`
-3. Open your agent client in this repo and verify `/mcp` shows **25 tools**
+3. Open your agent client in this repo and verify `/mcp` shows **27 tools**
 4. Run one of the workflow commands below
 
 `brain_ds onboard` wraps the underlying `setup + install-opencode` engines: MCP config, local store bootstrap, OpenCode skill mirrors, commands, and optional agent wiring.
@@ -159,7 +159,7 @@ Preferred path:
 brain_ds onboard --project-root . --agent both --force
 ```
 
-Then open your client in this repo and confirm `/mcp` shows `brain_ds` connected with **25 tools**.
+Then open your client in this repo and confirm `/mcp` shows `brain_ds` connected with **27 tools**.
 
 ## Graph viewer quick start
 

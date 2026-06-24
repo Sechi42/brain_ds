@@ -431,10 +431,329 @@ def test_node_fact_descriptors_null_for_edge_rows():
 
 
 def test_tool_count_unchanged():
-    """TOOL_REGISTRY must still have exactly 25 tools after PR1 changes."""
+    """TOOL_REGISTRY must have exactly 27 tools after PR2 changes."""
     from brain_ds.mcp.tools import TOOL_REGISTRY
 
-    assert len(TOOL_REGISTRY) == 25, (
-        f"Expected 25 MCP tools, got {len(TOOL_REGISTRY)}. "
-        "PR1 must not add or remove any MCP tools."
+    assert len(TOOL_REGISTRY) == 27, (
+        f"Expected 27 MCP tools, got {len(TOOL_REGISTRY)}. "
+        "PR2 must add list_pending_confirmations and resolve_confirmation."
     )
+
+
+# ---------------------------------------------------------------------------
+# P3-T03  RED — GraphStore pass-throughs for list_pending_confirmations
+#          and resolve_confirmation
+# ---------------------------------------------------------------------------
+
+def test_graph_store_list_pending_confirmations_pass_through():
+    """GraphStore.list_pending_confirmations delegates to LedgerRepository."""
+    store = _open_store()
+    _create_graph(store, "g1")
+    now = datetime.now(timezone.utc).isoformat()
+
+    # No pending rows yet
+    pending = store.list_pending_confirmations("g1")
+    assert pending == []
+
+    # Append a needs-confirmation row
+    store.append_ledger(
+        graph_id="g1", target_id="n42", target_type="node",
+        status="needs-confirmation", provenance="generated", captured_at=now,
+    )
+
+    pending = store.list_pending_confirmations("g1")
+    assert len(pending) == 1
+    assert pending[0].target_id == "n42"
+    assert pending[0].status == "needs-confirmation"
+
+    store.close()
+
+
+def test_graph_store_resolve_confirmation_pass_through():
+    """GraphStore.resolve_confirmation delegates to LedgerRepository and appends."""
+    store = _open_store()
+    _create_graph(store, "g1")
+    now = datetime.now(timezone.utc).isoformat()
+
+    prior_id = store.append_ledger(
+        graph_id="g1", target_id="n7", target_type="node",
+        status="needs-confirmation", provenance="generated", captured_at=now,
+    )
+
+    result = store.resolve_confirmation(
+        graph_id="g1", target_type="node", target_id="n7",
+        outcome="confirmed", resolved_by="alice", gold_rationale="Verified",
+    )
+    assert result["previous_id"] == prior_id
+    assert result["appended_id"] > prior_id
+    assert result["status"] == "confirmed"
+
+    # The resolved target must no longer appear in pending
+    pending = store.list_pending_confirmations("g1")
+    assert pending == []
+
+    store.close()
+
+
+def test_graph_store_resolve_confirmation_read_only_raises():
+    """resolve_confirmation on a read-only store must raise (write guard)."""
+    import tempfile
+    from pathlib import Path as _Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(_Path(tmp) / "store.db")
+        with GraphStore(db_path) as rw:
+            rw.create_graph("g1", name="g1", project="test")
+
+        with GraphStore(db_path, read_only=True) as ro:
+            import pytest as _pytest
+            with _pytest.raises(Exception):
+                ro.resolve_confirmation(
+                    graph_id="g1", target_type="node", target_id="n1",
+                    outcome="confirmed", resolved_by="x", gold_rationale="y",
+                )
+
+
+# ---------------------------------------------------------------------------
+# P3-T01  RED — list_pending_confirmations latest-only (R-CW-03, SCEN-CW-02)
+# ---------------------------------------------------------------------------
+
+def test_list_pending_confirmations_returns_only_latest_pending():
+    """list_pending_confirmations must return latest-per-target rows whose
+    latest status is 'needs-confirmation'.  Already-resolved targets are excluded.
+
+    SCEN-CW-02: row 5 needs-confirmation (n1), row 6 confirmed (n1, newer),
+    row 7 needs-confirmation (n2) → only row 7 is returned.
+    """
+    from brain_ds.store.repository import LedgerRepository
+
+    store = _open_store()
+    _create_graph(store)
+    repo = LedgerRepository(store.conn)
+    now = datetime.now(timezone.utc).isoformat()
+
+    # n1: needs-confirmation then confirmed — must be excluded
+    repo.append(graph_id="g1", target_id="n1", target_type="node",
+                status="needs-confirmation", provenance="generated", captured_at=now)
+    repo.append(graph_id="g1", target_id="n1", target_type="node",
+                status="confirmed", provenance="hand_labeled", captured_at=now,
+                captured_by="human")
+
+    # n2: only needs-confirmation — must be included
+    id_n2 = repo.append(graph_id="g1", target_id="n2", target_type="node",
+                         status="needs-confirmation", provenance="generated", captured_at=now)
+
+    pending = repo.list_pending_confirmations("g1")
+    assert len(pending) == 1, f"Expected 1 pending row, got {len(pending)}"
+    assert pending[0].id == id_n2
+    assert pending[0].target_id == "n2"
+    assert pending[0].status == "needs-confirmation"
+
+    store.close()
+
+
+def test_list_pending_confirmations_is_graph_wide_and_ordered_by_id():
+    """list_pending_confirmations covers both edge and node target_types,
+    ordered id ASC, and scoped to the requested graph_id.
+    """
+    from brain_ds.store.repository import LedgerRepository
+
+    store = _open_store()
+    _create_graph(store, "g1")
+    _create_graph(store, "g2")
+    repo = LedgerRepository(store.conn)
+    now = datetime.now(timezone.utc).isoformat()
+
+    id_a = repo.append(graph_id="g1", target_id="e-A", target_type="edge",
+                       status="needs-confirmation", provenance="generated", captured_at=now)
+    id_b = repo.append(graph_id="g1", target_id="n-B", target_type="node",
+                       status="needs-confirmation", provenance="generated", captured_at=now)
+    # g2 row — must NOT appear in g1 results
+    repo.append(graph_id="g2", target_id="n-X", target_type="node",
+                status="needs-confirmation", provenance="generated", captured_at=now)
+
+    pending = repo.list_pending_confirmations("g1")
+    assert len(pending) == 2, f"Expected 2 pending rows for g1, got {len(pending)}"
+    assert [r.id for r in pending] == [id_a, id_b], "Must be ordered id ASC"
+    assert all(r.graph_id == "g1" for r in pending)
+
+    store.close()
+
+
+def test_list_pending_confirmations_empty_when_none():
+    """Returns empty list when no pending rows exist."""
+    from brain_ds.store.repository import LedgerRepository
+
+    store = _open_store()
+    _create_graph(store)
+    repo = LedgerRepository(store.conn)
+
+    pending = repo.list_pending_confirmations("g1")
+    assert pending == []
+
+    store.close()
+
+
+# ---------------------------------------------------------------------------
+# P3-T02  RED — resolve_confirmation append-only (R-CW-01, R-CW-04, SCEN-CW-01)
+# ---------------------------------------------------------------------------
+
+def test_resolve_confirmation_appends_new_row_and_does_not_mutate_prior():
+    """SCEN-CW-01: prior row is byte-identical after resolution; a new row is appended.
+
+    The new row must have:
+    - status = outcome
+    - captured_by = 'human'
+    - confirmed_by = resolved_by argument
+    - confirmed_at set (non-None)
+    - gold_rationale set
+    - provenance = 'hand_labeled'
+    """
+    from brain_ds.store.repository import LedgerRepository
+
+    store = _open_store()
+    _create_graph(store)
+    repo = LedgerRepository(store.conn)
+    now = datetime.now(timezone.utc).isoformat()
+
+    prior_id = repo.append(
+        graph_id="g1", target_id="n42", target_type="node",
+        status="needs-confirmation", provenance="generated", captured_at=now,
+        fact_label="department",
+    )
+
+    # Snapshot the raw prior row before resolution
+    prior_raw = store.conn.execute(
+        "SELECT * FROM confidence_ledger WHERE id=?", (prior_id,)
+    ).fetchone()
+
+    result = repo.resolve_confirmation(
+        graph_id="g1",
+        target_type="node",
+        target_id="n42",
+        outcome="confirmed",
+        resolved_by="alice",
+        gold_rationale="Verified in org chart",
+    )
+
+    # Result contract
+    assert result["previous_id"] == prior_id
+    appended_id = result["appended_id"]
+    assert appended_id > prior_id
+    assert result["status"] == "confirmed"
+
+    # Prior row must be byte-identical
+    prior_raw_after = store.conn.execute(
+        "SELECT * FROM confidence_ledger WHERE id=?", (prior_id,)
+    ).fetchone()
+    assert prior_raw == prior_raw_after, "Prior row was mutated — append-only violated"
+
+    # New row must have correct fields
+    new_raw = store.conn.execute(
+        "SELECT status, captured_by, confirmed_by, confirmed_at, gold_rationale, provenance "
+        "FROM confidence_ledger WHERE id=?", (appended_id,)
+    ).fetchone()
+    assert new_raw[0] == "confirmed"
+    assert new_raw[1] == "human"
+    assert new_raw[2] == "alice"
+    assert new_raw[3] is not None, "confirmed_at must be set"
+    assert new_raw[4] == "Verified in org chart"
+    assert new_raw[5] == "hand_labeled"
+
+    store.close()
+
+
+def test_resolve_confirmation_rejects_invalid_outcome():
+    """SCEN-CW-03: invalid outcome returns error and appends NO row."""
+    from brain_ds.store.repository import LedgerRepository
+
+    store = _open_store()
+    _create_graph(store)
+    repo = LedgerRepository(store.conn)
+    now = datetime.now(timezone.utc).isoformat()
+
+    repo.append(graph_id="g1", target_id="n1", target_type="node",
+                status="needs-confirmation", provenance="generated", captured_at=now)
+
+    count_before = store.conn.execute(
+        "SELECT COUNT(*) FROM confidence_ledger"
+    ).fetchone()[0]
+
+    import pytest as _pytest
+    with _pytest.raises(ValueError, match="outcome"):
+        repo.resolve_confirmation(
+            graph_id="g1", target_type="node", target_id="n1",
+            outcome="maybe", resolved_by="alice", gold_rationale="",
+        )
+
+    count_after = store.conn.execute(
+        "SELECT COUNT(*) FROM confidence_ledger"
+    ).fetchone()[0]
+    assert count_after == count_before, "No row must be appended on invalid outcome"
+
+    store.close()
+
+
+def test_resolve_confirmation_rejects_when_no_pending_row():
+    """Error when no needs-confirmation row exists for the target."""
+    from brain_ds.store.repository import LedgerRepository
+
+    store = _open_store()
+    _create_graph(store)
+    repo = LedgerRepository(store.conn)
+
+    import pytest as _pytest
+    with _pytest.raises(ValueError, match="No pending"):
+        repo.resolve_confirmation(
+            graph_id="g1", target_type="node", target_id="n99",
+            outcome="confirmed", resolved_by="alice", gold_rationale="ok",
+        )
+
+    store.close()
+
+
+def test_resolve_confirmation_rejects_when_latest_not_pending():
+    """Error when latest row for target is not needs-confirmation (already resolved)."""
+    from brain_ds.store.repository import LedgerRepository
+
+    store = _open_store()
+    _create_graph(store)
+    repo = LedgerRepository(store.conn)
+    now = datetime.now(timezone.utc).isoformat()
+
+    repo.append(graph_id="g1", target_id="n1", target_type="node",
+                status="needs-confirmation", provenance="generated", captured_at=now)
+    repo.append(graph_id="g1", target_id="n1", target_type="node",
+                status="confirmed", provenance="hand_labeled", captured_at=now,
+                captured_by="human")
+
+    import pytest as _pytest
+    with _pytest.raises(ValueError, match="not.*needs-confirmation|already"):
+        repo.resolve_confirmation(
+            graph_id="g1", target_type="node", target_id="n1",
+            outcome="confirmed", resolved_by="bob", gold_rationale="ok",
+        )
+
+    store.close()
+
+
+def test_resolve_confirmation_accepts_all_valid_outcomes():
+    """confirmed, invalidated, abstain are all accepted."""
+    from brain_ds.store.repository import LedgerRepository
+
+    store = _open_store()
+    _create_graph(store)
+    repo = LedgerRepository(store.conn)
+    now = datetime.now(timezone.utc).isoformat()
+
+    for i, outcome in enumerate(["confirmed", "invalidated", "abstain"]):
+        target_id = f"n{i}"
+        repo.append(graph_id="g1", target_id=target_id, target_type="node",
+                    status="needs-confirmation", provenance="generated", captured_at=now)
+        result = repo.resolve_confirmation(
+            graph_id="g1", target_type="node", target_id=target_id,
+            outcome=outcome, resolved_by="alice", gold_rationale="test",
+        )
+        assert result["status"] == outcome
+
+    store.close()

@@ -1169,6 +1169,103 @@ class LedgerRepository:
         latest = self.query_latest_per_target(graph_id, target_type=target_type)
         return [r for r in latest if r.status in statuses]
 
+    def list_pending_confirmations(self, graph_id: str) -> list[LedgerRow]:
+        """Return latest rows across ALL target_types whose latest status is 'needs-confirmation'.
+
+        Ordered by id ASC.  Already-resolved targets are excluded (their latest row
+        has a non-pending status so the CTE filters them out).
+        """
+        sql = """
+            WITH latest AS (
+                SELECT MAX(id) AS max_id
+                  FROM confidence_ledger
+                 WHERE graph_id = ?
+                 GROUP BY target_type, target_id
+            )
+            SELECT
+                id, graph_id, target_type, target_id, status,
+                initial_confidence, current_confidence,
+                relationship_label,
+                source_node_id, target_node_id,
+                source_node_type, target_node_type,
+                evidence_ids, captured_by, captured_at,
+                confirmed_at, confirmed_by,
+                flagged_reason, gold_rationale,
+                provenance,
+                fact_label, fact_path, fact_value, fact_subject_type
+              FROM confidence_ledger
+             WHERE id IN (SELECT max_id FROM latest)
+               AND status = 'needs-confirmation'
+             ORDER BY id ASC
+        """
+        rows = self.conn.execute(sql, (graph_id,)).fetchall()
+        return [self._row_to_model(r) for r in rows]
+
+    _VALID_OUTCOMES = {"confirmed", "invalidated", "abstain"}
+
+    def resolve_confirmation(
+        self,
+        graph_id: str,
+        *,
+        target_type: str,
+        target_id: str,
+        outcome: str,
+        resolved_by: str,
+        gold_rationale: str,
+    ) -> dict:
+        """Resolve a pending confirmation by appending a new human verdict row.
+
+        Validates:
+        - outcome is one of confirmed/invalidated/abstain (raises ValueError otherwise)
+        - latest row for (graph_id, target_type, target_id) exists and has
+          status='needs-confirmation' (raises ValueError otherwise)
+
+        Then APPENDS a new row (never UPDATEs).  Returns:
+          {"appended_id": int, "previous_id": int, "status": outcome}
+        """
+        if outcome not in self._VALID_OUTCOMES:
+            raise ValueError(
+                f"Invalid outcome {outcome!r}. Must be one of: "
+                + ", ".join(sorted(self._VALID_OUTCOMES))
+            )
+
+        # Load latest row for this (graph_id, target_type, target_id)
+        sql = """
+            SELECT id, status
+              FROM confidence_ledger
+             WHERE graph_id = ?
+               AND target_type = ?
+               AND target_id = ?
+             ORDER BY id DESC
+             LIMIT 1
+        """
+        row = self.conn.execute(sql, (graph_id, target_type, target_id)).fetchone()
+        if row is None:
+            raise ValueError(
+                f"No pending confirmation found for "
+                f"(graph_id={graph_id!r}, target_type={target_type!r}, target_id={target_id!r})"
+            )
+        previous_id, latest_status = row[0], row[1]
+        if latest_status != "needs-confirmation":
+            raise ValueError(
+                f"Latest row for target_id={target_id!r} has status={latest_status!r}, "
+                f"which is not 'needs-confirmation' — already resolved or not flagged"
+            )
+
+        appended_id = self.append(
+            graph_id=graph_id,
+            target_type=target_type,
+            target_id=target_id,
+            status=outcome,
+            provenance="hand_labeled",
+            captured_at=_utc_now(),
+            captured_by="human",
+            confirmed_by=resolved_by,
+            confirmed_at=_utc_now(),
+            gold_rationale=gold_rationale,
+        )
+        return {"appended_id": appended_id, "previous_id": previous_id, "status": outcome}
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------

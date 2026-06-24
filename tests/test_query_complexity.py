@@ -222,8 +222,8 @@ class TestNoClassifyQueryMcpToolAdded(unittest.TestCase):
 
         self.assertEqual(
             len(TOOL_REGISTRY),
-            25,
-            msg=f"TOOL_REGISTRY has {len(TOOL_REGISTRY)} tools; expected 25. "
+            27,
+            msg=f"TOOL_REGISTRY has {len(TOOL_REGISTRY)} tools; expected 27. "
             "Do NOT register classify_query as an MCP tool.",
         )
 

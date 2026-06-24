@@ -630,3 +630,40 @@ class GraphStore:
         """Return full ledger history for graph_id (all rows, optional status filter)."""
         self._assert_graph_exists(graph_id)
         return self.ledger_repo.query_by_graph(graph_id, status=status, **kwargs)
+
+    def list_pending_confirmations(self, graph_id: str):
+        """Return latest-per-target rows across all target_types whose latest status
+        is 'needs-confirmation', ordered id ASC.  Graph-wide; already-resolved targets
+        are excluded.
+        """
+        self._assert_graph_exists(graph_id)
+        return self.ledger_repo.list_pending_confirmations(graph_id)
+
+    def resolve_confirmation(
+        self,
+        graph_id: str,
+        *,
+        target_type: str,
+        target_id: str,
+        outcome: str,
+        resolved_by: str,
+        gold_rationale: str,
+    ) -> dict:
+        """Resolve a pending confirmation by appending a human verdict row.
+
+        Delegates to LedgerRepository.resolve_confirmation after ensuring the
+        store is writable.  Never updates prior rows (append-only contract).
+
+        Returns {"appended_id": int, "previous_id": int, "status": outcome}.
+        Raises ValueError for invalid outcome or missing/non-pending latest row.
+        """
+        self._ensure_writable()
+        self._assert_graph_exists(graph_id)
+        return self.ledger_repo.resolve_confirmation(
+            graph_id,
+            target_type=target_type,
+            target_id=target_id,
+            outcome=outcome,
+            resolved_by=resolved_by,
+            gold_rationale=gold_rationale,
+        )

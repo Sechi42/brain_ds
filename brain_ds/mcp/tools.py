@@ -886,6 +886,100 @@ def assess_completeness(store: GraphStore, params: dict[str, Any]) -> dict[str, 
 
 
 @error_boundary
+def list_pending_confirmations(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    """Return pending confirmation rows across all target types for the graph.
+
+    Read-only.  Returns latest-per-target rows whose latest status is
+    'needs-confirmation', ordered id ASC.
+    """
+    validated = validate_tool_input(
+        "list_pending_confirmations", params, TOOL_SCHEMAS["list_pending_confirmations"]
+    )
+    graph_id = validated["graph_id"]
+    if not isinstance(graph_id, str):
+        raise ValidationError(code=-32602, message="graph_id must be a string")
+    try:
+        rows = store.list_pending_confirmations(graph_id)
+    except GraphNotFoundError as exc:
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+
+    def _row_dict(row) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "graph_id": row.graph_id,
+            "target_type": row.target_type,
+            "target_id": row.target_id,
+            "status": row.status,
+            "initial_confidence": row.initial_confidence,
+            "current_confidence": row.current_confidence,
+            "relationship_label": row.relationship_label,
+            "source_node_id": row.source_node_id,
+            "target_node_id": row.target_node_id,
+            "source_node_type": row.source_node_type,
+            "target_node_type": row.target_node_type,
+            "evidence_ids": row.evidence_ids,
+            "captured_by": row.captured_by,
+            "captured_at": row.captured_at,
+            "confirmed_at": row.confirmed_at,
+            "confirmed_by": row.confirmed_by,
+            "flagged_reason": row.flagged_reason,
+            "gold_rationale": row.gold_rationale,
+            "provenance": row.provenance,
+            "fact_label": row.fact_label,
+            "fact_path": row.fact_path,
+            "fact_value": row.fact_value,
+            "fact_subject_type": row.fact_subject_type,
+        }
+
+    confirmations = [_row_dict(r) for r in rows]
+    return {"confirmations": confirmations, "total": len(confirmations)}
+
+
+@error_boundary
+def resolve_confirmation(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    """Resolve a pending confirmation by appending a human verdict row.
+
+    Write tool.  Validates outcome and that the latest row for
+    (graph_id, target_type, target_id) has status='needs-confirmation'.
+    Never mutates prior rows — append-only.
+    """
+    validated = validate_tool_input(
+        "resolve_confirmation", params, TOOL_SCHEMAS["resolve_confirmation"]
+    )
+    graph_id = validated["graph_id"]
+    target_type = validated["target_type"]
+    target_id = validated["target_id"]
+    outcome = validated["outcome"]
+    resolved_by = validated["resolved_by"]
+    gold_rationale = validated["gold_rationale"]
+
+    # Schema enum already restricts outcome to valid values, but guard explicitly
+    # to match design contract (repo raises ValueError for invalid outcome).
+    _VALID_OUTCOMES = {"confirmed", "invalidated", "abstain"}
+    if outcome not in _VALID_OUTCOMES:
+        raise ValidationError(
+            code=-32602,
+            message=f"outcome must be one of: {', '.join(sorted(_VALID_OUTCOMES))}",
+        )
+
+    try:
+        result = store.resolve_confirmation(
+            graph_id,
+            target_type=target_type,
+            target_id=target_id,
+            outcome=outcome,
+            resolved_by=resolved_by,
+            gold_rationale=gold_rationale,
+        )
+    except GraphNotFoundError as exc:
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+    except ValueError as exc:
+        raise ValidationError(code=-32602, message=str(exc)) from exc
+
+    return result
+
+
+@error_boundary
 def list_workspaces(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     validated = validate_tool_input("list_workspaces", params, TOOL_SCHEMAS["list_workspaces"])
     limit, offset, compact = _pagination_params(validated)
@@ -1694,6 +1788,20 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "schema": TOOL_SCHEMAS["validate_secret_handle"],
         "description": "Validate a workspace secret handle (dry-run by default; probe opt-in)",
         "rw": "read",
+        "requires_ai_agent": False,
+    },
+    "list_pending_confirmations": {
+        "handler": list_pending_confirmations,
+        "schema": TOOL_SCHEMAS["list_pending_confirmations"],
+        "description": "List pending human-confirmation rows (latest per target, graph-wide)",
+        "rw": "read",
+        "requires_ai_agent": False,
+    },
+    "resolve_confirmation": {
+        "handler": resolve_confirmation,
+        "schema": TOOL_SCHEMAS["resolve_confirmation"],
+        "description": "Resolve a pending confirmation by appending a human verdict row (append-only)",
+        "rw": "write",
         "requires_ai_agent": False,
     },
 }

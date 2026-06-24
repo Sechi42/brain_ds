@@ -33,6 +33,8 @@
 | `run_elicit` | grounding | Elicit grounding context + dual-persistence workflow |
 | `map_connections` | grounding | Map grounding context + connection RAG workflow |
 | `generate_brd` | grounding | BRD grounding context |
+| `list_pending_confirmations` | data | List pending human-confirmation rows (latest per target, graph-wide) |
+| `resolve_confirmation` | data | Resolve a pending confirmation by appending a human verdict row (append-only) |
 
 For MCP server internals and archive details, see `sdd/mcp-server/archive-report`.
 
@@ -62,7 +64,7 @@ brain_ds setup --project-root . --agent both
    - restart your agent client
    - approve `brain_ds` if prompted
 
-3. In Claude Code, run `/mcp` and confirm `brain_ds` is connected with **25 tools**.
+3. In Claude Code, run `/mcp` and confirm `brain_ds` is connected with **27 tools**.
 
 ### What `brain_ds setup` guarantees
 
@@ -110,7 +112,7 @@ Example Claude output shape:
 1. Run `brain_ds setup --project-root . --agent both`.
 2. Open Claude Code at the project root.
 3. Run `/mcp` and confirm `brain_ds` is connected.
-4. Verify 25 tools appear.
+4. Verify 27 tools appear.
 5. Call `list_nodes` as a smoke check.
 6. Live updates flow through the shared SQLite outbox path; MCP writes should reach the running UI without a manual config rewrite.
 

@@ -207,8 +207,8 @@ class MCPToolsTests(unittest.TestCase):
         self.assertEqual(invalid["code"], -32602)
         self.assertIn("Expected string for query", invalid["message"])
 
-    def test_tool_registry_and_schema_inventory_match_twenty_five_tools(self) -> None:
-        self.assertEqual(len(TOOL_REGISTRY), 25)
+    def test_tool_registry_and_schema_inventory_match_twenty_seven_tools(self) -> None:
+        self.assertEqual(len(TOOL_REGISTRY), 27)
         self.assertEqual(TOOL_REGISTRY["snapshot_edges"]["rw"], "read")
 
     def test_update_node_partial_update_audit_and_read_only_rejection(self) -> None:
@@ -626,9 +626,9 @@ class MCPToolsTests(unittest.TestCase):
         typed = self._expect_rows(list_nodes(self.store, {"graph_id": self.graph_id, "type": "Data Source"}))
         self.assertEqual(result, typed)
 
-    def test_registry_has_twenty_five_tools_and_reads_do_not_audit(self) -> None:
+    def test_registry_has_twenty_seven_tools_and_reads_do_not_audit(self) -> None:
         names = sorted(TOOL_REGISTRY.keys())
-        self.assertEqual(len(names), 25)
+        self.assertEqual(len(names), 27)
         self.assertEqual(
             names,
             [
@@ -645,12 +645,14 @@ class MCPToolsTests(unittest.TestCase):
                 "list_data_sources",
                 "list_graphs",
                 "list_nodes",
+                "list_pending_confirmations",
                 "list_secret_handles",
                 "list_source_connections",
                 "list_workspaces",
                 "map_connections",
                 "open_workspace",
                 "query_source",
+                "resolve_confirmation",
                 "run_elicit",
                 "search_graph",
                 "snapshot_edges",
@@ -854,9 +856,9 @@ class ExploreSourceDocumentationLevelTests(unittest.TestCase):
         self.assertIn("columns_markdown", orders)
         self.assertIn("| id | int |", orders["columns_markdown"])
 
-    def test_explore_source_documentation_level_tool_count_unchanged(self):
-        """DDS-4: explore_source did not add a tool; later snapshot_edges moved count to 25."""
-        self.assertEqual(len(TOOL_REGISTRY), 25)
+    def test_explore_source_documentation_level_tool_count(self):
+        """DDS-4: explore_source did not add a tool; PR2 moved count from 25 to 27."""
+        self.assertEqual(len(TOOL_REGISTRY), 27)
 
     def test_snapshot_edges_defaults_to_bounded_stable_page(self) -> None:
         self.store.upsert_edge(

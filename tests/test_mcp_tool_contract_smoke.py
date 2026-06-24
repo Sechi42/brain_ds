@@ -32,6 +32,8 @@ def _params(name: str, tmp_path: Path) -> dict[str, Any]:
         "run_elicit": {}, "map_connections": {}, "generate_brd": {}, "list_source_connections": base, "explore_source": {**base, "node_id": "N1"},
         "query_source": {**base, "node_id": "N1", "sql": "SELECT 1", "limit": 1}, "list_secret_handles": {"agent_scope": "workspace_admin"},
         "validate_secret_handle": {"handle": "contract_pg", "agent_scope": "workspace_admin"},
+        "list_pending_confirmations": base,
+        "resolve_confirmation": {**base, "target_type": "node", "target_id": "N1", "outcome": "confirmed", "resolved_by": "alice", "gold_rationale": "test"},
     }
     return samples[name]
 

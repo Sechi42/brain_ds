@@ -258,6 +258,28 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         },
         "additionalProperties": False,
     },
+    # Confirmation workflow tools (PR2)
+    "list_pending_confirmations": {
+        "type": "object",
+        "required": ["graph_id"],
+        "properties": {
+            "graph_id": {"type": "string"},
+        },
+        "additionalProperties": False,
+    },
+    "resolve_confirmation": {
+        "type": "object",
+        "required": ["graph_id", "target_type", "target_id", "outcome", "resolved_by", "gold_rationale"],
+        "properties": {
+            "graph_id": {"type": "string"},
+            "target_type": {"type": "string", "enum": ["edge", "node"]},
+            "target_id": {"type": "string"},
+            "outcome": {"type": "string", "enum": ["confirmed", "invalidated", "abstain"]},
+            "resolved_by": {"type": "string"},
+            "gold_rationale": {"type": "string"},
+        },
+        "additionalProperties": False,
+    },
     # B1 context-return tools — zero-param empty-object schemas (matching list_graphs pattern).
     "run_elicit": {
         "type": "object",
