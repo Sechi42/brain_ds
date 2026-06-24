@@ -8,6 +8,8 @@ from unittest.mock import patch
 from brain_ds.ontology.entity_types import EntityType
 from brain_ds.ontology.relationship_types import RelationshipType
 from brain_ds.scoring.engine import ScoringEngine
+from brain_ds.verify.edge_calibration import EdgeCalibrationReport, EdgeClassMetrics
+from brain_ds.verify.edge_rollout import RolloutGateResult
 
 # These imports will fail (RED) until brain_ds/mcp/grounding.py is created (Task 1.2 / 1.4 / 1.6).
 from brain_ds.mcp.grounding import (
@@ -27,6 +29,7 @@ from brain_ds.mcp.grounding import (
     build_expected_sections,
     build_relationship_types,
     build_base_weights,
+    build_calibration_grounding,
     build_relationship_labels,
     build_scoring_factors,
     build_workspace_context,
@@ -88,6 +91,68 @@ class TestCat1Builders(unittest.TestCase):
         engine = ScoringEngine()
         self.assertIsInstance(result, dict)
         self.assertEqual(len(result), len(engine.factor_weights))
+
+
+class TestCalibrationGrounding(unittest.TestCase):
+    def setUp(self) -> None:
+        import brain_ds.mcp.grounding as grounding
+
+        grounding._calibration_grounding_cache = None
+
+    def tearDown(self) -> None:
+        import brain_ds.mcp.grounding as grounding
+
+        grounding._calibration_grounding_cache = None
+
+    def test_build_calibration_grounding_caches_report(self) -> None:
+        import brain_ds.mcp.grounding as grounding
+
+        report = EdgeCalibrationReport(
+            run_id="unit-test",
+            generated_at="2026-06-24T00:00:00Z",
+            classes={
+                "owns": EdgeClassMetrics(
+                    label="owns",
+                    examples=5,
+                    accept_threshold=0.75,
+                    reject_threshold=0.27,
+                    precision=1.0,
+                    recall=1.0,
+                    false_positive_rate=0.0,
+                    false_negative_rate=0.0,
+                    abstain_band_size=0.48,
+                    confusion_matrix={},
+                    abstain_actual_count=0,
+                    abstain_predicted_count=0,
+                    abstain_recall=1.0,
+                    abstain_coverage=0.0,
+                )
+            },
+            provenance_counts={"seed": 5, "hand_labeled": 0, "generated": 0},
+        )
+        rollout = RolloutGateResult(
+            status="advisory_only",
+            failing_reasons=(),
+            failing_by_class={},
+            advisory_notes=(),
+        )
+        records = [object()]
+
+        with (
+            patch.object(grounding, "load_gold_set", return_value=records) as load_gold_set,
+            patch.object(grounding, "calibrate_edges", return_value=report) as calibrate_edges,
+            patch.object(grounding, "evaluate_rollout_gates", return_value=rollout) as evaluate_rollout_gates,
+        ):
+            first = build_calibration_grounding()
+            second = build_calibration_grounding()
+
+        self.assertEqual(first, second)
+        self.assertIs(grounding._calibration_grounding_cache.report, report)
+        self.assertEqual(first["status"], "advisory_only")
+        self.assertEqual(first["thresholds"], {"owns": {"accept": 0.75, "reject": 0.27}})
+        self.assertEqual(load_gold_set.call_count, 1)
+        calibrate_edges.assert_called_once_with(records, run_id="seed-20260623")
+        evaluate_rollout_gates.assert_called_once_with(report, records)
 
 
 class TestCat2Accessors(unittest.TestCase):
@@ -172,7 +237,7 @@ class TestComposerReturnShapes(unittest.TestCase):
         self.assertNotIn("topic_key_format", result)
         self.assertNotIn("mem_save_templates", result)
 
-    def test_map_connections_context_has_15_keys_legacy(self) -> None:
+    def test_map_connections_context_has_16_keys_legacy(self) -> None:
         result = map_connections_context()
         expected_keys = {
             "entity_types",
@@ -190,6 +255,7 @@ class TestComposerReturnShapes(unittest.TestCase):
             "artifact_contract",
             "secret_connection_rules",
             "source_documentation_bundle_contract",
+            "calibration",
         }
         self.assertEqual(set(result.keys()), expected_keys)
 
@@ -284,6 +350,7 @@ class TestComposerReturnShapes(unittest.TestCase):
     # T1-3/T1-4/T1-8: bump key counts 14→16, 12→13, 10→11 (artifact_contract + deliverable_contract injected)
     # PR4-T1: counts bumped again 16→17, 13→14, 11→12 (secret_connection_rules injected)
     # PR3-DDS-7: counts bumped 17→18, 14→15 (source_documentation_bundle_contract injected)
+    # SDD2 PR1: map count bumped 15→16 (calibration injected)
     def test_elicit_context_has_all_18_keys(self) -> None:
         result = elicit_context()
         self.assertIn("artifact_contract", result)
@@ -292,12 +359,26 @@ class TestComposerReturnShapes(unittest.TestCase):
         self.assertIn("source_documentation_bundle_contract", result)
         self.assertEqual(len(result), 18)
 
-    def test_map_connections_context_has_15_keys(self) -> None:
+    def test_map_connections_context_has_16_keys(self) -> None:
         result = map_connections_context()
         self.assertIn("artifact_contract", result)
         self.assertIn("secret_connection_rules", result)
         self.assertIn("source_documentation_bundle_contract", result)
-        self.assertEqual(len(result), 15)
+        self.assertIn("calibration", result)
+        self.assertEqual(len(result), 16)
+
+    def test_map_connections_context_has_calibration_key(self) -> None:
+        result = map_connections_context()
+        calibration = cast(dict[str, Any], result["calibration"])
+        thresholds = cast(dict[str, dict[str, float]], calibration["thresholds"])
+
+        self.assertEqual(calibration["status"], "advisory_only")
+        self.assertEqual(set(thresholds), {relationship.value for relationship in RelationshipType})
+        for label, class_thresholds in thresholds.items():
+            with self.subTest(label=label):
+                self.assertIsInstance(class_thresholds["accept"], float)
+                self.assertIsInstance(class_thresholds["reject"], float)
+                self.assertGreaterEqual(class_thresholds["accept"], class_thresholds["reject"])
 
     def test_generate_brd_context_has_12_keys(self) -> None:
         result = generate_brd_context()

@@ -2,11 +2,75 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from brain_ds.mcp.tools import suggest_connections
 from brain_ds.scoring import similarity
 from brain_ds.store.graph_store import GraphStore
+from brain_ds.store.models import EdgeRow, NodeRow
+from brain_ds.verify.edge_calibration import EdgeCalibrationReport, EdgeClassMetrics
+
+
+def _metrics(label: str, *, accept: float, reject: float) -> EdgeClassMetrics:
+    return EdgeClassMetrics(
+        label=label,
+        examples=5,
+        accept_threshold=accept,
+        reject_threshold=reject,
+        precision=1.0,
+        recall=1.0,
+        false_positive_rate=0.0,
+        false_negative_rate=0.0,
+        abstain_band_size=accept - reject,
+        confusion_matrix={},
+        abstain_actual_count=0,
+        abstain_predicted_count=0,
+        abstain_recall=0.0,
+        abstain_coverage=0.0,
+    )
+
+
+def _report(classes: dict[str, EdgeClassMetrics]) -> EdgeCalibrationReport:
+    return EdgeCalibrationReport(
+        run_id="test-calibration",
+        generated_at="2026-06-24T00:00:00Z",
+        classes=classes,
+        provenance_counts={"seed": 5, "hand_labeled": 0, "generated": 0},
+    )
+
+
+def _node(node_id: str, label: str, type_: str, details: dict | None = None) -> NodeRow:
+    return NodeRow(
+        graph_id="g1",
+        id=node_id,
+        label=label,
+        type=type_,
+        supertype=None,
+        details=details or {"where": "fixture"},
+        card_sections=None,
+        editable_fields=None,
+        evidence_ids=None,
+        layout_hint=None,
+        parent_id=None,
+        depth=0,
+        created_at="2026-06-24T00:00:00Z",
+        modified_at="2026-06-24T00:00:00Z",
+    )
+
+
+def _edge(source: str, target: str, label: str = "owns") -> EdgeRow:
+    return EdgeRow(
+        graph_id="g1",
+        edge_id=f"{source}->{target}",
+        source=source,
+        target=target,
+        label=label,
+        weight=None,
+        reasons=None,
+        evidence_ids=None,
+        created_at="2026-06-24T00:00:00Z",
+    )
 
 
 class SuggestConnectionsToolTests(unittest.TestCase):
@@ -122,6 +186,21 @@ class SuggestConnectionsToolTests(unittest.TestCase):
             self.assertEqual(sparse["suggested_edge"]["label"], "review-needed")
             self.assertIn("sparse", sparse["reason"])
 
+    def test_suggest_connections_tool_passes_calibration_report(self) -> None:
+        calibration_report = _report({"measured-by": _metrics("measured-by", accept=0.8, reject=0.2)})
+
+        with (
+            patch("brain_ds.mcp.tools.grounding.get_calibration_report", return_value=calibration_report) as get_report,
+            patch("brain_ds.mcp.tools.similarity.suggest_connections_for_node") as suggest_for_node,
+        ):
+            suggest_for_node.return_value = {"suggestions": []}
+
+            result = suggest_connections(self.store, {"graph_id": self.graph_id, "node_id": "kpi-ventas"})
+
+        self.assertEqual(result, {"suggestions": []})
+        get_report.assert_called_once_with()
+        self.assertIs(suggest_for_node.call_args.kwargs["calibration_report"], calibration_report)
+
 
 class SimilarityAlgorithmTests(unittest.TestCase):
     def test_type_pair_suggestions_use_canonical_relationship_labels(self) -> None:
@@ -134,6 +213,46 @@ class SimilarityAlgorithmTests(unittest.TestCase):
     def test_type_pair_keys_match_their_rule_types(self) -> None:
         for pair, (source_type, target_type, _label) in similarity.TYPE_PAIR_SUGGESTIONS.items():
             self.assertEqual(pair, frozenset({source_type, target_type}))
+
+    def test_compute_calibration_verdict_accept_abstain_reject_and_missing_label(self) -> None:
+        report = _report({"owns": _metrics("owns", accept=0.49, reject=0.41)})
+
+        self.assertEqual(
+            similarity._compute_calibration_verdict(0.50, "owns", report),
+            "advisory_accept",
+        )
+        self.assertEqual(
+            similarity._compute_calibration_verdict(0.45, "owns", report),
+            "advisory_abstain",
+        )
+        self.assertEqual(
+            similarity._compute_calibration_verdict(0.40, "owns", report),
+            "advisory_reject",
+        )
+        self.assertEqual(
+            similarity._compute_calibration_verdict(0.99, "not-in-report", report),
+            "advisory_abstain",
+        )
+
+    def test_lexical_calibration_verdict_accept_abstain_reject(self) -> None:
+        report = _report({"owns": _metrics("owns", accept=0.47, reject=0.44)})
+        focus = _node("org", "sales analytics", "Organization")
+        accept = _node("dept-accept", "sales analytics", "Department")
+        abstain = _node("dept-abstain", "sales", "Department")
+        reject = _node("dept-reject", "finance", "Department")
+
+        result = similarity.suggest_connections_for_node(
+            [focus, accept, abstain, reject],
+            [],
+            "org",
+            threshold=0.0,
+            calibration_report=report,
+        )
+
+        verdicts = {item["node_id"]: item["calibration_verdict"] for item in result["suggestions"]}
+        self.assertEqual(verdicts["dept-accept"], "advisory_accept")
+        self.assertEqual(verdicts["dept-abstain"], "advisory_abstain")
+        self.assertEqual(verdicts["dept-reject"], "advisory_reject")
 
 
 if __name__ == "__main__":

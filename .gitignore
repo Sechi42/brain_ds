@@ -13,7 +13,10 @@ build/pyinstaller/
 src-tauri/binaries-stage/
 src-tauri/target/
 .mcp.json
-.claude/
+.claude/*
+!.claude/agents/
+.claude/agents/*
+!.claude/agents/brainds-connection-mapper.md
 
 *.stackdump
 .brain_ds/

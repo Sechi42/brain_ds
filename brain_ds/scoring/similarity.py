@@ -15,6 +15,7 @@ from typing import Any
 from brain_ds.scoring.node_text import node_text
 from brain_ds.scoring.factors import _tokens, evidence_count, explicit_reference
 from brain_ds.store.models import EdgeRow, NodeRow
+from brain_ds.verify.edge_calibration import EdgeCalibrationReport
 
 # Canonical directed suggestion per entity-type pair, derived from the
 # deterministic CONNECTION_RULES in skills/map-connections/SKILL.md.
@@ -118,6 +119,25 @@ MIN_DENSE_SIMILARITY = 0.58
 # Underspecified must be elicited before it earns automatic edges.
 SPARSE_BLOCK_REASON = "blocked: sparse node — fill in 'where' field first"
 LOW_SIGNAL_DETAIL_VALUES = frozenset({"ok", "n/a", "na", "none", "unknown"})
+CalibrationVerdict = str
+
+
+def _compute_calibration_verdict(
+    score: float,
+    label: str,
+    report: EdgeCalibrationReport | None,
+) -> CalibrationVerdict:
+    """Map candidate score + label to the advisory calibration verdict."""
+    if report is None:
+        return "advisory_abstain"
+    metrics = report.classes.get(label)
+    if metrics is None:
+        return "advisory_abstain"
+    if score >= metrics.accept_threshold:
+        return "advisory_accept"
+    if score <= metrics.reject_threshold:
+        return "advisory_reject"
+    return "advisory_abstain"
 
 
 def is_sparse(node: NodeRow) -> bool:
@@ -206,6 +226,7 @@ def suggest_connections_for_node(
     evidence_items: list[dict[str, Any]] | None = None,
     dense_ranks: dict[str, int] | None = None,
     dense_scores: dict[str, float] | None = None,
+    calibration_report: EdgeCalibrationReport | None = None,
 ) -> dict[str, Any]:
     limit = max(1, min(int(limit), MAX_LIMIT))
     threshold = min(max(float(threshold), 0.0), 1.0)
@@ -243,6 +264,7 @@ def suggest_connections_for_node(
             minimum_shared_tokens=minimum_shared_tokens,
             dense_ranks=dense_ranks,
             dense_scores=dense_scores,
+            calibration_report=calibration_report,
         )
 
     # ---------------------------------------------------------------------------
@@ -332,6 +354,7 @@ def suggest_connections_for_node(
                 "type": other.type,
                 "score": round(score, 4),
                 "suggested_edge": {"source": source_id, "target": target_id, "label": label},
+                "calibration_verdict": _compute_calibration_verdict(score, label, calibration_report),
                 "reason": "; ".join(reason_parts),
             }
         )
@@ -371,6 +394,7 @@ def _suggest_with_rrf(
     minimum_shared_tokens: int,
     dense_ranks: dict[str, int],
     dense_scores: dict[str, float] | None,
+    calibration_report: EdgeCalibrationReport | None,
 ) -> dict[str, Any]:
     """RRF fusion path: compute lexical scores, build ranks, fuse with dense_ranks.
 
@@ -543,6 +567,7 @@ def _suggest_with_rrf(
                 "score": round(score, 4),
                 "fused_score": round(fused_score, 6),
                 "suggested_edge": {"source": source_id, "target": target_id, "label": label},
+                "calibration_verdict": _compute_calibration_verdict(score, label, calibration_report),
                 "reason": "; ".join(reason_parts),
             }
         )

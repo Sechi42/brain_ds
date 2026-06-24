@@ -14,14 +14,29 @@ Category-3 builder touches the store and the registry.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import brain_ds.workspaces as workspace_registry
 from brain_ds.ontology.entity_types import EntityType
 from brain_ds.ontology.relationship_types import BASE_WEIGHTS, RelationshipType
 from brain_ds.scoring.engine import ScoringEngine
+from brain_ds.verify.edge_calibration import EdgeCalibrationReport, calibrate_edges, load_gold_set
+from brain_ds.verify.edge_rollout import evaluate_rollout_gates
 
 SUPPORTED_DOCUMENTATION_LANGUAGES = {"en", "es"}
+SEED_GOLD_SET_PATH = Path(__file__).resolve().parents[2] / "tests" / "gold" / "edge_gold_set.jsonl"
+
+
+@dataclass(frozen=True)
+class _CalibrationGroundingCache:
+    report: EdgeCalibrationReport
+    status: str
+    thresholds: dict[str, dict[str, float]]
+
+
+_calibration_grounding_cache: _CalibrationGroundingCache | None = None
 
 DOCUMENTATION_LANGUAGE: dict[str, dict[str, object]] = {
     "en": {
@@ -85,6 +100,43 @@ def build_relationship_labels() -> list[str]:
 def build_scoring_factors() -> dict[str, float]:
     """Return a copy of ScoringEngine factor_weights dict."""
     return dict(ScoringEngine().factor_weights)
+
+
+def build_calibration_grounding() -> dict[str, object]:
+    """Return cached calibration rollout status and per-label thresholds.
+
+    The seed gold records are parsed lazily at call time, never import time, so
+    tests can patch the calibration helpers without import-order side effects.
+    """
+    global _calibration_grounding_cache
+    if _calibration_grounding_cache is None:
+        records = load_gold_set(SEED_GOLD_SET_PATH, min_examples_per_type=5)
+        report = calibrate_edges(records, run_id="seed-20260623")
+        rollout = evaluate_rollout_gates(report, records)
+        thresholds = {
+            label: {
+                "accept": float(metrics.accept_threshold),
+                "reject": float(metrics.reject_threshold),
+            }
+            for label, metrics in sorted(report.classes.items())
+        }
+        _calibration_grounding_cache = _CalibrationGroundingCache(
+            report=report,
+            status=rollout.status,
+            thresholds=thresholds,
+        )
+    return {
+        "status": _calibration_grounding_cache.status,
+        "thresholds": _calibration_grounding_cache.thresholds,
+    }
+
+
+def get_calibration_report() -> EdgeCalibrationReport:
+    """Return the cached calibration report, initializing grounding if needed."""
+    build_calibration_grounding()
+    if _calibration_grounding_cache is None:  # defensive: build either sets cache or raises.
+        raise RuntimeError("calibration grounding cache failed to initialize")
+    return _calibration_grounding_cache.report
 
 
 # ---------------------------------------------------------------------------
@@ -1353,12 +1405,13 @@ def elicit_context() -> dict[str, object]:
 
 
 def map_connections_context() -> dict[str, object]:
-    """Return the 14-key grounding context payload for map_connections.
+    """Return the 16-key grounding context payload for map_connections.
 
     Keys: entity_types, connection_rules, completeness_gate, two_phase_mapping,
           relationship_labels, scoring_factors, retrieval_contract, rag_workflow,
           source_exploration_contract, delegation_protocol, pipeline_stages,
-          intake_paths, artifact_contract, secret_connection_rules.
+          intake_paths, artifact_contract, secret_connection_rules,
+          source_documentation_bundle_contract, calibration.
     scoring_factors comes from ScoringEngine (distinct from connection_rules
     strength heuristics — the skill's own weak/strong labels live in connection_rules).
     """
@@ -1378,6 +1431,7 @@ def map_connections_context() -> dict[str, object]:
         "artifact_contract": ARTIFACT_CONTRACT,
         "secret_connection_rules": SECRET_CONNECTION_RULES,
         "source_documentation_bundle_contract": SOURCE_DOCUMENTATION_BUNDLE_CONTRACT,
+        "calibration": build_calibration_grounding(),
     }
 
 

@@ -531,6 +531,26 @@ class GroundingPipelineMirrorParityTests(unittest.TestCase):
                 content = self._read(relative_path)
                 self._assert_tokens(content, must_have=("handoff_summary", "optional", "additive"), must_not_have=("DELIVERABLE_CONTRACT",))
 
+    def test_connection_mapper_agent_and_prompt_reference_calibration_decision_tree(self) -> None:
+        must_have = (
+            "calibration",
+            "advisory_only",
+            "rollout_ready",
+            "calibration_verdict",
+            "advisory_accept",
+            "advisory_abstain",
+            "advisory_reject",
+            "score >= 0.5",
+            "informational",
+            "deferred list",
+        )
+        for relative_path in (
+            ".claude/agents/brainds-connection-mapper.md",
+            "prompts/brainds-connection-mapper.md",
+        ):
+            with self.subTest(path=relative_path):
+                self._assert_tokens(self._read(relative_path), must_have=must_have)
+
     def test_orchestrator_agent_and_prompt_reference_dry_run_recipe(self) -> None:
         must_have = (
             "dry_run",

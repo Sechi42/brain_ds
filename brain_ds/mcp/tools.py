@@ -821,6 +821,7 @@ def suggest_connections(store: GraphStore, params: dict[str, Any]) -> dict[str, 
         dense_scores = None
 
     try:
+        calibration_report = grounding.get_calibration_report()
         return similarity.suggest_connections_for_node(
             nodes,
             edges,
@@ -833,6 +834,7 @@ def suggest_connections(store: GraphStore, params: dict[str, Any]) -> dict[str, 
             evidence_items=evidence_items,
             dense_ranks=dense_ranks,
             dense_scores=dense_scores,
+            calibration_report=calibration_report,
         )
     except KeyError as exc:
         raise ValidationError(code=-32000, message=f"Node '{node_id}' not found in graph '{graph_id}'") from exc

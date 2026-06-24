@@ -19,6 +19,35 @@ from brain_ds.scoring.similarity import (
     suggest_connections_for_node,
 )
 from brain_ds.store.models import EdgeRow, NodeRow
+from brain_ds.verify.edge_calibration import EdgeCalibrationReport, EdgeClassMetrics
+
+
+def _metrics(label: str, *, accept: float, reject: float) -> EdgeClassMetrics:
+    return EdgeClassMetrics(
+        label=label,
+        examples=5,
+        accept_threshold=accept,
+        reject_threshold=reject,
+        precision=1.0,
+        recall=1.0,
+        false_positive_rate=0.0,
+        false_negative_rate=0.0,
+        abstain_band_size=accept - reject,
+        confusion_matrix={},
+        abstain_actual_count=0,
+        abstain_predicted_count=0,
+        abstain_recall=0.0,
+        abstain_coverage=0.0,
+    )
+
+
+def _report(classes: dict[str, EdgeClassMetrics]) -> EdgeCalibrationReport:
+    return EdgeCalibrationReport(
+        run_id="test-calibration",
+        generated_at="2026-06-24T00:00:00Z",
+        classes=classes,
+        provenance_counts={"seed": 5, "hand_labeled": 0, "generated": 0},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +142,27 @@ class TestRRFRegressionGuard(unittest.TestCase):
         for s in result["suggestions"]:
             self.assertNotIn("rrf", s)
             self.assertNotIn("fused_score", s)
+
+    def test_rrf_calibration_verdict_uses_suggested_edge_label_and_score(self) -> None:
+        report = _report({"measured-by": _metrics("measured-by", accept=0.45, reject=0.39)})
+        focus = _node("focus", "ventas analisis", "KPI", {"where": "dashboard ventas"})
+        accept = _node("A", "ventas analisis", "Data Source", {"where": "sistema ventas"})
+        reject = _node("B", "tecnico", "Data Source", {"where": "sistema tecnico"})
+
+        result = suggest_connections_for_node(
+            [focus, accept, reject],
+            [],
+            "focus",
+            dense_ranks={"A": 2, "B": 1},
+            threshold=0.0,
+            calibration_report=report,
+        )
+
+        suggestions = {item["node_id"]: item for item in result["suggestions"]}
+        self.assertEqual(suggestions["A"]["suggested_edge"]["label"], "measured-by")
+        self.assertEqual(suggestions["A"]["calibration_verdict"], "advisory_accept")
+        self.assertEqual(suggestions["B"]["suggested_edge"]["label"], "measured-by")
+        self.assertEqual(suggestions["B"]["calibration_verdict"], "advisory_abstain")
 
 
 # ---------------------------------------------------------------------------
@@ -257,8 +307,7 @@ class TestDenseOnlyLabel(unittest.TestCase):
         edges: list[EdgeRow] = []
 
         # Without dense_ranks: C would not survive (zero tokens, unmapped pair)
-        baseline = suggest_connections_for_node(nodes, edges, "focus")
-        baseline_ids = _result_node_ids(baseline)
+        suggest_connections_for_node(nodes, edges, "focus")
         # We expect C not in baseline (zero shared tokens, unmapped, below threshold)
         # (This assertion may vary - the key is C *is* included with dense_ranks)
 
@@ -390,8 +439,7 @@ class TestSentinelRank(unittest.TestCase):
         edges: list[EdgeRow] = []
 
         # Without dense_ranks: B is not present (zero tokens, below threshold)
-        baseline = suggest_connections_for_node(nodes, edges, "focus")
-        baseline_ids = _result_node_ids(baseline)
+        suggest_connections_for_node(nodes, edges, "focus")
 
         # With dense_ranks including B: B should appear via sentinel + dense rank
         result = suggest_connections_for_node(
