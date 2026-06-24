@@ -12,6 +12,13 @@ import networkx as nx
 
 from .theme import color_for_type
 
+# Avoid a hard import cycle: GraphStore lives in brain_ds.store, which does not
+# import brain_ds.ui.  We accept the store as Any and duck-type the call.
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from brain_ds.store.graph_store import GraphStore
+
 
 CONTRACT_VERSION = "1.0.0"
 
@@ -52,7 +59,13 @@ class WorkspaceContext:
 _workspace_fallback_warned = False
 
 
-def build_render_context(graph: Graph, workspace: WorkspaceContext | None = None, *, graph_id: str | None = None) -> dict:
+def build_render_context(
+    graph: Graph,
+    workspace: WorkspaceContext | None = None,
+    *,
+    graph_id: str | None = None,
+    store: "GraphStore | None" = None,
+) -> dict:
     adjacency: dict[str, set[str]] = defaultdict(set)
     incident_edges: dict[str, list[Any]] = defaultdict(list)
     component_ids = _compute_components(graph)
@@ -155,6 +168,8 @@ def build_render_context(graph: Graph, workspace: WorkspaceContext | None = None
         node_payload["updated_at"] = _compute_node_updated_at(node_evidence_ids.get(node_id, []), evidence_records_map, generated_at)
         node_payload["neighbor_count"] = _compute_neighbor_count(node_id, adjacency)
 
+    pending = _build_pending_confirmations(store, graph_id)
+
     return {
         "contract_version": CONTRACT_VERSION,
         "meta": {
@@ -175,6 +190,7 @@ def build_render_context(graph: Graph, workspace: WorkspaceContext | None = None
             "hierarchical": True,
             "physics": False,
         },
+        "pending_confirmations": pending,
     }
 
 
@@ -231,6 +247,44 @@ def _compute_workspace_meta(workspace: WorkspaceContext | None) -> dict:
         "project": project,
         "graph": Path(display_path).stem or "(unknown)",
     }
+
+
+def _build_pending_confirmations(store: Any, graph_id: str | None) -> dict:
+    """Return pending-confirmation summary for the render context.
+
+    Returns ``{"count": int, "items": list[dict]}`` always.
+    - When *store* is None or *graph_id* is None/empty, returns count=0 and
+      empty items (backwards-compatible with callers that pass no store).
+    - Each item exposes the fields most useful for UI surfacing; other fields
+      from LedgerRow are omitted to keep the payload compact.
+    """
+    if store is None or not graph_id:
+        return {"count": 0, "items": []}
+
+    try:
+        rows = store.list_pending_confirmations(graph_id)
+    except Exception:
+        # Graph not found or store error — degrade gracefully; never crash the renderer
+        return {"count": 0, "items": []}
+
+    items = [
+        {
+            "id": row.id,
+            "target_type": row.target_type,
+            "target_id": row.target_id,
+            "status": row.status,
+            "fact_label": row.fact_label,
+            "fact_path": row.fact_path,
+            "fact_value": row.fact_value,
+            "fact_subject_type": row.fact_subject_type,
+            "initial_confidence": row.initial_confidence,
+            "current_confidence": row.current_confidence,
+            "flagged_reason": row.flagged_reason,
+            "captured_at": row.captured_at,
+        }
+        for row in rows
+    ]
+    return {"count": len(items), "items": items}
 
 
 def _edge_title(label: str, reasons: list[str] | None) -> str:

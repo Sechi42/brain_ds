@@ -165,6 +165,10 @@
       "updated_at": "2026-05-20T10:00:00Z"
     }
   ],
+  "pending_confirmations": {
+    "count": 0,
+    "items": []
+  },
   "type_groups": [
     {
       "supertype": "data",
