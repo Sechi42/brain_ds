@@ -1326,7 +1326,7 @@ SOURCE_DOCUMENTATION_BUNDLE_CONTRACT: dict[str, object] = {
         },
         "note": (
             "No connector required. Reads child table nodes from the graph store only. "
-            "Tool count stayed unchanged for level='documentation'; the current MCP inventory has 27 tools after PR2 (list_pending_confirmations + resolve_confirmation)."
+            "Tool count is 28 after Brick D PR2 (retrieve_context added for graph RAG retrieval alongside list_pending_confirmations and resolve_confirmation)."
         ),
     },
     "response_shape": {

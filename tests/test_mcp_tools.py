@@ -207,8 +207,8 @@ class MCPToolsTests(unittest.TestCase):
         self.assertEqual(invalid["code"], -32602)
         self.assertIn("Expected string for query", invalid["message"])
 
-    def test_tool_registry_and_schema_inventory_match_twenty_seven_tools(self) -> None:
-        self.assertEqual(len(TOOL_REGISTRY), 27)
+    def test_tool_registry_and_schema_inventory_match_twenty_eight_tools(self) -> None:
+        self.assertEqual(len(TOOL_REGISTRY), 28)
         self.assertEqual(TOOL_REGISTRY["snapshot_edges"]["rw"], "read")
 
     def test_update_node_partial_update_audit_and_read_only_rejection(self) -> None:
@@ -626,9 +626,9 @@ class MCPToolsTests(unittest.TestCase):
         typed = self._expect_rows(list_nodes(self.store, {"graph_id": self.graph_id, "type": "Data Source"}))
         self.assertEqual(result, typed)
 
-    def test_registry_has_twenty_seven_tools_and_reads_do_not_audit(self) -> None:
+    def test_registry_has_twenty_eight_tools_and_reads_do_not_audit(self) -> None:
         names = sorted(TOOL_REGISTRY.keys())
-        self.assertEqual(len(names), 27)
+        self.assertEqual(len(names), 28)
         self.assertEqual(
             names,
             [
@@ -653,6 +653,7 @@ class MCPToolsTests(unittest.TestCase):
                 "open_workspace",
                 "query_source",
                 "resolve_confirmation",
+                "retrieve_context",
                 "run_elicit",
                 "search_graph",
                 "snapshot_edges",
@@ -857,8 +858,8 @@ class ExploreSourceDocumentationLevelTests(unittest.TestCase):
         self.assertIn("| id | int |", orders["columns_markdown"])
 
     def test_explore_source_documentation_level_tool_count(self):
-        """DDS-4: explore_source did not add a tool; PR2 moved count from 25 to 27."""
-        self.assertEqual(len(TOOL_REGISTRY), 27)
+        """DDS-4: explore_source did not add a tool; Brick D PR2 moved count from 27 to 28."""
+        self.assertEqual(len(TOOL_REGISTRY), 28)
 
     def test_snapshot_edges_defaults_to_bounded_stable_page(self) -> None:
         self.store.upsert_edge(
@@ -1225,6 +1226,77 @@ class SourceDocumentationBundleContractTests(unittest.TestCase):
 
         ctx = grounding.map_connections_context()
         self.assertIn("source_documentation_bundle_contract", ctx)
+
+
+class RetrieveContextHandlerContractTests(unittest.TestCase):
+    """R-01 / R-02 / R-03 / R-09 handler contract tests for retrieve_context (PR2 Brick D)."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.temp_dir.name) / ".brain_ds" / "store.db"
+        self.db_path.parent.mkdir(parents=True)
+        self.store = GraphStore(str(self.db_path))
+        self.graph_id = "g-retrieve"
+        self.store.meta_repo.save_graph_meta(
+            graph_id=self.graph_id,
+            workspace_root=self.temp_dir.name,
+            workspace_path=self.temp_dir.name,
+            project="p-retrieve",
+            org="o-retrieve",
+            schema_version="2.0.0",
+            contract_version="1.0.0",
+            node_count=0,
+            edge_count=0,
+            imported_from=None,
+            generated_at="",
+        )
+        self.store.upsert_node(self.graph_id, {"id": "N1", "label": "Alpha Process", "type": "Task", "supertype": "Work"})
+        self.store.upsert_node(self.graph_id, {"id": "N2", "label": "Beta Source", "type": "Process", "supertype": "Business"})
+        self.store.upsert_edge(self.graph_id, {"source": "N1", "target": "N2", "label": "feeds", "weight": 0.8, "evidence_ids": []})
+
+    def tearDown(self) -> None:
+        self.store.close()
+        self.temp_dir.cleanup()
+
+    def _call(self, params: dict) -> dict:
+        from brain_ds.mcp.tools import retrieve_context
+        return retrieve_context(self.store, params)
+
+    def test_r01_missing_both_query_and_focal_node_id_returns_validation_error(self) -> None:
+        """R-01: at least one of query/focal_node_id is required; omitting both → error -32602."""
+        result = self._call({"graph_id": self.graph_id})
+        self.assertIsInstance(result, dict)
+        self.assertIn("code", result)
+        self.assertEqual(result["code"], -32602)
+        self.assertIn("At least one of", result["message"])
+        # No database read should have occurred — error is caught before store access.
+
+    def test_r02_depth_three_is_rejected_before_store_query(self) -> None:
+        """R-02: depth=3 is rejected with a validation error before any store read."""
+        result = self._call({"graph_id": self.graph_id, "query": "alpha", "depth": 3})
+        self.assertIsInstance(result, dict)
+        self.assertIn("code", result)
+        self.assertEqual(result["code"], -32602)
+        self.assertIn("depth must be 1 or 2", result["message"])
+
+    def test_r03_all_seven_output_fields_present_on_success(self) -> None:
+        """R-03: a successful call returns all 7 required top-level fields."""
+        result = self._call({"graph_id": self.graph_id, "query": "alpha"})
+        seven_fields = ("anchors", "subgraph", "hierarchy_paths", "serialized_for_llm", "dense_used")
+        for field in seven_fields:
+            with self.subTest(field=field):
+                self.assertIn(field, result)
+        self.assertIn("nodes", result["subgraph"])
+        self.assertIn("edges_with_reliability", result["subgraph"])
+
+    def test_r09_focal_node_id_not_found_returns_clear_error(self) -> None:
+        """R-09: focal_node_id pointing to a non-existent node → error -32000 with id and graph_id."""
+        result = self._call({"graph_id": self.graph_id, "focal_node_id": "missing-node-xyz"})
+        self.assertIsInstance(result, dict)
+        self.assertIn("code", result)
+        self.assertEqual(result["code"], -32000)
+        self.assertIn("missing-node-xyz", result["message"])
+        self.assertIn(self.graph_id, result["message"])
 
 
 if __name__ == "__main__":

@@ -280,6 +280,19 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         },
         "additionalProperties": False,
     },
+    # Brick D: Graph RAG retrieval surface (read-only, no writes).
+    "retrieve_context": {
+        "type": "object",
+        "required": ["graph_id"],
+        "properties": {
+            "graph_id": {"type": "string"},
+            "query": {"type": "string"},
+            "focal_node_id": {"type": "string"},
+            "limit": {"type": "integer"},
+            "depth": {"type": "integer"},
+        },
+        "additionalProperties": False,
+    },
     # B1 context-return tools — zero-param empty-object schemas (matching list_graphs pattern).
     "run_elicit": {
         "type": "object",

@@ -538,12 +538,12 @@ def test_node_fact_descriptors_null_for_edge_rows():
 
 
 def test_tool_count_unchanged():
-    """TOOL_REGISTRY must have exactly 27 tools after PR2 changes."""
+    """TOOL_REGISTRY must have exactly 28 tools after Brick D PR2 (retrieve_context added)."""
     from brain_ds.mcp.tools import TOOL_REGISTRY
 
-    assert len(TOOL_REGISTRY) == 27, (
-        f"Expected 27 MCP tools, got {len(TOOL_REGISTRY)}. "
-        "PR2 must add list_pending_confirmations and resolve_confirmation."
+    assert len(TOOL_REGISTRY) == 28, (
+        f"Expected 28 MCP tools, got {len(TOOL_REGISTRY)}. "
+        "Brick D PR2 must add retrieve_context (27 tools after confirmation PR2, 28 after Brick D PR2)."
     )
 
 

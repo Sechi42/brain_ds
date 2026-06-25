@@ -765,5 +765,24 @@ class AssessCompletenessTests(unittest.TestCase):
         self.assertNotIn("DataField", result["missing_for_brd"])
 
 
+class ToolCountSyncTests(unittest.TestCase):
+    """R-12: TOOL_REGISTRY must have exactly 28 tools after PR2 (retrieve_context added)."""
+
+    def test_tool_registry_has_28_tools_after_retrieve_context_added(self) -> None:
+        from brain_ds.mcp.tools import TOOL_REGISTRY
+
+        self.assertEqual(
+            len(TOOL_REGISTRY),
+            28,
+            f"Expected 28 MCP tools, got {len(TOOL_REGISTRY)}. "
+            "PR2 Brick D must add retrieve_context and bump the count from 27 to 28.",
+        )
+        self.assertIn(
+            "retrieve_context",
+            TOOL_REGISTRY,
+            "retrieve_context must be registered in TOOL_REGISTRY (PR2 Brick D).",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

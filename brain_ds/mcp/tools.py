@@ -44,6 +44,14 @@ from brain_ds.verify.edge_snapshot import (
     validate_neighborhood,
 )
 from brain_ds.verify.ledger_calibration import _should_flag_for_confirmation
+from brain_ds.retrieval.neighborhood import (
+    AnnotatedEdge,
+    build_adjacency,
+    expand_neighborhood,
+    ledger_status_to_tier,
+    sort_edges_by_reliability,
+    walk_hierarchy_path,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -979,6 +987,220 @@ def resolve_confirmation(store: GraphStore, params: dict[str, Any]) -> dict[str,
     return result
 
 
+_MAX_ANCHORS = 5
+
+
+def _rrf_anchor_fuse(lexical_ids: list[str], dense_ids: list[str]) -> list[str]:
+    """Reciprocal Rank Fusion over anchor candidate lists (k=60)."""
+    k = 60
+    lexical_rank = {nid: rank + 1 for rank, nid in enumerate(lexical_ids)}
+    dense_rank = {nid: rank + 1 for rank, nid in enumerate(dense_ids)}
+    lexical_sentinel = len(lexical_ids) + 1
+    candidates: list[tuple[float, str]] = []
+    seen: set[str] = set()
+    for nid in lexical_ids + dense_ids:
+        if nid in seen:
+            continue
+        seen.add(nid)
+        rrf = 1.0 / (k + lexical_rank.get(nid, lexical_sentinel))
+        dense_rank_value = dense_rank.get(nid)
+        if dense_rank_value is not None:
+            rrf += 1.0 / (k + dense_rank_value)
+        candidates.append((rrf, nid))
+    candidates.sort(key=lambda item: (-item[0], item[1]))
+    return [nid for _, nid in candidates]
+
+
+@error_boundary
+def retrieve_context(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    """Retrieve a reliability-annotated subgraph centred on query anchors.
+
+    Read-only.  Accepts ``graph_id`` plus AT LEAST ONE of ``query`` (FTS5 +
+    optional cosine RRF) or ``focal_node_id`` (direct anchor).  Returns the
+    seven fields specified in R-03: anchors, subgraph, hierarchy_paths,
+    serialized_for_llm (empty placeholder until PR3), and dense_used.
+    """
+    validated = validate_tool_input("retrieve_context", params, TOOL_SCHEMAS["retrieve_context"])
+    graph_id = validated["graph_id"]
+    query: str | None = validated.get("query") or None
+    focal_node_id: str | None = validated.get("focal_node_id") or None
+    limit = max(1, min(50, int(validated.get("limit", 10))))
+    depth = int(validated.get("depth", 1))
+
+    # R-01: at least one of query/focal_node_id is required.
+    if not query and not focal_node_id:
+        raise ValidationError(
+            code=-32602,
+            message="At least one of 'query' or 'focal_node_id' must be provided",
+        )
+
+    # R-02: depth must be 1 or 2.
+    if depth not in (1, 2):
+        raise ValidationError(code=-32602, message="depth must be 1 or 2")
+
+    # Load all nodes for BFS adjacency and hierarchy walks.
+    try:
+        all_nodes = store.query_nodes(graph_id)
+    except GraphNotFoundError as exc:
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+
+    nodes_by_id = {n.id: n for n in all_nodes}
+
+    # --- Anchor resolution (R-09) ---
+    dense_used = False
+    anchor_nodes: list[Any] = []
+
+    if focal_node_id:
+        node = nodes_by_id.get(focal_node_id)
+        if node is None:
+            raise ValidationError(
+                code=-32000,
+                message=f"focal_node_id '{focal_node_id}' not found in graph '{graph_id}'",
+            )
+        anchor_nodes = [node]
+
+    if query:
+        fts_ids = store.search_nodes_fts(graph_id, query)
+        if fts_ids is not None and fts_ids:
+            lexical_candidates = [nodes_by_id[nid] for nid in fts_ids if nid in nodes_by_id]
+        else:
+            norm_q = _normalize_query(query)
+            lexical_candidates = [
+                n for n in all_nodes
+                if norm_q in _normalize_query(n.label)
+                or norm_q in _normalize_query(n.type)
+                or norm_q in _normalize_query(_details_text(n.details))
+            ]
+
+        model = get_default_model()
+        if model is not None:
+            try:
+                query_vector = model.embed(query)
+                dense_hits = store.nearest_to_vector(graph_id, query_vector, k=_MAX_ANCHORS * 3)
+                if dense_hits:
+                    lex_ids = [n.id for n in lexical_candidates[: _MAX_ANCHORS * 3]]
+                    dense_ids = [h.target_id for h in dense_hits if h.target_id in nodes_by_id]
+                    fused_ids = _rrf_anchor_fuse(lex_ids, dense_ids)[: _MAX_ANCHORS]
+                    query_anchors = [nodes_by_id[nid] for nid in fused_ids if nid in nodes_by_id]
+                    dense_used = True
+                else:
+                    query_anchors = lexical_candidates[:_MAX_ANCHORS]
+            except Exception:
+                query_anchors = lexical_candidates[:_MAX_ANCHORS]
+        else:
+            query_anchors = lexical_candidates[:_MAX_ANCHORS]
+
+        if focal_node_id:
+            seen_ids: set[str] = {n.id for n in anchor_nodes}
+            for n in query_anchors:
+                if n.id not in seen_ids:
+                    anchor_nodes.append(n)
+                    seen_ids.add(n.id)
+            anchor_nodes = anchor_nodes[:_MAX_ANCHORS]
+        else:
+            anchor_nodes = query_anchors
+
+    # --- BFS expansion (R-06, reuse PR1 helpers) ---
+    anchor_ids = [n.id for n in anchor_nodes]
+    edges = store.query_edges(graph_id)
+    adj = build_adjacency(edges)
+    depth_map = expand_neighborhood(anchor_ids, adj, depth=depth)
+
+    subgraph_edges = [e for e in edges if e.source in depth_map and e.target in depth_map]
+    edge_ids = [e.edge_id for e in subgraph_edges]
+
+    # --- Batch ledger join (R-05, reuse PR1 repository method) ---
+    ledger = store.query_ledger_latest_for_targets(graph_id, edge_ids)
+
+    # --- Annotate edges; exclude invalidated (R-04) ---
+    annotated_edges: list[AnnotatedEdge] = []
+    for edge in subgraph_edges:
+        ledger_row = ledger.get(edge.edge_id)
+        status = ledger_row.status if ledger_row is not None else None
+        tier = ledger_status_to_tier(status)
+        if tier is None:
+            continue  # invalidated — excluded from response
+
+        if status == "confirmed":
+            reliability_tag = (
+                f"CONFIRMED by {ledger_row.confirmed_by or 'unknown'}"
+                f" on {ledger_row.confirmed_at or 'unknown'}"
+            )
+        elif status == "needs-confirmation":
+            reliability_tag = f"PENDING REVIEW (flagged: {ledger_row.flagged_reason or ''})"
+        elif status == "abstain":
+            reliability_tag = "ABSTAIN — insufficient evidence"
+        elif status == "inferred" and ledger_row is not None:
+            conf = ledger_row.current_confidence
+            reliability_tag = f"INFERRED (score={conf:.2f})" if conf is not None else "INFERRED"
+        else:
+            reliability_tag = f"INFERRED (engine score={edge.weight:.2f})"
+
+        annotated_edges.append(
+            AnnotatedEdge(
+                edge=edge,
+                ledger_status=status,
+                tier=tier,
+                reliability_tag=reliability_tag,
+                tag_detail="",
+            )
+        )
+
+    sorted_edges = sort_edges_by_reliability(annotated_edges)
+
+    # --- Cap subgraph nodes at limit (anchors always retained) ---
+    anchor_id_set = set(anchor_ids)
+    non_anchor_ids = [
+        nid for nid in depth_map if nid not in anchor_id_set and nid in nodes_by_id
+    ]
+    budget = max(0, limit - len(anchor_nodes))
+    kept_node_ids: set[str] = anchor_id_set | set(non_anchor_ids[:budget])
+
+    subgraph_nodes = [
+        {
+            "id": n.id,
+            "label": n.label,
+            "type": n.type,
+            "depth_from_anchor": depth_map.get(n.id, 0),
+            "card_sections": n.card_sections or [],
+        }
+        for n in all_nodes
+        if n.id in kept_node_ids
+    ]
+
+    edges_with_reliability = [
+        {
+            "source_id": ae.edge.source,
+            "target_id": ae.edge.target,
+            "label": ae.edge.label,
+            "weight": ae.edge.weight,
+            "ledger_status": ae.ledger_status,
+            "reliability_tag": ae.reliability_tag,
+            "tier": ae.tier,
+        }
+        for ae in sorted_edges
+        if ae.edge.source in kept_node_ids and ae.edge.target in kept_node_ids
+    ]
+
+    # --- Hierarchy paths (R-10) ---
+    hierarchy_paths = {
+        anchor.id: walk_hierarchy_path(anchor.id, nodes_by_id)
+        for anchor in anchor_nodes
+    }
+
+    # serialized_for_llm is wired in PR3; return empty string placeholder (R-03).
+    return {
+        "anchors": [_node_to_dict(n) for n in anchor_nodes],
+        "subgraph": {
+            "nodes": subgraph_nodes,
+            "edges_with_reliability": edges_with_reliability,
+        },
+        "hierarchy_paths": hierarchy_paths,
+        "serialized_for_llm": "",
+        "dense_used": dense_used,
+    }
+
+
 @error_boundary
 def list_workspaces(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     validated = validate_tool_input("list_workspaces", params, TOOL_SCHEMAS["list_workspaces"])
@@ -1802,6 +2024,13 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "schema": TOOL_SCHEMAS["resolve_confirmation"],
         "description": "Resolve a pending confirmation by appending a human verdict row (append-only)",
         "rw": "write",
+        "requires_ai_agent": False,
+    },
+    "retrieve_context": {
+        "handler": retrieve_context,
+        "schema": TOOL_SCHEMAS["retrieve_context"],
+        "description": "Retrieve a reliability-annotated subgraph centred on query anchors (BFS + ledger join)",
+        "rw": "read",
         "requires_ai_agent": False,
     },
 }
