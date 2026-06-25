@@ -1158,6 +1158,57 @@ class LedgerRepository:
         rows = self.conn.execute(sql, (graph_id, target_type)).fetchall()
         return [self._row_to_model(r) for r in rows]
 
+    def query_latest_for_targets(
+        self,
+        graph_id: str,
+        target_ids: list[str],
+        *,
+        target_type: str = "edge",
+    ) -> dict[str, LedgerRow]:
+        """Return latest ledger rows keyed by target_id for the requested targets.
+
+        Empty input short-circuits without SQL. Missing targets are absent from
+        the returned mapping. Large target sets are chunked below SQLite's
+        default variable limit while preserving one batched query per chunk.
+        """
+        deduped_target_ids = list(dict.fromkeys(target_ids))
+        if not deduped_target_ids:
+            return {}
+
+        latest: dict[str, LedgerRow] = {}
+        chunk_size = 900
+        for start in range(0, len(deduped_target_ids), chunk_size):
+            chunk = deduped_target_ids[start : start + chunk_size]
+            placeholders = ",".join("?" for _ in chunk)
+            sql = f"""
+                SELECT
+                    id, graph_id, target_type, target_id, status,
+                    initial_confidence, current_confidence,
+                    relationship_label,
+                    source_node_id, target_node_id,
+                    source_node_type, target_node_type,
+                    evidence_ids, captured_by, captured_at,
+                    confirmed_at, confirmed_by,
+                    flagged_reason, gold_rationale,
+                    provenance,
+                    fact_label, fact_path, fact_value, fact_subject_type
+                  FROM confidence_ledger
+                 WHERE id IN (
+                     SELECT MAX(id)
+                       FROM confidence_ledger
+                      WHERE graph_id = ?
+                        AND target_type = ?
+                        AND target_id IN ({placeholders})
+                      GROUP BY target_id
+                 )
+                 ORDER BY id ASC
+            """
+            rows = self.conn.execute(sql, [graph_id, target_type, *chunk]).fetchall()
+            for row in rows:
+                model = self._row_to_model(row)
+                latest[model.target_id] = model
+        return latest
+
     def query_by_status(
         self,
         graph_id: str,

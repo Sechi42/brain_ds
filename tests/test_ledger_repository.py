@@ -228,6 +228,113 @@ def test_query_latest_per_target_returns_one_per_target():
     store.close()
 
 
+def test_query_latest_for_targets_empty():
+    """query_latest_for_targets must short-circuit empty input without SQL."""
+    from brain_ds.store.repository import LedgerRepository
+
+    store = _open_store()
+    _create_graph(store)
+    repo = LedgerRepository(store.conn)
+    statements: list[str] = []
+    store.conn.set_trace_callback(statements.append)
+
+    assert repo.query_latest_for_targets("g1", []) == {}
+    assert statements == []
+
+    store.close()
+
+
+def test_query_latest_for_targets_one_sql():
+    """query_latest_for_targets must batch reads instead of querying per target."""
+    from brain_ds.store.repository import LedgerRepository
+
+    store = _open_store()
+    _create_graph(store)
+    repo = LedgerRepository(store.conn)
+    now = datetime.now(timezone.utc).isoformat()
+    for index in range(50):
+        repo.append(
+            graph_id="g1",
+            target_id=f"edge-{index:02d}",
+            status="inferred",
+            provenance="seed",
+            captured_at=now,
+        )
+
+    statements: list[str] = []
+    store.conn.set_trace_callback(statements.append)
+
+    result = repo.query_latest_for_targets("g1", [f"edge-{index:02d}" for index in range(50)])
+
+    select_statements = [sql for sql in statements if sql.lstrip().upper().startswith("SELECT")]
+    assert len(result) == 50
+    assert len(select_statements) == 1
+
+    store.close()
+
+
+def test_query_latest_for_targets_missing_absent():
+    """Targets without ledger rows are absent from the returned dict."""
+    from brain_ds.store.repository import LedgerRepository
+
+    store = _open_store()
+    _create_graph(store)
+    repo = LedgerRepository(store.conn)
+    now = datetime.now(timezone.utc).isoformat()
+    id_e1_old = repo.append(
+        graph_id="g1",
+        target_id="e1",
+        status="inferred",
+        provenance="seed",
+        captured_at=now,
+    )
+    id_e1_new = repo.append(
+        graph_id="g1",
+        target_id="e1",
+        status="confirmed",
+        provenance="seed",
+        captured_at=now,
+    )
+    id_e3 = repo.append(
+        graph_id="g1",
+        target_id="e3",
+        status="abstain",
+        provenance="seed",
+        captured_at=now,
+    )
+
+    result = repo.query_latest_for_targets("g1", ["e1", "e2", "e3"])
+
+    assert set(result) == {"e1", "e3"}
+    assert result["e1"].id == id_e1_new
+    assert result["e1"].id != id_e1_old
+    assert result["e3"].id == id_e3
+    assert "e2" not in result
+
+    store.close()
+
+
+def test_graph_store_query_ledger_latest_for_targets_facade():
+    """GraphStore exposes the batch latest-ledger repository read."""
+    store = _open_store()
+    _create_graph(store)
+    now = datetime.now(timezone.utc).isoformat()
+    appended_id = store.append_ledger(
+        "g1",
+        target_id="edge-facade",
+        status="confirmed",
+        provenance="seed",
+        captured_at=now,
+    )
+
+    result = store.query_ledger_latest_for_targets("g1", ["edge-facade", "missing"])
+
+    assert set(result) == {"edge-facade"}
+    assert result["edge-facade"].id == appended_id
+
+    store.close()
+
+
 # ---------------------------------------------------------------------------
 # P1-T09  RED — graph scoping + CASCADE (R-REPO-06, R-SCOPE-01..03, SCEN-05/06)
 # ---------------------------------------------------------------------------

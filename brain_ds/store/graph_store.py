@@ -626,6 +626,11 @@ class GraphStore:
         self._assert_graph_exists(graph_id)
         return self.ledger_repo.query_latest_per_target(graph_id, **kwargs)
 
+    def query_ledger_latest_for_targets(self, graph_id: str, target_ids: list[str], **kwargs):
+        """Return latest ledger rows keyed by target_id for selected targets."""
+        self._assert_graph_exists(graph_id)
+        return self.ledger_repo.query_latest_for_targets(graph_id, target_ids, **kwargs)
+
     def query_ledger(self, graph_id: str, *, status: str | None = None, **kwargs):
         """Return full ledger history for graph_id (all rows, optional status filter)."""
         self._assert_graph_exists(graph_id)
