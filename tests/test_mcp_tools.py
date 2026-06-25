@@ -5,6 +5,7 @@ import unittest
 import json
 from pathlib import Path
 from typing import Any, cast
+from unittest.mock import patch
 
 from brain_ds.mcp.security import ValidationError, validate_tool_input
 from brain_ds.ontology.entity_types import EntityType
@@ -29,6 +30,7 @@ from brain_ds.mcp.tools import (
     update_node,
 )
 from brain_ds.store.graph_store import GraphStore
+from brain_ds.store.models import NearestHit
 
 
 class MCPToolsTests(unittest.TestCase):
@@ -1297,6 +1299,302 @@ class RetrieveContextHandlerContractTests(unittest.TestCase):
         self.assertEqual(result["code"], -32000)
         self.assertIn("missing-node-xyz", result["message"])
         self.assertIn(self.graph_id, result["message"])
+
+
+class _FakeEmbeddingModelForRetrieve:
+    """Minimal deterministic fake satisfying EmbeddingModel protocol for retrieve_context tests."""
+
+    @property
+    def name(self) -> str:
+        return "fake-retrieve"
+
+    def embed(self, text: str) -> list[float]:
+        return [0.1, 0.2, 0.3]
+
+
+# ---------------------------------------------------------------------------
+# W-1: no store read on invalid input (R-01 / R-02)
+# ---------------------------------------------------------------------------
+
+
+class RetrieveContextNoStoreReadOnInvalidInputTests(unittest.TestCase):
+    """W-1: validation errors (R-01, R-02) fire BEFORE any database read (zero SQL traced)."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.temp_dir.name) / ".brain_ds" / "store.db"
+        self.db_path.parent.mkdir(parents=True)
+        self.store = GraphStore(str(self.db_path))
+        self.graph_id = "g-w1"
+        self.store.meta_repo.save_graph_meta(
+            graph_id=self.graph_id,
+            workspace_root=self.temp_dir.name,
+            workspace_path=self.temp_dir.name,
+            project="p-w1",
+            org="o-w1",
+            schema_version="2.0.0",
+            contract_version="1.0.0",
+            node_count=0,
+            edge_count=0,
+            imported_from=None,
+            generated_at="",
+        )
+        self.store.upsert_node(
+            self.graph_id,
+            {"id": "N1", "label": "Alpha Process", "type": "Task", "supertype": "Work"},
+        )
+
+    def tearDown(self) -> None:
+        self.store.close()
+        self.temp_dir.cleanup()
+
+    def _call(self, params: dict) -> dict:
+        from brain_ds.mcp.tools import retrieve_context
+        return retrieve_context(self.store, params)
+
+    def test_w1a_r01_missing_both_inputs_returns_error_and_zero_sql(self) -> None:
+        """W-1a/R-01: neither query nor focal_node_id → -32602 error, ZERO SQL on the connection."""
+        all_sql: list[str] = []
+        self.store.conn.set_trace_callback(all_sql.append)
+        try:
+            result = self._call({"graph_id": self.graph_id})
+        finally:
+            self.store.conn.set_trace_callback(None)
+
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result.get("code"), -32602, f"Expected -32602; got: {result}")
+        self.assertIn("At least one of", result.get("message", ""))
+        self.assertEqual(
+            all_sql,
+            [],
+            f"Expected zero SQL for R-01 validation error; got {len(all_sql)} statement(s):\n"
+            + "\n".join(all_sql[:5]),
+        )
+
+    def test_w1b_r02_depth_three_returns_error_and_zero_sql(self) -> None:
+        """W-1b/R-02: depth=3 (out-of-bounds) → -32602 error, ZERO SQL on the connection."""
+        all_sql: list[str] = []
+        self.store.conn.set_trace_callback(all_sql.append)
+        try:
+            result = self._call({"graph_id": self.graph_id, "query": "alpha", "depth": 3})
+        finally:
+            self.store.conn.set_trace_callback(None)
+
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result.get("code"), -32602, f"Expected -32602; got: {result}")
+        self.assertIn("depth must be 1 or 2", result.get("message", ""))
+        self.assertEqual(
+            all_sql,
+            [],
+            f"Expected zero SQL for R-02 validation error; got {len(all_sql)} statement(s):\n"
+            + "\n".join(all_sql[:5]),
+        )
+
+
+# ---------------------------------------------------------------------------
+# W-2: dense/embedding branch without a real model
+# ---------------------------------------------------------------------------
+
+
+class RetrieveContextDensePathTests(unittest.TestCase):
+    """W-2: dense path in retrieve_context using FakeEmbeddingModel + mocked nearest_to_vector."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.temp_dir.name) / ".brain_ds" / "store.db"
+        self.db_path.parent.mkdir(parents=True)
+        self.store = GraphStore(str(self.db_path))
+        self.graph_id = "g-w2"
+        self.store.meta_repo.save_graph_meta(
+            graph_id=self.graph_id,
+            workspace_root=self.temp_dir.name,
+            workspace_path=self.temp_dir.name,
+            project="p-w2",
+            org="o-w2",
+            schema_version="2.0.0",
+            contract_version="1.0.0",
+            node_count=0,
+            edge_count=0,
+            imported_from=None,
+            generated_at="",
+        )
+        # N1: lexical match for "Alpha"
+        self.store.upsert_node(
+            self.graph_id,
+            {"id": "N1", "label": "Alpha Process", "type": "Task", "supertype": "Work"},
+        )
+        # N2: dense-only node (zero token overlap with query "Alpha")
+        self.store.upsert_node(
+            self.graph_id,
+            {"id": "N2", "label": "Dense Only Node", "type": "Role", "supertype": "Business"},
+        )
+        self.store.upsert_edge(
+            self.graph_id,
+            {"source": "N1", "target": "N2", "label": "relates", "weight": 0.7, "evidence_ids": []},
+        )
+
+    def tearDown(self) -> None:
+        self.store.close()
+        self.temp_dir.cleanup()
+
+    def _call(self, params: dict) -> dict:
+        from brain_ds.mcp.tools import retrieve_context
+        return retrieve_context(self.store, params)
+
+    def test_w2a_dense_path_sets_dense_used_true_and_surfaces_dense_anchor(self) -> None:
+        """W-2a: FakeEmbeddingModel + nearest_to_vector returning N2 → dense_used=True, N2 in anchors."""
+        fake_model = _FakeEmbeddingModelForRetrieve()
+        dense_hits = [NearestHit(target_id="N2", score=0.95)]
+
+        with patch("brain_ds.mcp.tools.get_default_model", return_value=fake_model), \
+             patch.object(self.store, "nearest_to_vector", return_value=dense_hits):
+            result = self._call({"graph_id": self.graph_id, "query": "Alpha"})
+
+        self.assertNotIn("code", result, f"Expected success, got error: {result}")
+        self.assertTrue(result.get("dense_used"), "dense_used must be True when model is available and hits returned")
+        anchor_ids = [a["id"] for a in result.get("anchors", [])]
+        self.assertIn("N2", anchor_ids, "Dense-only anchor N2 must appear in anchors after RRF fusion")
+
+    def test_w2b_degradation_model_none_dense_used_false(self) -> None:
+        """W-2b/EMB-S2: get_default_model()=None → retrieve_context succeeds with dense_used=False."""
+        with patch("brain_ds.mcp.tools.get_default_model", return_value=None):
+            result = self._call({"graph_id": self.graph_id, "query": "Alpha"})
+
+        self.assertNotIn("code", result, f"Expected success, got error: {result}")
+        self.assertFalse(result.get("dense_used"), "dense_used must be False when no model available")
+        # Lexical path still returns a valid response with all required fields.
+        for field in ("anchors", "subgraph", "dense_used", "serialized_for_llm"):
+            with self.subTest(field=field):
+                self.assertIn(field, result)
+
+    def test_w2c_dense_empty_hits_falls_back_to_lexical_dense_used_false(self) -> None:
+        """W-2c: model present but nearest_to_vector returns [] → lexical-only, dense_used=False."""
+        fake_model = _FakeEmbeddingModelForRetrieve()
+
+        with patch("brain_ds.mcp.tools.get_default_model", return_value=fake_model), \
+             patch.object(self.store, "nearest_to_vector", return_value=[]):
+            result = self._call({"graph_id": self.graph_id, "query": "Alpha"})
+
+        self.assertNotIn("code", result, f"Expected success, got error: {result}")
+        self.assertFalse(result.get("dense_used"), "dense_used must be False when dense_hits is empty")
+
+
+# ---------------------------------------------------------------------------
+# W-3: per-edge ledger_status in edges_with_reliability
+# ---------------------------------------------------------------------------
+
+
+class RetrieveContextEdgeLedgerStatusTests(unittest.TestCase):
+    """W-3: every item in edges_with_reliability carries ledger_status and tier; both tier branches exercised."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.temp_dir.name) / ".brain_ds" / "store.db"
+        self.db_path.parent.mkdir(parents=True)
+        self.store = GraphStore(str(self.db_path))
+        self.graph_id = "g-w3"
+        self.store.meta_repo.save_graph_meta(
+            graph_id=self.graph_id,
+            workspace_root=self.temp_dir.name,
+            workspace_path=self.temp_dir.name,
+            project="p-w3",
+            org="o-w3",
+            schema_version="2.0.0",
+            contract_version="1.0.0",
+            node_count=0,
+            edge_count=0,
+            imported_from=None,
+            generated_at="",
+        )
+        self.store.upsert_node(
+            self.graph_id,
+            {"id": "N1", "label": "Alpha Anchor", "type": "Task", "supertype": "Work"},
+        )
+        self.store.upsert_node(
+            self.graph_id,
+            {"id": "N2", "label": "Beta Target", "type": "Process", "supertype": "Business"},
+        )
+        self.store.upsert_node(
+            self.graph_id,
+            {"id": "N3", "label": "Gamma Target", "type": "Role", "supertype": "Work"},
+        )
+        # Edge E1: N1→N2 — no ledger row → ledger_status=None, tier=2
+        self.store.upsert_edge(
+            self.graph_id,
+            {"source": "N1", "target": "N2", "label": "feeds", "weight": 0.8, "evidence_ids": []},
+        )
+        # Edge E2: N1→N3 — confirmed ledger row → ledger_status="confirmed", tier=1
+        self.store.upsert_edge(
+            self.graph_id,
+            {"source": "N1", "target": "N3", "label": "triggers", "weight": 0.6, "evidence_ids": []},
+        )
+        # Find E2's edge_id and write a confirmed ledger row
+        edges = self.store.query_edges(self.graph_id)
+        confirmed_edge = next((e for e in edges if e.label == "triggers"), None)
+        assert confirmed_edge is not None, "triggers edge must exist after upsert"
+        self.store.append_ledger(
+            self.graph_id,
+            target_id=confirmed_edge.edge_id,
+            target_type="edge",
+            status="confirmed",
+            provenance="hand_labeled",
+            captured_at="2026-01-01T00:00:00+00:00",
+            confirmed_at="2026-01-01T00:00:00+00:00",
+            confirmed_by="test-user",
+        )
+
+    def tearDown(self) -> None:
+        self.store.close()
+        self.temp_dir.cleanup()
+
+    def _call(self, params: dict) -> dict:
+        from brain_ds.mcp.tools import retrieve_context
+        return retrieve_context(self.store, params)
+
+    def test_w3_every_edge_has_ledger_status_key(self) -> None:
+        """W-3: every item in edges_with_reliability must contain ledger_status and tier."""
+        result = self._call({"graph_id": self.graph_id, "focal_node_id": "N1"})
+
+        self.assertNotIn("code", result, f"Expected success, got error: {result}")
+        edges = result.get("subgraph", {}).get("edges_with_reliability", [])
+        self.assertGreater(len(edges), 0, "Expected at least one edge in subgraph")
+
+        for i, edge in enumerate(edges):
+            with self.subTest(edge_index=i, label=edge.get("label")):
+                self.assertIn("ledger_status", edge, f"Edge[{i}] missing ledger_status key")
+                self.assertIn("tier", edge, f"Edge[{i}] missing tier key")
+
+    def test_w3_confirmed_edge_has_tier_one(self) -> None:
+        """W-3: edge with confirmed ledger row appears with tier=1 in edges_with_reliability."""
+        result = self._call({"graph_id": self.graph_id, "focal_node_id": "N1"})
+
+        self.assertNotIn("code", result, f"Expected success, got error: {result}")
+        edges = result.get("subgraph", {}).get("edges_with_reliability", [])
+        confirmed = [e for e in edges if e.get("label") == "triggers"]
+        self.assertEqual(len(confirmed), 1, "Expected exactly one 'triggers' edge in subgraph")
+        self.assertEqual(confirmed[0]["ledger_status"], "confirmed")
+        self.assertEqual(confirmed[0]["tier"], 1)
+
+    def test_w3_no_ledger_row_edge_has_tier_two(self) -> None:
+        """W-3: edge without any ledger row appears with ledger_status=None and tier=2."""
+        result = self._call({"graph_id": self.graph_id, "focal_node_id": "N1"})
+
+        self.assertNotIn("code", result, f"Expected success, got error: {result}")
+        edges = result.get("subgraph", {}).get("edges_with_reliability", [])
+        no_ledger = [e for e in edges if e.get("label") == "feeds"]
+        self.assertEqual(len(no_ledger), 1, "Expected exactly one 'feeds' edge in subgraph")
+        self.assertIsNone(no_ledger[0]["ledger_status"])
+        self.assertEqual(no_ledger[0]["tier"], 2)
+
+    def test_w3_both_tier_branches_present(self) -> None:
+        """W-3: both tier=1 (confirmed) and tier=2 (no-ledger) branches exercised in one call."""
+        result = self._call({"graph_id": self.graph_id, "focal_node_id": "N1"})
+
+        self.assertNotIn("code", result, f"Expected success, got error: {result}")
+        edges = result.get("subgraph", {}).get("edges_with_reliability", [])
+        tiers = {e["tier"] for e in edges}
+        self.assertIn(1, tiers, "tier=1 (confirmed) must appear")
+        self.assertIn(2, tiers, "tier=2 (no-ledger) must appear")
 
 
 if __name__ == "__main__":
