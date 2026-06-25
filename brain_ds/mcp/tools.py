@@ -676,6 +676,7 @@ def add_edge(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
                 flagged_reason=flagged_reason,
                 provenance="seed",
             )
+            grounding.invalidate_graph_calibration(graph_id)
         except Exception:
             logger.warning(
                 "confidence_ledger side-write failed for %s; edge persisted",
@@ -831,7 +832,7 @@ def suggest_connections(store: GraphStore, params: dict[str, Any]) -> dict[str, 
         dense_scores = None
 
     try:
-        calibration_report = grounding.get_calibration_report()
+        calibration_report = grounding.get_graph_calibration_report(graph_id, store)
         return similarity.suggest_connections_for_node(
             nodes,
             edges,
@@ -985,6 +986,7 @@ def resolve_confirmation(store: GraphStore, params: dict[str, Any]) -> dict[str,
     except ValueError as exc:
         raise ValidationError(code=-32602, message=str(exc)) from exc
 
+    grounding.invalidate_graph_calibration(graph_id)
     return result
 
 

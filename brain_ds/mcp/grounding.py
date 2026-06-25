@@ -139,6 +139,31 @@ def get_calibration_report() -> EdgeCalibrationReport:
     return _calibration_grounding_cache.report
 
 
+_per_graph_calibration_cache: dict[str, EdgeCalibrationReport] = {}
+
+
+def get_graph_calibration_report(graph_id: str, store) -> EdgeCalibrationReport:
+    """Return per-graph calibration report, building and caching on first call.
+
+    On cache miss, runs calibrate_from_ledger using the absolute SEED_GOLD_SET_PATH
+    so the seed file is always found regardless of the process cwd.  The import
+    of calibrate_from_ledger is kept function-local to mirror the lazy-parse
+    rationale of build_calibration_grounding and avoid import-time side effects.
+    """
+    if graph_id not in _per_graph_calibration_cache:
+        from brain_ds.verify.ledger_calibration import calibrate_from_ledger
+
+        _per_graph_calibration_cache[graph_id] = calibrate_from_ledger(
+            graph_id, store, global_seed_path=SEED_GOLD_SET_PATH
+        )
+    return _per_graph_calibration_cache[graph_id]
+
+
+def invalidate_graph_calibration(graph_id: str) -> None:
+    """Evict the per-graph calibration cache entry for graph_id (idempotent)."""
+    _per_graph_calibration_cache.pop(graph_id, None)
+
+
 # ---------------------------------------------------------------------------
 # Category-2 constants — hand-maintained, lifted from frozen SKILL.md prose.
 # Each constant carries a source-pointer comment for future sync.

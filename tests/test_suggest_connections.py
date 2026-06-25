@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from unittest.mock import patch
+from datetime import datetime, timezone
+from unittest.mock import MagicMock, patch
 from pathlib import Path
 
-from brain_ds.mcp.tools import suggest_connections
+import pytest
+
+import brain_ds.mcp.grounding as grounding
+from brain_ds.mcp.tools import add_edge, resolve_confirmation, suggest_connections
 from brain_ds.scoring import similarity
 from brain_ds.store.graph_store import GraphStore
 from brain_ds.store.models import EdgeRow, NodeRow
@@ -57,6 +61,46 @@ def _node(node_id: str, label: str, type_: str, details: dict | None = None) -> 
         created_at="2026-06-24T00:00:00Z",
         modified_at="2026-06-24T00:00:00Z",
     )
+
+
+def _make_minimal_store(graph_id: str = "g-test") -> GraphStore:
+    """Create a fresh in-memory GraphStore with a graph and two nodes."""
+    store = GraphStore(":memory:")
+    store.create_graph(graph_id, name=graph_id, project="test")
+    store.upsert_node(
+        graph_id,
+        {
+            "id": "src",
+            "label": "Source Node",
+            "type": "KPI",
+            "supertype": "metric",
+            "parent_id": "ROOT",
+            "details": {"where": "test fixture", "what": "source"},
+        },
+    )
+    store.upsert_node(
+        graph_id,
+        {
+            "id": "tgt",
+            "label": "Target Node",
+            "type": "Data Source",
+            "supertype": "data",
+            "parent_id": "ROOT",
+            "details": {"where": "test fixture", "what": "target"},
+        },
+    )
+    return store
+
+
+# ---------------------------------------------------------------------------
+# Task 1.1: Autouse fixture — clear per-graph calibration cache between tests
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _clear_per_graph_calibration_cache():
+    """Prevent cross-test state bleed in _per_graph_calibration_cache."""
+    yield
+    getattr(grounding, "_per_graph_calibration_cache", {}).clear()
 
 
 def _edge(source: str, target: str, label: str = "owns") -> EdgeRow:
@@ -190,7 +234,7 @@ class SuggestConnectionsToolTests(unittest.TestCase):
         calibration_report = _report({"measured-by": _metrics("measured-by", accept=0.8, reject=0.2)})
 
         with (
-            patch("brain_ds.mcp.tools.grounding.get_calibration_report", return_value=calibration_report) as get_report,
+            patch("brain_ds.mcp.tools.grounding.get_graph_calibration_report", return_value=calibration_report) as get_report,
             patch("brain_ds.mcp.tools.similarity.suggest_connections_for_node") as suggest_for_node,
         ):
             suggest_for_node.return_value = {"suggestions": []}
@@ -198,7 +242,7 @@ class SuggestConnectionsToolTests(unittest.TestCase):
             result = suggest_connections(self.store, {"graph_id": self.graph_id, "node_id": "kpi-ventas"})
 
         self.assertEqual(result, {"suggestions": []})
-        get_report.assert_called_once_with()
+        get_report.assert_called_once_with(self.graph_id, self.store)
         self.assertIs(suggest_for_node.call_args.kwargs["calibration_report"], calibration_report)
 
 
@@ -253,6 +297,400 @@ class SimilarityAlgorithmTests(unittest.TestCase):
         self.assertEqual(verdicts["dept-accept"], "advisory_accept")
         self.assertEqual(verdicts["dept-abstain"], "advisory_abstain")
         self.assertEqual(verdicts["dept-reject"], "advisory_reject")
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: grounding.py RED tests (tasks 2.1–2.5)
+# ---------------------------------------------------------------------------
+
+
+def test_cache_miss_computes_and_stores():
+    """Cache miss must invoke calibrate_from_ledger exactly once; second call hits cache."""
+    store = _make_minimal_store("g-calib-1")
+    try:
+        mock_report = _report({"owns": _metrics("owns", accept=0.7, reject=0.3)})
+        with patch(
+            "brain_ds.verify.ledger_calibration.calibrate_from_ledger",
+            return_value=mock_report,
+        ) as mock_calibrate:
+            result1 = grounding.get_graph_calibration_report("g-calib-1", store)
+            result2 = grounding.get_graph_calibration_report("g-calib-1", store)
+        mock_calibrate.assert_called_once()
+        assert result1 is result2
+    finally:
+        store.close()
+
+
+def test_cache_hit_skips_recomputation():
+    """Pre-warming cache must prevent calibrate_from_ledger from being called."""
+    mock_report = _report({"owns": _metrics("owns", accept=0.7, reject=0.3)})
+    grounding._per_graph_calibration_cache["g-calib-2"] = mock_report
+    store = _make_minimal_store("g-calib-2")
+    try:
+        with patch(
+            "brain_ds.verify.ledger_calibration.calibrate_from_ledger"
+        ) as mock_calibrate:
+            result = grounding.get_graph_calibration_report("g-calib-2", store)
+        mock_calibrate.assert_not_called()
+        assert result is mock_report
+    finally:
+        store.close()
+
+
+def test_cold_start_equals_global():
+    """Empty ledger must produce report field-for-field equal to get_calibration_report()."""
+    store = _make_minimal_store("g-cold")
+    try:
+        per_graph = grounding.get_graph_calibration_report("g-cold", store)
+        global_report = grounding.get_calibration_report()
+        assert set(per_graph.classes.keys()) == set(global_report.classes.keys())
+        for label in global_report.classes:
+            pg_cls = per_graph.classes[label]
+            gl_cls = global_report.classes[label]
+            assert pg_cls.accept_threshold == gl_cls.accept_threshold, (
+                f"accept mismatch for {label!r}: per-graph={pg_cls.accept_threshold} "
+                f"global={gl_cls.accept_threshold}"
+            )
+            assert pg_cls.reject_threshold == gl_cls.reject_threshold, (
+                f"reject mismatch for {label!r}: per-graph={pg_cls.reject_threshold} "
+                f"global={gl_cls.reject_threshold}"
+            )
+    finally:
+        store.close()
+
+
+def test_cross_graph_isolation():
+    """Invalidating G1 must not evict G2 from the per-graph cache."""
+    mock_g1 = _report({"owns": _metrics("owns", accept=0.8, reject=0.2)})
+    mock_g2 = _report({"owns": _metrics("owns", accept=0.6, reject=0.4)})
+    grounding._per_graph_calibration_cache["G1-iso"] = mock_g1
+    grounding._per_graph_calibration_cache["G2-iso"] = mock_g2
+    store = _make_minimal_store("G2-iso")
+    try:
+        grounding.invalidate_graph_calibration("G1-iso")
+        assert "G1-iso" not in grounding._per_graph_calibration_cache
+        with patch(
+            "brain_ds.verify.ledger_calibration.calibrate_from_ledger"
+        ) as mock_calibrate:
+            result = grounding.get_graph_calibration_report("G2-iso", store)
+        mock_calibrate.assert_not_called()
+        assert result is mock_g2
+    finally:
+        store.close()
+
+
+def test_absolute_seed_path_no_file_error(tmp_path: Path, monkeypatch) -> None:
+    """Non-repo cwd must not raise FileNotFoundError for the seed gold set."""
+    monkeypatch.chdir(tmp_path)
+    store = _make_minimal_store("g-abs")
+    try:
+        report = grounding.get_graph_calibration_report("g-abs", store)
+        assert report is not None
+    finally:
+        store.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: tools.py RED tests (tasks 4.1–4.3)
+# ---------------------------------------------------------------------------
+
+
+def test_successful_append_ledger_evicts_cache():
+    """Successful add_edge must evict the per-graph calibration cache entry."""
+    graph_id = "g-evict-ok"
+    store = _make_minimal_store(graph_id)
+    try:
+        mock_report = _report({"owns": _metrics("owns", accept=0.7, reject=0.3)})
+        grounding._per_graph_calibration_cache[graph_id] = mock_report
+
+        add_edge(
+            store,
+            {
+                "graph_id": graph_id,
+                "source": "src",
+                "target": "tgt",
+                "label": "owns",
+                "confidence": 0.9,
+            },
+        )
+
+        assert graph_id not in grounding._per_graph_calibration_cache, (
+            "Cache entry should have been evicted after successful add_edge"
+        )
+    finally:
+        store.close()
+
+
+def test_failed_append_ledger_does_not_evict():
+    """Failed store.append_ledger must leave the per-graph cache entry intact."""
+    graph_id = "g-evict-fail"
+    store = _make_minimal_store(graph_id)
+    try:
+        mock_report = _report({"owns": _metrics("owns", accept=0.7, reject=0.3)})
+        grounding._per_graph_calibration_cache[graph_id] = mock_report
+
+        with patch.object(
+            store,
+            "append_ledger",
+            side_effect=RuntimeError("simulated ledger write failure"),
+        ):
+            add_edge(
+                store,
+                {
+                    "graph_id": graph_id,
+                    "source": "src",
+                    "target": "tgt",
+                    "label": "owns",
+                    "confidence": 0.9,
+                },
+            )
+
+        assert graph_id in grounding._per_graph_calibration_cache, (
+            "Cache entry must remain intact when append_ledger raises"
+        )
+    finally:
+        store.close()
+
+
+def test_resolve_confirmation_evicts_cache():
+    """Successful resolve_confirmation must evict the per-graph calibration cache."""
+    graph_id = "g-evict-resolve"
+    store = _make_minimal_store(graph_id)
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        store.append_ledger(
+            graph_id=graph_id,
+            target_id="edge-conf-1",
+            target_type="edge",
+            status="needs-confirmation",
+            provenance="seed",
+            captured_at=now,
+            relationship_label="owns",
+        )
+
+        mock_report = _report({"owns": _metrics("owns", accept=0.7, reject=0.3)})
+        grounding._per_graph_calibration_cache[graph_id] = mock_report
+
+        resolve_confirmation(
+            store,
+            {
+                "graph_id": graph_id,
+                "target_type": "edge",
+                "target_id": "edge-conf-1",
+                "outcome": "confirmed",
+                "resolved_by": "test-user",
+                "gold_rationale": "Verified by automated test",
+            },
+        )
+
+        assert graph_id not in grounding._per_graph_calibration_cache, (
+            "Cache entry should have been evicted after resolve_confirmation"
+        )
+    finally:
+        store.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 6: Behavioral boundary tests (tasks 6.1–6.4)
+# ---------------------------------------------------------------------------
+
+
+def test_per_graph_differentiation():
+    """Ledger with >=10 verdict-bearing 'owns' rows must yield thresholds different from global.
+
+    'owns' IS in the seed gold set.  Seeding extreme per-graph scores (8 confirmed
+    at 0.99, 2 invalidated at 0.10) produces an 'owns' distribution far from the
+    global seed, so calibration must produce different thresholds.
+    """
+    graph_id = "g-differentiated"
+    store = _make_minimal_store(graph_id)
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        # 8 confirmed at very high confidence
+        for i in range(8):
+            store.append_ledger(
+                graph_id=graph_id,
+                target_id=f"edge-owns-valid-{i}",
+                target_type="edge",
+                status="confirmed",
+                provenance="seed",
+                captured_at=now,
+                relationship_label="owns",
+                initial_confidence=0.99,
+                current_confidence=0.99,
+                gold_rationale="high-confidence test fixture",
+            )
+        # 2 invalidated at very low confidence
+        for i in range(2):
+            store.append_ledger(
+                graph_id=graph_id,
+                target_id=f"edge-owns-invalid-{i}",
+                target_type="edge",
+                status="invalidated",
+                provenance="seed",
+                captured_at=now,
+                relationship_label="owns",
+                initial_confidence=0.10,
+                current_confidence=0.10,
+                gold_rationale="low-confidence test fixture",
+            )
+
+        per_graph = grounding.get_graph_calibration_report(graph_id, store)
+        global_report = grounding.get_calibration_report()
+
+        assert "owns" in per_graph.classes, "per-graph report must have 'owns' class"
+        assert "owns" in global_report.classes, "global report must have 'owns' class"
+        pg = per_graph.classes["owns"]
+        gl = global_report.classes["owns"]
+        assert pg.accept_threshold != gl.accept_threshold or pg.reject_threshold != gl.reject_threshold, (
+            "per-graph thresholds must differ from global when ledger has 10+ verdict-bearing records"
+        )
+    finally:
+        store.close()
+
+
+def test_sparse_label_fallback_9_records():
+    """9 non-verdict-bearing 'owns' ledger rows → seed fallback → thresholds equal to global.
+
+    'owns' IS in the seed gold set.  status='inferred' rows are NOT verdict-bearing:
+    ledger_to_gold_records filters them out, so the gold-records count for 'owns'
+    stays at 0 (< 10 threshold) and _merge_global_seed supplies the same seed
+    records as the global calibration uses, producing identical thresholds.
+    """
+    graph_id = "g-sparse-9"
+    store = _make_minimal_store(graph_id)
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        # status='inferred' is NOT verdict-bearing: excluded by ledger_to_gold_records
+        for i in range(9):
+            store.append_ledger(
+                graph_id=graph_id,
+                target_id=f"edge-owns-inferred-{i}",
+                target_type="edge",
+                status="inferred",
+                provenance="seed",
+                captured_at=now,
+                relationship_label="owns",
+            )
+
+        per_graph = grounding.get_graph_calibration_report(graph_id, store)
+        global_report = grounding.get_calibration_report()
+
+        assert "owns" in per_graph.classes, "per-graph report must have 'owns' class (from seed)"
+        assert "owns" in global_report.classes, "global report must have 'owns' class"
+        pg = per_graph.classes["owns"]
+        gl = global_report.classes["owns"]
+        assert pg.accept_threshold == gl.accept_threshold, (
+            f"'owns' accept_threshold must fall back to seed (0 verdict-bearing rows): "
+            f"per-graph={pg.accept_threshold} global={gl.accept_threshold}"
+        )
+        assert pg.reject_threshold == gl.reject_threshold, (
+            f"'owns' reject_threshold must fall back to seed (0 verdict-bearing rows): "
+            f"per-graph={pg.reject_threshold} global={gl.reject_threshold}"
+        )
+    finally:
+        store.close()
+
+
+def test_sparse_label_boundary_10_records():
+    """10 verdict-bearing 'owns' rows → no seed fallback → thresholds differ from global.
+
+    'owns' IS in the seed gold set.  With exactly 10 verdict-bearing rows (8 confirmed
+    at 0.99, 2 invalidated at 0.10), the label is NOT sparse (10 >= 10).  The seed
+    fallback for 'owns' is skipped; thresholds are derived purely from ledger data
+    and must differ from the global seed-derived thresholds.
+    """
+    graph_id = "g-sparse-10"
+    store = _make_minimal_store(graph_id)
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        for i in range(8):
+            store.append_ledger(
+                graph_id=graph_id,
+                target_id=f"edge-owns-valid-{i}",
+                target_type="edge",
+                status="confirmed",
+                provenance="seed",
+                captured_at=now,
+                relationship_label="owns",
+                initial_confidence=0.99,
+                current_confidence=0.99,
+                gold_rationale="high-confidence test fixture",
+            )
+        for i in range(2):
+            store.append_ledger(
+                graph_id=graph_id,
+                target_id=f"edge-owns-invalid-{i}",
+                target_type="edge",
+                status="invalidated",
+                provenance="seed",
+                captured_at=now,
+                relationship_label="owns",
+                initial_confidence=0.10,
+                current_confidence=0.10,
+                gold_rationale="low-confidence test fixture",
+            )
+
+        per_graph = grounding.get_graph_calibration_report(graph_id, store)
+        global_report = grounding.get_calibration_report()
+
+        assert "owns" in per_graph.classes, "per-graph report must have 'owns' class"
+        assert "owns" in global_report.classes, "global report must have 'owns' class"
+        pg = per_graph.classes["owns"]
+        gl = global_report.classes["owns"]
+        assert pg.accept_threshold != gl.accept_threshold or pg.reject_threshold != gl.reject_threshold, (
+            "per-graph thresholds for 'owns' must differ from global when >= 10 verdict-bearing records"
+        )
+    finally:
+        store.close()
+
+
+def test_admission_gate_unchanged():
+    """Different calibration reports must not change candidate ids or scores (admission gate invariant)."""
+    graph_id = "g-gate"
+    store = _make_minimal_store(graph_id)
+    try:
+        # Add extra nodes to ensure some suggestions appear
+        for i in range(3):
+            store.upsert_node(
+                graph_id,
+                {
+                    "id": f"ds-extra-{i}",
+                    "label": f"Data Source {i} test fixture",
+                    "type": "Data Source",
+                    "supertype": "data",
+                    "parent_id": "ROOT",
+                    "details": {"where": "fixture storage", "what": f"extra source {i}"},
+                },
+            )
+
+        report_a = grounding.get_calibration_report()
+        # report_b has dramatically different advisory thresholds
+        report_b = _report({"owned-by": _metrics("owned-by", accept=0.99, reject=0.95)})
+
+        with patch(
+            "brain_ds.mcp.tools.grounding.get_graph_calibration_report",
+            return_value=report_a,
+        ):
+            result_a = suggest_connections(store, {"graph_id": graph_id, "node_id": "src"})
+
+        with patch(
+            "brain_ds.mcp.tools.grounding.get_graph_calibration_report",
+            return_value=report_b,
+        ):
+            result_b = suggest_connections(store, {"graph_id": graph_id, "node_id": "src"})
+
+        ids_scores_a = [
+            (item["node_id"], item["score"]) for item in result_a.get("suggestions", [])
+        ]
+        ids_scores_b = [
+            (item["node_id"], item["score"]) for item in result_b.get("suggestions", [])
+        ]
+        assert ids_scores_a == ids_scores_b, (
+            "Admission gate changed: candidate ids/scores differ between calibration reports"
+        )
+    finally:
+        store.close()
 
 
 if __name__ == "__main__":
