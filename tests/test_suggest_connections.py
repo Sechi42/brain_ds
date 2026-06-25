@@ -592,6 +592,64 @@ def test_sparse_label_fallback_9_records():
         store.close()
 
 
+def test_sparse_label_fallback_9_verdict_bearing_records():
+    """9 verdict-bearing 'owns' rows (< 10) → seed fallback → thresholds equal to global.
+
+    'owns' IS in the seed gold set.  7 confirmed + 2 invalidated = 9 verdict-bearing rows.
+    Because the threshold is < 10, _merge_global_seed fallback is engaged for 'owns',
+    so per-graph thresholds must be identical to the global seed-derived thresholds.
+    This covers the lower boundary of R-04 (exactly one record below the 10-record cutoff).
+    """
+    graph_id = "g-sparse-9-vb"
+    store = _make_minimal_store(graph_id)
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        for i in range(7):
+            store.append_ledger(
+                graph_id=graph_id,
+                target_id=f"edge-owns-valid-{i}",
+                target_type="edge",
+                status="confirmed",
+                provenance="seed",
+                captured_at=now,
+                relationship_label="owns",
+                initial_confidence=0.99,
+                current_confidence=0.99,
+                gold_rationale="high-confidence test fixture",
+            )
+        for i in range(2):
+            store.append_ledger(
+                graph_id=graph_id,
+                target_id=f"edge-owns-invalid-{i}",
+                target_type="edge",
+                status="invalidated",
+                provenance="seed",
+                captured_at=now,
+                relationship_label="owns",
+                initial_confidence=0.10,
+                current_confidence=0.10,
+                gold_rationale="low-confidence test fixture",
+            )
+
+        per_graph = grounding.get_graph_calibration_report(graph_id, store)
+        global_report = grounding.get_calibration_report()
+
+        assert "owns" in per_graph.classes, "per-graph report must have 'owns' class (from seed fallback)"
+        assert "owns" in global_report.classes, "global report must have 'owns' class"
+        pg = per_graph.classes["owns"]
+        gl = global_report.classes["owns"]
+        assert pg.accept_threshold == gl.accept_threshold, (
+            f"'owns' accept_threshold must fall back to seed (9 verdict-bearing rows < 10): "
+            f"per-graph={pg.accept_threshold} global={gl.accept_threshold}"
+        )
+        assert pg.reject_threshold == gl.reject_threshold, (
+            f"'owns' reject_threshold must fall back to seed (9 verdict-bearing rows < 10): "
+            f"per-graph={pg.reject_threshold} global={gl.reject_threshold}"
+        )
+    finally:
+        store.close()
+
+
 def test_sparse_label_boundary_10_records():
     """10 verdict-bearing 'owns' rows → no seed fallback → thresholds differ from global.
 
