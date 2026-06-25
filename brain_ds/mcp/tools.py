@@ -52,6 +52,7 @@ from brain_ds.retrieval.neighborhood import (
     sort_edges_by_reliability,
     walk_hierarchy_path,
 )
+from brain_ds.retrieval.serialization import serialize_for_llm
 
 
 logger = logging.getLogger(__name__)
@@ -1188,7 +1189,9 @@ def retrieve_context(store: GraphStore, params: dict[str, Any]) -> dict[str, Any
         for anchor in anchor_nodes
     }
 
-    # serialized_for_llm is wired in PR3; return empty string placeholder (R-03).
+    # --- Serialize for LLM (R-08, R-07) ---
+    serialized_for_llm = serialize_for_llm(subgraph_nodes, sorted_edges, hierarchy_paths)
+
     return {
         "anchors": [_node_to_dict(n) for n in anchor_nodes],
         "subgraph": {
@@ -1196,7 +1199,7 @@ def retrieve_context(store: GraphStore, params: dict[str, Any]) -> dict[str, Any
             "edges_with_reliability": edges_with_reliability,
         },
         "hierarchy_paths": hierarchy_paths,
-        "serialized_for_llm": "",
+        "serialized_for_llm": serialized_for_llm,
         "dense_used": dense_used,
     }
 
