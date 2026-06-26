@@ -364,8 +364,11 @@ class TestLockedLiteralsInRendererTs(unittest.TestCase):
 
     def test_locked_max_radius_formula(self):
         self._require_ts()
-        self.assertIn("Math.min(30, 8 + Math.sqrt(degree) * 3.5)", self.ts_text)
-        self.assertIn("Math.max(12, radiusBase + Math.min(10, Math.max(0, importance)))", self.ts_text)
+        # PR4 intentionally reduced caps for semantic-lane readability;
+        # test_canvas_renderer.py::test_pr4_node_radius_cap_smaller_for_readability
+        # explicitly locks these smaller values.
+        self.assertIn("Math.min(24, 7 + Math.sqrt(degree) * 3)", self.ts_text)
+        self.assertIn("Math.max(10, radiusBase + Math.min(6, Math.max(0, importance)))", self.ts_text)
 
     def test_locked_hover_delay_350(self):
         self._require_ts()

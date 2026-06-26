@@ -36,7 +36,7 @@ class TestRenderContextContract(unittest.TestCase):
     def test_contract_version_is_one_zero_zero(self):
         context = build_render_context(Graph.from_v1(_sample_graph_payload()))
         self.assertIn("contract_version", context)
-        self.assertEqual(context["contract_version"], "1.0.0")
+        self.assertEqual(context["contract_version"], "1.1.0")
 
     def test_meta_workspace_present_and_well_formed(self):
         graph = Graph.from_v1(_sample_graph_payload())

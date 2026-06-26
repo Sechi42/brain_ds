@@ -2220,11 +2220,13 @@ class TestLiveSyncPhase4Audit(unittest.TestCase):
             # PR2: secret panel uses same live-compat pattern as detailIndex/allNodes
             "const secretNodes = live ? live.getNodes() : ((RENDER_CONTEXT && RENDER_CONTEXT.nodes) ? RENDER_CONTEXT.nodes : []);",
             "const secretDetailIndex = live ? live.getDetailIndex() : ((RENDER_CONTEXT && RENDER_CONTEXT.detail_index) ? RENDER_CONTEXT.detail_index : {});",
+            # PR4: semantic cluster lanes initialised from render context
+            "semanticClusters: RENDER_CONTEXT.semantic_clusters || [],",
         ]
         lines_with_context = [
             line.strip() for line in self.template_text.splitlines() if "RENDER_CONTEXT" in line
         ]
-        self.assertEqual(len(lines_with_context), 19)
+        self.assertEqual(len(lines_with_context), 20)
         for line in lines_with_context:
             self.assertTrue(any(token in line for token in allowed_literals), f"Unexpected RENDER_CONTEXT usage: {line}")
 

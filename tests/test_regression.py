@@ -85,7 +85,7 @@ class TestRuntimeRegression(unittest.TestCase):
                     body = response.read().decode("utf-8")
                     self.assertEqual(response.status, 200)
                     self.assertIn("RENDER_CONTEXT", body)
-                    self.assertIn('"contract_version": "1.0.0"', body)
+                    self.assertIn('"contract_version": "1.1.0"', body)
                 with urlopen(f"http://127.0.0.1:{httpd.server_port}/api/graphs", timeout=2) as response:
                     payload = json.loads(response.read().decode("utf-8"))
                     self.assertEqual(response.status, 200)

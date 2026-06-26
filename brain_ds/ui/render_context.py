@@ -215,38 +215,38 @@ def _build_semantic_cluster_payload(store: Any, graph_id: str | None) -> tuple[l
     try:
         clusters = store.query_clusters(graph_id)
         members = _list_cluster_members(store, graph_id)
+
+        members_by_cluster: dict[str, list[str]] = defaultdict(list)
+        for member in members:
+            members_by_cluster[str(member.cluster_id)].append(str(member.node_id))
+
+        payload: list[dict[str, Any]] = []
+        lane_ids: set[str] = set()
+        for index, cluster in enumerate(clusters):
+            metadata = dict(cluster.metadata or {})
+            lane_id = str(metadata.get("dominant_department_id") or metadata.get("primary_anchor_id") or cluster.id)
+            lane_ids.add(lane_id)
+            payload.append(
+                {
+                    "id": cluster.id,
+                    "name": cluster.name,
+                    "description": cluster.description or "",
+                    "status": metadata.get("status") or "confirmed",
+                    "primary_anchor_id": metadata.get("primary_anchor_id"),
+                    "primary_anchor_type": metadata.get("primary_anchor_type"),
+                    "lane_id": lane_id,
+                    "lane_index": len(lane_ids) - 1,
+                    "member_node_ids": sorted(members_by_cluster.get(str(cluster.id), [])),
+                    "summary": metadata.get("summary") or "",
+                    "needs_source": bool(metadata.get("needs_source", False)),
+                    "visual_state": "proposed" if metadata.get("status") == "proposed" else "confirmed",
+                    "sort_index": index,
+                }
+            )
+        mode = "department-lanes" if payload else "fallback"
+        return payload, {"mode": mode, "lane_count": len(lane_ids)}
     except Exception:
         return [], {"mode": "fallback", "lane_count": 0}
-
-    members_by_cluster: dict[str, list[str]] = defaultdict(list)
-    for member in members:
-        members_by_cluster[str(member.cluster_id)].append(str(member.node_id))
-
-    payload: list[dict[str, Any]] = []
-    lane_ids: set[str] = set()
-    for index, cluster in enumerate(clusters):
-        metadata = dict(cluster.metadata or {})
-        lane_id = str(metadata.get("dominant_department_id") or metadata.get("primary_anchor_id") or cluster.id)
-        lane_ids.add(lane_id)
-        payload.append(
-            {
-                "id": cluster.id,
-                "name": cluster.name,
-                "description": cluster.description or "",
-                "status": metadata.get("status") or "confirmed",
-                "primary_anchor_id": metadata.get("primary_anchor_id"),
-                "primary_anchor_type": metadata.get("primary_anchor_type"),
-                "lane_id": lane_id,
-                "lane_index": len(lane_ids) - 1,
-                "member_node_ids": sorted(members_by_cluster.get(str(cluster.id), [])),
-                "summary": metadata.get("summary") or "",
-                "needs_source": bool(metadata.get("needs_source", False)),
-                "visual_state": "proposed" if metadata.get("status") == "proposed" else "confirmed",
-                "sort_index": index,
-            }
-        )
-    mode = "department-lanes" if payload else "fallback"
-    return payload, {"mode": mode, "lane_count": len(lane_ids)}
 
 
 def _list_cluster_members(store: Any, graph_id: str) -> list[Any]:
@@ -329,28 +329,27 @@ def _build_pending_confirmations(store: Any, graph_id: str | None) -> dict:
 
     try:
         rows = store.list_pending_confirmations(graph_id)
+        items = [
+            {
+                "id": row.id,
+                "target_type": row.target_type,
+                "target_id": row.target_id,
+                "status": row.status,
+                "fact_label": row.fact_label,
+                "fact_path": row.fact_path,
+                "fact_value": row.fact_value,
+                "fact_subject_type": row.fact_subject_type,
+                "initial_confidence": row.initial_confidence,
+                "current_confidence": row.current_confidence,
+                "flagged_reason": row.flagged_reason,
+                "captured_at": row.captured_at,
+            }
+            for row in rows
+        ]
+        return {"count": len(items), "items": items}
     except Exception:
         # Graph not found or store error — degrade gracefully; never crash the renderer
         return {"count": 0, "items": []}
-
-    items = [
-        {
-            "id": row.id,
-            "target_type": row.target_type,
-            "target_id": row.target_id,
-            "status": row.status,
-            "fact_label": row.fact_label,
-            "fact_path": row.fact_path,
-            "fact_value": row.fact_value,
-            "fact_subject_type": row.fact_subject_type,
-            "initial_confidence": row.initial_confidence,
-            "current_confidence": row.current_confidence,
-            "flagged_reason": row.flagged_reason,
-            "captured_at": row.captured_at,
-        }
-        for row in rows
-    ]
-    return {"count": len(items), "items": items}
 
 
 def _edge_title(label: str, reasons: list[str] | None) -> str:
