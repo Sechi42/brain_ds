@@ -1126,6 +1126,16 @@ DELEGATION_PROTOCOL: dict[str, object] = {
                 "insert_pending_question",
             )
         },
+        "brainds-kpi-composer": {
+            "tools": (
+                "get_kpi_dossier",
+                "suggest_connections",
+                "insert_pending_question",
+                "list_pending_confirmations",
+                "resolve_confirmation",
+                "add_edge",
+            )
+        },
     },
     "handoff_rule": (
         "Pass artifact references (topic keys or file paths) to sub-agents, never full content. "

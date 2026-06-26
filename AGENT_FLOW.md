@@ -14,6 +14,7 @@
 | Sub-agente: escritor de BRD | `.claude/agents/brainds-brd-writer.md` | `brainds-brd-writer` | repo |
 | Sub-agente: verificador semántico | `.claude/agents/brainds-semantic-verifier.md` | `brainds-semantic-verifier` | repo |
 | Sub-agente: elicitor de currency | `.claude/agents/brainds-currency-elicitor.md` | `brainds-currency-elicitor` (prompt `prompts/brainds-currency-elicitor.md`) | repo |
+| Sub-agente: compositor de KPI | `.claude/agents/brainds-kpi-composer.md` | `brainds-kpi-composer` (prompt `prompts/brainds-kpi-composer.md`) | repo |
 | Sub-agente: consultor del grafo | `.claude/agents/brainds-query-consultant.md` | — (pendiente) | repo |
 | Skills de dominio | `skills/*/SKILL.md` | `.opencode/skills/*/SKILL.md` (espejo byte-idéntico) | `skills/` |
 | Comandos slash | — | `~/.config/opencode/commands/*.md` (desplegados por installer) | `commands/` |
@@ -42,8 +43,9 @@ Usuario ──► Orquestador (la MENTE: pregunta, decide, coordina)
                ├──► brainds-brd-writer        (BRD 14 secciones → nodo brd-<slug> + Engram)
                 │  [verify]  compliance gate → verify-<slug>-<fecha>.md
                 │              └──► brainds-semantic-verifier (juez de coherencia/consistencia, advisory)
-                ├──► brainds-currency-elicitor  (assess_currency → preguntas priorizadas → insert_pending_question)
-                │  [archive] mover artefactos si verify pasó
+                 ├──► brainds-currency-elicitor  (assess_currency → preguntas priorizadas → insert_pending_question)
+                 ├──► brainds-kpi-composer      (on-demand: get_kpi_dossier → propose → confirm → add_edge)
+                 │  [archive] mover artefactos si verify pasó
                 └──► brainds-query-consultant  (preguntas sobre el grafo)
                ▲
                └── cada sub-agente devuelve: status, executive_summary,
@@ -80,6 +82,17 @@ la entrevista focalizada a `brainds-currency-elicitor`. El sub-agente soporta
 usa `retrieve_context` para contexto acotado y devuelve preguntas contestadas y
 pending questions stakeholder-tagged via `insert_pending_question`. Un pending NO confirma currency ni resetea
 staleness.
+
+### KPI dossier composer (on-demand)
+
+`brainds-kpi-composer` NO es una etapa de `pipeline_stages`. El orquestador lo
+delegará solo ante una solicitud explícita de dossier de KPI o una acción del
+cluster KPI en el viewer. El flujo es: `get_kpi_dossier` para estado actual,
+`suggest_connections` para candidatos, `insert_pending_question` para que el
+humano confirme, `resolve_confirmation` para leer el veredicto y `add_edge` solo
+si el veredicto fue confirmado. Usa `measured-from` para KPI → DataContainer y
+`depends-on` para KPI → Heuristic/Project/Decision. Rechazados, abstenciones y
+pendientes no crean edges; DataField requiere confirmación humana explícita.
 
 ### Ramificación del intake (`intake_paths`)
 

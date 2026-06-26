@@ -148,6 +148,14 @@ class HarnessCheckTests(unittest.TestCase):
                 "mcp__brain_ds__add_edge",
                 "mcp__plugin_engram_engram__mem_save",
             ],
+            "brainds-kpi-composer": [
+                "mcp__brain_ds__get_kpi_dossier",
+                "mcp__brain_ds__suggest_connections",
+                "mcp__brain_ds__insert_pending_question",
+                "mcp__brain_ds__list_pending_confirmations",
+                "mcp__brain_ds__resolve_confirmation",
+                "mcp__brain_ds__add_edge",
+            ],
         }
         for slug, tools in _agent_stubs.items():
             tools_yaml = "\n".join(f"  - {t}" for t in tools)
@@ -235,6 +243,17 @@ class AgentFileCheckTests(unittest.TestCase):
                 "mcp__plugin_engram_engram__mem_save",
             ],
         },
+        "brainds-kpi-composer": {
+            "name": "brainds-kpi-composer",
+            "tools": [
+                "mcp__brain_ds__get_kpi_dossier",
+                "mcp__brain_ds__suggest_connections",
+                "mcp__brain_ds__insert_pending_question",
+                "mcp__brain_ds__list_pending_confirmations",
+                "mcp__brain_ds__resolve_confirmation",
+                "mcp__brain_ds__add_edge",
+            ],
+        },
     }
 
     def test_semantic_verifier_required_grants_are_read_only_with_snapshot_edges(self) -> None:
@@ -256,6 +275,22 @@ class AgentFileCheckTests(unittest.TestCase):
         self.assertIn("mcp__brain_ds__insert_pending_question", grants)
         self.assertIn("mcp__brain_ds__retrieve_context", grants)
         self.assertIn("mcp__plugin_engram_engram__mem_save", grants)
+
+    def test_kpi_composer_is_registered_with_curation_grants(self) -> None:
+        self.assertIn("brainds-kpi-composer", SUBAGENT_NAMES)
+        grants = REQUIRED_AGENT_GRANTS["brainds-kpi-composer"]
+
+        self.assertEqual(
+            grants,
+            {
+                "mcp__brain_ds__get_kpi_dossier",
+                "mcp__brain_ds__suggest_connections",
+                "mcp__brain_ds__insert_pending_question",
+                "mcp__brain_ds__list_pending_confirmations",
+                "mcp__brain_ds__resolve_confirmation",
+                "mcp__brain_ds__add_edge",
+            },
+        )
 
     def _make_agent_dir(self, tmp: Path) -> Path:
         agent_dir = tmp / ".claude" / "agents"

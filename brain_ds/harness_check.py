@@ -22,6 +22,7 @@ SUBAGENT_NAMES: tuple[str, ...] = (
     "brainds-brd-writer",
     "brainds-semantic-verifier",
     "brainds-currency-elicitor",
+    "brainds-kpi-composer",
 )
 
 CLAUDE_AGENT_FILES: dict[str, str] = {
@@ -52,6 +53,14 @@ REQUIRED_AGENT_GRANTS: dict[str, set[str]] = {
         "mcp__brain_ds__update_node",
         "mcp__brain_ds__add_edge",
         "mcp__plugin_engram_engram__mem_save",
+    },
+    "brainds-kpi-composer": {
+        "mcp__brain_ds__get_kpi_dossier",
+        "mcp__brain_ds__suggest_connections",
+        "mcp__brain_ds__insert_pending_question",
+        "mcp__brain_ds__list_pending_confirmations",
+        "mcp__brain_ds__resolve_confirmation",
+        "mcp__brain_ds__add_edge",
     },
 }
 

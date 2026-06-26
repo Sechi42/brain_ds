@@ -41,6 +41,7 @@ See `skills/SHARED_CONTEXT.md` for one-paragraph summaries of every skill.
 | `brainds-connection-mapper` | sonnet | Runs the connection-mapping pass with completeness gating and deferred weak links | [.claude/agents/brainds-connection-mapper.md](.claude/agents/brainds-connection-mapper.md) |
 | `brainds-brd-writer` | sonnet | Builds the deterministic BRD and persists it to the graph and Engram | [.claude/agents/brainds-brd-writer.md](.claude/agents/brainds-brd-writer.md) |
 | `brainds-currency-elicitor` | sonnet | Runs Brick-E currency elicitation from assess_currency/retrieve_context and defers stakeholder questions through insert_pending_question | [.claude/agents/brainds-currency-elicitor.md](.claude/agents/brainds-currency-elicitor.md) |
+| `brainds-kpi-composer` | sonnet | Standalone KPI dossier composer; proposes KPI lineage candidates, defers confirmation, and materializes only confirmed measured-from/depends-on edges | [.claude/agents/brainds-kpi-composer.md](.claude/agents/brainds-kpi-composer.md) |
 | `brainds-orchestrator` | opus | Coordinates elicit → source-docs → map → BRD and owns the dry-run recipe | [.claude/agents/brainds-orchestrator.md](.claude/agents/brainds-orchestrator.md) |
 
 ## Harness maintenance
