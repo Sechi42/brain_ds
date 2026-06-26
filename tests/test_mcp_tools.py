@@ -216,6 +216,21 @@ class MCPToolsTests(unittest.TestCase):
         self.assertEqual(TOOL_REGISTRY["snapshot_edges"]["rw"], "read")
         self.assertEqual(TOOL_REGISTRY["get_kpi_dossier"]["rw"], "read")
 
+    def test_business_dossier_request_defaults_to_read_only_no_write_contract(self) -> None:
+        from brain_ds.dossier.business_models import BusinessDossierRequest
+
+        before_nodes = len(self.store.query_nodes(self.graph_id))
+        before_edges = len(self.store.query_edges(self.graph_id))
+        before_audit = self._audit_count()
+
+        request = BusinessDossierRequest(graph_id=self.graph_id, query="what is hurting delivery performance?")
+
+        self.assertFalse(request.create_pending_questions)
+        self.assertEqual(request.stakeholder_owner, "")
+        self.assertEqual(len(self.store.query_nodes(self.graph_id)), before_nodes)
+        self.assertEqual(len(self.store.query_edges(self.graph_id)), before_edges)
+        self.assertEqual(self._audit_count(), before_audit)
+
     def test_get_kpi_dossier_returns_structured_dossier_without_writes(self) -> None:
         self.store.upsert_node(
             self.graph_id,

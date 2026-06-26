@@ -1,1 +1,1 @@
-"""KPI dossier assembly package."""
+"""Structured dossier assembly package."""
