@@ -13,6 +13,7 @@
 | Sub-agente: mapeador de conexiones | `.claude/agents/brainds-connection-mapper.md` | `brainds-connection-mapper` | repo |
 | Sub-agente: escritor de BRD | `.claude/agents/brainds-brd-writer.md` | `brainds-brd-writer` | repo |
 | Sub-agente: verificador semántico | `.claude/agents/brainds-semantic-verifier.md` | `brainds-semantic-verifier` | repo |
+| Sub-agente: elicitor de currency | `.claude/agents/brainds-currency-elicitor.md` | `brainds-currency-elicitor` (prompt `prompts/brainds-currency-elicitor.md`) | repo |
 | Sub-agente: consultor del grafo | `.claude/agents/brainds-query-consultant.md` | — (pendiente) | repo |
 | Skills de dominio | `skills/*/SKILL.md` | `.opencode/skills/*/SKILL.md` (espejo byte-idéntico) | `skills/` |
 | Comandos slash | — | `~/.config/opencode/commands/*.md` (desplegados por installer) | `commands/` |
@@ -39,10 +40,11 @@ Usuario ──► Orquestador (la MENTE: pregunta, decide, coordina)
                ├──► brainds-connection-mapper (suggest_connections → add_edge / diferidos)
                │  [brd]     brainds-brd-writer (BRD 14 secciones)
                ├──► brainds-brd-writer        (BRD 14 secciones → nodo brd-<slug> + Engram)
-               │  [verify]  compliance gate → verify-<slug>-<fecha>.md
-               │              └──► brainds-semantic-verifier (juez de coherencia/consistencia, advisory)
-               │  [archive] mover artefactos si verify pasó
-               └──► brainds-query-consultant  (preguntas sobre el grafo)
+                │  [verify]  compliance gate → verify-<slug>-<fecha>.md
+                │              └──► brainds-semantic-verifier (juez de coherencia/consistencia, advisory)
+                ├──► brainds-currency-elicitor  (assess_currency → preguntas priorizadas → insert_pending_question)
+                │  [archive] mover artefactos si verify pasó
+                └──► brainds-query-consultant  (preguntas sobre el grafo)
                ▲
                └── cada sub-agente devuelve: status, executive_summary,
                    artifacts, next_recommended, risks  (el orquestador
@@ -69,6 +71,15 @@ El flujo sigue **6 etapas ordenadas** definidas en `DELEGATION_PROTOCOL.pipeline
 | `brd` | `brainds-brd-writer` | BRD 14 secciones → nodo `brd-<slug>` + Engram. |
 | `verify` | `brainds-orchestrator` | Compliance gate; escribe `verify-<slug>-<fecha>.md`. |
 | `archive` | `brainds-orchestrator` | Mueve artefactos a `.elicit/changes/<change>/` solo si `verify` pasó. |
+
+### Currency elicitation (Brick E)
+
+Cuando `assess_currency` detecta brechas de recencia, el orquestador puede delegar
+la entrevista focalizada a `brainds-currency-elicitor`. El sub-agente soporta
+`open` (ranking global por staleness × criticality) y `scoped` (vecindario primero),
+usa `retrieve_context` para contexto acotado y devuelve preguntas contestadas y
+pending questions stakeholder-tagged via `insert_pending_question`. Un pending NO confirma currency ni resetea
+staleness.
 
 ### Ramificación del intake (`intake_paths`)
 

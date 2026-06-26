@@ -16,9 +16,11 @@ ROOT = Path(__file__).resolve().parents[1]
 class ProjectDocsCoverageTests(unittest.TestCase):
     """Guards for README.md and INSTALL.md coverage."""
 
-    def test_readme_mentions_twenty_seven_tools(self) -> None:
+    def test_readme_mentions_thirty_one_tools(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn("27 tools", readme)
+        self.assertIn("31 tools", readme)
+        self.assertNotIn("30 tools", readme)
+        self.assertNotIn("29 tools", readme)
         self.assertNotIn("24 tools", readme)
         self.assertNotIn("22 tools", readme)
 
@@ -34,9 +36,11 @@ class ProjectDocsCoverageTests(unittest.TestCase):
         self.assertIn("setup + install-opencode", readme)
         self.assertIn("advanced/compat", readme)
 
-    def test_install_mentions_twenty_seven_tools(self) -> None:
+    def test_install_mentions_thirty_one_tools(self) -> None:
         install = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
-        self.assertIn("27 tools", install)
+        self.assertIn("31 tools", install)
+        self.assertNotIn("30 tools", install)
+        self.assertNotIn("29 tools", install)
         self.assertNotIn("24 tools", install)
         self.assertNotIn("22 tools", install)
 

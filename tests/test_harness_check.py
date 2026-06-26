@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from brain_ds.harness_check import (
     REQUIRED_AGENT_GRANTS,
+    SUBAGENT_NAMES,
     check_agent_files,
     check_deployed_skill_freshness,
     check_project_mcp_entries,
@@ -137,6 +138,16 @@ class HarnessCheckTests(unittest.TestCase):
                 "mcp__brain_ds__snapshot_edges",
                 "mcp__plugin_engram_engram__mem_save",
             ],
+            "brainds-currency-elicitor": [
+                "Write",
+                "mcp__brain_ds__assess_currency",
+                "mcp__brain_ds__insert_pending_question",
+                "mcp__brain_ds__retrieve_context",
+                "mcp__brain_ds__resolve_confirmation",
+                "mcp__brain_ds__update_node",
+                "mcp__brain_ds__add_edge",
+                "mcp__plugin_engram_engram__mem_save",
+            ],
         }
         for slug, tools in _agent_stubs.items():
             tools_yaml = "\n".join(f"  - {t}" for t in tools)
@@ -211,6 +222,19 @@ class AgentFileCheckTests(unittest.TestCase):
                 "mcp__plugin_engram_engram__mem_save",
             ],
         },
+        "brainds-currency-elicitor": {
+            "name": "brainds-currency-elicitor",
+            "tools": [
+                "Write",
+                "mcp__brain_ds__assess_currency",
+                "mcp__brain_ds__insert_pending_question",
+                "mcp__brain_ds__retrieve_context",
+                "mcp__brain_ds__resolve_confirmation",
+                "mcp__brain_ds__update_node",
+                "mcp__brain_ds__add_edge",
+                "mcp__plugin_engram_engram__mem_save",
+            ],
+        },
     }
 
     def test_semantic_verifier_required_grants_are_read_only_with_snapshot_edges(self) -> None:
@@ -224,6 +248,14 @@ class AgentFileCheckTests(unittest.TestCase):
         self.assertNotIn("mcp__brain_ds__add_edge", grants)
         self.assertNotIn("mcp__brain_ds__delete_node", grants)
         self.assertNotIn("mcp__brain_ds__delete_edge", grants)
+
+    def test_currency_elicitor_is_registered_as_subagent(self) -> None:
+        self.assertIn("brainds-currency-elicitor", SUBAGENT_NAMES)
+        grants = REQUIRED_AGENT_GRANTS["brainds-currency-elicitor"]
+        self.assertIn("mcp__brain_ds__assess_currency", grants)
+        self.assertIn("mcp__brain_ds__insert_pending_question", grants)
+        self.assertIn("mcp__brain_ds__retrieve_context", grants)
+        self.assertIn("mcp__plugin_engram_engram__mem_save", grants)
 
     def _make_agent_dir(self, tmp: Path) -> Path:
         agent_dir = tmp / ".claude" / "agents"

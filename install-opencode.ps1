@@ -37,7 +37,7 @@ function Insert-BrainDsAgent {
     $cfg | Add-Member -NotePropertyName 'agent' -NotePropertyValue ([pscustomobject]@{})
   }
 
-  $subagentNames = @('brainds-source-explorer', 'brainds-graph-mapper', 'brainds-connection-mapper', 'brainds-brd-writer', 'brainds-semantic-verifier')
+  $subagentNames = @('brainds-source-explorer', 'brainds-graph-mapper', 'brainds-connection-mapper', 'brainds-brd-writer', 'brainds-semantic-verifier', 'brainds-currency-elicitor')
 
   $taskPermission = [ordered]@{ '*' = 'deny' }
   foreach ($name in $subagentNames) { $taskPermission[$name] = 'allow' }

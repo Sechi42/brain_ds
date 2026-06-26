@@ -35,6 +35,9 @@ def _params(name: str, tmp_path: Path) -> dict[str, Any]:
         "list_pending_confirmations": base,
         "resolve_confirmation": {**base, "target_type": "node", "target_id": "N1", "outcome": "confirmed", "resolved_by": "alice", "gold_rationale": "test"},
         "retrieve_context": {**base, "focal_node_id": "N1"},
+        "assess_currency": base,
+        "insert_pending_question": {**base, "target_node_id": "N2", "gap_kind": "staleness", "entity_type": "Process", "question_text": "Is this process current?", "stakeholder_owner": "owner"},
+        "manage_clusters": {**base, "action": "propose", "payload": {"cluster_id": "c-contract", "name": "Contract cluster", "primary_anchor_id": "N2", "primary_anchor_type": "KPI", "member_node_ids": ["N2"], "kpi": {"description": "Contract metric", "formula": "x / y", "owner": "owner", "department": "ops", "source": "N1"}}},
     }
     return samples[name]
 

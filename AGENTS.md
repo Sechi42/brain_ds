@@ -40,6 +40,7 @@ See `skills/SHARED_CONTEXT.md` for one-paragraph summaries of every skill.
 | `brainds-graph-mapper` | sonnet | Consolidates pipeline artifacts and pushes the documented source into the graph | [.claude/agents/brainds-graph-mapper.md](.claude/agents/brainds-graph-mapper.md) |
 | `brainds-connection-mapper` | sonnet | Runs the connection-mapping pass with completeness gating and deferred weak links | [.claude/agents/brainds-connection-mapper.md](.claude/agents/brainds-connection-mapper.md) |
 | `brainds-brd-writer` | sonnet | Builds the deterministic BRD and persists it to the graph and Engram | [.claude/agents/brainds-brd-writer.md](.claude/agents/brainds-brd-writer.md) |
+| `brainds-currency-elicitor` | sonnet | Runs Brick-E currency elicitation from assess_currency/retrieve_context and defers stakeholder questions through insert_pending_question | [.claude/agents/brainds-currency-elicitor.md](.claude/agents/brainds-currency-elicitor.md) |
 | `brainds-orchestrator` | opus | Coordinates elicit → source-docs → map → BRD and owns the dry-run recipe | [.claude/agents/brainds-orchestrator.md](.claude/agents/brainds-orchestrator.md) |
 
 ## Harness maintenance

@@ -36,16 +36,18 @@ def _create_graph(store: GraphStore, graph_id: str = "g1") -> str:
 # ---------------------------------------------------------------------------
 
 def test_v6_migration_upgrades_schema():
-    """After all migrations, schema version must be 7 and confidence_ledger must exist."""
+    """After all migrations, schema version must be latest and confidence_ledger must exist."""
     store = _open_store()
     conn = store.conn
 
-    # schema version must be 7 (v7 adds node-fact descriptor columns)
+    # schema version must be latest (v8 adds pending_questions)
     row = conn.execute(
         "SELECT value FROM store_meta WHERE key = 'schema_version'"
     ).fetchone()
     assert row is not None, "store_meta has no schema_version row"
-    assert int(row[0]) == 7, f"Expected schema_version=7, got {row[0]}"
+    from brain_ds.store.migrations import MIGRATIONS
+
+    assert int(row[0]) == len(MIGRATIONS), f"Expected latest schema_version, got {row[0]}"
 
     # confidence_ledger table must exist
     tbl = conn.execute(
@@ -538,13 +540,16 @@ def test_node_fact_descriptors_null_for_edge_rows():
 
 
 def test_tool_count_unchanged():
-    """TOOL_REGISTRY must have exactly 28 tools after Brick D PR2 (retrieve_context added)."""
+    """TOOL_REGISTRY must have exactly 31 tools after cluster management is wired."""
     from brain_ds.mcp.tools import TOOL_REGISTRY
 
-    assert len(TOOL_REGISTRY) == 28, (
-        f"Expected 28 MCP tools, got {len(TOOL_REGISTRY)}. "
-        "Brick D PR2 must add retrieve_context (27 tools after confirmation PR2, 28 after Brick D PR2)."
+    assert len(TOOL_REGISTRY) == 31, (
+        f"Expected 31 MCP tools, got {len(TOOL_REGISTRY)}. "
+        "Modular graph intelligence PR2 must add manage_clusters."
     )
+    assert "assess_currency" in TOOL_REGISTRY
+    assert "insert_pending_question" in TOOL_REGISTRY
+    assert "manage_clusters" in TOOL_REGISTRY
 
 
 # ---------------------------------------------------------------------------
