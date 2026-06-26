@@ -93,8 +93,9 @@ class TestMigrations(unittest.TestCase):
             migrations_module.MIGRATIONS = original
             second = apply_pending(conn)
             # v3 (event_outbox), v4 (nodes_fts), v5 (graphs.hidden),
-            # v6 (confidence_ledger), v7 (node_fact_descriptors) are applied
-            self.assertEqual(second, [3, 4, 5, 6, 7])
+            # v6 (confidence_ledger), v7 (node_fact_descriptors),
+            # v8 (pending_questions) are applied
+            self.assertEqual(second, [3, 4, 5, 6, 7, 8])
         finally:
             migrations_module.MIGRATIONS = original
 
@@ -115,8 +116,7 @@ class TestMigrations(unittest.TestCase):
 
 
     def test_v7_migration_adds_node_fact_descriptor_columns(self):
-        """v7 must add fact_label, fact_path, fact_value, fact_subject_type and
-        set schema_version=7.  Migration must be idempotent (run twice is safe)."""
+        """v7 must add fact descriptor columns and latest schema stays current."""
         conn = sqlite3.connect(":memory:")
         self.addCleanup(conn.close)
 
@@ -124,7 +124,7 @@ class TestMigrations(unittest.TestCase):
         version = conn.execute(
             "SELECT value FROM store_meta WHERE key = 'schema_version'"
         ).fetchone()[0]
-        self.assertEqual(int(version), 7, f"Expected schema_version=7, got {version}")
+        self.assertEqual(int(version), len(MIGRATIONS), f"Expected latest schema version, got {version}")
         self.assertIn(7, applied)
 
         # All four descriptor columns must be present in confidence_ledger

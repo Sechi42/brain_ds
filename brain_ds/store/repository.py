@@ -12,6 +12,7 @@ from typing import cast
 from .errors import CorruptVectorError, GraphNotFoundError
 from .models import (
     ClusterMemberRow,
+    ClusterMetadataV1,
     ClusterRow,
     EdgeRow,
     EmbeddingRow,
@@ -20,6 +21,7 @@ from .models import (
     LedgerRow,
     NearestHit,
     NodeRow,
+    PendingQuestionRow,
 )
 from .serialization import decode_json, decode_vector, encode_json, encode_vector
 from .migrations import _normalize_text, _extract_text_from_json
@@ -85,6 +87,18 @@ def _fts_delete(conn: sqlite3.Connection, graph_id: str, node_id: str) -> None:
         )
     except Exception:
         pass
+
+
+def _schema_baseline_last_documented_at(details: dict) -> str | None:
+    baseline = details.get("schema_baseline") if isinstance(details, dict) else None
+    if not isinstance(baseline, dict):
+        return None
+    value = baseline.get("last_documented_at")
+    return str(value) if value is not None else None
+
+
+def _chunks(values: list[str], size: int) -> list[list[str]]:
+    return [values[start : start + size] for start in range(0, len(values), size)]
 
 
 class GraphMetaRepository:
@@ -771,6 +785,32 @@ class ClusterRepository:
             )
         self.conn.commit()
 
+    def update_cluster_lifecycle(
+        self,
+        graph_id: str,
+        cluster_id: str,
+        status: str,
+        *,
+        reason: str | None = None,
+    ) -> None:
+        if status not in ClusterMetadataV1.VALID_STATUSES:
+            raise ValueError(f"Unsupported cluster status: {status}")
+        row = self.conn.execute(
+            "SELECT metadata FROM clusters WHERE graph_id = ? AND id = ?",
+            (graph_id, cluster_id),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Cluster {cluster_id!r} not found")
+        metadata = decode_json(row[0]) or {}
+        metadata["status"] = status
+        if status == "archived" and reason is not None:
+            metadata["archived_reason"] = reason
+        self.conn.execute(
+            "UPDATE clusters SET metadata = ? WHERE graph_id = ? AND id = ?",
+            (encode_json(metadata), graph_id, cluster_id),
+        )
+        self.conn.commit()
+
     def query_clusters(self, graph_id: str) -> list[ClusterRow]:
         rows = self.conn.execute(
             """
@@ -976,6 +1016,89 @@ class EmbeddingRepository:
             (graph_id, model, dimensions, target_id),
         ).fetchall()
         return [EmbeddingRow(*row) for row in rows]
+
+
+class PendingQuestionRepository:
+    """Repository for deferred currency-elicitation questions.
+
+    Pending questions are not ledger facts. They use their own table so inserts
+    and resolutions cannot affect confidence_ledger currency evidence.
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.conn = conn
+
+    def insert(
+        self,
+        graph_id: str,
+        *,
+        target_node_id: str | None,
+        gap_kind: str,
+        entity_type: str | None,
+        question_text: str,
+        stakeholder_owner: str | None,
+    ) -> int:
+        cursor = self.conn.execute(
+            """
+            INSERT INTO pending_questions(
+                graph_id, target_node_id, gap_kind, entity_type, question_text,
+                stakeholder_owner, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+            """,
+            (
+                graph_id,
+                target_node_id,
+                gap_kind,
+                entity_type,
+                question_text,
+                stakeholder_owner,
+                _utc_now(),
+            ),
+        )
+        self.conn.commit()
+
+        return cursor.lastrowid  # type: ignore[return-value]
+
+    def list(self, graph_id: str, *, status: str = "pending") -> list[PendingQuestionRow]:
+        rows = self.conn.execute(
+            """
+            SELECT id, graph_id, target_node_id, gap_kind, entity_type,
+                   question_text, stakeholder_owner, status, created_at,
+                   resolved_at, resolved_by
+              FROM pending_questions
+             WHERE graph_id = ?
+               AND status = ?
+          ORDER BY id ASC
+            """,
+            (graph_id, status),
+        ).fetchall()
+        return [PendingQuestionRow(*row) for row in rows]
+
+    def resolve(self, pending_id: int, *, outcome: str, resolved_by: str) -> PendingQuestionRow:
+        resolved_at = _utc_now()
+        cursor = self.conn.execute(
+            """
+            UPDATE pending_questions
+               SET status = ?, resolved_at = ?, resolved_by = ?
+             WHERE id = ?
+            """,
+            (outcome, resolved_at, resolved_by, pending_id),
+        )
+        self.conn.commit()
+        if cursor.rowcount == 0:
+            raise ValueError(f"Pending question {pending_id!r} not found")
+
+        row = self.conn.execute(
+            """
+            SELECT id, graph_id, target_node_id, gap_kind, entity_type,
+                   question_text, stakeholder_owner, status, created_at,
+                   resolved_at, resolved_by
+              FROM pending_questions
+             WHERE id = ?
+            """,
+            (pending_id,),
+        ).fetchone()
+        return PendingQuestionRow(*row)
 
 
 class LedgerRepository:
@@ -1208,6 +1331,95 @@ class LedgerRepository:
                 model = self._row_to_model(row)
                 latest[model.target_id] = model
         return latest
+
+    def query_node_currency_evidence(
+        self,
+        graph_id: str,
+        node_ids: list[str],
+    ) -> dict[str, dict[str, object]]:
+        """Return batched node currency evidence keyed by node id."""
+        deduped_node_ids = list(dict.fromkeys(node_ids))
+        if not deduped_node_ids:
+            return {}
+
+        node_rows = []
+        for chunk in _chunks(deduped_node_ids, 900):
+            placeholders = ",".join("?" for _ in chunk)
+            node_rows.extend(
+                self.conn.execute(
+                    f"""
+                    SELECT id, type, details, created_at, modified_at
+                      FROM nodes
+                     WHERE graph_id = ?
+                       AND id IN ({placeholders})
+                     ORDER BY id ASC
+                    """,
+                    [graph_id, *chunk],
+                ).fetchall()
+            )
+        latest_nodes = self.query_latest_for_targets(
+            graph_id,
+            deduped_node_ids,
+            target_type="node",
+        )
+        edge_rows_by_id = {}
+        for chunk in _chunks(deduped_node_ids, 450):
+            placeholders = ",".join("?" for _ in chunk)
+            for row in self.conn.execute(
+                f"""
+                SELECT edge_id, source, target
+                  FROM edges
+                 WHERE graph_id = ?
+                   AND (source IN ({placeholders}) OR target IN ({placeholders}))
+                 ORDER BY edge_id ASC
+                """,
+                [graph_id, *chunk, *chunk],
+            ).fetchall():
+                edge_rows_by_id[str(row[0])] = row
+        edge_rows = sorted(edge_rows_by_id.values(), key=lambda row: str(row[0]))
+        latest_edges = self.query_latest_for_targets(
+            graph_id,
+            [str(row[0]) for row in edge_rows],
+            target_type="edge",
+        )
+
+        evidence = {
+            str(row[0]): {
+                "node_id": str(row[0]),
+                "entity_type": str(row[1]),
+                "schema_baseline_last_documented_at": _schema_baseline_last_documented_at(
+                    decode_json(row[2]) or {}
+                ),
+                "created_at": row[3],
+                "modified_at": row[4],
+                "edge_evidence": {},
+            }
+            for row in node_rows
+        }
+        for node_id, ledger in latest_nodes.items():
+            if node_id not in evidence:
+                continue
+            evidence[node_id].update(
+                {
+                    "ledger_status": ledger.status,
+                    "ledger_captured_at": ledger.captured_at,
+                    "ledger_confirmed_at": ledger.confirmed_at,
+                }
+            )
+        for edge_id, source, target in edge_rows:
+            edge_ledger = latest_edges.get(str(edge_id))
+            payload = {
+                "edge_id": str(edge_id),
+                "source": str(source),
+                "target": str(target),
+                "ledger_status": edge_ledger.status if edge_ledger is not None else None,
+                "ledger_captured_at": edge_ledger.captured_at if edge_ledger is not None else None,
+                "ledger_confirmed_at": edge_ledger.confirmed_at if edge_ledger is not None else None,
+            }
+            for node_id in (str(source), str(target)):
+                if node_id in evidence:
+                    cast(dict[str, object], evidence[node_id]["edge_evidence"])[str(edge_id)] = payload
+        return evidence
 
     def query_by_status(
         self,

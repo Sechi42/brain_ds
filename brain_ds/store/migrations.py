@@ -226,6 +226,39 @@ def v7_node_fact_descriptors(conn: sqlite3.Connection) -> None:
             )
 
 
+def v8_pending_questions(conn: sqlite3.Connection) -> None:
+    """Create the dedicated pending_questions table for deferred elicitation.
+
+    This is intentionally separate from confidence_ledger so pending interview
+    questions cannot reset currency timestamps or leak into Brick C pending
+    confirmations. IF NOT EXISTS guards keep the migration idempotent.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pending_questions (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            graph_id            TEXT NOT NULL,
+            target_node_id      TEXT,
+            gap_kind            TEXT NOT NULL,
+            entity_type         TEXT,
+            question_text       TEXT NOT NULL,
+            stakeholder_owner   TEXT,
+            status              TEXT NOT NULL DEFAULT 'pending',
+            created_at          TEXT NOT NULL,
+            resolved_at         TEXT,
+            resolved_by         TEXT,
+            FOREIGN KEY (graph_id) REFERENCES graphs(id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_pending_questions_graph_status
+        ON pending_questions(graph_id, status)
+        """
+    )
+
+
 MIGRATIONS: Sequence[Migration] = (
     v1_initial_schema,
     v2_tools_audit,
@@ -234,6 +267,7 @@ MIGRATIONS: Sequence[Migration] = (
     v5_graphs_hidden,
     v6_confidence_ledger,
     v7_node_fact_descriptors,
+    v8_pending_questions,
 )
 
 

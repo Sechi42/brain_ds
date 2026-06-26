@@ -158,6 +158,22 @@ CREATE TABLE IF NOT EXISTS confidence_ledger (
 );
 CREATE INDEX IF NOT EXISTS idx_ledger_graph_status ON confidence_ledger(graph_id, status);
 CREATE INDEX IF NOT EXISTS idx_ledger_latest ON confidence_ledger(graph_id, target_type, target_id, id);
+
+CREATE TABLE IF NOT EXISTS pending_questions (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    graph_id            TEXT NOT NULL,
+    target_node_id      TEXT,
+    gap_kind            TEXT NOT NULL,
+    entity_type         TEXT,
+    question_text       TEXT NOT NULL,
+    stakeholder_owner   TEXT,
+    status              TEXT NOT NULL DEFAULT 'pending',
+    created_at          TEXT NOT NULL,
+    resolved_at         TEXT,
+    resolved_by         TEXT,
+    FOREIGN KEY (graph_id) REFERENCES graphs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_pending_questions_graph_status ON pending_questions(graph_id, status);
 """
 
 TABLES = (
@@ -171,6 +187,7 @@ TABLES = (
     "embeddings",
     "event_outbox",
     "confidence_ledger",
+    "pending_questions",
 )
 
 INDICES = (
@@ -186,4 +203,5 @@ INDICES = (
     "idx_outbox_published",
     "idx_ledger_graph_status",
     "idx_ledger_latest",
+    "idx_pending_questions_graph_status",
 )

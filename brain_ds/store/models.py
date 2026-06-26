@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import ClassVar
 
 
 @dataclass(slots=True)
@@ -135,3 +136,63 @@ class LedgerRow:
     fact_path: str | None = None
     fact_value: str | None = None
     fact_subject_type: str | None = None
+
+
+@dataclass(slots=True)
+class PendingQuestionRow:
+    """One deferred elicitation question stored outside the confidence ledger."""
+
+    id: int
+    graph_id: str
+    target_node_id: str | None
+    gap_kind: str
+    entity_type: str | None
+    question_text: str
+    stakeholder_owner: str | None
+    status: str
+    created_at: str
+    resolved_at: str | None
+    resolved_by: str | None
+
+
+@dataclass(slots=True)
+class ClusterMetadataV1:
+    """Typed contract for first-class semantic cluster metadata."""
+
+    status: str = "proposed"
+    primary_anchor_id: str | None = None
+    primary_anchor_type: str | None = None
+    dominant_department_id: str | None = None
+    supporting_anchor_ids: list[str] | None = None
+    needs_source: bool = True
+    source_requirements: dict | None = None
+    summary: str | None = None
+    quality_signals: dict | None = None
+    archived_reason: str | None = None
+
+    VALID_STATUSES: ClassVar[frozenset[str]] = frozenset(
+        {"proposed", "confirmed", "incomplete", "needs-source", "rejected", "archived"}
+    )
+    VALID_ANCHOR_TYPES: ClassVar[frozenset[str]] = frozenset(
+        {"KPI", "Problem / Improvement Area", "Department"}
+    )
+
+    def __post_init__(self) -> None:
+        if self.status not in self.VALID_STATUSES:
+            raise ValueError(f"Unsupported cluster status: {self.status}")
+        if self.primary_anchor_type is not None and self.primary_anchor_type not in self.VALID_ANCHOR_TYPES:
+            raise ValueError(f"Unsupported primary anchor type: {self.primary_anchor_type}")
+
+    def to_dict(self) -> dict:
+        return {
+            "status": self.status,
+            "primary_anchor_id": self.primary_anchor_id,
+            "primary_anchor_type": self.primary_anchor_type,
+            "dominant_department_id": self.dominant_department_id,
+            "supporting_anchor_ids": list(self.supporting_anchor_ids or []),
+            "needs_source": bool(self.needs_source),
+            "source_requirements": dict(self.source_requirements or {}),
+            "summary": self.summary,
+            "quality_signals": dict(self.quality_signals or {}),
+            "archived_reason": self.archived_reason,
+        }

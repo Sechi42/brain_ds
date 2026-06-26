@@ -13,7 +13,7 @@ from brain_ds.ontology.graph_model import CardSection, Edge, EvidenceRecord, Gra
 
 from .errors import GraphAlreadyExistsError, GraphNotFoundError, IncompatibleStoreError, StoreError
 from .migrations import MIGRATIONS, apply_pending, configure_connection
-from .models import ClusterRow, EdgeRow, EvidenceRow, GraphMeta, NearestHit, NodeRow
+from .models import ClusterMemberRow, ClusterRow, EdgeRow, EvidenceRow, GraphMeta, NearestHit, NodeRow
 from .repository import (
     AuditRepository,
     ClusterRepository,
@@ -24,6 +24,7 @@ from .repository import (
     LedgerRepository,
     NodeRepository,
     OutboxRepository,
+    PendingQuestionRepository,
 )
 
 _CONTRACT_VERSION = "1.0.0"
@@ -82,6 +83,7 @@ class GraphStore:
         self.audit_repo = AuditRepository(self.conn)
         self.outbox_repo = OutboxRepository(self.conn)
         self.ledger_repo = LedgerRepository(self.conn)
+        self.pending_question_repo = PendingQuestionRepository(self.conn)
 
     def _apply_pending_cached(self, path: str) -> None:
         """Run apply_pending once per process per DB path.
@@ -341,6 +343,32 @@ class GraphStore:
     def query_clusters(self, graph_id: str) -> list[ClusterRow]:
         self._assert_graph_exists(graph_id)
         return self.cluster_repo.query_clusters(graph_id)
+
+    def save_clusters(self, graph_id: str, clusters: list[dict[str, Any]]) -> None:
+        self._ensure_writable()
+        self._assert_graph_exists(graph_id)
+        self.cluster_repo.save_clusters(graph_id, clusters)
+
+    def save_cluster_members(self, graph_id: str, members: list[dict[str, Any]]) -> None:
+        self._ensure_writable()
+        self._assert_graph_exists(graph_id)
+        self.cluster_repo.save_members(graph_id, members)
+
+    def list_cluster_members(self, graph_id: str, *, cluster_id: str | None = None) -> list[ClusterMemberRow]:
+        self._assert_graph_exists(graph_id)
+        return self.cluster_repo.list_members(graph_id, cluster_id=cluster_id)
+
+    def update_cluster_lifecycle(
+        self,
+        graph_id: str,
+        cluster_id: str,
+        status: str,
+        *,
+        reason: str | None = None,
+    ) -> None:
+        self._ensure_writable()
+        self._assert_graph_exists(graph_id)
+        self.cluster_repo.update_cluster_lifecycle(graph_id, cluster_id, status, reason=reason)
 
     def search_nodes_fts(self, graph_id: str, query: str) -> list[str] | None:
         """Return node IDs matching query via FTS5, or None if FTS unavailable.
@@ -630,6 +658,47 @@ class GraphStore:
         """Return latest ledger rows keyed by target_id for selected targets."""
         self._assert_graph_exists(graph_id)
         return self.ledger_repo.query_latest_for_targets(graph_id, target_ids, **kwargs)
+
+    def query_node_currency_evidence(self, graph_id: str, node_ids: list[str]):
+        """Return batched node currency evidence for temporal freshness assessment."""
+        self._assert_graph_exists(graph_id)
+        return self.ledger_repo.query_node_currency_evidence(graph_id, node_ids)
+
+    def insert_pending_question(
+        self,
+        graph_id: str,
+        *,
+        target_node_id: str | None,
+        gap_kind: str,
+        entity_type: str | None,
+        question_text: str,
+        stakeholder_owner: str | None,
+    ) -> int:
+        """Persist a deferred elicitation question without touching the ledger."""
+        self._ensure_writable()
+        self._assert_graph_exists(graph_id)
+        return self.pending_question_repo.insert(
+            graph_id,
+            target_node_id=target_node_id,
+            gap_kind=gap_kind,
+            entity_type=entity_type,
+            question_text=question_text,
+            stakeholder_owner=stakeholder_owner,
+        )
+
+    def list_pending_questions(self, graph_id: str, *, status: str = "pending"):
+        """Return deferred elicitation questions for this graph and status."""
+        self._assert_graph_exists(graph_id)
+        return self.pending_question_repo.list(graph_id, status=status)
+
+    def resolve_pending_question(self, pending_id: int, *, outcome: str, resolved_by: str):
+        """Resolve a pending question without writing confidence_ledger rows."""
+        self._ensure_writable()
+        return self.pending_question_repo.resolve(
+            pending_id,
+            outcome=outcome,
+            resolved_by=resolved_by,
+        )
 
     def query_ledger(self, graph_id: str, *, status: str | None = None, **kwargs):
         """Return full ledger history for graph_id (all rows, optional status filter)."""
