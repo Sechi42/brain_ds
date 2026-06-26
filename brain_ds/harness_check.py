@@ -13,7 +13,7 @@ from pathlib import Path
 # R1 — Agent-definition constants
 # ---------------------------------------------------------------------------
 
-EXPECTED_MCP_TOOL_COUNT = 32
+EXPECTED_MCP_TOOL_COUNT = 33
 
 SUBAGENT_NAMES: tuple[str, ...] = (
     "brainds-source-explorer",

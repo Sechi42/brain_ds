@@ -21,7 +21,7 @@ _SECTION_TYPES = {
     "actors": {"Role"},
 }
 _BUSINESS_TYPES = set().union(*_SECTION_TYPES.values())
-_SOURCE_TYPES = {"DataSource", "DataContainer", "DataField"}
+_SOURCE_TYPES = {"DataSource", "Data Source", "DataContainer", "DataField"}
 
 
 def assemble_business_dossier(
@@ -134,7 +134,7 @@ def _type(node: Any) -> str | None:
 
 
 def _source_sort_key(node: Any) -> int:
-    order = {"DataSource": 0, "DataContainer": 1, "DataField": 2}
+    order = {"DataSource": 0, "Data Source": 0, "DataContainer": 1, "DataField": 2}
     return order.get(_type(node) or "", 3)
 
 

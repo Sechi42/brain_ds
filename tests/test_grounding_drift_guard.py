@@ -784,9 +784,9 @@ class AssessCompletenessTests(unittest.TestCase):
 
 
 class ToolCountSyncTests(unittest.TestCase):
-    """TOOL_REGISTRY must have exactly 32 tools after get_kpi_dossier is added."""
+    """TOOL_REGISTRY must have exactly 33 tools after get_business_dossier is added."""
 
-    def test_tool_registry_has_32_tools_after_get_kpi_dossier_added(self) -> None:
+    def test_tool_registry_has_33_tools_after_get_business_dossier_added(self) -> None:
         from brain_ds.harness_check import EXPECTED_MCP_TOOL_COUNT
         from brain_ds.mcp.tools import TOOL_REGISTRY
 
@@ -794,7 +794,7 @@ class ToolCountSyncTests(unittest.TestCase):
             len(TOOL_REGISTRY),
             EXPECTED_MCP_TOOL_COUNT,
             f"Expected {EXPECTED_MCP_TOOL_COUNT} MCP tools, got {len(TOOL_REGISTRY)}. "
-            "KPI composition dossier PR1 must add get_kpi_dossier.",
+            "Business understanding surface PR3 must add get_business_dossier.",
         )
         self.assertIn(
             "assess_currency",
@@ -815,6 +815,11 @@ class ToolCountSyncTests(unittest.TestCase):
             "get_kpi_dossier",
             TOOL_REGISTRY,
             "get_kpi_dossier must be registered for KPI dossier composition.",
+        )
+        self.assertIn(
+            "get_business_dossier",
+            TOOL_REGISTRY,
+            "get_business_dossier must be registered for business understanding composition.",
         )
 
 

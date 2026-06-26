@@ -27,7 +27,7 @@ def _params(name: str, tmp_path: Path) -> dict[str, Any]:
     base = {"graph_id": "g"}
     samples: dict[str, dict[str, Any]] = {
         "list_graphs": {}, "create_graph": {"graph_id": "created", "name": "Created", "project": "p"}, "import_graph": {"file_path": str(tmp_path / "missing.json")},
-        "list_nodes": base, "list_data_sources": base, "get_node": {**base, "node_id": "N1"}, "get_kpi_dossier": {**base, "kpi_node_id": "KPI1"}, "search_graph": {**base, "query": "contract"},
+        "list_nodes": base, "list_data_sources": base, "get_node": {**base, "node_id": "N1"}, "get_kpi_dossier": {**base, "kpi_node_id": "KPI1"}, "get_business_dossier": {**base, "query": "contract"}, "search_graph": {**base, "query": "contract"},
         "update_node": {**base, "node_id": "N2", "label": "Updated"}, "add_edge": {**base, "source": "N1", "target": "N2", "label": "feeds"},
         "delete_node": {**base, "node_id": "missing"}, "delete_edge": {**base, "source": "N1", "target": "N2"}, "suggest_connections": {**base, "node_id": "N1"},
         "assess_completeness": base, "get_weak_edges": base, "snapshot_edges": base, "list_workspaces": {}, "open_workspace": {"path": str(tmp_path)},

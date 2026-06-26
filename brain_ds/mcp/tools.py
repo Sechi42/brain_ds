@@ -23,6 +23,8 @@ from brain_ds.connectors.change_detection import (
 from brain_ds.connectors.secrets import SecretCatalog, SecretManifestError
 from brain_ds.connectors.secrets.redaction import redact_secrets
 from brain_ds.dossier.assembler import assemble_kpi_dossier
+from brain_ds.dossier.business_models import BusinessDossierRequest
+from brain_ds.dossier.business_read_path import build_business_dossier_payload
 from brain_ds.dossier.models import DossierGapInputs, DossierGraphView, KpiDossier, LimitationsFacet
 from brain_ds.dossier.serialization import serialize_dossier
 from brain_ds.mcp.security import (
@@ -68,6 +70,7 @@ logger = logging.getLogger(__name__)
 
 _KPI_DOSSIER_NODE_BUDGET = 1_000
 _KPI_DOSSIER_EDGE_BUDGET = 3_000
+_BUSINESS_DOSSIER_QUERY_MAX = 500
 
 
 def _node_to_dict(node: Any) -> dict[str, Any]:
@@ -967,6 +970,167 @@ def get_kpi_dossier(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]
     )
     dossier = assemble_kpi_dossier(view, gaps, kpi_node_id=kpi_node_id, depth=2)
     return serialize_dossier(dossier)
+
+
+@error_boundary
+def get_business_dossier(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    """Return a query-first business dossier; append questions only on explicit request."""
+    validated = validate_tool_input("get_business_dossier", params, TOOL_SCHEMAS["get_business_dossier"])
+    query = str(validated["query"]).strip()
+    if not query:
+        raise ValidationError(code=-32602, message="query must not be empty")
+    request = BusinessDossierRequest(
+        graph_id=validated["graph_id"],
+        query=query[:_BUSINESS_DOSSIER_QUERY_MAX],
+        limit=validated.get("limit", 10),
+        max_alternatives=validated.get("max_alternatives", 3),
+        create_pending_questions=validated.get("create_pending_questions", False),
+        stakeholder_owner=validated.get("stakeholder_owner", ""),
+    )
+
+    try:
+        nodes = store.query_nodes(request.graph_id)
+        edges = store.query_edges(request.graph_id)
+    except GraphNotFoundError as exc:
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+
+    nodes_by_id = {node.id: node for node in nodes}
+    children_by_parent: dict[str | None, list[Any]] = {}
+    for node in nodes:
+        children_by_parent.setdefault(node.parent_id, []).append(node)
+    edge_ids = [edge.edge_id for edge in edges]
+    ledger = store.query_ledger_latest_for_targets(request.graph_id, edge_ids) if edge_ids else {}
+    graph_view = DossierGraphView(
+        nodes_by_id=nodes_by_id,
+        adjacency=build_adjacency(edges),
+        children_by_parent=children_by_parent,
+        edges=edges,
+        ledger_status_by_target={target_id: row.status for target_id, row in ledger.items()},
+    )
+
+    candidates = _business_retrieval_candidates(store, request.graph_id, request.query, nodes, limit=request.limit)
+    cluster_routes = _safe_cluster_routes(
+        store,
+        graph_id=request.graph_id,
+        query=request.query,
+        nodes_by_id=nodes_by_id,
+        member_limit=request.limit,
+    )
+    gaps = _business_gap_inputs(store, request.graph_id)
+    payload = build_business_dossier_payload(
+        graph_view=graph_view,
+        gaps=gaps,
+        query=request.query,
+        candidates=candidates,
+        cluster_routes=cluster_routes,
+        max_alternatives=request.max_alternatives,
+        depth=2,
+    )
+    if request.create_pending_questions:
+        payload["pending_questions_created"] = _append_business_pending_questions(
+            store,
+            graph_id=request.graph_id,
+            proposals=_relevant_business_question_proposals(payload),
+            stakeholder_owner=request.stakeholder_owner,
+        )
+    return payload
+
+
+def _business_retrieval_candidates(
+    store: GraphStore,
+    graph_id: str,
+    query: str,
+    nodes: list[Any],
+    *,
+    limit: int,
+) -> list[RetrievalCandidate]:
+    lexical_rows = _search_graph_lexical_rows(store, graph_id, query, nodes)
+    ordered_ids = [item["id"] for item in lexical_rows if isinstance(item.get("id"), str)]
+    if not ordered_ids:
+        ordered_ids = [node.id for node in nodes]
+    node_by_id = {node.id: node for node in nodes}
+    candidate_count = max(1, len(ordered_ids))
+    candidates: list[RetrievalCandidate] = []
+    for rank, node_id in enumerate(ordered_ids[:limit]):
+        node = node_by_id.get(node_id)
+        if node is None:
+            continue
+        lexical = 1.0 - (rank / candidate_count)
+        candidates.append(
+            RetrievalCandidate(
+                id=node.id,
+                label=node.label,
+                signals=SignalScores(lexical=lexical, semantic=0.0, governance=1.0, graph=0.0),
+                metadata={"type": node.type},
+            )
+        )
+    return candidates
+
+
+def _business_gap_inputs(store: GraphStore, graph_id: str) -> DossierGapInputs:
+    completeness_result = assess_completeness(store, {"graph_id": graph_id})
+    currency_result = assess_currency(store, {"graph_id": graph_id, "mode": "open", "top_n": 10})
+    weak_result = get_weak_edges(store, {"graph_id": graph_id})
+    return DossierGapInputs(
+        completeness=_extract_completeness_gaps(completeness_result),
+        currency=_extract_currency_gaps(currency_result),
+        weak_edges=[
+            {
+                "from_node": item.get("source"),
+                "to_node": item.get("target"),
+                "relationship": item.get("label"),
+                "confidence": item.get("confidence"),
+                "source": "get_weak_edges",
+            }
+            for item in weak_result.get("weak_edges", [])
+        ],
+        unconfirmed_lineage=[],
+    )
+
+
+def _append_business_pending_questions(
+    store: GraphStore,
+    *,
+    graph_id: str,
+    proposals: list[dict[str, Any]],
+    stakeholder_owner: str,
+) -> list[dict[str, Any]]:
+    receipts: list[dict[str, Any]] = []
+    for proposal in proposals:
+        result = insert_pending_question.__wrapped__(
+            store,
+            {
+                "graph_id": graph_id,
+                "target_node_id": proposal.get("target_node_id"),
+                "gap_kind": str(proposal.get("gap_kind") or "business-link"),
+                "entity_type": proposal.get("entity_type"),
+                "question_text": str(proposal.get("question_text") or "Please confirm this business relationship."),
+                "stakeholder_owner": stakeholder_owner or str(proposal.get("stakeholder_owner") or ""),
+            },
+        )
+        receipts.append(result)
+    return receipts
+
+
+def _relevant_business_question_proposals(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    relevant_ids: set[str] = set()
+    for interpretation in payload.get("interpretations", []) or []:
+        if not isinstance(interpretation, dict):
+            continue
+        relevant_ids.update(str(item) for item in interpretation.get("entity_ids", []) or [])
+        relevant_ids.update(str(item) for item in interpretation.get("evidence_ids", []) or [])
+    for section in (payload.get("dossier") or {}).values():
+        for item in section or []:
+            if isinstance(item, dict) and item.get("id"):
+                relevant_ids.add(str(item["id"]))
+    for item in payload.get("evidence_sources", []) or []:
+        if isinstance(item, dict) and item.get("id"):
+            relevant_ids.add(str(item["id"]))
+    return [
+        proposal
+        for proposal in payload.get("pending_question_proposals", []) or []
+        if isinstance(proposal, dict) and str(proposal.get("target_node_id") or "") in relevant_ids
+    ]
 
 
 def _extract_completeness_gaps(result: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2401,6 +2565,13 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "handler": get_kpi_dossier,
         "schema": TOOL_SCHEMAS["get_kpi_dossier"],
         "description": "Assemble a structured KPI dossier from graph lineage and limitations",
+        "rw": "read",
+        "requires_ai_agent": False,
+    },
+    "get_business_dossier": {
+        "handler": get_business_dossier,
+        "schema": TOOL_SCHEMAS["get_business_dossier"],
+        "description": "Assemble a query-first business dossier with optional pending-question receipts",
         "rw": "read",
         "requires_ai_agent": False,
     },

@@ -888,6 +888,10 @@ SOURCE_EXPLORATION_CONTRACT: dict[str, object] = {
         ),
         "query_source": "SQLite SELECT-only queries; cap rows with limit param (max 200)",
         "manage_clusters": "Propose KPI/problem clusters and surface missing primary source questions",
+        "get_business_dossier": (
+            "Read a query-first business dossier. Defaults to zero writes; only create_pending_questions=true "
+            "appends pending-question rows, never graph edges."
+        ),
     },
     "connection_setup": (
         "A Data Source node becomes explorable when its details dict contains a 'connection' key: "
@@ -1407,7 +1411,7 @@ SOURCE_DOCUMENTATION_BUNDLE_CONTRACT: dict[str, object] = {
         },
         "note": (
             "No connector required. Reads child table nodes from the graph store only. "
-            "Tool count is 31 after modular graph intelligence added manage_clusters alongside existing source tools."
+            "Tool count is 33 after the business dossier surface was added alongside existing source tools."
         ),
     },
     "response_shape": {

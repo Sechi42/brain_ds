@@ -218,12 +218,13 @@ class TestNoClassifyQueryMcpToolAdded(unittest.TestCase):
     """Phase 4.1 — QC-NO-MCP-TOOL: classify_query must not add another MCP tool."""
 
     def test_tool_registry_count(self):
+        from brain_ds.harness_check import EXPECTED_MCP_TOOL_COUNT
         from brain_ds.mcp.tools import TOOL_REGISTRY
 
         self.assertEqual(
             len(TOOL_REGISTRY),
-            32,
-            msg=f"TOOL_REGISTRY has {len(TOOL_REGISTRY)} tools; expected 32. "
+            EXPECTED_MCP_TOOL_COUNT,
+            msg=f"TOOL_REGISTRY has {len(TOOL_REGISTRY)} tools; expected {EXPECTED_MCP_TOOL_COUNT}. "
             "Do NOT register classify_query as an MCP tool.",
         )
 

@@ -15,6 +15,7 @@
 | `list_data_sources` | data | List only Data Source nodes for a graph |
 | `get_node` | data | Get one node by id |
 | `get_kpi_dossier` | data | Assemble a structured KPI dossier from graph lineage and limitations |
+| `get_business_dossier` | data | Assemble a query-first business dossier; pending-question writes require `create_pending_questions=true` and never create edges |
 | `search_graph` | data | Search nodes (FTS5 accent-insensitive + Python fallback) over label/type/details |
 | `update_node` | data | Create/update node fields |
 | `add_edge` | data | Create/update an edge between nodes |
@@ -68,7 +69,7 @@ brain_ds setup --project-root . --agent both
    - restart your agent client
    - approve `brain_ds` if prompted
 
-3. In Claude Code, run `/mcp` and confirm `brain_ds` is connected with **32 tools**.
+3. In Claude Code, run `/mcp` and confirm `brain_ds` is connected with **33 tools**.
 
 ### What `brain_ds setup` guarantees
 
@@ -116,7 +117,7 @@ Example Claude output shape:
 1. Run `brain_ds setup --project-root . --agent both`.
 2. Open Claude Code at the project root.
 3. Run `/mcp` and confirm `brain_ds` is connected.
-4. Verify 32 tools appear.
+4. Verify 33 tools appear.
 5. Call `list_nodes` as a smoke check.
 6. Live updates flow through the shared SQLite outbox path; MCP writes should reach the running UI without a manual config rewrite.
 

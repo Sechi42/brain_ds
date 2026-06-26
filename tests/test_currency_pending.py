@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from brain_ds.currency.coverage import coverage_score
 from brain_ds.currency.staleness import classify_staleness, resolve_last_seen
-from brain_ds.mcp.tools import insert_pending_question
+from brain_ds.mcp.tools import get_business_dossier, insert_pending_question
 from brain_ds.store.graph_store import GraphStore
 from brain_ds.store.migrations import v8_pending_questions
 
@@ -143,6 +143,43 @@ def test_insert_pending_question_mcp_tool_persists_without_writing_ledger() -> N
     assert _ledger_count(store) == before_ledger_rows
     pending = store.list_pending_questions("g1")
     assert [row.id for row in pending] == [result["id"]]
+    store.close()
+
+
+def test_business_dossier_explicit_pending_question_creation_stays_append_only() -> None:
+    store = _make_store_with_stale_node()
+    store.upsert_node(
+        "g1",
+        {
+            "id": "source-1",
+            "label": "Revenue Warehouse",
+            "type": "Data Source",
+            "details": {"description": "Revenue source rows"},
+        },
+    )
+    store.upsert_edge(
+        "g1",
+        {"source": "kpi-1", "target": "source-1", "label": "measured-by", "weight": 0.2},
+    )
+    before_ledger_rows = _ledger_count(store)
+    before_edge_rows = len(store.query_edges("g1"))
+
+    result = get_business_dossier(
+        store,
+        {
+            "graph_id": "g1",
+            "query": "revenue",
+            "create_pending_questions": True,
+            "stakeholder_owner": "Finance Director",
+        },
+    )
+
+    assert len(result["pending_questions_created"]) == 1
+    assert result["pending_questions_created"][0]["target_node_id"] == "source-1"
+    assert result["pending_questions_created"][0]["stakeholder_owner"] == "Finance Director"
+    assert len(store.query_edges("g1")) == before_edge_rows
+    assert _ledger_count(store) == before_ledger_rows
+    assert [row.target_node_id for row in store.list_pending_questions("g1")] == ["source-1"]
     store.close()
 
 

@@ -16,6 +16,7 @@ from brain_ds.mcp.tools import (
     create_graph,
     explore_source,
     generate_brd,
+    get_business_dossier,
     get_kpi_dossier,
     get_node,
     import_graph,
@@ -211,10 +212,11 @@ class MCPToolsTests(unittest.TestCase):
         self.assertEqual(invalid["code"], -32602)
         self.assertIn("Expected string for query", invalid["message"])
 
-    def test_tool_registry_and_schema_inventory_match_thirty_two_tools(self) -> None:
-        self.assertEqual(len(TOOL_REGISTRY), 32)
+    def test_tool_registry_and_schema_inventory_match_thirty_three_tools(self) -> None:
+        self.assertEqual(len(TOOL_REGISTRY), 33)
         self.assertEqual(TOOL_REGISTRY["snapshot_edges"]["rw"], "read")
         self.assertEqual(TOOL_REGISTRY["get_kpi_dossier"]["rw"], "read")
+        self.assertEqual(TOOL_REGISTRY["get_business_dossier"]["rw"], "read")
 
     def test_business_dossier_request_defaults_to_read_only_no_write_contract(self) -> None:
         from brain_ds.dossier.business_models import BusinessDossierRequest
@@ -230,6 +232,97 @@ class MCPToolsTests(unittest.TestCase):
         self.assertEqual(len(self.store.query_nodes(self.graph_id)), before_nodes)
         self.assertEqual(len(self.store.query_edges(self.graph_id)), before_edges)
         self.assertEqual(self._audit_count(), before_audit)
+
+    def test_get_business_dossier_returns_business_first_payload_without_default_writes(self) -> None:
+        self.store.upsert_node(
+            self.graph_id,
+            {"id": "KPI-1", "label": "On-time Delivery", "type": EntityType.KPI.value, "supertype": "metric", "details": {"description": "Delivery performance"}},
+        )
+        self.store.upsert_node(
+            self.graph_id,
+            {"id": "DS-1", "label": "Warehouse Events", "type": EntityType.DATA_SOURCE.value, "supertype": "data", "details": {"description": "Raw delivery events"}},
+        )
+        self.store.upsert_edge(
+            self.graph_id,
+            {"source": "KPI-1", "target": "DS-1", "label": RelationshipType.MEASURED_BY.value, "weight": 0.9},
+        )
+        before_nodes = len(self.store.query_nodes(self.graph_id))
+        before_edges = len(self.store.query_edges(self.graph_id))
+        before_pending = len(self.store.list_pending_questions(self.graph_id))
+        before_audit = self._audit_count()
+
+        result = get_business_dossier(self.store, {"graph_id": self.graph_id, "query": "delivery performance"})
+
+        self.assertEqual(result["query"], "delivery performance")
+        self.assertEqual(result["dossier"]["kpis"][0]["id"], "KPI-1")
+        self.assertEqual(result["pending_questions_created"], [])
+        self.assertIn("serialized_for_llm", result)
+        self.assertEqual(len(self.store.query_nodes(self.graph_id)), before_nodes)
+        self.assertEqual(len(self.store.query_edges(self.graph_id)), before_edges)
+        self.assertEqual(len(self.store.list_pending_questions(self.graph_id)), before_pending)
+        self.assertEqual(self._audit_count(), before_audit)
+
+    def test_get_business_dossier_rejects_unknown_params_and_empty_query(self) -> None:
+        unknown = self._expect_error(
+            get_business_dossier(self.store, {"graph_id": self.graph_id, "query": "delivery", "unexpected": True})
+        )
+        self.assertEqual(unknown["code"], -32602)
+        self.assertIn("Unknown parameter: unexpected", unknown["message"])
+
+        empty = self._expect_error(get_business_dossier(self.store, {"graph_id": self.graph_id, "query": "   "}))
+        self.assertEqual(empty["code"], -32602)
+        self.assertIn("query must not be empty", empty["message"])
+
+    def test_get_business_dossier_explicit_pending_questions_append_only_and_no_edges(self) -> None:
+        self.store.upsert_node(
+            self.graph_id,
+            {"id": "KPI-1", "label": "On-time Delivery", "type": EntityType.KPI.value, "supertype": "metric", "details": {"description": "Delivery performance"}},
+        )
+        self.store.upsert_node(
+            self.graph_id,
+            {"id": "DS-1", "label": "Warehouse Events", "type": EntityType.DATA_SOURCE.value, "supertype": "data", "details": {"description": "Raw delivery events"}},
+        )
+        self.store.upsert_edge(
+            self.graph_id,
+            {"source": "KPI-1", "target": "DS-1", "label": RelationshipType.MEASURED_BY.value, "weight": 0.2},
+        )
+        self.store.upsert_node(
+            self.graph_id,
+            {"id": "Other-1", "label": "Other KPI", "type": EntityType.KPI.value, "supertype": "metric", "details": {}},
+        )
+        self.store.upsert_node(
+            self.graph_id,
+            {"id": "Other-2", "label": "Other Source", "type": EntityType.DATA_SOURCE.value, "supertype": "data", "details": {}},
+        )
+        self.store.upsert_edge(
+            self.graph_id,
+            {"source": "Other-1", "target": "Other-2", "label": RelationshipType.MEASURED_BY.value, "weight": 0.1},
+        )
+        before_nodes = len(self.store.query_nodes(self.graph_id))
+        before_edges = len(self.store.query_edges(self.graph_id))
+        before_pending = len(self.store.list_pending_questions(self.graph_id))
+
+        result = get_business_dossier(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "query": "delivery performance",
+                "create_pending_questions": True,
+                "stakeholder_owner": "Operations Lead",
+            },
+        )
+
+        self.assertEqual(len(result["pending_questions_created"]), 1)
+        created = result["pending_questions_created"][0]
+        self.assertEqual(created["graph_id"], self.graph_id)
+        self.assertEqual(created["target_node_id"], "DS-1")
+        self.assertEqual(created["stakeholder_owner"], "Operations Lead")
+        self.assertEqual(len(self.store.query_nodes(self.graph_id)), before_nodes)
+        self.assertEqual(len(self.store.query_edges(self.graph_id)), before_edges)
+        pending = self.store.list_pending_questions(self.graph_id)
+        self.assertEqual(len(pending), before_pending + 1)
+        self.assertEqual(pending[-1].target_node_id, "DS-1")
+        self.assertNotEqual(pending[-1].target_node_id, "Other-2")
 
     def test_get_kpi_dossier_returns_structured_dossier_without_writes(self) -> None:
         self.store.upsert_node(
@@ -763,9 +856,9 @@ class MCPToolsTests(unittest.TestCase):
         typed = self._expect_rows(list_nodes(self.store, {"graph_id": self.graph_id, "type": "Data Source"}))
         self.assertEqual(result, typed)
 
-    def test_registry_has_thirty_two_tools_and_reads_do_not_audit(self) -> None:
+    def test_registry_has_thirty_three_tools_and_reads_do_not_audit(self) -> None:
         names = sorted(TOOL_REGISTRY.keys())
-        self.assertEqual(len(names), 32)
+        self.assertEqual(len(names), 33)
         self.assertEqual(
             names,
             [
@@ -777,6 +870,7 @@ class MCPToolsTests(unittest.TestCase):
                 "delete_node",
                 "explore_source",
                 "generate_brd",
+                "get_business_dossier",
                 "get_kpi_dossier",
                 "get_node",
                 "get_weak_edges",
@@ -1136,8 +1230,8 @@ class ExploreSourceDocumentationLevelTests(unittest.TestCase):
         self.assertIn("| id | int |", orders["columns_markdown"])
 
     def test_explore_source_documentation_level_tool_count(self):
-        """KPI dossier tool moves registry count to 32 while explore_source remains additive-free."""
-        self.assertEqual(len(TOOL_REGISTRY), 32)
+        """Business dossier tool moves registry count to 33 while explore_source remains additive-free."""
+        self.assertEqual(len(TOOL_REGISTRY), 33)
 
     def test_snapshot_edges_defaults_to_bounded_stable_page(self) -> None:
         self.store.upsert_edge(

@@ -535,17 +535,18 @@ def test_node_fact_descriptors_null_for_edge_rows():
 
 
 def test_tool_count_unchanged():
-    """TOOL_REGISTRY must have exactly 32 tools after KPI dossier is wired."""
+    """TOOL_REGISTRY must have exactly 33 tools after business dossier is wired."""
     from brain_ds.mcp.tools import TOOL_REGISTRY
 
-    assert len(TOOL_REGISTRY) == 32, (
-        f"Expected 32 MCP tools, got {len(TOOL_REGISTRY)}. "
-        "KPI composition dossier PR1 must add get_kpi_dossier."
+    assert len(TOOL_REGISTRY) == 33, (
+        f"Expected 33 MCP tools, got {len(TOOL_REGISTRY)}. "
+        "Business understanding surface PR3 must add get_business_dossier."
     )
     assert "assess_currency" in TOOL_REGISTRY
     assert "insert_pending_question" in TOOL_REGISTRY
     assert "manage_clusters" in TOOL_REGISTRY
     assert "get_kpi_dossier" in TOOL_REGISTRY
+    assert "get_business_dossier" in TOOL_REGISTRY
 
 
 # ---------------------------------------------------------------------------

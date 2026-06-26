@@ -59,6 +59,19 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         },
         "additionalProperties": False,
     },
+    "get_business_dossier": {
+        "type": "object",
+        "required": ["graph_id", "query"],
+        "properties": {
+            "graph_id": {"type": "string", "minLength": 1},
+            "query": {"type": "string", "minLength": 1},
+            "limit": {"type": "integer"},
+            "max_alternatives": {"type": "integer"},
+            "create_pending_questions": {"type": "boolean"},
+            "stakeholder_owner": {"type": "string"},
+        },
+        "additionalProperties": False,
+    },
     "search_graph": {
         "type": "object",
         "required": ["graph_id", "query"],
