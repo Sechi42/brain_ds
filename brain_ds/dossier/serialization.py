@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
+from brain_ds.dossier._serialization_utils import MAX_PAYLOAD_BYTES, TRUNCATED_DETAIL_BYTES, TRUNCATED_TEXT_BYTES, payload_size, truncate_text
 from brain_ds.dossier.models import KpiDossier
 
-_MAX_PAYLOAD_BYTES = 256 * 1024
-_TRUNCATED_TEXT_BYTES = 1024
-_TRUNCATED_DETAIL_BYTES = 512
+_MAX_PAYLOAD_BYTES = MAX_PAYLOAD_BYTES
+_TRUNCATED_TEXT_BYTES = TRUNCATED_TEXT_BYTES
+_TRUNCATED_DETAIL_BYTES = TRUNCATED_DETAIL_BYTES
 
 
 def serialize_dossier(dossier: KpiDossier) -> dict[str, Any]:
     payload = _payload(dossier)
-    if _payload_size(payload) <= _MAX_PAYLOAD_BYTES:
+    if payload_size(payload) <= _MAX_PAYLOAD_BYTES:
         return payload
     return _truncate_payload(payload)
 
@@ -99,12 +99,12 @@ def _truncate_payload(payload: dict[str, Any]) -> dict[str, Any]:
     payload["limitations"]["truncation_reason"] = "Dossier was truncated to keep payload under 256 KiB"
     for source in payload["data_sources"]:
         for container in source["containers"]:
-            while container["fields"] and _payload_size(payload) > _MAX_PAYLOAD_BYTES:
+            while container["fields"] and payload_size(payload) > _MAX_PAYLOAD_BYTES:
                 container["fields"].pop()
                 dropped_fields += 1
     dropped_containers = 0
     for source in payload["data_sources"]:
-        while source["containers"] and _payload_size(payload) > _MAX_PAYLOAD_BYTES:
+        while source["containers"] and payload_size(payload) > _MAX_PAYLOAD_BYTES:
             source["containers"].pop()
             dropped_containers += 1
     payload["limitations"]["truncated"] = True
@@ -113,54 +113,45 @@ def _truncate_payload(payload: dict[str, Any]) -> dict[str, Any]:
     )
     _truncate_large_text_sections(payload)
     for section in ("actors", "processes"):
-        while payload[section] and _payload_size(payload) > _MAX_PAYLOAD_BYTES:
+        while payload[section] and payload_size(payload) > _MAX_PAYLOAD_BYTES:
             payload[section].pop()
     for key in ("unmapped_sources", "unconfirmed_lineage", "weak_edges", "currency_gaps", "completeness"):
-        while payload["limitations"].get(key) and _payload_size(payload) > _MAX_PAYLOAD_BYTES:
+        while payload["limitations"].get(key) and payload_size(payload) > _MAX_PAYLOAD_BYTES:
             payload["limitations"][key].pop()
-    if _payload_size(payload) > _MAX_PAYLOAD_BYTES:
+    if payload_size(payload) > _MAX_PAYLOAD_BYTES:
         _truncate_all_strings(payload)
     return payload
 
 
 def _truncate_large_text_sections(payload: dict[str, Any]) -> None:
-    payload["serialized_for_llm"] = _truncate_text(payload.get("serialized_for_llm", ""), _TRUNCATED_TEXT_BYTES)
-    payload["kpi"]["details"] = _truncate_text(payload["kpi"].get("details", ""), _TRUNCATED_DETAIL_BYTES)
+    payload["serialized_for_llm"] = truncate_text(payload.get("serialized_for_llm", ""), _TRUNCATED_TEXT_BYTES)
+    payload["kpi"]["details"] = truncate_text(payload["kpi"].get("details", ""), _TRUNCATED_DETAIL_BYTES)
     for section in ("actors", "processes"):
         for item in payload[section]:
-            item["details"] = _truncate_text(item.get("details", ""), _TRUNCATED_DETAIL_BYTES)
+            item["details"] = truncate_text(item.get("details", ""), _TRUNCATED_DETAIL_BYTES)
     for source in payload["data_sources"]:
-        source["details"] = _truncate_text(source.get("details", ""), _TRUNCATED_DETAIL_BYTES)
+        source["details"] = truncate_text(source.get("details", ""), _TRUNCATED_DETAIL_BYTES)
         for container in source["containers"]:
-            container["description"] = _truncate_text(container.get("description", ""), _TRUNCATED_DETAIL_BYTES)
+            container["description"] = truncate_text(container.get("description", ""), _TRUNCATED_DETAIL_BYTES)
     for values in payload["limitations"].values():
         if isinstance(values, list):
             for item in values:
                 if isinstance(item, dict):
                     for key, value in list(item.items()):
                         if isinstance(value, str):
-                            item[key] = _truncate_text(value, _TRUNCATED_DETAIL_BYTES)
+                            item[key] = truncate_text(value, _TRUNCATED_DETAIL_BYTES)
 
 
 def _truncate_all_strings(value: Any) -> None:
     if isinstance(value, dict):
         for key, item in list(value.items()):
             if isinstance(item, str):
-                value[key] = _truncate_text(item, 64)
+                value[key] = truncate_text(item, 64)
             else:
                 _truncate_all_strings(item)
     elif isinstance(value, list):
         for item in value:
             _truncate_all_strings(item)
-
-
-def _truncate_text(value: str, max_chars: int) -> str:
-    text = str(value)
-    return text if len(text) <= max_chars else text[:max_chars] + "…"
-
-
-def _payload_size(payload: dict[str, Any]) -> int:
-    return len(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8"))
 
 
 def _description(node: Any) -> str:
