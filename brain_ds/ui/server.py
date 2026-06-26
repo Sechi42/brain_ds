@@ -118,7 +118,7 @@ class ServerRuntime:
                 graph, workspace, resolved_graph_id = self._active_graph_payload()
         except Exception:
             graph = _empty_graph()
-        context = build_render_context(graph, workspace=workspace, graph_id=resolved_graph_id)
+        context = build_render_context(graph, workspace=workspace, graph_id=resolved_graph_id, store=self.store)
         return render_interactive_html(context)
 
     def _handle_signal(self, signum: int, frame: Any, server: Any = None) -> None:

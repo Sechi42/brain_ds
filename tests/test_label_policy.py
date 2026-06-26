@@ -139,7 +139,7 @@ class TestLabelPolicyModule(unittest.TestCase):
 
     def test_always_visible_selected_hovered_pinned(self):
         """Selected, hovered, focused, pinned nodes must always be visible."""
-        for state in ("selected", "hovered", "focused", "pinned"):
+        for state in ("selected", "hovered", "focused", "pinned", "clusterAnchor"):
             self.assertIn(
                 state,
                 self.src,
@@ -398,7 +398,6 @@ class TestRendererLabelPolicyDriftGuard(unittest.TestCase):
 
     def test_zoom_threshold_default_in_both(self):
         """W1: zoomThreshold default 0.4 must appear in both label-policy.ts and renderer.ts."""
-        import re
         self.assertRegex(
             self.policy,
             r"zoomThreshold\s*:\s*0\.4",
@@ -465,12 +464,23 @@ class TestRendererLabelPolicyDriftGuard(unittest.TestCase):
             "renderer.ts inline must contain computeVisibleLabels (W1 drift guard).",
         )
 
+    def test_cluster_anchor_reason_in_both(self):
+        self.assertIn(
+            "'cluster-anchor'",
+            self.policy,
+            "Cluster anchors must keep readable labels independent of label budget.",
+        )
+        self.assertIn(
+            "'cluster-anchor'",
+            self.renderer,
+            "renderer.ts inline label policy must keep cluster anchor labels readable.",
+        )
+
     def test_renderer_documents_inline_source(self):
         """
         W1: renderer.ts must have a comment naming label-policy.ts as the canonical source.
         This documents the hand-sync contract so it cannot be silently forgotten.
         """
-        import re
         self.assertRegex(
             self.renderer,
             r"label-policy\.ts",

@@ -44,6 +44,8 @@ export class LayoutStrategy {
     this.damping = o.damping !== undefined ? o.damping : 0.9;
     this.maxSpeed = o.maxSpeed !== undefined ? o.maxSpeed : 120;
     this.temperature = o.temperature !== undefined ? o.temperature : 1.0;
+    this.laneSpacing = o.laneSpacing !== undefined ? o.laneSpacing : 520;
+    this.clusterLaneStrength = o.clusterLaneStrength !== undefined ? o.clusterLaneStrength : 0.018;
     this._runCollision = o.collision !== undefined ? o.collision : true;
     this.maxCollisionIterations = Math.min(3, o.maxCollisionIterations !== undefined ? o.maxCollisionIterations : 3);
 
@@ -77,6 +79,7 @@ export class LayoutStrategy {
     const n = nodes.length;
     const temperature = state.temperature !== undefined ? state.temperature : this.temperature;
     const dragIsolationActive = Boolean(state.dragPulls);
+    this._applySemanticLanes(nodes);
 
     // Determine effective mode for this tick
     let effectiveMode = this.mode;
@@ -124,6 +127,39 @@ export class LayoutStrategy {
     this._workerPending = false;
   }
 
+  _clusterLaneIndex(nodes) {
+    const laneIds = [];
+    const laneById = new Map();
+    nodes.forEach((node) => {
+      let laneId = node.semantic_cluster_lane_id || node.dominant_department_id;
+      if (!laneId) return;
+      laneId = String(laneId);
+      if (!laneById.has(laneId)) {
+        laneById.set(laneId, laneIds.length);
+        laneIds.push(laneId);
+      }
+    });
+    return { laneIds, laneById };
+  }
+
+  _laneXFor(laneIndex, laneCount) {
+    return (laneIndex - (Math.max(1, laneCount) - 1) / 2) * this.laneSpacing;
+  }
+
+  _applySemanticLanes(nodes) {
+    const lanes = this._clusterLaneIndex(nodes);
+    if (!lanes.laneIds.length) return;
+    nodes.forEach((node) => {
+      const laneId = node.semantic_cluster_lane_id || node.dominant_department_id;
+      if (!laneId) return;
+      const laneIndex = lanes.laneById.get(String(laneId));
+      if (laneIndex === undefined) return;
+      const targetX = this._laneXFor(laneIndex, lanes.laneIds.length);
+      const pull = node.semantic_cluster_anchor ? this.clusterLaneStrength * 1.4 : this.clusterLaneStrength;
+      node.vx = (node.vx || 0) + (targetX - node.x) * pull;
+    });
+  }
+
   /**
    * seed(nodes, edges) — position NEW nodes only; existing coordinates preserved.
    * New nodes are seeded near their first-edge neighbor.
@@ -150,10 +186,22 @@ export class LayoutStrategy {
       if (n.x !== undefined && n.y !== undefined) positioned.set(String(n.id), n);
     }
 
+    const lanes = this._clusterLaneIndex(nodes);
     // Seed only unpositioned nodes
     for (let i = 0; i < nodes.length; i++) {
       const n = nodes[i];
       if (n.x !== undefined && n.y !== undefined) continue;
+
+      const laneId = n.semantic_cluster_lane_id || n.dominant_department_id;
+      if (laneId && lanes.laneById.has(String(laneId))) {
+        const laneIndex = lanes.laneById.get(String(laneId));
+        n.x = this._laneXFor(laneIndex, lanes.laneIds.length) + ((i % 5) - 2) * 36;
+        n.y = Math.floor(i / Math.max(1, lanes.laneIds.length)) * 72 - 180;
+        n.vx = 0;
+        n.vy = 0;
+        positioned.set(String(n.id), n);
+        continue;
+      }
 
       const neighbors = neighborOf.get(String(n.id)) || [];
       let placed = false;

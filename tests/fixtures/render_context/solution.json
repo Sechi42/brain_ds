@@ -7,7 +7,7 @@
       "solution-1"
     ]
   },
-  "contract_version": "1.0.0",
+  "contract_version": "1.1.0",
   "detail_index": {
     "solution-1": {
       "editable_fields": [],
@@ -157,6 +157,11 @@
   "pending_confirmations": {
     "count": 0,
     "items": []
+  },
+  "semantic_clusters": [],
+  "semantic_layout": {
+    "lane_count": 0,
+    "mode": "fallback"
   },
   "type_groups": [
     {

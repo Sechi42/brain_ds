@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from brain_ds.store.graph_store import GraphStore
 
 
-CONTRACT_VERSION = "1.0.0"
+CONTRACT_VERSION = "1.1.0"
 
 
 @dataclass(frozen=True)
@@ -162,11 +162,24 @@ def build_render_context(
 
     detail_index, evidence_records = _build_detail_index(graph)
 
+    semantic_clusters, semantic_layout = _build_semantic_cluster_payload(store, graph_id)
+    cluster_by_node = {
+        node_id: cluster
+        for cluster in semantic_clusters
+        for node_id in cluster.get("member_node_ids", [])
+    }
+
     for node_payload in nodes:
         node_id = str(node_payload["id"])
         node_payload["score"] = _compute_node_score(node_id, incident_edges)
         node_payload["updated_at"] = _compute_node_updated_at(node_evidence_ids.get(node_id, []), evidence_records_map, generated_at)
         node_payload["neighbor_count"] = _compute_neighbor_count(node_id, adjacency)
+        cluster = cluster_by_node.get(node_id)
+        if cluster is not None:
+            node_payload["semantic_cluster_id"] = cluster["id"]
+            node_payload["semantic_cluster_status"] = cluster["status"]
+            node_payload["semantic_cluster_lane_id"] = cluster["lane_id"]
+            node_payload["semantic_cluster_anchor"] = node_id == cluster.get("primary_anchor_id")
 
     pending = _build_pending_confirmations(store, graph_id)
 
@@ -190,8 +203,61 @@ def build_render_context(
             "hierarchical": True,
             "physics": False,
         },
+        "semantic_clusters": semantic_clusters,
+        "semantic_layout": semantic_layout,
         "pending_confirmations": pending,
     }
+
+
+def _build_semantic_cluster_payload(store: Any, graph_id: str | None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if store is None or not graph_id:
+        return [], {"mode": "fallback", "lane_count": 0}
+    try:
+        clusters = store.query_clusters(graph_id)
+        members = _list_cluster_members(store, graph_id)
+    except Exception:
+        return [], {"mode": "fallback", "lane_count": 0}
+
+    members_by_cluster: dict[str, list[str]] = defaultdict(list)
+    for member in members:
+        members_by_cluster[str(member.cluster_id)].append(str(member.node_id))
+
+    payload: list[dict[str, Any]] = []
+    lane_ids: set[str] = set()
+    for index, cluster in enumerate(clusters):
+        metadata = dict(cluster.metadata or {})
+        lane_id = str(metadata.get("dominant_department_id") or metadata.get("primary_anchor_id") or cluster.id)
+        lane_ids.add(lane_id)
+        payload.append(
+            {
+                "id": cluster.id,
+                "name": cluster.name,
+                "description": cluster.description or "",
+                "status": metadata.get("status") or "confirmed",
+                "primary_anchor_id": metadata.get("primary_anchor_id"),
+                "primary_anchor_type": metadata.get("primary_anchor_type"),
+                "lane_id": lane_id,
+                "lane_index": len(lane_ids) - 1,
+                "member_node_ids": sorted(members_by_cluster.get(str(cluster.id), [])),
+                "summary": metadata.get("summary") or "",
+                "needs_source": bool(metadata.get("needs_source", False)),
+                "visual_state": "proposed" if metadata.get("status") == "proposed" else "confirmed",
+                "sort_index": index,
+            }
+        )
+    mode = "department-lanes" if payload else "fallback"
+    return payload, {"mode": mode, "lane_count": len(lane_ids)}
+
+
+def _list_cluster_members(store: Any, graph_id: str) -> list[Any]:
+    if hasattr(store, "list_cluster_members"):
+        return store.list_cluster_members(graph_id)
+    cluster_repo = getattr(store, "cluster_repo", None)
+    if cluster_repo is not None and hasattr(cluster_repo, "list_members"):
+        return cluster_repo.list_members(graph_id)
+    if hasattr(store, "list_members"):
+        return store.list_members(graph_id)
+    return []
 
 
 def _compute_node_score(node_id: str, incident_edges: dict[str, list[Any]]) -> float:

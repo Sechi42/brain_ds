@@ -24,6 +24,22 @@ def _sample_context():
     }
 
 
+def _sample_cluster_context():
+    context = _sample_context()
+    context["semantic_clusters"] = [
+        {
+            "id": "cluster-revenue",
+            "name": "Revenue Health",
+            "status": "proposed",
+            "lane_id": "n1",
+            "primary_anchor_id": "n1",
+            "member_node_ids": ["n1", "n2"],
+        }
+    ]
+    context["semantic_layout"] = {"mode": "department-lanes"}
+    return context
+
+
 class TestA11ySlice9Contracts(unittest.TestCase):
     def test_initial_dom_contains_live_region(self):
         html = render_interactive_html(_sample_context())
@@ -72,6 +88,17 @@ class TestA11ySlice9Contracts(unittest.TestCase):
         self.assertRegex(src, r"isContentEditable")
         self.assertRegex(src, r"tagName\s*===\s*\"INPUT\"")
         self.assertRegex(src, r"tagName\s*===\s*\"TEXTAREA\"")
+
+    def test_semantic_cluster_controls_are_accessibly_named(self):
+        html = render_interactive_html(_sample_cluster_context())
+        self.assertIn('id="semantic-cluster-filter"', html)
+        self.assertIn('aria-label="Semantic clusters"', html)
+        self.assertRegex(html, r'id="semantic-cluster-filter"[\s\S]*role="group"')
+
+    def test_canvas_label_describes_semantic_layout_when_clusters_exist(self):
+        src = RENDERER_TS.read_text(encoding="utf-8")
+        self.assertIn("Semantic cluster layout", src)
+        self.assertIn("department lanes", src)
 
 
 if __name__ == "__main__":

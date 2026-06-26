@@ -657,6 +657,21 @@
       .filter-item-text { color: var(--text-normal); font-size: 0.82rem; line-height: 1.2; }
       .filter-checkbox { width: 16px; height: 16px; margin: 0; accent-color: var(--accent-mora); }
       .chip { display: inline-flex; width: 14px; height: 14px; border-radius: 3px; }
+      #semantic-cluster-filter { display: grid; gap: 0.35rem; margin-top: 0.6rem; }
+      .semantic-cluster-filter-item {
+        width: 100%;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border: 1px solid color-mix(in srgb, var(--accent-mora) 28%, var(--border-subtle));
+        border-radius: var(--radius-md);
+        background: color-mix(in srgb, var(--accent-mora) 7%, transparent);
+        color: var(--text-normal);
+        text-align: left;
+      }
+      .semantic-cluster-filter-item[data-cluster-status='proposed'] { border-style: dashed; color: var(--text-muted); }
+      .semantic-cluster-filter-item:focus-visible { outline: 2px solid var(--accent-mora); outline-offset: 2px; }
       .legend-item { display: flex; align-items: center; gap: 0.5rem; min-height: 44px; }
       .legend-item button { width: 100%; text-align: left; }
       #tree-panel { display: grid; gap: 0.25rem; }
@@ -3043,6 +3058,7 @@
         <section class="panel-card" data-accordion-section="filters">
           <h3 class="panel-card-title"><svg aria-hidden="true"><use href="#icon-filter"/></svg>FILTROS</h3>
           <div id="type-filters"></div>
+          <div id="semantic-cluster-filter" role="group" aria-label="Semantic clusters"></div>
         </section>
         <section class="panel-card" data-accordion-section="legend">
           <h3 class="panel-card-title"><svg aria-hidden="true"><use href="#icon-share-2"/></svg>LEYENDA</h3>
@@ -3671,7 +3687,7 @@
       const network = existingNetwork || new vis.Network(container, { nodes, edges }, {
         layout: { hierarchical: { enabled: false, direction: "UD" } },
         interaction: { hover: true, navigationButtons: true, keyboard: true },
-        physics: { enabled: true },
+        physics: { enabled: true, laneSpacing: 520, clusterLaneStrength: 0.018 },
         edges: {
           arrows: { to: { enabled: true, scaleFactor: 0.7 } },
           smooth: { enabled: true, type: "cubicBezier" }
@@ -5034,11 +5050,14 @@
       // Filter panel — delegated to window.brainDsUI.filterPanel (PR 5 extraction).
       // Type-filter checkbox DOM construction and legend moved to panels/filter-panel.ts.
       const filtersRoot = document.getElementById("type-filters");
+      const semanticClusterRoot = document.getElementById("semantic-cluster-filter");
       const legendRoot = document.getElementById("legend");
       window.brainDsUI.filterPanel.mount({
         typeGroups,
         filtersRoot,
         legendRoot,
+        semanticClusters: RENDER_CONTEXT.semantic_clusters || [],
+        semanticClusterRoot,
         onToggle: (typeName, enabled) => {
           if (enabled) hiddenTypes.delete(typeName); else hiddenTypes.add(typeName);
           applyVisibility();

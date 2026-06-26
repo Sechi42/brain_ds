@@ -1,11 +1,178 @@
 import re
+import tempfile
 import unittest
+from dataclasses import dataclass
 from pathlib import Path
+
+from brain_ds.ontology import Edge, Graph, Node
+from brain_ds.store.graph_store import GraphStore
+from brain_ds.ui.render_context import build_render_context
+from brain_ds.ui.server import ServerRuntime
 
 try:
     from test_viewer import FORBIDDEN_REMOTE_TOKENS
 except ModuleNotFoundError:  # Direct module execution: `python -m unittest tests.test_canvas_renderer`
     from tests.test_viewer import FORBIDDEN_REMOTE_TOKENS
+
+
+@dataclass
+class _ClusterStub:
+    graph_id: str
+    id: str
+    name: str
+    description: str | None
+    parent_id: str | None
+    metadata: dict | None
+    created_at: str = "2026-06-25T00:00:00Z"
+
+
+@dataclass
+class _ClusterMemberStub:
+    graph_id: str
+    cluster_id: str
+    node_id: str
+    weight: float | None = None
+
+
+class _SemanticClusterStoreStub:
+    def query_clusters(self, graph_id):
+        return [
+            _ClusterStub(
+                graph_id=graph_id,
+                id="cluster-revenue",
+                name="Revenue Health",
+                description="KPI cluster for recurring revenue health.",
+                parent_id=None,
+                metadata={
+                    "status": "proposed",
+                    "primary_anchor_id": "kpi-revenue",
+                    "primary_anchor_type": "KPI",
+                    "dominant_department_id": "dept-finance",
+                    "summary": "Revenue health anchored in Finance.",
+                    "needs_source": True,
+                },
+            ),
+            _ClusterStub(
+                graph_id=graph_id,
+                id="cluster-retention",
+                name="Retention Risk",
+                description="Confirmed customer retention problem module.",
+                parent_id=None,
+                metadata={
+                    "status": "confirmed",
+                    "primary_anchor_id": "problem-retention",
+                    "primary_anchor_type": "Problem / Improvement Area",
+                    "dominant_department_id": "dept-sales",
+                    "summary": "Retention risk anchored in Sales.",
+                    "needs_source": False,
+                },
+            ),
+        ]
+
+    def list_members(self, graph_id):
+        return [
+            _ClusterMemberStub(graph_id, "cluster-revenue", "dept-finance", 1.0),
+            _ClusterMemberStub(graph_id, "cluster-revenue", "kpi-revenue", 1.0),
+            _ClusterMemberStub(graph_id, "cluster-retention", "dept-sales", 1.0),
+            _ClusterMemberStub(graph_id, "cluster-retention", "problem-retention", 1.0),
+        ]
+
+    def list_pending_confirmations(self, graph_id):
+        return []
+
+
+def _semantic_cluster_graph():
+    return Graph(
+        org="Semantic Layout Org",
+        nodes=[
+            Node(id="dept-finance", label="Finance", type="Department"),
+            Node(id="dept-sales", label="Sales", type="Department"),
+            Node(id="kpi-revenue", label="Recurring Revenue", type="KPI"),
+            Node(id="problem-retention", label="Retention Risk", type="Problem / Improvement Area"),
+        ],
+        edges=[
+            Edge(source="dept-finance", target="kpi-revenue", label="owns", weight=0.9),
+            Edge(source="dept-sales", target="problem-retention", label="owns", weight=0.8),
+            Edge(source="kpi-revenue", target="dept-sales", label="shared-with", weight=0.4),
+        ],
+    )
+
+
+class TestSemanticClusterRenderPayload(unittest.TestCase):
+    def test_render_context_emits_semantic_clusters_and_department_lanes(self):
+        context = build_render_context(
+            _semantic_cluster_graph(),
+            graph_id="semantic-layout",
+            store=_SemanticClusterStoreStub(),
+        )
+
+        clusters = {item["id"]: item for item in context["semantic_clusters"]}
+        self.assertEqual(clusters["cluster-revenue"]["lane_id"], "dept-finance")
+        self.assertEqual(clusters["cluster-revenue"]["status"], "proposed")
+        self.assertEqual(clusters["cluster-retention"]["lane_id"], "dept-sales")
+        self.assertEqual(clusters["cluster-revenue"]["primary_anchor_type"], "KPI")
+        self.assertIn("kpi-revenue", clusters["cluster-revenue"]["member_node_ids"])
+        self.assertEqual(context["semantic_layout"]["mode"], "department-lanes")
+
+        by_id = {node["id"]: node for node in context["nodes"]}
+        self.assertEqual(by_id["kpi-revenue"]["semantic_cluster_id"], "cluster-revenue")
+        self.assertEqual(by_id["kpi-revenue"]["semantic_cluster_status"], "proposed")
+        self.assertEqual(by_id["problem-retention"]["semantic_cluster_status"], "confirmed")
+
+    def test_render_context_preserves_clusterless_payload_shape(self):
+        context = build_render_context(_semantic_cluster_graph(), graph_id="semantic-layout")
+
+        self.assertEqual(context["semantic_clusters"], [])
+        self.assertEqual(context["semantic_layout"]["mode"], "fallback")
+        for node in context["nodes"]:
+            self.assertNotIn("semantic_cluster_id", node)
+
+    def test_live_server_render_path_emits_real_graph_store_semantic_clusters(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = GraphStore(str(root / "store.db"))
+            try:
+                graph_id = store.save_graph(
+                    _semantic_cluster_graph(),
+                    graph_id="semantic-layout",
+                    workspace_root=str(root),
+                    workspace_path=str(root),
+                    project="semantic-layout",
+                    imported_from=str(root / "graph.json"),
+                )
+                store.save_clusters(
+                    graph_id,
+                    [
+                        {
+                            "id": "cluster-revenue",
+                            "name": "Revenue Health",
+                            "description": "KPI cluster for recurring revenue health.",
+                            "metadata": {
+                                "status": "proposed",
+                                "primary_anchor_id": "kpi-revenue",
+                                "primary_anchor_type": "KPI",
+                                "dominant_department_id": "dept-finance",
+                                "summary": "Revenue health anchored in Finance.",
+                                "needs_source": True,
+                            },
+                        }
+                    ],
+                )
+                store.save_cluster_members(
+                    graph_id,
+                    [
+                        {"cluster_id": "cluster-revenue", "node_id": "dept-finance", "weight": 1.0},
+                        {"cluster_id": "cluster-revenue", "node_id": "kpi-revenue", "weight": 1.0},
+                    ],
+                )
+
+                html = ServerRuntime(project_root=root, store=store)._render_root_html(graph_id=graph_id)
+            finally:
+                store.close()
+
+        self.assertIn('"semantic_clusters": [{"id": "cluster-revenue"', html)
+        self.assertIn('"member_node_ids": ["dept-finance", "kpi-revenue"]', html)
+        self.assertIn('"semantic_cluster_id": "cluster-revenue"', html)
 
 
 class TestCanvasRendererContracts(unittest.TestCase):
@@ -99,8 +266,8 @@ class TestCanvasRendererContracts(unittest.TestCase):
         self.assertRegex(self.js_text, r"Math\.sqrt\(")
 
     def test_node_radius_importance_and_edge_rendering_foundation(self):
-        self.assertIn("Math.min(30, 8 + Math.sqrt(degree) * 3.5)", self.js_text)
-        self.assertIn("Math.max(12, radiusBase + Math.min(10, Math.max(0, importance)))", self.js_text)
+        self.assertIn("Math.min(24, 7 + Math.sqrt(degree) * 3)", self.js_text)
+        self.assertIn("Math.max(10, radiusBase + Math.min(6, Math.max(0, importance)))", self.js_text)
         self.assertIn("arc(", self.js_text)
         self.assertIn("setLineDash", self.js_text)
         self.assertIn("lineDashOffset", self.js_text)
@@ -141,7 +308,7 @@ class TestCanvasRendererContracts(unittest.TestCase):
     def test_root_and_importance_radius_contract_present(self):
         self.assertRegex(self.js_text, r"isRoot")
         self.assertRegex(self.js_text, r"importance")
-        self.assertRegex(self.js_text, r"Math\.max\(12")
+        self.assertRegex(self.js_text, r"Math\.max\(10")
 
     def test_slice8_selection_ring_scales_with_zoom_and_cap(self):
         self.assertRegex(self.js_text, r"2\s*/\s*(this|self)\.viewport\.scale")
@@ -214,6 +381,17 @@ class TestCanvasRendererContracts(unittest.TestCase):
             "vx *= 0.3;",
             self.js_text,
         )
+
+    def test_pr4_semantic_cluster_layout_contract_present(self):
+        self.assertIn("semantic_cluster_id", self.js_text)
+        self.assertIn("semantic_cluster_status", self.js_text)
+        self.assertIn("clusterLaneStrength", self.js_text)
+        self.assertIn("laneSpacing", self.js_text)
+        self.assertIn("proposed", self.js_text)
+
+    def test_pr4_node_radius_cap_smaller_for_readability(self):
+        self.assertIn("Math.min(24, 7 + Math.sqrt(degree) * 3)", self.js_text)
+        self.assertIn("Math.max(10, radiusBase + Math.min(6, Math.max(0, importance)))", self.js_text)
 
 
 # ── Slice 1a contracts (REQ-1.1, REQ-1.2, REQ-1.9, REQ-1.11, REQ-1.12, REQ-1.13) ──

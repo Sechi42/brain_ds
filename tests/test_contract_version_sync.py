@@ -13,3 +13,10 @@ class TestContractVersionSync(unittest.TestCase):
         match = re.search(r'CONTRACT_VERSION\s*=\s*"([^"]+)"', ts_text)
         self.assertIsNotNone(match)
         self.assertEqual(match.group(1), CONTRACT_VERSION)
+
+    def test_pr4_semantic_layout_contract_version_bumped(self):
+        self.assertGreaterEqual(
+            tuple(int(part) for part in CONTRACT_VERSION.split(".")),
+            (1, 1, 0),
+            "PR4 adds semantic_clusters/semantic_layout payload fields, so the UI contract version must be bumped.",
+        )

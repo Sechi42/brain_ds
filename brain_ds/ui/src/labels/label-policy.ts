@@ -9,7 +9,7 @@
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type LabelReason = 'selected' | 'hovered' | 'focused' | 'pinned' | 'budget' | 'culled';
+export type LabelReason = 'selected' | 'hovered' | 'focused' | 'pinned' | 'cluster-anchor' | 'budget' | 'culled';
 
 export type LabelDecision = {
   visible: boolean;
@@ -25,6 +25,7 @@ export type LabelNode = {
   hovered?: boolean;
   focused?: boolean;
   pinned?: boolean;
+  clusterAnchor?: boolean;
 };
 
 export type LabelViewport = {
@@ -76,6 +77,7 @@ function isAlwaysVisible(node: LabelNode): LabelReason | null {
   if (node.hovered)  return 'hovered';
   if (node.focused)  return 'focused';
   if (node.pinned)   return 'pinned';
+  if (node.clusterAnchor) return 'cluster-anchor';
   return null;
 }
 
@@ -84,7 +86,7 @@ function isAlwaysVisible(node: LabelNode): LabelReason | null {
 /**
  * Compute which nodes should have their label rendered this frame.
  *
- * Always-visible rules (selected | hovered | focused | pinned) override both
+ * Always-visible rules (selected | hovered | focused | pinned | clusterAnchor) override both
  * the zoom threshold and the budget cap.
  *
  * @param nodes    Array of nodes to evaluate.

@@ -35,12 +35,22 @@ export interface TypeGroup {
   types: TypeEntry[];
 }
 
+export interface SemanticClusterEntry {
+  id: string;
+  name: string;
+  status?: string;
+  lane_id?: string;
+  member_node_ids?: string[];
+}
+
 export interface FilterPanelDeps {
   typeGroups: TypeGroup[];
   filtersRoot: HTMLElement;
   legendRoot: HTMLElement;
   showAllBtn?: HTMLElement | null;
   hideAllBtn?: HTMLElement | null;
+  semanticClusters?: SemanticClusterEntry[];
+  semanticClusterRoot?: HTMLElement | null;
   onToggle: (typeName: string, enabled: boolean) => void;
   onShowAll?: () => void;
   onHideAll?: () => void;
@@ -124,6 +134,19 @@ export function mount(deps: FilterPanelDeps): void {
       legendRoot.appendChild(legendItem);
     });
   });
+
+  if (deps.semanticClusterRoot && Array.isArray(deps.semanticClusters)) {
+    deps.semanticClusters.forEach((cluster) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "semantic-cluster-filter-item";
+      item.setAttribute("aria-pressed", "true");
+      item.dataset.clusterStatus = cluster.status || "confirmed";
+      const count = Array.isArray(cluster.member_node_ids) ? cluster.member_node_ids.length : 0;
+      item.textContent = `${cluster.name} · ${cluster.status || "confirmed"} · ${count}`;
+      deps.semanticClusterRoot.appendChild(item);
+    });
+  }
 
   // ── Show-all / Hide-all button wiring ─────────────────────────────────────
   if (showAllBtn) {

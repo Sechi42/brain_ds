@@ -33,9 +33,6 @@ export function applyCollisionStep(nodes, opts) {
     MAX_ITER,
     (opts && opts.maxIterations !== undefined) ? opts.maxIterations : MAX_ITER,
   );
-  const minDist = nodeRadius * 2;
-  const minDistSq = minDist * minDist;
-
   for (let iter = 0; iter < maxIterations; iter++) {
     // Rebuild quadtree each iteration (if buildQuadtree is in scope from barnes-hut)
     // This satisfies "rebuild quadtree per iteration" requirement.
@@ -56,6 +53,8 @@ export function applyCollisionStep(nodes, opts) {
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const distSq = (dx * dx + dy * dy) || 0.0001;
+        const minDist = (a.radius || nodeRadius) + (b.radius || nodeRadius);
+        const minDistSq = minDist * minDist;
 
         if (distSq < minDistSq) {
           anyOverlap = true;

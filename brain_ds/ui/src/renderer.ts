@@ -27,13 +27,14 @@
     if (node.hovered)  return 'hovered';
     if (node.focused)  return 'focused';
     if (node.pinned)   return 'pinned';
+    if (node.clusterAnchor) return 'cluster-anchor';
     return null;
   }
 
   /**
    * computeVisibleLabels(nodes, viewport, config) → LabelDecision[]
    *
-   * Always-visible: selected | hovered | focused | pinned — bypass zoom + budget.
+   * Always-visible: selected | hovered | focused | pinned | clusterAnchor — bypass zoom + budget.
    * Below zoomThreshold: all non-always-visible nodes get visible=false, reason='culled'.
    * Budget cap: at most budgetPerFrame labels drawn, ranked by degree/centrality/selection.
    */
@@ -213,8 +214,7 @@
   // ── Collision step ─────────────────────────────────────────────────────────
 
   function _applyCollisionStep(nodes, nodeRadius, maxIterations) {
-    var minDist = (nodeRadius || 12) * 2;
-    var minDistSq = minDist * minDist;
+    var fallbackRadius = nodeRadius || 12;
     var iters = Math.min(3, maxIterations || 3);
     for (var iter = 0; iter < iters; iter++) {
       var anyOverlap = false;
@@ -227,6 +227,8 @@
           var dx = b.x - a.x;
           var dy = b.y - a.y;
           var distSq = (dx * dx + dy * dy) || 0.0001;
+          var minDist = (a.radius || fallbackRadius) + (b.radius || fallbackRadius);
+          var minDistSq = minDist * minDist;
           if (distSq < minDistSq) {
             anyOverlap = true;
             var dist = Math.sqrt(distSq);
@@ -279,6 +281,8 @@
     this.damping = o.damping !== undefined ? o.damping : 0.9;
     this.maxSpeed = o.maxSpeed !== undefined ? o.maxSpeed : 120;
     this.temperature = o.temperature !== undefined ? o.temperature : 1.0;
+    this.laneSpacing = o.laneSpacing !== undefined ? o.laneSpacing : 520;
+    this.clusterLaneStrength = o.clusterLaneStrength !== undefined ? o.clusterLaneStrength : 0.018;
     this._fallbackLogged = false;
     var alg = (o.algorithm || 'fa2').toLowerCase();
     this.mode = alg === 'legacy' ? 'legacy' : 'barnes-hut';
@@ -289,6 +293,7 @@
     var edges = state.edges;
     var n = nodes.length;
     var temperature = state.temperature !== undefined ? state.temperature : this.temperature;
+    this._applySemanticLanes(nodes);
     var effectiveMode = this.mode;
     if (this.mode !== 'legacy') {
       effectiveMode = n >= this.workerThreshold ? 'worker' : 'barnes-hut';
@@ -309,6 +314,40 @@
     }
   };
 
+  LayoutStrategy.prototype._clusterLaneIndex = function (nodes) {
+    var laneIds = [];
+    var laneById = new Map();
+    nodes.forEach(function (node) {
+      var laneId = node.semantic_cluster_lane_id || node.dominant_department_id;
+      if (!laneId) return;
+      laneId = String(laneId);
+      if (!laneById.has(laneId)) {
+        laneById.set(laneId, laneIds.length);
+        laneIds.push(laneId);
+      }
+    });
+    return { laneIds: laneIds, laneById: laneById };
+  };
+
+  LayoutStrategy.prototype._laneXFor = function (laneIndex, laneCount) {
+    return (laneIndex - (Math.max(1, laneCount) - 1) / 2) * this.laneSpacing;
+  };
+
+  LayoutStrategy.prototype._applySemanticLanes = function (nodes) {
+    var lanes = this._clusterLaneIndex(nodes);
+    if (!lanes.laneIds.length) return;
+    var strength = this.clusterLaneStrength;
+    nodes.forEach(function (node) {
+      var laneId = node.semantic_cluster_lane_id || node.dominant_department_id;
+      if (!laneId) return;
+      var laneIndex = lanes.laneById.get(String(laneId));
+      if (laneIndex === undefined) return;
+      var targetX = this._laneXFor(laneIndex, lanes.laneIds.length);
+      var pull = node.semantic_cluster_anchor ? strength * 1.4 : strength;
+      node.vx = (node.vx || 0) + (targetX - node.x) * pull;
+    }, this);
+  };
+
   LayoutStrategy.prototype.seed = function (nodes, edges) {
     var neighborOf = new Map();
     for (var e = 0; e < edges.length; e++) {
@@ -324,9 +363,20 @@
       var n = nodes[i];
       if (n.x !== undefined && n.y !== undefined) positioned.set(n.id, n);
     }
+    var lanes = this._clusterLaneIndex(nodes);
     for (var j = 0; j < nodes.length; j++) {
       var node = nodes[j];
       if (node.x !== undefined && node.y !== undefined) continue;
+      var laneId = node.semantic_cluster_lane_id || node.dominant_department_id;
+      if (laneId && lanes.laneById.has(String(laneId))) {
+        var laneIndex = lanes.laneById.get(String(laneId));
+        node.x = this._laneXFor(laneIndex, lanes.laneIds.length) + ((j % 5) - 2) * 36;
+        node.y = Math.floor(j / Math.max(1, lanes.laneIds.length)) * 72 - 180;
+        node.vx = 0;
+        node.vy = 0;
+        positioned.set(node.id, node);
+        continue;
+      }
       var neighbors = neighborOf.get(node.id) || [];
       var placed = false;
       for (var k = 0; k < neighbors.length; k++) {
@@ -564,6 +614,8 @@
     this._d4OverlayActive = false;
     this._edgeWidthScale = 1;
     this._labelFontWeight = 400;
+    this._clusterLaneStrength = 0.018;
+    this._laneSpacing = 520;
 
     // Slice 1a: viewport matrix (REQ-1.1)
     // Slice 1b: extended with vx/vy pan velocity for inertia (REQ-1.7)
@@ -619,6 +671,8 @@
       algorithm: physicsOpts.algorithm || 'fa2',
       workerThreshold: physicsOpts.workerThreshold !== undefined ? physicsOpts.workerThreshold : 1000,
       theta: physicsOpts.theta !== undefined ? physicsOpts.theta : 0.5,
+      laneSpacing: physicsOpts.laneSpacing !== undefined ? physicsOpts.laneSpacing : this._laneSpacing,
+      clusterLaneStrength: physicsOpts.clusterLaneStrength !== undefined ? physicsOpts.clusterLaneStrength : this._clusterLaneStrength,
     });
     // Physics config accessible from template
     this._physicsConfig = physicsOpts;
@@ -629,7 +683,12 @@
     this.canvas = document.createElement("canvas");
     this.canvas.className = "vis-canvas";
     this.canvas.setAttribute("role", "img");
+    var hasSemanticClusters = ((this.data.nodes && this.data.nodes.get && this.data.nodes.get()) || [])
+      .some(function (node) { return !!(node && node.semantic_cluster_id); });
     this.canvas.setAttribute("aria-label", "Organization graph");
+    if (hasSemanticClusters) {
+      this.canvas.setAttribute("aria-label", "Organization graph. Semantic cluster layout with department lanes.");
+    }
     this.canvas.setAttribute("tabindex", "0");
     this.canvas.width = Math.max(640, this.container.clientWidth || 640);
     this.canvas.height = Math.max(400, this.container.clientHeight || 400);
@@ -872,7 +931,9 @@
         this._layoutStrategy = new LayoutStrategy({
           algorithm: physics.algorithm || this._layoutStrategy.mode,
           workerThreshold: physics.workerThreshold !== undefined ? physics.workerThreshold : this._layoutStrategy.workerThreshold,
-          theta: physics.theta !== undefined ? physics.theta : this._layoutStrategy.theta,
+      theta: physics.theta !== undefined ? physics.theta : this._layoutStrategy.theta,
+      laneSpacing: physics.laneSpacing !== undefined ? physics.laneSpacing : this._layoutStrategy.laneSpacing,
+      clusterLaneStrength: physics.clusterLaneStrength !== undefined ? physics.clusterLaneStrength : this._layoutStrategy.clusterLaneStrength,
         });
       }
     }
@@ -1032,11 +1093,29 @@
       });
     }
     var i;
+    var laneIndex = new Map();
+    var laneIds = [];
+    nodes.forEach(function (candidate) {
+      var laneId = candidate.semantic_cluster_lane_id || candidate.dominant_department_id;
+      if (!laneId) return;
+      laneId = String(laneId);
+      if (!laneIndex.has(laneId)) {
+        laneIndex.set(laneId, laneIds.length);
+        laneIds.push(laneId);
+      }
+    });
     for (i = 0; i < nodes.length; i++) {
       var n = nodes[i];
       if (n.x === undefined || n.y === undefined) {
-        n.x = (this.canvas.width / 2) + (Math.random() - 0.5) * 80;
-        n.y = (this.canvas.height / 2) + (Math.random() - 0.5) * 80;
+        var laneId = n.semantic_cluster_lane_id || n.dominant_department_id;
+        if (laneId && laneIndex.has(String(laneId))) {
+          var idx = laneIndex.get(String(laneId));
+          n.x = (idx - (laneIds.length - 1) / 2) * this._laneSpacing + ((i % 5) - 2) * 36;
+          n.y = Math.floor(i / Math.max(1, laneIds.length)) * 72 - 180;
+        } else {
+          n.x = (this.canvas.width / 2) + (Math.random() - 0.5) * 80;
+          n.y = (this.canvas.height / 2) + (Math.random() - 0.5) * 80;
+        }
         n.vx = 0;
         n.vy = 0;
       }
@@ -1399,6 +1478,7 @@
           hovered: String(node.id) === String(self.hoveredNodeId),
           focused: String(node.id) === String(self.keyboardFocusedNodeId),
           pinned: !!node.fixed,
+          clusterAnchor: !!node.semantic_cluster_anchor,
         };
       });
       labelDecisions = computeVisibleLabels(policyNodes, self.viewport, self._labelConfig);
@@ -1419,10 +1499,10 @@
       var degree = node.degree || 0;
       var importance = Number(node.importance || node.score || degree || 1);
       var isRoot = !!node.is_root || String(node.supertype || "").toLowerCase().indexOf("org") >= 0;
-      // sqrt growth: connected hubs read bigger without dwarfing the graph
-      // (degree 1 → ~12px, 9 → ~19px, 25 → ~26px, capped at 30px base).
-      var radiusBase = Math.min(30, 8 + Math.sqrt(degree) * 3.5);
-      var radius = Math.max(12, radiusBase + Math.min(10, Math.max(0, importance)));
+      // PR4 semantic layout/readability: smaller node radii prevent department
+      // lanes from collapsing into an unreadable ball on dense connected graphs.
+      var radiusBase = Math.min(24, 7 + Math.sqrt(degree) * 3);
+      var radius = Math.max(10, radiusBase + Math.min(6, Math.max(0, importance)));
       if (isRoot) radius = radius + 8;
       node.radius = radius;
       ctx.beginPath();
@@ -1434,6 +1514,21 @@
         ctx.save();
         ctx.lineWidth = 1.5;
         ctx.strokeStyle = nodeTypeColor;
+        ctx.stroke();
+        ctx.restore();
+      }
+      if (node.semantic_cluster_status === "proposed") {
+        ctx.save();
+        ctx.lineWidth = 1.25;
+        ctx.strokeStyle = self._themeTokens.popoverMuted || "#cbd5e1";
+        ctx.setLineDash([3 / self.viewport.scale, 3 / self.viewport.scale]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      } else if (node.semantic_cluster_id) {
+        ctx.save();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = self._themeTokens.focusRing || "#38bdf8";
         ctx.stroke();
         ctx.restore();
       }
