@@ -1,0 +1,8 @@
+{
+  "queries": [
+    {
+      "query": "risk register mitigation plan",
+      "relevant_ids": ["confirmed-risk", "mitigation-plan"]
+    }
+  ]
+}
