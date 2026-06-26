@@ -24,6 +24,7 @@ from brain_ds.mcp.tools import (
     list_source_connections,
     list_workspaces,
     map_connections,
+    manage_clusters,
     run_elicit,
     search_graph,
     snapshot_edges,
@@ -209,8 +210,8 @@ class MCPToolsTests(unittest.TestCase):
         self.assertEqual(invalid["code"], -32602)
         self.assertIn("Expected string for query", invalid["message"])
 
-    def test_tool_registry_and_schema_inventory_match_twenty_eight_tools(self) -> None:
-        self.assertEqual(len(TOOL_REGISTRY), 28)
+    def test_tool_registry_and_schema_inventory_match_thirty_one_tools(self) -> None:
+        self.assertEqual(len(TOOL_REGISTRY), 31)
         self.assertEqual(TOOL_REGISTRY["snapshot_edges"]["rw"], "read")
 
     def test_update_node_partial_update_audit_and_read_only_rejection(self) -> None:
@@ -628,14 +629,15 @@ class MCPToolsTests(unittest.TestCase):
         typed = self._expect_rows(list_nodes(self.store, {"graph_id": self.graph_id, "type": "Data Source"}))
         self.assertEqual(result, typed)
 
-    def test_registry_has_twenty_eight_tools_and_reads_do_not_audit(self) -> None:
+    def test_registry_has_thirty_one_tools_and_reads_do_not_audit(self) -> None:
         names = sorted(TOOL_REGISTRY.keys())
-        self.assertEqual(len(names), 28)
+        self.assertEqual(len(names), 31)
         self.assertEqual(
             names,
             [
                 "add_edge",
                 "assess_completeness",
+                "assess_currency",
                 "create_graph",
                 "delete_edge",
                 "delete_node",
@@ -644,6 +646,7 @@ class MCPToolsTests(unittest.TestCase):
                 "get_node",
                 "get_weak_edges",
                 "import_graph",
+                "insert_pending_question",
                 "list_data_sources",
                 "list_graphs",
                 "list_nodes",
@@ -651,6 +654,7 @@ class MCPToolsTests(unittest.TestCase):
                 "list_secret_handles",
                 "list_source_connections",
                 "list_workspaces",
+                "manage_clusters",
                 "map_connections",
                 "open_workspace",
                 "query_source",
@@ -676,6 +680,143 @@ class MCPToolsTests(unittest.TestCase):
         search_graph(self.store, {"graph_id": self.graph_id, "query": "alpha"})
         after = self._audit_count()
         self.assertEqual(before, after)
+
+    def test_manage_clusters_propose_marks_kpi_without_source_as_needs_source(self) -> None:
+        self.store.upsert_node(
+            self.graph_id,
+            {
+                "id": "KPI-1",
+                "label": "On-time Delivery",
+                "type": "KPI",
+                "details": {"owner": "Ops", "department": "Logistics", "formula": "on_time / total"},
+            },
+        )
+
+        result = manage_clusters(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "action": "propose",
+                "payload": {
+                    "cluster_id": "cluster-kpi-1",
+                    "name": "Delivery KPI cluster",
+                    "description": "Tracks delivery reliability.",
+                    "primary_anchor_id": "KPI-1",
+                    "primary_anchor_type": "KPI",
+                    "member_node_ids": ["KPI-1"],
+                    "kpi": {"owner": "Ops", "department": "Logistics", "formula": "on_time / total"},
+                },
+                "reason": "medium-confidence KPI anchor",
+                "confidence": 0.62,
+            },
+        )
+
+        self.assertNotIn("code", result)
+        self.assertEqual(result["cluster"]["metadata"]["status"], "needs-source")
+        self.assertTrue(result["cluster"]["metadata"]["needs_source"])
+        self.assertEqual(result["cluster"]["metadata"]["primary_anchor_id"], "KPI-1")
+        self.assertEqual(result["pending_question_ids"], [1])
+        pending = self.store.list_pending_questions(self.graph_id)
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0].target_node_id, "KPI-1")
+        self.assertEqual(pending[0].gap_kind, "cluster_source")
+        self.assertIn("primary data source", pending[0].question_text)
+
+    def test_manage_clusters_confirm_and_reject_update_lifecycle_without_extra_tools(self) -> None:
+        self.store.save_clusters(
+            self.graph_id,
+            [
+                {
+                    "id": "cluster-existing",
+                    "name": "Existing cluster",
+                    "description": "A proposed cluster",
+                    "metadata": {"status": "proposed", "needs_source": False},
+                }
+            ],
+        )
+
+        confirmed = manage_clusters(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "action": "confirm",
+                "cluster_id": "cluster-existing",
+                "reason": "validated by owner",
+            },
+        )
+        self.assertEqual(confirmed["cluster"]["metadata"]["status"], "confirmed")
+        self.assertEqual(confirmed["pending_question_ids"], [])
+
+        rejected = manage_clusters(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "action": "reject",
+                "cluster_id": "cluster-existing",
+                "reason": "duplicate candidate",
+            },
+        )
+        self.assertEqual(rejected["cluster"]["metadata"]["status"], "rejected")
+        self.assertEqual(rejected["audit_id"], "cluster-existing:reject")
+
+    def test_manage_clusters_reformulate_split_merge_archive_actions(self) -> None:
+        self.store.save_clusters(
+            self.graph_id,
+            [
+                {
+                    "id": "cluster-a",
+                    "name": "Old name",
+                    "description": "Old description",
+                    "metadata": {"status": "proposed", "needs_source": False},
+                },
+                {
+                    "id": "cluster-b",
+                    "name": "Sibling cluster",
+                    "metadata": {"status": "proposed", "needs_source": False},
+                },
+            ],
+        )
+
+        reformulated = manage_clusters(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "action": "reformulate",
+                "cluster_id": "cluster-a",
+                "payload": {"name": "New name", "description": "New description"},
+                "reason": "better business wording",
+            },
+        )
+        self.assertEqual(reformulated["cluster"]["name"], "New name")
+        self.assertEqual(reformulated["cluster"]["description"], "New description")
+        self.assertEqual(reformulated["cluster"]["metadata"]["status"], "proposed")
+
+        split = manage_clusters(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "action": "split",
+                "cluster_id": "cluster-a",
+                "payload": {"new_cluster_id": "cluster-a-split", "name": "Split cluster"},
+            },
+        )
+        self.assertEqual(split["cluster"]["metadata"]["status"], "proposed")
+        self.assertEqual(split["related_clusters"][0]["id"], "cluster-a-split")
+
+        merged = manage_clusters(
+            self.store,
+            {"graph_id": self.graph_id, "action": "merge", "cluster_id": "cluster-a", "payload": {"source_cluster_id": "cluster-b"}},
+        )
+        self.assertEqual(merged["cluster"]["metadata"]["status"], "proposed")
+        self.assertEqual(merged["related_clusters"][0]["metadata"]["status"], "archived")
+        self.assertEqual(merged["related_clusters"][0]["metadata"]["archived_reason"], "merged into cluster-a")
+
+        archived = manage_clusters(
+            self.store,
+            {"graph_id": self.graph_id, "action": "archive", "cluster_id": "cluster-a", "reason": "no longer active"},
+        )
+        self.assertEqual(archived["cluster"]["metadata"]["status"], "archived")
+        self.assertEqual(archived["cluster"]["metadata"]["archived_reason"], "no longer active")
 
 
 class PaginatedListToolTests(unittest.TestCase):
@@ -860,8 +1001,8 @@ class ExploreSourceDocumentationLevelTests(unittest.TestCase):
         self.assertIn("| id | int |", orders["columns_markdown"])
 
     def test_explore_source_documentation_level_tool_count(self):
-        """DDS-4: explore_source did not add a tool; Brick D PR2 moved count from 27 to 28."""
-        self.assertEqual(len(TOOL_REGISTRY), 28)
+        """DDS-4: explore_source did not add a tool; manage_clusters moved count to 31."""
+        self.assertEqual(len(TOOL_REGISTRY), 31)
 
     def test_snapshot_edges_defaults_to_bounded_stable_page(self) -> None:
         self.store.upsert_edge(

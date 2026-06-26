@@ -382,6 +382,24 @@ class GroundingPipelineContractTests(unittest.TestCase):
         self.assertIn("steps", dry_run)
         self.assertIn("no_graph_writes_guard", dry_run)
 
+    def test_currency_elicitation_workflow_documents_modes_and_pending_deferral(self) -> None:
+        workflow = grounding.ELICIT_WORKFLOW
+        currency = workflow["currency_elicitation"]
+        self.assertEqual(currency["agent"], "brainds-currency-elicitor")
+        self.assertEqual(currency["modes"], ("open", "scoped"))
+        steps = " ".join(currency["steps"])
+        for token in ("assess_currency", "retrieve_context", "insert_pending_question", "pending"):
+            with self.subTest(token=token):
+                self.assertIn(token, steps)
+
+    def test_delegation_protocol_registers_currency_elicitor(self) -> None:
+        protocol = grounding.DELEGATION_PROTOCOL
+        registered = protocol["registered_subagents"]
+        self.assertIn("brainds-currency-elicitor", registered)
+        self.assertIn("assess_currency", registered["brainds-currency-elicitor"]["tools"])
+        self.assertIn("insert_pending_question", registered["brainds-currency-elicitor"]["tools"])
+        self.assertIn("retrieve_context", registered["brainds-currency-elicitor"]["tools"])
+
     def test_source_docs_artifact_contract_has_slice_fields(self) -> None:
         source_docs = grounding.ARTIFACT_CONTRACT["source-docs"]
         self.assertIn("slice_id", source_docs["required_keys"])
@@ -766,21 +784,32 @@ class AssessCompletenessTests(unittest.TestCase):
 
 
 class ToolCountSyncTests(unittest.TestCase):
-    """R-12: TOOL_REGISTRY must have exactly 28 tools after PR2 (retrieve_context added)."""
+    """R-11: TOOL_REGISTRY must have exactly 31 tools after manage_clusters is added."""
 
-    def test_tool_registry_has_28_tools_after_retrieve_context_added(self) -> None:
+    def test_tool_registry_has_31_tools_after_manage_clusters_added(self) -> None:
+        from brain_ds.harness_check import EXPECTED_MCP_TOOL_COUNT
         from brain_ds.mcp.tools import TOOL_REGISTRY
 
         self.assertEqual(
             len(TOOL_REGISTRY),
-            28,
-            f"Expected 28 MCP tools, got {len(TOOL_REGISTRY)}. "
-            "PR2 Brick D must add retrieve_context and bump the count from 27 to 28.",
+            EXPECTED_MCP_TOOL_COUNT,
+            f"Expected {EXPECTED_MCP_TOOL_COUNT} MCP tools, got {len(TOOL_REGISTRY)}. "
+            "Modular graph intelligence PR2 must add manage_clusters.",
         )
         self.assertIn(
-            "retrieve_context",
+            "assess_currency",
             TOOL_REGISTRY,
-            "retrieve_context must be registered in TOOL_REGISTRY (PR2 Brick D).",
+            "assess_currency must be registered in TOOL_REGISTRY (Brick E PR2).",
+        )
+        self.assertIn(
+            "insert_pending_question",
+            TOOL_REGISTRY,
+            "insert_pending_question must be registered in TOOL_REGISTRY for Brick E pending deferral.",
+        )
+        self.assertIn(
+            "manage_clusters",
+            TOOL_REGISTRY,
+            "manage_clusters must be registered for semantic cluster governance.",
         )
 
 

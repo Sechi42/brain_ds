@@ -11,6 +11,7 @@ from typing import Any
 import brain_ds.mcp.completeness as completeness
 import brain_ds.mcp.grounding as grounding
 import brain_ds.scoring.similarity as similarity
+from brain_ds.currency.gaps import aggregate_gaps
 import brain_ds.workspaces as workspace_registry
 from brain_ds.connectors import CsvConnector, PostgresConnector, SQLiteConnector
 from brain_ds.connectors.google_sheets_connector import GoogleSheetsConnector
@@ -43,7 +44,7 @@ from brain_ds.verify.edge_snapshot import (
     normalize_limit,
     validate_neighborhood,
 )
-from brain_ds.verify.ledger_calibration import _should_flag_for_confirmation
+from brain_ds.verify.ledger_calibration import _should_flag_for_confirmation, calibrate_from_ledger
 from brain_ds.retrieval.neighborhood import (
     AnnotatedEdge,
     build_adjacency,
@@ -898,6 +899,118 @@ def assess_completeness(store: GraphStore, params: dict[str, Any]) -> dict[str, 
 
 
 @error_boundary
+def assess_currency(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    """Assess temporal currency gaps for a graph without writing to the store."""
+    validated = validate_tool_input("assess_currency", params, TOOL_SCHEMAS["assess_currency"])
+    graph_id = validated["graph_id"]
+    mode = str(validated.get("mode") or "open")
+    if mode not in {"open", "scoped"}:
+        raise ValidationError(code=-32602, message="mode must be 'open' or 'scoped'")
+    top_n = int(validated.get("top_n") or 10)
+    if top_n < 1:
+        raise ValidationError(code=-32602, message="top_n must be a positive integer")
+
+    try:
+        nodes = store.query_nodes(graph_id)
+        edges = store.query_edges(graph_id)
+        target_nodes = _currency_scope_nodes(nodes, edges, mode=mode, scope=validated.get("scope"))
+        evidence = store.query_node_currency_evidence(graph_id, [node.id for node in target_nodes])
+    except GraphNotFoundError as exc:
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+
+    completeness_result = completeness.assess_graph_completeness(nodes)
+    sparse_node_ids = set(completeness_result.get("underspecified_nodes", []))
+    calibration_report = calibrate_from_ledger(graph_id, store)
+    edge_dicts = [_edge_to_dict(edge) for edge in edges]
+    result = aggregate_gaps(
+        target_nodes,
+        build_adjacency(edges),
+        evidence,
+        validated.get("thresholds"),
+        top_n=top_n,
+        sparse_node_ids=sparse_node_ids,
+        question_bank={
+            node.type: grounding.select_questions_for_gap("staleness", node.type)
+            for node in target_nodes
+        },
+        edges=edge_dicts,
+        structural_missing_types=(
+            list(completeness_result.get("missing_for_brd", [])) if mode == "open" else []
+        ),
+        calibration_gap_labels=(
+            _currency_calibration_gap_labels(calibration_report) if mode == "open" else []
+        ),
+    )
+    return {"graph_id": graph_id, **result}
+
+
+@error_boundary
+def insert_pending_question(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    """Persist a deferred currency-elicitation question without writing ledger evidence."""
+    validated = validate_tool_input("insert_pending_question", params, TOOL_SCHEMAS["insert_pending_question"])
+    graph_id = validated["graph_id"]
+    gap_kind = validated["gap_kind"].strip()
+    question_text = validated["question_text"].strip()
+    if not gap_kind:
+        raise ValidationError(code=-32602, message="gap_kind must not be empty")
+    if not question_text:
+        raise ValidationError(code=-32602, message="question_text must not be empty")
+
+    try:
+        pending_id = store.insert_pending_question(
+            graph_id,
+            target_node_id=validated.get("target_node_id"),
+            gap_kind=gap_kind,
+            entity_type=validated.get("entity_type"),
+            question_text=question_text,
+            stakeholder_owner=validated.get("stakeholder_owner"),
+        )
+        result = {
+            "id": pending_id,
+            "graph_id": graph_id,
+            "target_node_id": validated.get("target_node_id"),
+            "gap_kind": gap_kind,
+            "entity_type": validated.get("entity_type"),
+            "question_text": question_text,
+            "stakeholder_owner": validated.get("stakeholder_owner"),
+            "status": "pending",
+        }
+        store.log_audit("insert_pending_question", validated, "ok")
+        _enqueue_tool_receipt(
+            store,
+            graph_id=graph_id,
+            tool="insert_pending_question",
+            status="ok",
+            target_id=validated.get("target_node_id"),
+            params_summary=f"gap_kind={gap_kind}",
+        )
+        return result
+    except StoreError as exc:
+        _safe_log_error(store, "insert_pending_question", validated)
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+
+
+def _currency_calibration_gap_labels(report: Any) -> list[str]:
+    labels = []
+    for label, metrics in getattr(report, "classes", {}).items():
+        if int(getattr(metrics, "examples", 0) or 0) < 3:
+            labels.append(str(label))
+    return labels
+
+
+def _currency_scope_nodes(nodes: list[Any], edges: list[Any], *, mode: str, scope: Any) -> list[Any]:
+    if mode != "scoped":
+        return nodes
+    if not isinstance(scope, str) or not scope.strip():
+        raise ValidationError(code=-32602, message="scope is required when mode is 'scoped'")
+    node_ids = {node.id for node in nodes}
+    if scope not in node_ids:
+        raise ValidationError(code=-32000, message=f"scope node '{scope}' not found")
+    scoped_ids = set(expand_neighborhood([scope], build_adjacency(edges), depth=1))
+    return [node for node in nodes if node.id in scoped_ids]
+
+
+@error_boundary
 def list_pending_confirmations(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     """Return pending confirmation rows across all target types for the graph.
 
@@ -990,6 +1103,152 @@ def resolve_confirmation(store: GraphStore, params: dict[str, Any]) -> dict[str,
 
     grounding.invalidate_graph_calibration(graph_id)
     return result
+
+
+_CLUSTER_ACTION_STATUSES = {
+    "confirm": "confirmed",
+    "reject": "rejected",
+    "archive": "archived",
+}
+
+
+def _cluster_to_dict(row: Any) -> dict[str, Any]:
+    return asdict(row)
+
+
+def _get_cluster(store: GraphStore, graph_id: str, cluster_id: str) -> Any:
+    for row in store.query_clusters(graph_id):
+        if row.id == cluster_id:
+            return row
+    raise ValidationError(code=-32000, message=f"Cluster '{cluster_id}' not found in graph '{graph_id}'")
+
+
+def _kpi_missing_source(payload: dict[str, Any], metadata: dict[str, Any]) -> bool:
+    if metadata.get("primary_anchor_type") != EntityType.KPI.value:
+        return False
+    kpi = payload.get("kpi") if isinstance(payload.get("kpi"), dict) else {}
+    return not any(kpi.get(key) or payload.get(key) for key in ("source", "sources", "tables", "fields"))
+
+
+def _cluster_metadata_from_payload(payload: dict[str, Any], confidence: float | None) -> dict[str, Any]:
+    kpi = payload.get("kpi") if isinstance(payload.get("kpi"), dict) else {}
+    anchor_type = payload.get("primary_anchor_type") or kpi.get("primary_anchor_type")
+    metadata = {
+        "status": "proposed",
+        "primary_anchor_id": payload.get("primary_anchor_id"),
+        "primary_anchor_type": anchor_type,
+        "dominant_department_id": payload.get("dominant_department_id") or kpi.get("department"),
+        "supporting_anchor_ids": list(payload.get("supporting_anchor_ids") or []),
+        "needs_source": False,
+        "source_requirements": {
+            "description": payload.get("description") or kpi.get("description"),
+            "formula": kpi.get("formula") or payload.get("formula"),
+            "composition": kpi.get("composition") or payload.get("composition"),
+            "source": kpi.get("source") or payload.get("source"),
+            "owner": kpi.get("owner") or payload.get("owner"),
+        },
+        "summary": payload.get("description") or kpi.get("description"),
+        "quality_signals": {"confidence": confidence} if confidence is not None else {},
+        "archived_reason": None,
+    }
+    if _kpi_missing_source(payload, metadata):
+        metadata["status"] = "needs-source"
+        metadata["needs_source"] = True
+    return metadata
+
+
+def _insert_cluster_source_question(store: GraphStore, graph_id: str, metadata: dict[str, Any], payload: dict[str, Any]) -> list[int]:
+    if not metadata.get("needs_source"):
+        return []
+    anchor_id = metadata.get("primary_anchor_id")
+    if not isinstance(anchor_id, str) or not anchor_id:
+        return []
+    owner = None
+    kpi = payload.get("kpi") if isinstance(payload.get("kpi"), dict) else {}
+    if isinstance(kpi, dict):
+        owner = kpi.get("owner")
+    pending_id = store.insert_pending_question(
+        graph_id,
+        target_node_id=anchor_id,
+        gap_kind="cluster_source",
+        entity_type=str(metadata.get("primary_anchor_type") or "KPI"),
+        question_text="Which primary data source, table, and field measures this KPI cluster?",
+        stakeholder_owner=owner,
+    )
+    return [pending_id]
+
+
+@error_boundary
+def manage_clusters(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    """Govern semantic cluster lifecycle through one consolidated write tool."""
+    validated = validate_tool_input("manage_clusters", params, TOOL_SCHEMAS["manage_clusters"])
+    graph_id = validated["graph_id"]
+    action = validated["action"]
+    payload = validated.get("payload") or {}
+    if not isinstance(payload, dict):
+        raise ValidationError(code=-32602, message="payload must be an object")
+
+    try:
+        pending_question_ids: list[int] = []
+        related_clusters: list[dict[str, Any]] = []
+        if action == "propose":
+            cluster_id = payload.get("cluster_id") or validated.get("cluster_id")
+            if not isinstance(cluster_id, str) or not cluster_id:
+                raise ValidationError(code=-32602, message="payload.cluster_id is required for propose")
+            metadata = _cluster_metadata_from_payload(payload, validated.get("confidence"))
+            store.save_clusters(
+                graph_id,
+                [{"id": cluster_id, "name": payload.get("name") or cluster_id, "description": payload.get("description"), "metadata": metadata}],
+            )
+            members = [{"cluster_id": cluster_id, "node_id": node_id} for node_id in payload.get("member_node_ids") or []]
+            if members:
+                store.save_cluster_members(graph_id, members)
+            pending_question_ids = _insert_cluster_source_question(store, graph_id, metadata, payload)
+        elif action in _CLUSTER_ACTION_STATUSES:
+            cluster_id = validated.get("cluster_id")
+            if not cluster_id:
+                raise ValidationError(code=-32602, message="cluster_id is required")
+            store.update_cluster_lifecycle(graph_id, cluster_id, _CLUSTER_ACTION_STATUSES[action], reason=validated.get("reason"))
+        elif action == "reformulate":
+            cluster_id = validated.get("cluster_id")
+            if not cluster_id:
+                raise ValidationError(code=-32602, message="cluster_id is required")
+            current = _get_cluster(store, graph_id, cluster_id)
+            store.save_clusters(
+                graph_id,
+                [{"id": cluster_id, "name": payload.get("name") or current.name, "description": payload.get("description", current.description), "parent_id": current.parent_id, "metadata": current.metadata}],
+            )
+        elif action == "split":
+            cluster_id = validated.get("cluster_id")
+            new_cluster_id = payload.get("new_cluster_id")
+            if not cluster_id or not isinstance(new_cluster_id, str) or not new_cluster_id:
+                raise ValidationError(code=-32602, message="cluster_id and payload.new_cluster_id are required for split")
+            current = _get_cluster(store, graph_id, cluster_id)
+            metadata = dict(current.metadata or {})
+            metadata["status"] = metadata.get("status") or "proposed"
+            store.save_clusters(graph_id, [{"id": new_cluster_id, "name": payload.get("name") or new_cluster_id, "metadata": metadata}])
+            related_clusters = [_cluster_to_dict(_get_cluster(store, graph_id, new_cluster_id))]
+        elif action == "merge":
+            cluster_id = validated.get("cluster_id")
+            source_cluster_id = payload.get("source_cluster_id")
+            if not cluster_id or not isinstance(source_cluster_id, str) or not source_cluster_id:
+                raise ValidationError(code=-32602, message="cluster_id and payload.source_cluster_id are required for merge")
+            store.update_cluster_lifecycle(graph_id, source_cluster_id, "archived", reason=f"merged into {cluster_id}")
+            related_clusters = [_cluster_to_dict(_get_cluster(store, graph_id, source_cluster_id))]
+        else:
+            raise ValidationError(code=-32602, message="Unsupported cluster action")
+
+        cluster_id = validated.get("cluster_id") or payload.get("cluster_id")
+        cluster = _cluster_to_dict(_get_cluster(store, graph_id, str(cluster_id)))
+        store.log_audit("manage_clusters", validated, "ok")
+        _enqueue_tool_receipt(store, graph_id=graph_id, tool="manage_clusters", status="ok", target_id=str(cluster_id), params_summary=f"action={action} cluster={cluster_id}")
+        result = {"cluster": cluster, "audit_id": f"{cluster_id}:{action}", "pending_question_ids": pending_question_ids}
+        if related_clusters:
+            result["related_clusters"] = related_clusters
+        return result
+    except (StoreError, ValueError) as exc:
+        _safe_log_error(store, "manage_clusters", validated)
+        raise ValidationError(code=-32000, message=str(exc)) from exc
 
 
 _MAX_ANCHORS = 5
@@ -1105,7 +1364,7 @@ def retrieve_context(store: GraphStore, params: dict[str, Any]) -> dict[str, Any
         else:
             anchor_nodes = query_anchors
 
-    # --- Cluster/module routing ---
+    # --- Cluster/module routing (PR3) ---
     clusters = store.query_clusters(graph_id)
     members_by_cluster: dict[str, list[str]] = {}
     for member in store.cluster_repo.list_members(graph_id):
@@ -1958,6 +2217,27 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "schema": TOOL_SCHEMAS["assess_completeness"],
         "description": "Report missing/underspecified entity types and a pre-mapping recommendation",
         "rw": "read",
+        "requires_ai_agent": False,
+    },
+    "assess_currency": {
+        "handler": assess_currency,
+        "schema": TOOL_SCHEMAS["assess_currency"],
+        "description": "Assess temporal currency coverage and criticality-ranked freshness gaps",
+        "rw": "read",
+        "requires_ai_agent": False,
+    },
+    "insert_pending_question": {
+        "handler": insert_pending_question,
+        "schema": TOOL_SCHEMAS["insert_pending_question"],
+        "description": "Persist a deferred currency-elicitation question without resetting currency evidence",
+        "rw": "write",
+        "requires_ai_agent": False,
+    },
+    "manage_clusters": {
+        "handler": manage_clusters,
+        "schema": TOOL_SCHEMAS["manage_clusters"],
+        "description": "Create and govern semantic cluster lifecycle states",
+        "rw": "write",
         "requires_ai_agent": False,
     },
     "get_weak_edges": {

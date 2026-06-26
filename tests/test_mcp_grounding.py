@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import json
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import patch
@@ -275,6 +276,14 @@ class TestComposerReturnShapes(unittest.TestCase):
         self.assertIn("add_edge", steps)
         self.assertIn("Never bulk-read the whole graph", steps)
         self.assertIn("thousands of nodes", cast(str, rag_workflow["scaling_contract"]))
+
+    def test_source_exploration_contract_surfaces_cluster_management(self) -> None:
+        result = map_connections_context()
+        contract = cast(dict[str, Any], result["source_exploration_contract"])
+        serialized = json.dumps(contract)
+        self.assertIn("manage_clusters", serialized)
+        self.assertIn("KPI", serialized)
+        self.assertIn("primary source", serialized)
 
     def test_generate_brd_context_has_12_keys_legacy(self) -> None:
         result = generate_brd_context()

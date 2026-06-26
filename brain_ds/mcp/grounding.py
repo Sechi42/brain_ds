@@ -221,6 +221,16 @@ QUESTION_BANK: dict[str, list[str]] = {
     ],
 }
 
+
+def select_questions_for_gap(gap_kind: str, entity_type: str) -> list[str]:
+    """Return question-bank prompts for a gap/entity pair.
+
+    The gap kind is accepted to keep the helper aligned with the Brick E pipeline;
+    V1 selects the entity-type family directly and preserves unknown fallback.
+    """
+    normalized = str(entity_type or "").replace("_", " ").title()
+    return list(QUESTION_BANK.get(entity_type) or QUESTION_BANK.get(normalized) or [])
+
 # Source: skills/elicit-context/SKILL.md "Organization Resolution Contract" — keep in sync (skills frozen this change).
 ORG_SLUG_RULES: dict[str, object] = {
     "rules": [
@@ -468,6 +478,17 @@ ELICIT_WORKFLOW: dict[str, object] = {
         "If a brain_ds MCP call fails, surface the error and retry — do not silently fall back to "
         "another storage mechanism."
     ),
+    "currency_elicitation": {
+        "agent": "brainds-currency-elicitor",
+        "modes": ("open", "scoped"),
+        "steps": [
+            "1. Call assess_currency with mode=open for global gaps or mode=scoped with a scope node for neighborhood-first elicitation.",
+            "2. For large or scoped graphs, call retrieve_context for a bounded reliability and currency summary before asking questions.",
+            "3. Present only the top prioritized stakeholder-tagged questions from suggested_questions; ask one focused question at a time.",
+            "4. Persist answered facts via resolve_confirmation, update_node, or add_edge according to the evidence received.",
+            "5. If the user cannot answer, persist insert_pending_question with stakeholder_owner; pending records do not reset currency.",
+        ],
+    },
 }
 
 # Source: skills/map-connections/SKILL.md "Retrieval Workflow (Mandatory)" — keep in sync.
@@ -842,6 +863,11 @@ SOURCE_EXPLORATION_CONTRACT: dict[str, object] = {
             "4. Record refresh cadence and gaps: persist cadence, known data quality issues, and "
             "trust level in the node's details.learned field so BRD generation can surface gaps."
         ),
+        (
+            "5. When source documentation reveals KPI anchors or missing KPI primary-source fields, "
+            "surface them through manage_clusters(action='propose') so clusters can become proposed "
+            "or needs-source and emit focused pending questions."
+        ),
     ],
     "change_detection_step": (
         "Before documenting a table/sheet, read the change_detection block returned by "
@@ -859,6 +885,7 @@ SOURCE_EXPLORATION_CONTRACT: dict[str, object] = {
             "container+table→schema+preview, plus a change_detection verdict block at table level"
         ),
         "query_source": "SQLite SELECT-only queries; cap rows with limit param (max 200)",
+        "manage_clusters": "Propose KPI/problem clusters and surface missing primary source questions",
     },
     "connection_setup": (
         "A Data Source node becomes explorable when its details dict contains a 'connection' key: "
@@ -1081,6 +1108,23 @@ DELEGATION_PROTOCOL: dict[str, object] = {
     },
     "pipeline_stages": PIPELINE_STAGES,
     "intake_paths": PIPELINE_STAGES[1]["intake_paths"],
+    "registered_subagents": {
+        "brainds-source-explorer": {"tools": ("explore_source", "query_source")},
+        "brainds-graph-mapper": {"tools": ("update_node", "add_edge")},
+        "brainds-connection-mapper": {"tools": ("suggest_connections", "add_edge")},
+        "brainds-brd-writer": {"tools": ("generate_brd", "update_node")},
+        "brainds-semantic-verifier": {"tools": ("get_node", "list_nodes", "search_graph", "snapshot_edges")},
+        "brainds-currency-elicitor": {
+            "tools": (
+                "assess_currency",
+                "retrieve_context",
+                "resolve_confirmation",
+                "update_node",
+                "add_edge",
+                "insert_pending_question",
+            )
+        },
+    },
     "handoff_rule": (
         "Pass artifact references (topic keys or file paths) to sub-agents, never full content. "
         "Each sub-agent reads its inputs itself and returns a result contract: status, "
@@ -1351,7 +1395,7 @@ SOURCE_DOCUMENTATION_BUNDLE_CONTRACT: dict[str, object] = {
         },
         "note": (
             "No connector required. Reads child table nodes from the graph store only. "
-            "Tool count is 28 after Brick D PR2 (retrieve_context added for graph RAG retrieval alongside list_pending_confirmations and resolve_confirmation)."
+            "Tool count is 31 after modular graph intelligence added manage_clusters alongside existing source tools."
         ),
     },
     "response_shape": {
