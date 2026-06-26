@@ -76,3 +76,13 @@ def test_ablation_report_compares_signal_families_without_mutating_router() -> N
     assert comparison["baseline"].metrics["recall@1"] == 1.0
     assert comparison["without_semantic"].metrics["recall@1"] == 0.0
     assert router.candidates[0].signals.semantic == 1.0
+
+
+def test_evaluation_scope_rejects_viewer_bulk_write_and_unrelated_architecture_requests() -> None:
+    """Scope review excludes non-retrieval-evaluation changes from this capability."""
+    from brain_ds.retrieval.evaluation import is_evaluation_scope_allowed
+
+    assert is_evaluation_scope_allowed("Add recall@5 and nDCG metrics to the retrieval eval harness") is True
+    assert is_evaluation_scope_allowed("Change graph viewer behavior for highlighted routes") is False
+    assert is_evaluation_scope_allowed("Add bulk writes to persist evaluation results") is False
+    assert is_evaluation_scope_allowed("Rewrite unrelated architecture around workspaces") is False

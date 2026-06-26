@@ -15,6 +15,15 @@ from brain_ds.scoring.retrieval import SignalScores
 
 
 SIGNAL_FAMILIES = ("lexical", "semantic", "governance", "graph")
+_OUT_OF_SCOPE_TERMS = (
+    "viewer",
+    "ui",
+    "bulk write",
+    "bulk mutation",
+    "persist evaluation",
+    "unrelated architecture",
+    "workspace rewrite",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +124,12 @@ def load_query_set(path: Path) -> list[LabeledQuery]:
         LabeledQuery(query=str(item["query"]), relevant_ids=tuple(item.get("relevant_ids", ())))
         for item in payload["queries"]
     ]
+
+
+def is_evaluation_scope_allowed(change_request: str) -> bool:
+    """Return whether a request belongs to retrieval evaluation harness scope."""
+    normalized = change_request.lower()
+    return not any(term in normalized for term in _OUT_OF_SCOPE_TERMS)
 
 
 def _candidate_without_signal(candidate: RetrievalCandidate, signal: str) -> RetrievalCandidate:

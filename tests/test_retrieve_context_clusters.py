@@ -70,6 +70,30 @@ def _seed_portfolio_graph(store: GraphStore, graph_id: str) -> None:
                     "quality_signals": {"confidence": 0.72},
                 },
             },
+            {
+                "id": "CL_ARCHIVED",
+                "name": "Archived Portfolio Route",
+                "description": "Retired global portfolio route that should not steer retrieval.",
+                "metadata": {
+                    "status": "archived",
+                    "primary_anchor_id": "NOISE",
+                    "primary_anchor_type": "Task",
+                    "summary": "Retired obsolete global portfolio route.",
+                    "quality_signals": {"confidence": 1.0},
+                },
+            },
+            {
+                "id": "CL_REJECTED",
+                "name": "Rejected Portfolio Route",
+                "description": "Rejected global portfolio route that should not steer retrieval.",
+                "metadata": {
+                    "status": "rejected",
+                    "primary_anchor_id": "NOISE",
+                    "primary_anchor_type": "Task",
+                    "summary": "Rejected obsolete global portfolio route.",
+                    "quality_signals": {"confidence": 1.0},
+                },
+            },
         ],
     )
     store.save_cluster_members(
@@ -79,6 +103,8 @@ def _seed_portfolio_graph(store: GraphStore, graph_id: str) -> None:
             {"cluster_id": "CL_FIN", "node_id": "SRC_MARGIN", "weight": 0.8},
             {"cluster_id": "CL_SALES", "node_id": "KPI_PIPE", "weight": 1.0},
             {"cluster_id": "CL_SALES", "node_id": "SRC_CRM", "weight": 0.8},
+            {"cluster_id": "CL_ARCHIVED", "node_id": "NOISE", "weight": 1.0},
+            {"cluster_id": "CL_REJECTED", "node_id": "NOISE", "weight": 1.0},
         ],
     )
 
@@ -130,6 +156,22 @@ class ClusterRoutedRetrieveContextTests(unittest.TestCase):
         self.assertEqual(result["module_route"], {"mode": "bfs", "clusters": []})
         self.assertEqual([anchor["id"] for anchor in result["anchors"]], ["NOISE"])
         self.assertNotIn("MODULE ROUTE:", result["serialized_for_llm"])
+
+    def test_archived_and_rejected_cluster_routes_do_not_cross_route_boundary(self) -> None:
+        _seed_portfolio_graph(self.store, self.graph_id)
+
+        result = retrieve_context(self.store, {"graph_id": self.graph_id, "query": "obsolete global portfolio", "limit": 4})
+
+        self.assertNotIn("code", result)
+        route = result["module_route"]
+        routed_ids = [cluster["id"] for cluster in route["clusters"]]
+        self.assertEqual(route["mode"], "cluster")
+        self.assertEqual(routed_ids, ["CL_FIN", "CL_SALES"])
+        self.assertNotIn("CL_ARCHIVED", routed_ids)
+        self.assertNotIn("CL_REJECTED", routed_ids)
+        self.assertNotEqual([anchor["id"] for anchor in result["anchors"]], ["NOISE"])
+        self.assertNotIn("ARCHIVED CLUSTER", result["serialized_for_llm"])
+        self.assertNotIn("REJECTED CLUSTER", result["serialized_for_llm"])
 
 
 if __name__ == "__main__":
