@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from brain_ds.mcp.tools import retrieve_context
 from brain_ds.store.graph_store import GraphStore
@@ -43,7 +44,7 @@ def _seed_portfolio_graph(store: GraphStore, graph_id: str) -> None:
         store.upsert_node(graph_id, node)
     store.upsert_edge(graph_id, {"source": "KPI_MARGIN", "target": "SRC_MARGIN", "label": "measured_by", "weight": 0.9})
     store.upsert_edge(graph_id, {"source": "KPI_PIPE", "target": "SRC_CRM", "label": "measured_by", "weight": 0.8})
-    store.save_clusters(
+    store.cluster_repo.save_clusters(
         graph_id,
         [
             {
@@ -96,7 +97,7 @@ def _seed_portfolio_graph(store: GraphStore, graph_id: str) -> None:
             },
         ],
     )
-    store.save_cluster_members(
+    store.cluster_repo.save_members(
         graph_id,
         [
             {"cluster_id": "CL_FIN", "node_id": "KPI_MARGIN", "weight": 1.0},
@@ -172,6 +173,45 @@ class ClusterRoutedRetrieveContextTests(unittest.TestCase):
         self.assertNotEqual([anchor["id"] for anchor in result["anchors"]], ["NOISE"])
         self.assertNotIn("ARCHIVED CLUSTER", result["serialized_for_llm"])
         self.assertNotIn("REJECTED CLUSTER", result["serialized_for_llm"])
+
+    def test_cluster_route_failure_falls_back_to_bfs_retrieval(self) -> None:
+        _seed_portfolio_graph(self.store, self.graph_id)
+
+        with patch.object(self.store, "query_clusters", side_effect=RuntimeError("cluster table unavailable")):
+            result = retrieve_context(self.store, {"graph_id": self.graph_id, "query": "office seating", "limit": 4})
+
+        self.assertNotIn("code", result)
+        self.assertEqual(result["module_route"], {"mode": "bfs", "clusters": []})
+        self.assertEqual([anchor["id"] for anchor in result["anchors"]], ["NOISE"])
+
+    def test_cluster_route_members_are_bounded_before_ledger_lookup_and_metadata(self) -> None:
+        _seed_portfolio_graph(self.store, self.graph_id)
+        extra_members = []
+        for index in range(20):
+            node_id = f"FIN_MEMBER_{index:02d}"
+            self.store.upsert_node(
+                self.graph_id,
+                {"id": node_id, "label": f"Finance member {index:02d}", "type": "Metric", "supertype": "Metric"},
+            )
+            self.store.upsert_edge(
+                self.graph_id,
+                {"source": "KPI_MARGIN", "target": node_id, "label": "explains", "weight": 0.7},
+            )
+            extra_members.append({"cluster_id": "CL_FIN", "node_id": node_id, "weight": 0.4})
+        self.store.cluster_repo.save_members(self.graph_id, extra_members)
+
+        with patch.object(
+            self.store,
+            "query_ledger_latest_for_targets",
+            wraps=self.store.query_ledger_latest_for_targets,
+        ) as ledger_lookup:
+            result = retrieve_context(self.store, {"graph_id": self.graph_id, "query": "gross margin", "limit": 4})
+
+        self.assertNotIn("code", result)
+        ledger_edge_ids = ledger_lookup.call_args.args[1]
+        self.assertLessEqual(len(ledger_edge_ids), 4)
+        self.assertLessEqual(len(result["module_route"]["clusters"][0]["member_ids"]), 4)
+        self.assertLessEqual(len(result["subgraph"]["nodes"]), 4)
 
 
 if __name__ == "__main__":

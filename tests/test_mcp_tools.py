@@ -1291,6 +1291,16 @@ class RetrieveContextHandlerContractTests(unittest.TestCase):
         self.assertIn("nodes", result["subgraph"])
         self.assertIn("edges_with_reliability", result["subgraph"])
 
+    def test_retrieve_context_routes_anchor_ranking_through_hybrid_router_seam(self) -> None:
+        """The production adapter invokes the same HybridRetrievalRouter seam used by evaluation."""
+        from brain_ds.retrieval.hybrid_router import HybridRetrievalRouter
+
+        with patch("brain_ds.mcp.tools.HybridRetrievalRouter", wraps=HybridRetrievalRouter) as router_cls:
+            result = self._call({"graph_id": self.graph_id, "query": "alpha"})
+
+        self.assertNotIn("code", result)
+        self.assertTrue(router_cls.called)
+
     def test_r09_focal_node_id_not_found_returns_clear_error(self) -> None:
         """R-09: focal_node_id pointing to a non-existent node → error -32000 with id and graph_id."""
         result = self._call({"graph_id": self.graph_id, "focal_node_id": "missing-node-xyz"})

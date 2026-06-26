@@ -54,7 +54,10 @@ from brain_ds.retrieval.neighborhood import (
     sort_edges_by_reliability,
     walk_hierarchy_path,
 )
+from brain_ds.retrieval.hybrid_router import HybridRetrievalRouter
+from brain_ds.retrieval.models import RetrievalCandidate, RetrievalRequest
 from brain_ds.retrieval.serialization import serialize_for_llm
+from brain_ds.scoring.retrieval import SignalScores
 
 
 logger = logging.getLogger(__name__)
@@ -995,6 +998,92 @@ def resolve_confirmation(store: GraphStore, params: dict[str, Any]) -> dict[str,
 _MAX_ANCHORS = 5
 
 
+def _rank_query_anchors_with_hybrid_router(
+    *,
+    query: str,
+    nodes_by_id: dict[str, Any],
+    lexical_candidates: list[Any],
+    dense_hits: list[Any],
+) -> tuple[list[Any], bool]:
+    """Rank query anchors through the internal router seam used by eval."""
+    lexical_rank = {node.id: rank + 1 for rank, node in enumerate(lexical_candidates)}
+    dense_rank = {
+        hit.target_id: (rank + 1, float(getattr(hit, "score", 0.0) or 0.0))
+        for rank, hit in enumerate(dense_hits)
+        if getattr(hit, "target_id", None) in nodes_by_id
+    }
+    ordered_ids: list[str] = []
+    for node in lexical_candidates:
+        if node.id not in ordered_ids:
+            ordered_ids.append(node.id)
+    for node_id in dense_rank:
+        if node_id not in ordered_ids:
+            ordered_ids.append(node_id)
+
+    if not ordered_ids:
+        return [], False
+
+    candidate_count = max(1, len(ordered_ids))
+    candidates = []
+    for node_id in ordered_ids:
+        node = nodes_by_id[node_id]
+        lex = 1.0 - ((lexical_rank[node_id] - 1) / candidate_count) if node_id in lexical_rank else 0.0
+        semantic = dense_rank.get(node_id, (0, 0.0))[1]
+        candidates.append(
+            RetrievalCandidate(
+                id=node_id,
+                label=node.label,
+                signals=SignalScores(lexical=lex, semantic=semantic, governance=1.0, graph=0.0),
+            )
+        )
+
+    result = HybridRetrievalRouter(candidates=candidates).retrieve(
+        RetrievalRequest(query=query, limit=_MAX_ANCHORS, depth=1)
+    )
+    return [nodes_by_id[anchor.id] for anchor in result.anchors if anchor.id in nodes_by_id], result.dense_used
+
+
+def _safe_cluster_routes(
+    store: GraphStore,
+    *,
+    graph_id: str,
+    query: str | None,
+    nodes_by_id: dict[str, Any],
+    member_limit: int,
+) -> list[Any]:
+    """Gather cluster routes without letting cluster metadata failures break BFS retrieval."""
+    try:
+        clusters = store.query_clusters(graph_id)
+        members_by_cluster: dict[str, list[str]] = {}
+        for member in store.cluster_repo.list_members(graph_id):
+            members_by_cluster.setdefault(member.cluster_id, []).append(member.node_id)
+        return select_cluster_routes(
+            query,
+            clusters,
+            members_by_cluster,
+            nodes_by_id,
+            limit=_MAX_ANCHORS,
+            member_limit=member_limit,
+        )
+    except Exception:
+        logger.debug("Cluster route gathering failed; falling back to BFS retrieval.", exc_info=True)
+        return []
+
+
+def _cap_depth_map(depth_map: dict[str, int], *, anchor_ids: list[str], limit: int) -> dict[str, int]:
+    """Bound execution work before edge filtering and ledger lookup."""
+    capped: dict[str, int] = {}
+    for anchor_id in anchor_ids:
+        if anchor_id in depth_map and len(capped) < limit:
+            capped[anchor_id] = depth_map[anchor_id]
+    for node_id, depth_value in sorted(depth_map.items(), key=lambda item: (item[1], item[0])):
+        if len(capped) >= limit:
+            break
+        if node_id not in capped:
+            capped[node_id] = depth_value
+    return capped
+
+
 def _rrf_anchor_fuse(lexical_ids: list[str], dense_ids: list[str]) -> list[str]:
     """Reciprocal Rank Fusion over anchor candidate lists (k=60)."""
     k = 60
@@ -1083,17 +1172,33 @@ def retrieve_context(store: GraphStore, params: dict[str, Any]) -> dict[str, Any
                 query_vector = model.embed(query)
                 dense_hits = store.nearest_to_vector(graph_id, query_vector, k=_MAX_ANCHORS * 3)
                 if dense_hits:
-                    lex_ids = [n.id for n in lexical_candidates[: _MAX_ANCHORS * 3]]
-                    dense_ids = [h.target_id for h in dense_hits if h.target_id in nodes_by_id]
-                    fused_ids = _rrf_anchor_fuse(lex_ids, dense_ids)[: _MAX_ANCHORS]
-                    query_anchors = [nodes_by_id[nid] for nid in fused_ids if nid in nodes_by_id]
-                    dense_used = True
+                    query_anchors, dense_used = _rank_query_anchors_with_hybrid_router(
+                        query=query,
+                        nodes_by_id=nodes_by_id,
+                        lexical_candidates=lexical_candidates[: _MAX_ANCHORS * 3],
+                        dense_hits=dense_hits,
+                    )
                 else:
-                    query_anchors = lexical_candidates[:_MAX_ANCHORS]
+                    query_anchors, dense_used = _rank_query_anchors_with_hybrid_router(
+                        query=query,
+                        nodes_by_id=nodes_by_id,
+                        lexical_candidates=lexical_candidates[: _MAX_ANCHORS * 3],
+                        dense_hits=[],
+                    )
             except Exception:
-                query_anchors = lexical_candidates[:_MAX_ANCHORS]
+                query_anchors, dense_used = _rank_query_anchors_with_hybrid_router(
+                    query=query,
+                    nodes_by_id=nodes_by_id,
+                    lexical_candidates=lexical_candidates[: _MAX_ANCHORS * 3],
+                    dense_hits=[],
+                )
         else:
-            query_anchors = lexical_candidates[:_MAX_ANCHORS]
+            query_anchors, dense_used = _rank_query_anchors_with_hybrid_router(
+                query=query,
+                nodes_by_id=nodes_by_id,
+                lexical_candidates=lexical_candidates[: _MAX_ANCHORS * 3],
+                dense_hits=[],
+            )
 
         if focal_node_id:
             seen_ids: set[str] = {n.id for n in anchor_nodes}
@@ -1106,16 +1211,12 @@ def retrieve_context(store: GraphStore, params: dict[str, Any]) -> dict[str, Any
             anchor_nodes = query_anchors
 
     # --- Cluster/module routing ---
-    clusters = store.query_clusters(graph_id)
-    members_by_cluster: dict[str, list[str]] = {}
-    for member in store.cluster_repo.list_members(graph_id):
-        members_by_cluster.setdefault(member.cluster_id, []).append(member.node_id)
-    cluster_routes = select_cluster_routes(
-        query,
-        clusters,
-        members_by_cluster,
-        nodes_by_id,
-        limit=_MAX_ANCHORS,
+    cluster_routes = _safe_cluster_routes(
+        store,
+        graph_id=graph_id,
+        query=query,
+        nodes_by_id=nodes_by_id,
+        member_limit=limit,
     )
     if cluster_routes:
         routed_anchor_ids: list[str] = []
@@ -1133,6 +1234,7 @@ def retrieve_context(store: GraphStore, params: dict[str, Any]) -> dict[str, Any
     for route in cluster_routes:
         for member_id in route.member_ids:
             depth_map.setdefault(member_id, 1)
+    depth_map = _cap_depth_map(depth_map, anchor_ids=anchor_ids, limit=limit)
 
     subgraph_edges = [e for e in edges if e.source in depth_map and e.target in depth_map]
     edge_ids = [e.edge_id for e in subgraph_edges]
