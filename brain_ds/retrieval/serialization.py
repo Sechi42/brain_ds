@@ -34,6 +34,8 @@ def serialize_for_llm(
     nodes: list[dict],
     edges: list[AnnotatedEdge],
     hierarchy_paths: dict[str, list[str]],
+    *,
+    module_route: dict | None = None,
 ) -> str:
     """Build reliability-ascending LLM prose for a retrieved subgraph.
 
@@ -57,12 +59,12 @@ def serialize_for_llm(
     nodes_by_id: dict[str, dict] = {n["id"]: n for n in nodes}
     anchor_ids: list[str] = list(hierarchy_paths.keys())
 
-    full_text = _render_all(anchor_ids, nodes_by_id, edges, hierarchy_paths, suppressed=set())
+    full_text = _render_all(anchor_ids, nodes_by_id, edges, hierarchy_paths, suppressed=set(), module_route=module_route)
     if len(full_text.encode("utf-8")) <= _MAX_PAYLOAD_BYTES:
         return full_text
 
     # Truncation needed — D4: farthest-hop card_sections stripped first.
-    truncated = _apply_truncation(anchor_ids, nodes_by_id, edges, hierarchy_paths, full_text)
+    truncated = _apply_truncation(anchor_ids, nodes_by_id, edges, hierarchy_paths, full_text, module_route=module_route)
     return truncated
 
 
@@ -77,12 +79,13 @@ def _render_all(
     edges: list[AnnotatedEdge],
     hierarchy_paths: dict[str, list[str]],
     suppressed: set[str],  # node IDs whose card_sections are suppressed
+    module_route: dict | None = None,
 ) -> str:
     """Render all anchor blocks joined by blank lines."""
     # Reliability-ascending: reverse the already (tier ASC, weight DESC) sorted list.
     ascending_edges = list(reversed(edges))
 
-    blocks: list[str] = []
+    blocks: list[str] = _render_module_route(module_route)
     for anchor_id in anchor_ids:
         anchor_node = nodes_by_id.get(anchor_id)
         if anchor_node is None:
@@ -97,6 +100,21 @@ def _render_all(
         blocks.append(block)
 
     return "\n\n".join(blocks)
+
+
+def _render_module_route(module_route: dict | None) -> list[str]:
+    if not module_route or module_route.get("mode") != "cluster":
+        return []
+    lines = ["MODULE ROUTE:"]
+    for cluster in module_route.get("clusters") or []:
+        status = str(cluster.get("status") or "unknown").upper()
+        name = cluster.get("name") or cluster.get("id")
+        weight = cluster.get("routing_weight")
+        summary = cluster.get("summary") or ""
+        lines.append(f"[{status} CLUSTER] {name} (routing_weight={weight})")
+        if summary:
+            lines.append(f"  Summary: {summary}")
+    return ["\n".join(lines)]
 
 
 def _render_anchor_block(
@@ -189,6 +207,7 @@ def _apply_truncation(
     edges: list[AnnotatedEdge],
     hierarchy_paths: dict[str, list[str]],
     full_text: str,
+    module_route: dict | None = None,
 ) -> str:
     """Strip card_sections from farthest-hop nodes until under 256 KiB, then append sentinel.
 
@@ -225,7 +244,7 @@ def _apply_truncation(
         if bytes_freed >= needed:
             break
 
-    result = _render_all(anchor_ids, nodes_by_id, edges, hierarchy_paths, suppressed)
+    result = _render_all(anchor_ids, nodes_by_id, edges, hierarchy_paths, suppressed, module_route=module_route)
     # Append sentinel
     result = result.rstrip("\n") + "\n" + _TRUNCATION_SENTINEL
     return result

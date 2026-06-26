@@ -212,6 +212,15 @@ class SerializedForLlmPresenceAndBoundTests(unittest.TestCase):
         self.assertIn("HIERARCHY:", serialized)
         self.assertIn("CONNECTIONS", serialized)
 
+    def test_clusterless_retrieval_keeps_existing_bfs_contract(self) -> None:
+        """Cluster routing is additive: graphs without cluster metadata still use BFS anchors."""
+        result = self._call({"graph_id": self.graph_id, "query": "Alpha", "limit": 3})
+
+        self.assertNotIn("code", result, f"retrieve_context returned an error: {result}")
+        self.assertEqual(result["module_route"], {"mode": "bfs", "clusters": []})
+        self.assertEqual([anchor["id"] for anchor in result["anchors"]], ["N1"])
+        self.assertIn("Process Alpha", result.get("serialized_for_llm", ""))
+
 
 if __name__ == "__main__":
     unittest.main()

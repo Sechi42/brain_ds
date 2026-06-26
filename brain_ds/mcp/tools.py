@@ -47,8 +47,10 @@ from brain_ds.verify.ledger_calibration import _should_flag_for_confirmation
 from brain_ds.retrieval.neighborhood import (
     AnnotatedEdge,
     build_adjacency,
+    cluster_routes_to_dict,
     expand_neighborhood,
     ledger_status_to_tier,
+    select_cluster_routes,
     sort_edges_by_reliability,
     walk_hierarchy_path,
 )
@@ -1103,11 +1105,34 @@ def retrieve_context(store: GraphStore, params: dict[str, Any]) -> dict[str, Any
         else:
             anchor_nodes = query_anchors
 
+    # --- Cluster/module routing ---
+    clusters = store.query_clusters(graph_id)
+    members_by_cluster: dict[str, list[str]] = {}
+    for member in store.cluster_repo.list_members(graph_id):
+        members_by_cluster.setdefault(member.cluster_id, []).append(member.node_id)
+    cluster_routes = select_cluster_routes(
+        query,
+        clusters,
+        members_by_cluster,
+        nodes_by_id,
+        limit=_MAX_ANCHORS,
+    )
+    if cluster_routes:
+        routed_anchor_ids: list[str] = []
+        for route in cluster_routes:
+            for anchor_id in route.anchor_ids:
+                if anchor_id not in routed_anchor_ids:
+                    routed_anchor_ids.append(anchor_id)
+        anchor_nodes = [nodes_by_id[nid] for nid in routed_anchor_ids[:_MAX_ANCHORS]]
+
     # --- BFS expansion (R-06, reuse PR1 helpers) ---
     anchor_ids = [n.id for n in anchor_nodes]
     edges = store.query_edges(graph_id)
     adj = build_adjacency(edges)
     depth_map = expand_neighborhood(anchor_ids, adj, depth=depth)
+    for route in cluster_routes:
+        for member_id in route.member_ids:
+            depth_map.setdefault(member_id, 1)
 
     subgraph_edges = [e for e in edges if e.source in depth_map and e.target in depth_map]
     edge_ids = [e.edge_id for e in subgraph_edges]
@@ -1192,7 +1217,8 @@ def retrieve_context(store: GraphStore, params: dict[str, Any]) -> dict[str, Any
     }
 
     # --- Serialize for LLM (R-08, R-07) ---
-    serialized_for_llm = serialize_for_llm(subgraph_nodes, sorted_edges, hierarchy_paths)
+    module_route = cluster_routes_to_dict(cluster_routes)
+    serialized_for_llm = serialize_for_llm(subgraph_nodes, sorted_edges, hierarchy_paths, module_route=module_route)
 
     return {
         "anchors": [_node_to_dict(n) for n in anchor_nodes],
@@ -1201,6 +1227,7 @@ def retrieve_context(store: GraphStore, params: dict[str, Any]) -> dict[str, Any
             "edges_with_reliability": edges_with_reliability,
         },
         "hierarchy_paths": hierarchy_paths,
+        "module_route": module_route,
         "serialized_for_llm": serialized_for_llm,
         "dense_used": dense_used,
     }
