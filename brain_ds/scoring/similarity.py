@@ -122,6 +122,64 @@ LOW_SIGNAL_DETAIL_VALUES = frozenset({"ok", "n/a", "na", "none", "unknown"})
 CalibrationVerdict = str
 
 
+def _identity_norm(value: object) -> str:
+    return " ".join(str(value or "").casefold().strip().split())
+
+
+def _identity_scope(item: dict[str, Any]) -> tuple[str, ...]:
+    details = item.get("details") if isinstance(item.get("details"), dict) else {}
+    keys = ("owner", "department", "database", "schema", "table", "path")
+    return tuple(_identity_norm(details.get(key)) for key in keys if details.get(key) is not None)
+
+
+def classify_identity_reuse(existing: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
+    """Classify a lightweight duplicate/identity decision for one candidate.
+
+    This helper is intentionally pure and conservative: exact same scoped
+    identity can be reused; same label with conflicting scope asks a human.
+    """
+    if existing.get("type") != candidate.get("type"):
+        return {"action": "create", "tier": "distinct_type", "target_id": None, "reason": "different type"}
+
+    if existing.get("type") == "Cluster":
+        existing_anchor = (existing.get("metadata") or {}).get("primary_anchor_id")
+        candidate_anchor = (candidate.get("metadata") or {}).get("primary_anchor_id")
+        if existing_anchor and existing_anchor == candidate_anchor:
+            return {
+                "action": "reuse",
+                "tier": "shared_primary_anchor",
+                "target_id": existing.get("id"),
+                "reason": "same cluster primary anchor",
+            }
+
+    same_label = _identity_norm(existing.get("label")) == _identity_norm(candidate.get("label"))
+    if not same_label:
+        return {"action": "create", "tier": "distinct_label", "target_id": None, "reason": "different label"}
+
+    existing_scope = _identity_scope(existing)
+    candidate_scope = _identity_scope(candidate)
+    if existing_scope and candidate_scope and existing_scope == candidate_scope:
+        return {
+            "action": "reuse",
+            "tier": "exact_identity",
+            "target_id": existing.get("id"),
+            "reason": "same label and scope",
+        }
+    if existing_scope != candidate_scope:
+        return {
+            "action": "ask_human",
+            "tier": "ambiguous_identity",
+            "target_id": existing.get("id"),
+            "reason": "same label with different scope",
+        }
+    return {
+        "action": "reuse",
+        "tier": "label_identity",
+        "target_id": existing.get("id"),
+        "reason": "same label without conflicting scope",
+    }
+
+
 def _compute_calibration_verdict(
     score: float,
     label: str,
