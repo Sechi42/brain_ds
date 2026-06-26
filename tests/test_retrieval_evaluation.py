@@ -5,6 +5,47 @@ from __future__ import annotations
 from pathlib import Path
 
 
+def test_same_input_produces_same_comparable_report(monkeypatch) -> None:
+    """Comparable evaluation reports exclude volatile runtime latency."""
+    import json
+
+    import brain_ds.retrieval.evaluation as evaluation
+    from brain_ds.retrieval.evaluation import EvaluationHarness, LabeledQuery
+    from brain_ds.retrieval.hybrid_router import HybridRetrievalRouter
+    from brain_ds.retrieval.models import RetrievalCandidate
+    from brain_ds.scoring.retrieval import SignalScores
+
+    clock_values = iter((0.0, 0.001, 10.0, 10.005))
+    monkeypatch.setattr(evaluation, "perf_counter", lambda: next(clock_values))
+    queries = [LabeledQuery(query="risk", relevant_ids=("confirmed-risk",))]
+    router = HybridRetrievalRouter(
+        candidates=[
+            RetrievalCandidate(
+                id="confirmed-risk",
+                label="Confirmed risk register",
+                signals=SignalScores(lexical=1.0, semantic=0.9, governance=1.0, graph=0.7),
+            )
+        ]
+    )
+    harness = EvaluationHarness(router=router)
+
+    first_report = harness.evaluate(queries, k=1, repeats=1)
+    second_report = harness.evaluate(queries, k=1, repeats=1)
+
+    assert first_report.measured_latency_ms != second_report.measured_latency_ms
+    assert first_report == second_report
+    assert "measured_latency_ms" not in first_report.to_comparable_dict()
+    assert first_report.to_comparable_dict() == {
+        "ablation": "baseline",
+        "deterministic": True,
+        "metrics": {"recall@1": 1.0, "precision@1": 1.0, "ndcg@1": 1.0},
+        "query_count": 1,
+    }
+    assert json.dumps(first_report.to_comparable_dict(), sort_keys=True) == json.dumps(
+        second_report.to_comparable_dict(), sort_keys=True
+    )
+
+
 def test_evaluation_reports_quality_latency_and_determinism() -> None:
     """A standard run emits comparable quality, latency, and stability metrics."""
     from brain_ds.retrieval.evaluation import EvaluationHarness, load_query_set
@@ -40,8 +81,10 @@ def test_evaluation_reports_quality_latency_and_determinism() -> None:
     assert report.metrics["recall@2"] == 1.0
     assert report.metrics["precision@2"] == 1.0
     assert 0.9 <= report.metrics["ndcg@2"] <= 1.0
-    assert report.metrics["p50_latency_ms"] >= 0.0
-    assert report.metrics["p95_latency_ms"] >= report.metrics["p50_latency_ms"]
+    assert "p50_latency_ms" not in report.metrics
+    assert "p95_latency_ms" not in report.metrics
+    assert report.measured_latency_ms["p50"] >= 0.0
+    assert report.measured_latency_ms["p95"] >= report.measured_latency_ms["p50"]
     assert report.deterministic is True
     assert report.query_count == 1
 

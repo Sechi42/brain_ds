@@ -11,6 +11,7 @@ from brain_ds.store.models import EdgeRow, NodeRow
 
 DEPTH_MAX = 2
 HIERARCHY_MAX_HOPS = 20
+DEFAULT_ROUTE_MEMBER_LIMIT = 25
 
 _STATUS_TIER = {
     "confirmed": 1,
@@ -129,6 +130,7 @@ def select_cluster_routes(
     nodes_by_id: dict[str, NodeRow],
     *,
     limit: int,
+    member_limit: int = DEFAULT_ROUTE_MEMBER_LIMIT,
 ) -> list[ClusterRoute]:
     """Select semantic cluster routes using summaries, anchors, and memberships."""
     if not query:
@@ -143,15 +145,15 @@ def select_cluster_routes(
         status = str(metadata.get("status") or "confirmed")
         if status in {"archived", "rejected"}:
             continue
-        member_ids = members_by_cluster.get(cluster.id, [])
+        selected_member_ids = [node_id for node_id in members_by_cluster.get(cluster.id, []) if node_id in nodes_by_id]
         primary_anchor = metadata.get("primary_anchor_id")
         anchor_ids = [primary_anchor] if isinstance(primary_anchor, str) and primary_anchor in nodes_by_id else []
         if not anchor_ids:
-            anchor_ids = [node_id for node_id in member_ids if node_id in nodes_by_id][:1]
+            anchor_ids = selected_member_ids[:1]
         if not anchor_ids:
             continue
 
-        searchable = _cluster_search_text(cluster, metadata, member_ids, nodes_by_id)
+        searchable = _cluster_search_text(cluster, metadata, selected_member_ids, nodes_by_id)
         token_hits = sum(1 for token in tokens if token in searchable)
         if token_hits == 0:
             continue
@@ -170,7 +172,7 @@ def select_cluster_routes(
                     status=status,
                     summary=str(metadata.get("summary") or cluster.description or ""),
                     anchor_ids=anchor_ids,
-                    member_ids=[node_id for node_id in member_ids if node_id in nodes_by_id],
+                    member_ids=selected_member_ids[: max(0, int(member_limit))],
                     routing_weight=status_weight,
                 ),
             )

@@ -221,6 +221,31 @@ class SerializedForLlmPresenceAndBoundTests(unittest.TestCase):
         self.assertEqual([anchor["id"] for anchor in result["anchors"]], ["N1"])
         self.assertIn("Process Alpha", result.get("serialized_for_llm", ""))
 
+    def test_serialized_for_llm_global_cap_includes_large_module_route_summaries(self) -> None:
+        """The 256 KiB cap applies even when cluster route summaries dominate the payload."""
+        from brain_ds.retrieval.serialization import _TRUNCATION_SENTINEL, serialize_for_llm
+
+        serialized = serialize_for_llm(
+            [],
+            [],
+            {},
+            module_route={
+                "mode": "cluster",
+                "clusters": [
+                    {
+                        "id": "CL_HUGE",
+                        "name": "Huge Route",
+                        "status": "confirmed",
+                        "summary": "route summary " * 30_000,
+                        "routing_weight": 1.0,
+                    }
+                ],
+            },
+        )
+
+        self.assertLessEqual(len(serialized.encode("utf-8")), MAX_BYTES)
+        self.assertTrue(serialized.endswith(_TRUNCATION_SENTINEL))
+
 
 if __name__ == "__main__":
     unittest.main()
