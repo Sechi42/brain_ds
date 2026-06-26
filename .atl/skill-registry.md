@@ -52,6 +52,21 @@ Last updated: 2026-06-26
 | `ui-design` | UI design best practices for building accessible, performant, and user-friendly interfaces with modern web standards | project | `C:\Users\sergi\Documents\brain_ds\.claude\skills\ui-design\SKILL.md` |
 | `work-unit-commits` | Structure commits as deliverable work units instead of file-type batches, with tests and docs kept beside the code they verify. Trigger: when implementing a change, preparing commits, splitting PRs, or planning chained or stacked PRs. | user | `C:\Users\sergi\.agents\skills\work-unit-commits\SKILL.md` |
 
+## Agents
+
+Sub-agents available for delegation. Orchestrators read this table to know which agents to launch for each phase.
+
+| Agent | Model | Purpose |
+|-------|-------|---------|
+| `brainds-orchestrator` | opus | Coordinates elicit → source-docs → map → BRD and owns the dry-run recipe |
+| `brainds-source-explorer` | sonnet | Read-only source recon and sectioned documentation |
+| `brainds-query-consultant` | sonnet | Read-only graph Q&A — answers questions about nodes, data sources, owners |
+| `brainds-graph-mapper` | sonnet | Consolidates pipeline artifacts and pushes the documented source into the graph |
+| `brainds-connection-mapper` | sonnet | Runs the connection-mapping pass with completeness gating; `DataContainer` and `DataField` are Data Source-internal structural nodes, not standalone domain entities |
+| `brainds-brd-writer` | sonnet | Builds the deterministic BRD and persists it to the graph and Engram |
+
+> **Data Source-internal types:** `DataContainer` and `DataField` are Data Source-internal structural nodes. They are NOT top-level endpoints, standalone interview entities, or relationship targets. Capture them through Data Source structure exploration. This registry, `elicit-context`, `brainds-docs`, `map-connections`, and `SHARED_CONTEXT` all mirror this constraint.
+
 ## Loading protocol
 
 1. Match task context and target files against the `Trigger / description` column.
