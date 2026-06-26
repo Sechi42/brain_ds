@@ -12,11 +12,13 @@ CANARY = "mcp-contract-secret-canary"
 
 
 def _store(tmp_path: Path) -> GraphStore:
-    db_dir = tmp_path / ".brain_ds"; db_dir.mkdir(parents=True)
+    db_dir = tmp_path / ".brain_ds"
+    db_dir.mkdir(parents=True)
     store = GraphStore(str(db_dir / "store.db"))
     store.meta_repo.save_graph_meta(graph_id="g", workspace_root=str(tmp_path), workspace_path=str(tmp_path), project="p", org="o", schema_version="2.0.0", contract_version="1.0.0", node_count=0, edge_count=0, imported_from=None, generated_at="")
     store.upsert_node("g", {"id": "N1", "label": "Contract Source", "type": "Data Source", "supertype": "Technology", "details": {"connection": {"kind": "sqlite", "path": "missing.db"}}})
     store.upsert_node("g", {"id": "N2", "label": "Contract Target", "type": "Process", "supertype": "Business"})
+    store.upsert_node("g", {"id": "KPI1", "label": "Contract KPI", "type": "KPI", "supertype": "metric", "details": {"description": "Contract metric"}})
     SecretCatalog(tmp_path).add(SecretEntry(handle="contract_pg", kind="postgres", metadata={"host": "db.local", "port": 5432, "database": "warehouse", "username": "etl", "sslmode": "require", "secret_ref": "BRAINDS_CONTRACT_PWD"}), raw_value=CANARY)
     return store
 
@@ -25,7 +27,7 @@ def _params(name: str, tmp_path: Path) -> dict[str, Any]:
     base = {"graph_id": "g"}
     samples: dict[str, dict[str, Any]] = {
         "list_graphs": {}, "create_graph": {"graph_id": "created", "name": "Created", "project": "p"}, "import_graph": {"file_path": str(tmp_path / "missing.json")},
-        "list_nodes": base, "list_data_sources": base, "get_node": {**base, "node_id": "N1"}, "search_graph": {**base, "query": "contract"},
+        "list_nodes": base, "list_data_sources": base, "get_node": {**base, "node_id": "N1"}, "get_kpi_dossier": {**base, "kpi_node_id": "KPI1"}, "search_graph": {**base, "query": "contract"},
         "update_node": {**base, "node_id": "N2", "label": "Updated"}, "add_edge": {**base, "source": "N1", "target": "N2", "label": "feeds"},
         "delete_node": {**base, "node_id": "missing"}, "delete_edge": {**base, "source": "N1", "target": "N2"}, "suggest_connections": {**base, "node_id": "N1"},
         "assess_completeness": base, "get_weak_edges": base, "snapshot_edges": base, "list_workspaces": {}, "open_workspace": {"path": str(tmp_path)},

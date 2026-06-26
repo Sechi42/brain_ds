@@ -16,6 +16,7 @@ from brain_ds.mcp.tools import (
     create_graph,
     explore_source,
     generate_brd,
+    get_kpi_dossier,
     get_node,
     import_graph,
     list_data_sources,
@@ -210,9 +211,127 @@ class MCPToolsTests(unittest.TestCase):
         self.assertEqual(invalid["code"], -32602)
         self.assertIn("Expected string for query", invalid["message"])
 
-    def test_tool_registry_and_schema_inventory_match_thirty_one_tools(self) -> None:
-        self.assertEqual(len(TOOL_REGISTRY), 31)
+    def test_tool_registry_and_schema_inventory_match_thirty_two_tools(self) -> None:
+        self.assertEqual(len(TOOL_REGISTRY), 32)
         self.assertEqual(TOOL_REGISTRY["snapshot_edges"]["rw"], "read")
+        self.assertEqual(TOOL_REGISTRY["get_kpi_dossier"]["rw"], "read")
+
+    def test_get_kpi_dossier_returns_structured_dossier_without_writes(self) -> None:
+        self.store.upsert_node(
+            self.graph_id,
+            {"id": "KPI-1", "label": "On-time Delivery", "type": EntityType.KPI.value, "supertype": "metric", "details": {"description": "Shipments delivered on time"}},
+        )
+        self.store.upsert_node(
+            self.graph_id,
+            {"id": "DS-1", "label": "Warehouse", "type": EntityType.DATA_SOURCE.value, "supertype": "data", "details": {"description": "Warehouse events"}},
+        )
+        self.store.upsert_edge(
+            self.graph_id,
+            {"source": "KPI-1", "target": "DS-1", "label": RelationshipType.MEASURED_BY.value, "weight": 0.9},
+        )
+        before_nodes = len(self.store.query_nodes(self.graph_id))
+        before_edges = len(self.store.query_edges(self.graph_id))
+        before_audit = self._audit_count()
+
+        result = get_kpi_dossier(self.store, {"graph_id": self.graph_id, "kpi_node_id": "KPI-1"})
+
+        self.assertEqual(result["kpi"]["id"], "KPI-1")
+        self.assertEqual(result["data_sources"][0]["id"], "DS-1")
+        self.assertIn("serialized_for_llm", result)
+        self.assertEqual(len(self.store.query_nodes(self.graph_id)), before_nodes)
+        self.assertEqual(len(self.store.query_edges(self.graph_id)), before_edges)
+        self.assertEqual(self._audit_count(), before_audit)
+
+    def test_get_kpi_dossier_keeps_pending_lineage_out_of_data_sources(self) -> None:
+        self.store.upsert_node(
+            self.graph_id,
+            {"id": "KPI-1", "label": "On-time Delivery", "type": EntityType.KPI.value, "supertype": "metric", "details": {}},
+        )
+        self.store.upsert_node(
+            self.graph_id,
+            {"id": "DS-1", "label": "Warehouse", "type": EntityType.DATA_SOURCE.value, "supertype": "data", "details": {}},
+        )
+        self.store.upsert_node(
+            self.graph_id,
+            {"id": "DC-1", "label": "shipments", "type": EntityType.DATA_CONTAINER.value, "supertype": "data-internal", "parent_id": "DS-1", "details": {}},
+        )
+        self.store.upsert_edge(
+            self.graph_id,
+            {"source": "KPI-1", "target": "DS-1", "label": RelationshipType.MEASURED_BY.value, "weight": 0.9},
+        )
+        self.store.append_ledger(
+            graph_id=self.graph_id,
+            target_id="KPI-1->DC-1:measured-from",
+            target_type="edge",
+            status="needs-confirmation",
+            relationship_label=RelationshipType.MEASURED_FROM.value,
+            source_node_id="KPI-1",
+            target_node_id="DC-1",
+            source_node_type=EntityType.KPI.value,
+            target_node_type=EntityType.DATA_CONTAINER.value,
+            provenance="generated",
+            captured_at="2026-06-26T00:00:00+00:00",
+        )
+
+        with patch.object(self.store, "list_pending_confirmations", wraps=self.store.list_pending_confirmations) as pending_spy:
+            result = get_kpi_dossier(self.store, {"graph_id": self.graph_id, "kpi_node_id": "KPI-1"})
+
+        pending_spy.assert_called_once_with(self.graph_id)
+        self.assertEqual(result["data_sources"][0]["containers"], [])
+        self.assertIn(
+            {
+                "candidate_id": "KPI-1->DC-1:measured-from",
+                "from_node": "KPI-1",
+                "to_node": "DC-1",
+                "relationship": RelationshipType.MEASURED_FROM.value,
+                "source": "insert_pending_question",
+            },
+            result["limitations"]["unconfirmed_lineage"],
+        )
+
+    def test_get_kpi_dossier_degrades_gracefully_for_oversized_graph(self) -> None:
+        self.store.upsert_node(
+            self.graph_id,
+            {"id": "KPI-1", "label": "On-time Delivery", "type": EntityType.KPI.value, "supertype": "metric", "details": {}},
+        )
+        for index in range(1100):
+            self.store.upsert_node(
+                self.graph_id,
+                {
+                    "id": f"bulk-{index}",
+                    "label": f"Bulk {index}",
+                    "type": "Note",
+                    "supertype": "knowledge",
+                    "details": {},
+                },
+            )
+
+        with patch("brain_ds.mcp.tools.assess_completeness") as completeness_spy:
+            result = get_kpi_dossier(self.store, {"graph_id": self.graph_id, "kpi_node_id": "KPI-1"})
+
+        completeness_spy.assert_not_called()
+        self.assertEqual(result["kpi"]["id"], "KPI-1")
+        self.assertEqual(result["data_sources"], [])
+        self.assertTrue(result["limitations"]["truncated"])
+        self.assertIn("graph size", result["limitations"]["truncation_reason"])
+
+    def test_get_kpi_dossier_returns_structured_errors(self) -> None:
+        self.store.upsert_node(
+            self.graph_id,
+            {"id": "DS-1", "label": "Warehouse", "type": EntityType.DATA_SOURCE.value, "supertype": "data", "details": {}},
+        )
+
+        non_kpi = self._expect_error(get_kpi_dossier(self.store, {"graph_id": self.graph_id, "kpi_node_id": "DS-1"}))
+        self.assertEqual(non_kpi["code"], -32602)
+        self.assertIn("DataSource", non_kpi["message"])
+
+        missing_node = self._expect_error(get_kpi_dossier(self.store, {"graph_id": self.graph_id, "kpi_node_id": "missing"}))
+        self.assertEqual(missing_node["code"], -32000)
+        self.assertIn("Node 'missing' not found", missing_node["message"])
+
+        missing_graph = self._expect_error(get_kpi_dossier(self.store, {"graph_id": "missing", "kpi_node_id": "DS-1"}))
+        self.assertEqual(missing_graph["code"], -32000)
+        self.assertIn("Graph 'missing' not found", missing_graph["message"])
 
     def test_update_node_partial_update_audit_and_read_only_rejection(self) -> None:
         before = self.store.query_nodes(self.graph_id, type="Task")[0]
@@ -629,9 +748,9 @@ class MCPToolsTests(unittest.TestCase):
         typed = self._expect_rows(list_nodes(self.store, {"graph_id": self.graph_id, "type": "Data Source"}))
         self.assertEqual(result, typed)
 
-    def test_registry_has_thirty_one_tools_and_reads_do_not_audit(self) -> None:
+    def test_registry_has_thirty_two_tools_and_reads_do_not_audit(self) -> None:
         names = sorted(TOOL_REGISTRY.keys())
-        self.assertEqual(len(names), 31)
+        self.assertEqual(len(names), 32)
         self.assertEqual(
             names,
             [
@@ -643,6 +762,7 @@ class MCPToolsTests(unittest.TestCase):
                 "delete_node",
                 "explore_source",
                 "generate_brd",
+                "get_kpi_dossier",
                 "get_node",
                 "get_weak_edges",
                 "import_graph",
@@ -1001,8 +1121,8 @@ class ExploreSourceDocumentationLevelTests(unittest.TestCase):
         self.assertIn("| id | int |", orders["columns_markdown"])
 
     def test_explore_source_documentation_level_tool_count(self):
-        """DDS-4: explore_source did not add a tool; manage_clusters moved count to 31."""
-        self.assertEqual(len(TOOL_REGISTRY), 31)
+        """KPI dossier tool moves registry count to 32 while explore_source remains additive-free."""
+        self.assertEqual(len(TOOL_REGISTRY), 32)
 
     def test_snapshot_edges_defaults_to_bounded_stable_page(self) -> None:
         self.store.upsert_edge(

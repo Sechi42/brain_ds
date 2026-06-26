@@ -57,7 +57,7 @@ This skill retrieves the full org domain from SQLite using typed `list_nodes` ca
 **Outputs**: a 7-section Markdown relationship map (Entity Table, Information Flows, Overlaps, Broken Links, Missing Knowledge, DS Intervention Opportunities, Provenance Table); optional Mermaid graph (`--graph`); optional v2 JSON export (`--graph-json`); optional graph viewer launch (`--graph-ui`).
 **MCP tools**: `list_nodes`, `search_graph`, `suggest_connections`, `add_edge` (when --save with new links), `update_node`.
 
-This skill builds a deterministic connection map across standalone domain entity types using token-overlap scoring and ontology-backed relationship labels. It uses `suggest_connections` for new-node linking and `list_nodes` for full-report retrieval; `DataContainer` and `DataField` are Data Source-internal structure, not top-level relationship endpoints or missing knowledge. Cross-department edges are rendered as dashed arrows in Mermaid output. Graphs with more than 24 nodes or 40 edges are condensed into an Overview Graph plus per-department Detail Graphs.
+This skill builds a deterministic connection map across standalone domain entity types using token-overlap scoring and ontology-backed relationship labels. It uses `suggest_connections` for new-node linking and `list_nodes` for full-report retrieval; `DataContainer` and `DataField` are Data Source-internal structure, not missing knowledge, with KPI table-grain lineage represented by confirmed `measured-from` edges to `DataContainer` and field-grain edges only on explicit confirmation. Cross-department edges are rendered as dashed arrows in Mermaid output. Graphs with more than 24 nodes or 40 edges are condensed into an Overview Graph plus per-department Detail Graphs.
 
 ---
 

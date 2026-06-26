@@ -22,6 +22,9 @@ from brain_ds.connectors.change_detection import (
 )
 from brain_ds.connectors.secrets import SecretCatalog, SecretManifestError
 from brain_ds.connectors.secrets.redaction import redact_secrets
+from brain_ds.dossier.assembler import assemble_kpi_dossier
+from brain_ds.dossier.models import DossierGapInputs, DossierGraphView, KpiDossier, LimitationsFacet
+from brain_ds.dossier.serialization import serialize_dossier
 from brain_ds.mcp.security import (
     TOOL_SCHEMAS,
     SecurityError,
@@ -62,6 +65,9 @@ from brain_ds.scoring.retrieval import SignalScores
 
 
 logger = logging.getLogger(__name__)
+
+_KPI_DOSSIER_NODE_BUDGET = 1_000
+_KPI_DOSSIER_EDGE_BUDGET = 3_000
 
 
 def _node_to_dict(node: Any) -> dict[str, Any]:
@@ -887,6 +893,125 @@ def get_weak_edges(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
         "total_edges": len(edges),
         "weak_edges": weak,
     }
+
+
+@error_boundary
+def get_kpi_dossier(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
+    """Return a read-only KPI dossier assembled from graph state."""
+    validated = validate_tool_input("get_kpi_dossier", params, TOOL_SCHEMAS["get_kpi_dossier"])
+    graph_id = validated["graph_id"]
+    kpi_node_id = validated["kpi_node_id"]
+
+    try:
+        nodes = store.query_nodes(graph_id)
+        edges = store.query_edges(graph_id)
+    except GraphNotFoundError as exc:
+        raise ValidationError(code=-32000, message=str(exc)) from exc
+
+    nodes_by_id = {node.id: node for node in nodes}
+    kpi = nodes_by_id.get(kpi_node_id)
+    if kpi is None:
+        raise ValidationError(code=-32000, message=f"Node '{kpi_node_id}' not found in graph '{graph_id}'")
+    if kpi.type != EntityType.KPI.value:
+        actual_type = kpi.type.replace(" ", "") if isinstance(kpi.type, str) else kpi.type
+        raise ValidationError(code=-32602, message=f"Node '{kpi_node_id}' is not a KPI; actual type is {actual_type}")
+
+    if len(nodes) > _KPI_DOSSIER_NODE_BUDGET or len(edges) > _KPI_DOSSIER_EDGE_BUDGET:
+        return serialize_dossier(
+            KpiDossier(
+                kpi=kpi,
+                limitations=LimitationsFacet(
+                    truncated=True,
+                    truncation_reason=(
+                        f"Skipped expensive dossier scans because graph size exceeds PR1 guard "
+                        f"(nodes={len(nodes)}/{_KPI_DOSSIER_NODE_BUDGET}, edges={len(edges)}/{_KPI_DOSSIER_EDGE_BUDGET})"
+                    ),
+                ),
+            )
+        )
+
+    children_by_parent: dict[str | None, list[Any]] = {}
+    for node in nodes:
+        children_by_parent.setdefault(node.parent_id, []).append(node)
+
+    edge_ids = [edge.edge_id for edge in edges]
+    ledger = store.query_ledger_latest_for_targets(graph_id, edge_ids) if edge_ids else {}
+    view = DossierGraphView(
+        nodes_by_id=nodes_by_id,
+        adjacency=build_adjacency(edges),
+        children_by_parent=children_by_parent,
+        edges=edges,
+        ledger_status_by_target={target_id: row.status for target_id, row in ledger.items()},
+    )
+
+    completeness_result = assess_completeness(store, {"graph_id": graph_id})
+    currency_result = assess_currency(store, {"graph_id": graph_id, "scope": kpi_node_id, "mode": "scoped", "top_n": 10})
+    weak_result = get_weak_edges(store, {"graph_id": graph_id})
+    pending_result = list_pending_confirmations(store, {"graph_id": graph_id})
+    weak_edges = [
+        {
+            "from_node": item.get("source"),
+            "to_node": item.get("target"),
+            "relationship": item.get("label"),
+            "confidence": item.get("confidence"),
+            "source": "get_weak_edges",
+        }
+        for item in weak_result.get("weak_edges", [])
+        if item.get("source") == kpi_node_id or item.get("target") == kpi_node_id
+    ]
+    gaps = DossierGapInputs(
+        completeness=_extract_completeness_gaps(completeness_result),
+        currency=_extract_currency_gaps(currency_result),
+        weak_edges=weak_edges,
+        unconfirmed_lineage=_extract_pending_lineage(pending_result, kpi_node_id=kpi_node_id),
+    )
+    dossier = assemble_kpi_dossier(view, gaps, kpi_node_id=kpi_node_id, depth=2)
+    return serialize_dossier(dossier)
+
+
+def _extract_completeness_gaps(result: dict[str, Any]) -> list[dict[str, Any]]:
+    gaps: list[dict[str, Any]] = []
+    for item in result.get("missing_for_brd", []) or []:
+        gaps.append({"gap_type": "missing_entity_type", "description": f"Missing or underspecified {item}", "source": "assess_completeness"})
+    for item in result.get("underspecified_nodes", []) or []:
+        gaps.append({"gap_type": "underspecified_node", "description": f"Node {item} is underspecified", "source": "assess_completeness"})
+    return gaps
+
+
+def _extract_currency_gaps(result: dict[str, Any]) -> list[dict[str, Any]]:
+    gaps: list[dict[str, Any]] = []
+    for item in result.get("gaps", []) or result.get("criticality_ranked_gaps", []) or []:
+        if isinstance(item, dict):
+            gaps.append(
+                {
+                    "description": str(item.get("description") or item.get("gap") or item),
+                    "criticality": str(item.get("criticality") or item.get("severity") or "medium"),
+                    "source": "assess_currency",
+                }
+            )
+    return gaps
+
+
+def _extract_pending_lineage(result: dict[str, Any], *, kpi_node_id: str) -> list[dict[str, Any]]:
+    lineage: list[dict[str, Any]] = []
+    for row in result.get("confirmations", []) or []:
+        if not isinstance(row, dict):
+            continue
+        relationship = row.get("relationship_label")
+        from_node = row.get("source_node_id")
+        to_node = row.get("target_node_id")
+        if relationship != "measured-from" or from_node != kpi_node_id or not isinstance(to_node, str):
+            continue
+        lineage.append(
+            {
+                "candidate_id": str(row.get("target_id") or row.get("id") or f"{from_node}->{to_node}:{relationship}"),
+                "from_node": from_node,
+                "to_node": to_node,
+                "relationship": relationship,
+                "source": "insert_pending_question",
+            }
+        )
+    return lineage
 
 
 @error_boundary
@@ -2269,6 +2394,13 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "handler": get_node,
         "schema": TOOL_SCHEMAS["get_node"],
         "description": "Get one node by id",
+        "rw": "read",
+        "requires_ai_agent": False,
+    },
+    "get_kpi_dossier": {
+        "handler": get_kpi_dossier,
+        "schema": TOOL_SCHEMAS["get_kpi_dossier"],
+        "description": "Assemble a structured KPI dossier from graph lineage and limitations",
         "rw": "read",
         "requires_ai_agent": False,
     },

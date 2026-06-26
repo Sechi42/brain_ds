@@ -547,6 +547,8 @@ CONNECTION_RULES: dict[str, object] = {
         {"connection": "KPI ↔ Department", "rule": "KPI owner dept maps to Department (owned-by)"},
         {"connection": "KPI ↔ Role", "rule": "KPI owner role maps to Role (accountable)"},
         {"connection": "KPI ↔ Data Source", "rule": "KPI measurement source maps to Data Source (measured-by)"},
+        {"connection": "KPI ↔ Data Container (table)", "rule": "KPI table-grain lineage maps to a Data Container under its Data Source (measured-from) only after confirmation; Data Field lineage requires explicit field-grain confirmation"},
+        {"connection": "KPI ↔ Process", "rule": "KPI produced/maintained by a Heuristic/Project/Decision process (depends-on)"},
         {"connection": "KPI ↔ Problem / Improvement Area", "rule": "KPI degraded by linked problems or improvement areas (degraded-by)"},
         {"connection": "Solution ↔ KPI", "rule": "Solution expected impact references KPI (improves)"},
         {"connection": "Solution ↔ Problem / Improvement Area", "rule": "Solution resolves linked problems or improvement areas (resolves)"},

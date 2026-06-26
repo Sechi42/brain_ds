@@ -72,7 +72,7 @@ Rules:
 4. Never mix multiple graph IDs in one report.
 5. If the resolved graph returns zero nodes, emit: `No domain knowledge captured yet in SQLite. Run /elicit-context first to populate the organization graph.`
 6. typed SQL filters are not equivalent to Engram substring search. validate the difference on a seeded vault before assuming parity.
-7. `DataContainer` and `DataField` are Data Source-internal structural nodes, not standalone domain entities. Use them only to explain a Data Source's internal structure (`internal_subtree`, `details.kind`, or targeted `list_nodes` filters); do not count them as missing knowledge or map them as top-level relationship endpoints.
+7. `DataContainer` and `DataField` are Data Source-internal structural nodes, not standalone domain entities. Use them to explain a Data Source's internal structure (`internal_subtree`, `details.kind`, or targeted `list_nodes` filters); do not count them as missing knowledge or generic top-level endpoints. The only mapping exception is confirmed KPI lineage: KPI→DataContainer table-grain `measured-from` edges may be first-class only after confirmation, and KPI→DataField field-grain `measured-from` edges require explicit human confirmation.
 
 ## Completeness Gate (Mandatory)
 
@@ -138,6 +138,8 @@ Tokenize to lowercase terms, remove punctuation and obvious stopwords, then scor
 | KPI ↔ Department | KPI owner dept maps to Department (`owned-by`) |
 | KPI ↔ Role | KPI owner role maps to Role (`accountable`) |
 | KPI ↔ Data Source | KPI measurement source maps to Data Source (`measured-by`) |
+| KPI ↔ Data Container (table) | KPI table-grain lineage maps to a Data Container under its Data Source (`measured-from`) |
+| KPI ↔ Process | KPI produced/maintained by a Heuristic/Project/Decision process (`depends-on`) |
 | KPI ↔ Problem / Improvement Area | KPI degraded by linked problems or improvement areas (`degraded-by`) |
 | Solution ↔ KPI | Solution expected impact references KPI (`improves`) |
 | Solution ↔ Problem / Improvement Area | Solution resolves linked problems or improvement areas (`resolves`) |
@@ -372,7 +374,7 @@ Organization node rules:
 
 ### Edge Labels
 
-Use ontology-backed relationship labels from `brain_ds.ontology.RelationshipType` where relevant (`owns`, `uses`, `depends-on`, `blocked-by`, `creates-risk`, `decided-by`, `measured-by`, `shared-with`, `owned-by`, `accountable`, `degraded-by`, `targets`, `improves`, `resolves`).
+Use ontology-backed relationship labels from `brain_ds.ontology.RelationshipType` where relevant (`owns`, `uses`, `depends-on`, `blocked-by`, `creates-risk`, `decided-by`, `measured-by`, `measured-from`, `shared-with`, `owned-by`, `accountable`, `degraded-by`, `targets`, `improves`, `resolves`).
 
 Canonical contract note (spec-facing):
 - Canonical labels are defined in `brain_ds.ontology.RelationshipType`.

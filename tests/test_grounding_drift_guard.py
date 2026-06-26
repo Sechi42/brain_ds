@@ -784,9 +784,9 @@ class AssessCompletenessTests(unittest.TestCase):
 
 
 class ToolCountSyncTests(unittest.TestCase):
-    """R-11: TOOL_REGISTRY must have exactly 31 tools after manage_clusters is added."""
+    """TOOL_REGISTRY must have exactly 32 tools after get_kpi_dossier is added."""
 
-    def test_tool_registry_has_31_tools_after_manage_clusters_added(self) -> None:
+    def test_tool_registry_has_32_tools_after_get_kpi_dossier_added(self) -> None:
         from brain_ds.harness_check import EXPECTED_MCP_TOOL_COUNT
         from brain_ds.mcp.tools import TOOL_REGISTRY
 
@@ -794,7 +794,7 @@ class ToolCountSyncTests(unittest.TestCase):
             len(TOOL_REGISTRY),
             EXPECTED_MCP_TOOL_COUNT,
             f"Expected {EXPECTED_MCP_TOOL_COUNT} MCP tools, got {len(TOOL_REGISTRY)}. "
-            "Modular graph intelligence PR2 must add manage_clusters.",
+            "KPI composition dossier PR1 must add get_kpi_dossier.",
         )
         self.assertIn(
             "assess_currency",
@@ -810,6 +810,11 @@ class ToolCountSyncTests(unittest.TestCase):
             "manage_clusters",
             TOOL_REGISTRY,
             "manage_clusters must be registered for semantic cluster governance.",
+        )
+        self.assertIn(
+            "get_kpi_dossier",
+            TOOL_REGISTRY,
+            "get_kpi_dossier must be registered for KPI dossier composition.",
         )
 
 

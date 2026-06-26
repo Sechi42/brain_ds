@@ -62,7 +62,7 @@ class TestEntityType(unittest.TestCase):
 
 class TestRelationshipType(unittest.TestCase):
     def test_relationship_labels_count_and_descriptions(self):
-        self.assertEqual(len(RelationshipType), 14)
+        self.assertEqual(len(RelationshipType), 15)
         for rel in RelationshipType:
             self.assertTrue(rel.description.strip())
 

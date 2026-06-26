@@ -65,7 +65,7 @@ Sub-agents available for delegation. Orchestrators read this table to know which
 | `brainds-connection-mapper` | sonnet | Runs the connection-mapping pass with completeness gating; `DataContainer` and `DataField` are Data Source-internal structural nodes, not standalone domain entities |
 | `brainds-brd-writer` | sonnet | Builds the deterministic BRD and persists it to the graph and Engram |
 
-> **Data Source-internal types:** `DataContainer` and `DataField` are Data Source-internal structural nodes. They are NOT top-level endpoints, standalone interview entities, or relationship targets. Capture them through Data Source structure exploration. This registry, `elicit-context`, `brainds-docs`, `map-connections`, and `SHARED_CONTEXT` all mirror this constraint.
+> **Data Source-internal types:** `DataContainer` and `DataField` are Data Source-internal structural nodes. They are NOT standalone interview entities or missing-knowledge targets. Capture them through Data Source structure exploration; KPI lineage may target `DataContainer` with confirmed `measured-from` edges, while `DataField` edges require explicit human confirmation. This registry, `elicit-context`, `brainds-docs`, `map-connections`, and `SHARED_CONTEXT` all mirror this constraint.
 
 ## Loading protocol
 

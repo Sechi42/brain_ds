@@ -50,6 +50,15 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         },
         "additionalProperties": False,
     },
+    "get_kpi_dossier": {
+        "type": "object",
+        "required": ["graph_id", "kpi_node_id"],
+        "properties": {
+            "graph_id": {"type": "string", "minLength": 1},
+            "kpi_node_id": {"type": "string", "minLength": 1},
+        },
+        "additionalProperties": False,
+    },
     "search_graph": {
         "type": "object",
         "required": ["graph_id", "query"],

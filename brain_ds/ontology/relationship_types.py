@@ -15,6 +15,7 @@ class RelationshipType(Enum):
     CREATES_RISK = ("creates-risk", "Source creates risk for target")
     DECIDED_BY = ("decided-by", "Source is decided by target")
     MEASURED_BY = ("measured-by", "Source is measured by target")
+    MEASURED_FROM = ("measured-from", "Source is measured from target")
     SHARED_WITH = ("shared-with", "Source is shared with target")
     OWNED_BY = ("owned-by", "Source is owned by target")
     ACCOUNTABLE = ("accountable", "Source is accountable for target")
@@ -49,6 +50,7 @@ BASE_WEIGHTS: dict[RelationshipType, float] = {
     RelationshipType.CREATES_RISK: 0.70,
     RelationshipType.DECIDED_BY: 0.45,
     RelationshipType.MEASURED_BY: 0.50,
+    RelationshipType.MEASURED_FROM: 0.55,
     RelationshipType.SHARED_WITH: 0.35,
     RelationshipType.OWNED_BY: 0.40,
     RelationshipType.ACCOUNTABLE: 0.50,

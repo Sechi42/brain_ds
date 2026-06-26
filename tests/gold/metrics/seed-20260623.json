@@ -256,6 +256,38 @@
       "recall": 1.0,
       "reject_threshold": 0.25
     },
+    "measured-from": {
+      "abstain_actual_count": 1,
+      "abstain_band_size": 0.52,
+      "abstain_coverage": 0.2,
+      "abstain_predicted_count": 1,
+      "abstain_recall": 1.0,
+      "accept_threshold": 0.78,
+      "confusion_matrix": {
+        "abstain": {
+          "abstain": 1,
+          "invalid": 0,
+          "valid": 0
+        },
+        "invalid": {
+          "abstain": 0,
+          "invalid": 2,
+          "valid": 0
+        },
+        "valid": {
+          "abstain": 0,
+          "invalid": 0,
+          "valid": 2
+        }
+      },
+      "examples": 5,
+      "false_negative_rate": 0.0,
+      "false_positive_rate": 0.0,
+      "label": "measured-from",
+      "precision": 1.0,
+      "recall": 1.0,
+      "reject_threshold": 0.26
+    },
     "owned-by": {
       "abstain_actual_count": 1,
       "abstain_band_size": 0.49,
@@ -449,13 +481,13 @@
       "reject_threshold": 0.25
     }
   },
-  "generated_at": "2026-06-23T17:58:55.904807+00:00",
+  "generated_at": "2026-06-26T18:00:38.057230+00:00",
   "global_accept_threshold": null,
   "global_reject_threshold": null,
   "provenance_counts": {
     "generated": 0,
     "hand_labeled": 0,
-    "seed": 70
+    "seed": 75
   },
   "run_id": "seed-20260623"
 }

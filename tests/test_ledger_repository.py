@@ -9,10 +9,7 @@ any raw connection fixture must set it explicitly.
 from __future__ import annotations
 
 import dataclasses
-import sqlite3
 from datetime import datetime, timezone
-
-import pytest
 
 from brain_ds.store.graph_store import GraphStore
 
@@ -199,7 +196,6 @@ def test_query_by_graph_returns_all_ordered():
 def test_query_latest_per_target_returns_one_per_target():
     """query_latest_per_target returns one (latest) row per target_id."""
     from brain_ds.store.repository import LedgerRepository
-    from brain_ds.store.models import LedgerRow
 
     store = _open_store()
     _create_graph(store)
@@ -222,7 +218,6 @@ def test_query_latest_per_target_returns_one_per_target():
     assert by_target["edge-B"].id == id_b1
 
     # superseded row must NOT be in the result
-    superseded_ids = {r.id for r in latest}
     # id of the first edge-A row is id_a2 - 2 or id_a2 - something; we just
     # check that status='confirmed' won and 'inferred' for edge-A is absent
     assert by_target["edge-A"].status == "confirmed"
@@ -459,7 +454,7 @@ def test_append_node_target_type_and_scoping():
     repo = LedgerRepository(store.conn)
 
     # Append a node-fact row with descriptor fields
-    node_id = repo.append(
+    repo.append(
         graph_id="g1",
         target_id="n7",
         target_type="node",
@@ -473,7 +468,7 @@ def test_append_node_target_type_and_scoping():
     )
 
     # Also append an edge row
-    edge_id = repo.append(
+    repo.append(
         graph_id="g1",
         target_id="e1",
         target_type="edge",
@@ -519,7 +514,7 @@ def test_node_fact_descriptors_null_for_edge_rows():
     _create_graph(store)
     repo = LedgerRepository(store.conn)
 
-    row_id = repo.append(
+    repo.append(
         graph_id="g1",
         target_id="e99",
         target_type="edge",
@@ -540,16 +535,17 @@ def test_node_fact_descriptors_null_for_edge_rows():
 
 
 def test_tool_count_unchanged():
-    """TOOL_REGISTRY must have exactly 31 tools after cluster management is wired."""
+    """TOOL_REGISTRY must have exactly 32 tools after KPI dossier is wired."""
     from brain_ds.mcp.tools import TOOL_REGISTRY
 
-    assert len(TOOL_REGISTRY) == 31, (
-        f"Expected 31 MCP tools, got {len(TOOL_REGISTRY)}. "
-        "Modular graph intelligence PR2 must add manage_clusters."
+    assert len(TOOL_REGISTRY) == 32, (
+        f"Expected 32 MCP tools, got {len(TOOL_REGISTRY)}. "
+        "KPI composition dossier PR1 must add get_kpi_dossier."
     )
     assert "assess_currency" in TOOL_REGISTRY
     assert "insert_pending_question" in TOOL_REGISTRY
     assert "manage_clusters" in TOOL_REGISTRY
+    assert "get_kpi_dossier" in TOOL_REGISTRY
 
 
 # ---------------------------------------------------------------------------

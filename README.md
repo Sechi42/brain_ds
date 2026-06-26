@@ -10,7 +10,7 @@
 
 1. Install dependencies: `uv sync`
 2. Run the branded front door: `brain_ds onboard --project-root . --agent both --force`
-3. Open your agent client in this repo and verify `/mcp` shows **31 tools**
+3. Open your agent client in this repo and verify `/mcp` shows **32 tools**
 4. Run one of the workflow commands below
 
 `brain_ds onboard` wraps the underlying `setup + install-opencode` engines: MCP config, local store bootstrap, OpenCode skill mirrors, commands, and optional agent wiring.
@@ -49,11 +49,11 @@ Write access to external data sources is intentionally blocked at three layers:
 | MCP validation | exploration/query tools reject write-like modes and non-SELECT SQLite queries |
 | Agent prompt | `brainds-source-explorer` explicitly forbids mutations |
 
-## MCP tools (31)
+## MCP tools (32)
 
 | Category | Tools |
 |---|---|
-| Graph data | `list_graphs`, `create_graph`, `import_graph`, `list_nodes`, `list_data_sources`, `get_node`, `search_graph`, `update_node`, `add_edge`, `delete_node`, `delete_edge`, `suggest_connections`, `assess_completeness`, `assess_currency`, `insert_pending_question`, `manage_clusters`, `get_weak_edges`, `snapshot_edges`, `list_pending_confirmations`, `resolve_confirmation`, `retrieve_context` |
+| Graph data | `list_graphs`, `create_graph`, `import_graph`, `list_nodes`, `list_data_sources`, `get_node`, `get_kpi_dossier`, `search_graph`, `update_node`, `add_edge`, `delete_node`, `delete_edge`, `suggest_connections`, `assess_completeness`, `assess_currency`, `insert_pending_question`, `manage_clusters`, `get_weak_edges`, `snapshot_edges`, `list_pending_confirmations`, `resolve_confirmation`, `retrieve_context` |
 | Data source exploration | `list_source_connections`, `explore_source`, `query_source` |
 | Workspace secrets | `list_secret_handles`, `validate_secret_handle` |
 | Workspace | `list_workspaces`, `open_workspace` |
@@ -159,7 +159,7 @@ Preferred path:
 brain_ds onboard --project-root . --agent both --force
 ```
 
-Then open your client in this repo and confirm `/mcp` shows `brain_ds` connected with **31 tools**.
+Then open your client in this repo and confirm `/mcp` shows `brain_ds` connected with **32 tools**.
 
 ## Graph viewer quick start
 
