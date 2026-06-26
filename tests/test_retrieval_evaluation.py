@@ -40,8 +40,10 @@ def test_evaluation_reports_quality_latency_and_determinism() -> None:
     assert report.metrics["recall@2"] == 1.0
     assert report.metrics["precision@2"] == 1.0
     assert 0.9 <= report.metrics["ndcg@2"] <= 1.0
-    assert report.metrics["p50_latency_ms"] >= 0.0
-    assert report.metrics["p95_latency_ms"] >= report.metrics["p50_latency_ms"]
+    assert "p50_latency_ms" not in report.metrics
+    assert "p95_latency_ms" not in report.metrics
+    assert report.measured_latency_ms["p50"] >= 0.0
+    assert report.measured_latency_ms["p95"] >= report.measured_latency_ms["p50"]
     assert report.deterministic is True
     assert report.query_count == 1
 
