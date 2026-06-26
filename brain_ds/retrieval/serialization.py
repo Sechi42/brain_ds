@@ -65,7 +65,7 @@ def serialize_for_llm(
 
     # Truncation needed — D4: farthest-hop card_sections stripped first.
     truncated = _apply_truncation(anchor_ids, nodes_by_id, edges, hierarchy_paths, full_text, module_route=module_route)
-    return truncated
+    return _cap_payload_bytes(truncated)
 
 
 # ---------------------------------------------------------------------------
@@ -248,3 +248,13 @@ def _apply_truncation(
     # Append sentinel
     result = result.rstrip("\n") + "\n" + _TRUNCATION_SENTINEL
     return result
+
+
+def _cap_payload_bytes(text: str) -> str:
+    """Apply the global 256 KiB cap after all rendering, including route summaries."""
+    payload = text.encode("utf-8")
+    if len(payload) <= _MAX_PAYLOAD_BYTES:
+        return text
+    sentinel = ("\n" + _TRUNCATION_SENTINEL).encode("utf-8")
+    budget = max(0, _MAX_PAYLOAD_BYTES - len(sentinel))
+    return payload[:budget].decode("utf-8", errors="ignore").rstrip("\n") + sentinel.decode("utf-8")
