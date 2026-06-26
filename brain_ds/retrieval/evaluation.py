@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from statistics import median
 from time import perf_counter
@@ -44,12 +44,21 @@ class EvaluationReport:
     metrics: dict[str, float]
     deterministic: bool
     query_count: int
-    measured_latency_ms: dict[str, float]
+    measured_latency_ms: dict[str, float] = field(compare=False, repr=False)
     ablation: str = "baseline"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "metrics", dict(self.metrics))
         object.__setattr__(self, "measured_latency_ms", dict(self.measured_latency_ms))
+
+    def to_comparable_dict(self) -> dict[str, object]:
+        """Serialize only stable fields intended for same-input comparisons."""
+        return {
+            "ablation": self.ablation,
+            "deterministic": self.deterministic,
+            "metrics": dict(self.metrics),
+            "query_count": self.query_count,
+        }
 
 
 @dataclass(slots=True)
