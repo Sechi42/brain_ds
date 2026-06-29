@@ -1,0 +1,141 @@
+{
+  "version": 2,
+  "scenario": "revops_growth",
+  "rubric": {
+    "version": "2026-06-26-pr1",
+    "axes": {
+      "lineage": {"weight": 0.35, "max_score": 5},
+      "entity_source": {"weight": 0.15, "max_score": 5},
+      "pending_questions": {"weight": 0.15, "max_score": 5},
+      "business_usefulness": {"weight": 0.15, "max_score": 5},
+      "evidence_quality": {"weight": 0.1, "max_score": 5},
+      "artifact_hygiene": {"weight": 0.05, "max_score": 5},
+      "anti_contamination": {"weight": 0.05, "max_score": 5}
+    }
+  },
+  "canonical_nodes": [
+    {
+      "id": "crm_accounts",
+      "type": "Data Source",
+      "label": "CRM Accounts",
+      "aliases": ["CRM Account Records", "Account CRM", "Customer Accounts"]
+    },
+    {
+      "id": "marketing_campaigns",
+      "type": "Data Source",
+      "label": "Marketing Campaigns",
+      "aliases": ["MKT Campaigns", "Campaign Performance", "Marketing Campaign Data"]
+    },
+    {
+      "id": "billing_subscriptions",
+      "type": "Data Source",
+      "label": "Billing Subscriptions",
+      "aliases": ["Subscription Billing", "Billing Subscription Data"]
+    },
+    {
+      "id": "product_usage",
+      "type": "Data Source",
+      "label": "Product Usage",
+      "aliases": ["Usage Events", "Product Telemetry"]
+    },
+    {
+      "id": "support_tickets",
+      "type": "Data Source",
+      "label": "Support Tickets",
+      "aliases": ["Customer Support Tickets", "Support Cases"]
+    },
+    {
+      "id": "finance_revenue",
+      "type": "Data Source",
+      "label": "Finance Revenue",
+      "aliases": ["Revenue Ledger", "Finance Revenue Data"]
+    },
+    {
+      "id": "pipeline",
+      "type": "KPI",
+      "label": "Influenced Pipeline",
+      "aliases": ["Pipeline", "Marketing Influenced Pipeline"]
+    },
+    {
+      "id": "nrr",
+      "type": "KPI",
+      "label": "Net Revenue Retention",
+      "aliases": ["NRR", "Net Revenue Retention KPI"]
+    }
+  ],
+  "expected_edges": [
+    {
+      "source": "marketing_campaigns",
+      "target": "pipeline",
+      "compatible_labels": ["measures", "influences", "uses"],
+      "direction": "source_to_target"
+    },
+    {
+      "source": "crm_accounts",
+      "target": "pipeline",
+      "compatible_labels": ["measures", "depends_on", "uses"],
+      "direction": "source_to_target"
+    },
+    {
+      "source": "billing_subscriptions",
+      "target": "nrr",
+      "compatible_labels": ["depends_on", "measures", "uses"],
+      "direction": "source_to_target"
+    },
+    {
+      "source": "finance_revenue",
+      "target": "nrr",
+      "compatible_labels": ["measures", "depends_on"],
+      "direction": "source_to_target"
+    },
+    {
+      "source": "product_usage",
+      "target": "nrr",
+      "compatible_labels": ["influences", "depends_on", "uses"],
+      "direction": "source_to_target"
+    },
+    {
+      "source": "support_tickets",
+      "target": "nrr",
+      "compatible_labels": ["influences", "depends_on", "uses"],
+      "direction": "source_to_target"
+    }
+  ],
+  "optional_edges": [
+    {
+      "source": "nrr",
+      "target": "billing_subscriptions",
+      "compatible_labels": ["measured_from"],
+      "direction": "target_to_source"
+    }
+  ],
+  "forbidden_edges": [
+    {
+      "source": "support_tickets",
+      "target": "pipeline",
+      "compatible_labels": ["measures", "depends_on", "influences"],
+      "direction": "source_to_target"
+    }
+  ],
+  "pending_question_themes": [
+    {
+      "id": "source_ownership",
+      "entity_type": "Data Source",
+      "expected_terms": ["owner", "source", "accountable"],
+      "min_hits": 2
+    },
+    {
+      "id": "kpi_definition",
+      "entity_type": "KPI",
+      "expected_terms": ["definition", "calculation", "threshold"],
+      "min_hits": 2
+    },
+    {
+      "id": "data_gap",
+      "expected_terms": ["gap", "missing", "confirm"],
+      "min_hits": 2
+    }
+  ],
+  "business_terms": ["next actions", "assumptions", "data gaps", "source ownership", "kpi definitions"],
+  "forbidden_subject_terms": ["eval", "rubric", "gold", "answer key", "expected output", "benchmark", "hidden test"]
+}

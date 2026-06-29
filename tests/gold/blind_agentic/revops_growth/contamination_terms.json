@@ -1,0 +1,11 @@
+{
+  "forbidden_terms": [
+    "eval",
+    "rubric",
+    "gold",
+    "answer key",
+    "expected output",
+    "benchmark",
+    "hidden test"
+  ]
+}

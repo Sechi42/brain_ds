@@ -1,0 +1,10 @@
+{
+  "graph_id": "helios-datasource-docs",
+  "name": "Helios Retail Source Documentation",
+  "project": "blind-agentic-subject",
+  "nodes": [
+    {"id": "source-orders", "label": "Orders", "type": "Data Source"},
+    {"id": "source-customers", "label": "Customers", "type": "Data Source"}
+  ],
+  "edges": []
+}

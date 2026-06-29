@@ -1,0 +1,4 @@
+account_id,month,recognized_revenue,expansion,contraction,churn
+A-1001,2026-05,20000,5000,0,0
+A-1003,2026-05,15000,0,2500,0
+A-1002,2026-05,0,0,0,0

@@ -1,0 +1,3 @@
+source_name,domain,business_owner,refresh_cadence,description
+orders,Commerce Ops,Revenue Operations,daily,Order transactions with totals status channel and customer references
+customers,Customer Success,Customer Operations,weekly,Customer master attributes with region segment and lifecycle status

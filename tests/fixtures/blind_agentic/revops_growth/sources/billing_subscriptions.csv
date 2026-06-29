@@ -1,0 +1,4 @@
+subscription_id,account_id,plan,arr,status,renewal_date
+S-7001,A-1001,Enterprise,240000,active,2026-12-31
+S-7002,A-1003,Enterprise,180000,active,2026-09-30
+S-7003,A-1002,Growth,72000,pending,2026-11-15

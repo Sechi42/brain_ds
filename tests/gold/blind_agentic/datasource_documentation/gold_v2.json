@@ -1,0 +1,38 @@
+{
+  "version": 2,
+  "scenario": "datasource_documentation",
+  "pathway_id": "datasource_documentation",
+  "rubric": {
+    "version": "2026-06-27-pr1",
+    "axes": {
+      "orchestrator_entry": {"weight": 0.2, "max_score": 5},
+      "source_documentation": {"weight": 0.35, "max_score": 5},
+      "ownership_and_freshness": {"weight": 0.15, "max_score": 5},
+      "graph_mapping": {"weight": 0.15, "max_score": 5},
+      "artifact_hygiene": {"weight": 0.1, "max_score": 5},
+      "anti_contamination": {"weight": 0.05, "max_score": 5}
+    }
+  },
+  "pathway_milestones": [
+    {"id": "orchestrator_entry", "role": "orchestrator", "description": "Run starts through brainds-orchestrator."},
+    {"id": "explore_source", "role": "subagent", "description": "Orchestrator delegates source exploration or inspects source files."},
+    {"id": "document_source", "role": "subagent", "description": "Source documentation is produced with owner, freshness, caveats, and fields."},
+    {"id": "map_to_graph", "role": "subagent", "description": "Documented sources are represented as graph nodes or linked evidence."}
+  ],
+  "expected_roles": ["verifier", "orchestrator", "subagent", "tool"],
+  "canonical_nodes": [
+    {"id": "orders", "type": "Data Source", "label": "Orders", "aliases": ["Order Analytics", "Order Transactions"]},
+    {"id": "customers", "type": "Data Source", "label": "Customers", "aliases": ["Customer Master", "Customer Attributes"]}
+  ],
+  "expected_edges": [
+    {"source": "orders", "target": "customers", "compatible_labels": ["depends_on", "uses", "references"], "direction": "source_to_target"}
+  ],
+  "optional_edges": [],
+  "forbidden_edges": [],
+  "pending_question_themes": [
+    {"id": "source_owner", "entity_type": "Data Source", "expected_terms": ["owner", "accountable", "business owner"], "min_hits": 1},
+    {"id": "freshness", "entity_type": "Data Source", "expected_terms": ["freshness", "refresh", "cadence"], "min_hits": 1}
+  ],
+  "required_artifacts": ["source documentation", "graph source nodes"],
+  "forbidden_subject_terms": ["eval", "rubric", "gold", "answer key", "expected output", "benchmark", "hidden test"]
+}

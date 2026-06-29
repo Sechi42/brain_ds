@@ -1,0 +1,4 @@
+customer_id,customer_name,region,segment,lifecycle_status
+C-001,Aster Foods,NA,enterprise,active
+C-002,Blue Finch Retail,EU,midmarket,active
+C-003,Copper Trail,NA,smb,prospect

@@ -1,0 +1,12 @@
+{
+  "scenario": "datasource_documentation",
+  "version": "2026-06-27-pr1",
+  "axes": {
+    "orchestrator_entry": {"weight": 0.2, "max_score": 5},
+    "source_documentation": {"weight": 0.35, "max_score": 5},
+    "ownership_and_freshness": {"weight": 0.15, "max_score": 5},
+    "graph_mapping": {"weight": 0.15, "max_score": 5},
+    "artifact_hygiene": {"weight": 0.1, "max_score": 5},
+    "anti_contamination": {"weight": 0.05, "max_score": 5}
+  }
+}

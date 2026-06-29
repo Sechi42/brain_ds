@@ -1,0 +1,14 @@
+{
+  "graph_id": "northstar-revops",
+  "name": "Northstar Revenue Operations",
+  "project": "blind-agentic-subject",
+  "nodes": [
+    {"id": "source-crm", "label": "CRM Accounts", "type": "Data Source"},
+    {"id": "source-marketing", "label": "Marketing Campaigns", "type": "Data Source"},
+    {"id": "source-billing", "label": "Billing Subscriptions", "type": "Data Source"},
+    {"id": "source-product", "label": "Product Usage", "type": "Data Source"},
+    {"id": "source-support", "label": "Support Tickets", "type": "Data Source"},
+    {"id": "source-finance", "label": "Finance Revenue", "type": "Data Source"}
+  ],
+  "edges": []
+}

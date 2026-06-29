@@ -1,0 +1,20 @@
+{
+  "scenario": "revops_growth",
+  "nodes": [
+    {"id": "crm_accounts", "type": "Data Source", "label": "CRM Accounts"},
+    {"id": "marketing_campaigns", "type": "Data Source", "label": "Marketing Campaigns"},
+    {"id": "billing_subscriptions", "type": "Data Source", "label": "Billing Subscriptions"},
+    {"id": "product_usage", "type": "Data Source", "label": "Product Usage"},
+    {"id": "support_tickets", "type": "Data Source", "label": "Support Tickets"},
+    {"id": "finance_revenue", "type": "Data Source", "label": "Finance Revenue"},
+    {"id": "pipeline", "type": "KPI", "label": "Influenced Pipeline"},
+    {"id": "nrr", "type": "KPI", "label": "Net Revenue Retention"}
+  ],
+  "edges": [
+    {"source": "marketing_campaigns", "target": "pipeline", "label": "measures"},
+    {"source": "billing_subscriptions", "target": "nrr", "label": "depends_on"},
+    {"source": "finance_revenue", "target": "nrr", "label": "measures"},
+    {"source": "product_usage", "target": "nrr", "label": "influences"},
+    {"source": "support_tickets", "target": "nrr", "label": "influences"}
+  ]
+}

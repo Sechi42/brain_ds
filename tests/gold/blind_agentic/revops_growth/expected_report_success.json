@@ -1,0 +1,214 @@
+{
+  "advisory_judge": null,
+  "anti_contamination": {
+    "findings": [],
+    "status": "passed"
+  },
+  "axes": {
+    "anti_contamination": {
+      "evidence_refs": [
+        "manifest.json"
+      ],
+      "missing_expected": [],
+      "rationale": "Subject-visible contamination findings must be absent for a valid blind score.",
+      "score_0_5": 5,
+      "weight": 0.05,
+      "weighted_score": 0.25
+    },
+    "artifact_hygiene": {
+      "evidence_refs": [
+        "manifest.json"
+      ],
+      "missing_expected": [],
+      "rationale": "Captured artifact set was checked for omissions that affect repeatable review.",
+      "score_0_5": 5,
+      "weight": 0.05,
+      "weighted_score": 0.25
+    },
+    "business_usefulness": {
+      "evidence_refs": [
+        "generated_outputs"
+      ],
+      "missing_expected": [],
+      "rationale": "Business diagnosis was checked for actionable guidance and explicit assumptions/gaps.",
+      "score_0_5": 5,
+      "weight": 0.15,
+      "weighted_score": 0.75
+    },
+    "entity_source": {
+      "evidence_refs": [
+        "graph/store.db",
+        "gold_v2.json"
+      ],
+      "missing_expected": [],
+      "rationale": "Gold v2 canonical entities/sources were resolved from graph nodes using type-scoped aliases.",
+      "score_0_5": 5,
+      "weight": 0.15,
+      "weighted_score": 0.75
+    },
+    "evidence_quality": {
+      "evidence_refs": [
+        "manifest.json"
+      ],
+      "missing_expected": [],
+      "rationale": "Evidence bundle includes graph, generated outputs, and git diff when available.",
+      "score_0_5": 5,
+      "weight": 0.1,
+      "weighted_score": 0.5
+    },
+    "lineage": {
+      "evidence_refs": [
+        "graph/store.db",
+        "gold_v2.json"
+      ],
+      "forbidden_matches": [],
+      "matched_expected": [
+        "marketing_campaigns->pipeline",
+        "crm_accounts->pipeline",
+        "billing_subscriptions->nrr",
+        "finance_revenue->nrr",
+        "product_usage->nrr",
+        "support_tickets->nrr"
+      ],
+      "matched_optional": [],
+      "missing_expected": [],
+      "missing_optional": [
+        "nrr->billing_subscriptions"
+      ],
+      "rationale": "Gold v2 expected graph edges were matched through gold-owned aliases and compatible labels.",
+      "score_0_5": 5,
+      "weight": 0.35,
+      "weighted_score": 1.75
+    },
+    "pending_questions": {
+      "evidence_refs": [
+        "graph/store.db",
+        "gold_v2.json"
+      ],
+      "matched_expected": [
+        "source_ownership",
+        "kpi_definition",
+        "data_gap"
+      ],
+      "missing_expected": [],
+      "rationale": "Pending graph questions were scored by expected gold v2 themes, not exact wording.",
+      "score_0_5": 5,
+      "weight": 0.15,
+      "weighted_score": 0.75
+    }
+  },
+  "comparable_rerun_metadata": {
+    "fixture_version": "revops-growth-fixture-v1",
+    "manual_deviations": [],
+    "model": "unknown",
+    "model_provider": "unknown",
+    "prompt_version": "revops-growth-v1",
+    "rubric_version": "2026-06-26-pr1",
+    "run_timestamp_utc": "2026-06-26T00:00:00+00:00"
+  },
+  "deterministic": {
+    "axes": {
+      "anti_contamination": {
+        "evidence_refs": [
+          "manifest.json"
+        ],
+        "missing_expected": [],
+        "rationale": "Subject-visible contamination findings must be absent for a valid blind score.",
+        "score_0_5": 5,
+        "weight": 0.05,
+        "weighted_score": 0.25
+      },
+      "artifact_hygiene": {
+        "evidence_refs": [
+          "manifest.json"
+        ],
+        "missing_expected": [],
+        "rationale": "Captured artifact set was checked for omissions that affect repeatable review.",
+        "score_0_5": 5,
+        "weight": 0.05,
+        "weighted_score": 0.25
+      },
+      "business_usefulness": {
+        "evidence_refs": [
+          "generated_outputs"
+        ],
+        "missing_expected": [],
+        "rationale": "Business diagnosis was checked for actionable guidance and explicit assumptions/gaps.",
+        "score_0_5": 5,
+        "weight": 0.15,
+        "weighted_score": 0.75
+      },
+      "entity_source": {
+        "evidence_refs": [
+          "graph/store.db",
+          "gold_v2.json"
+        ],
+        "missing_expected": [],
+        "rationale": "Gold v2 canonical entities/sources were resolved from graph nodes using type-scoped aliases.",
+        "score_0_5": 5,
+        "weight": 0.15,
+        "weighted_score": 0.75
+      },
+      "evidence_quality": {
+        "evidence_refs": [
+          "manifest.json"
+        ],
+        "missing_expected": [],
+        "rationale": "Evidence bundle includes graph, generated outputs, and git diff when available.",
+        "score_0_5": 5,
+        "weight": 0.1,
+        "weighted_score": 0.5
+      },
+      "lineage": {
+        "evidence_refs": [
+          "graph/store.db",
+          "gold_v2.json"
+        ],
+        "forbidden_matches": [],
+        "matched_expected": [
+          "marketing_campaigns->pipeline",
+          "crm_accounts->pipeline",
+          "billing_subscriptions->nrr",
+          "finance_revenue->nrr",
+          "product_usage->nrr",
+          "support_tickets->nrr"
+        ],
+        "matched_optional": [],
+        "missing_expected": [],
+        "missing_optional": [
+          "nrr->billing_subscriptions"
+        ],
+        "rationale": "Gold v2 expected graph edges were matched through gold-owned aliases and compatible labels.",
+        "score_0_5": 5,
+        "weight": 0.35,
+        "weighted_score": 1.75
+      },
+      "pending_questions": {
+        "evidence_refs": [
+          "graph/store.db",
+          "gold_v2.json"
+        ],
+        "matched_expected": [
+          "source_ownership",
+          "kpi_definition",
+          "data_gap"
+        ],
+        "missing_expected": [],
+        "rationale": "Pending graph questions were scored by expected gold v2 themes, not exact wording.",
+        "score_0_5": 5,
+        "weight": 0.15,
+        "weighted_score": 0.75
+      }
+    },
+    "overall_score_0_5": 5.0,
+    "status": "pass"
+  },
+  "disagreements": [],
+  "evidence_hash": "abee4a3617c1c68451428420e40f5068e1a3ac40a569af3557a9f62211dfe347",
+  "evidence_manifest": "manifest.json",
+  "judge_packet": null,
+  "overall_score_0_5": 5.0,
+  "rubric_version": "2026-06-26-pr1",
+  "run_id": "score-run-004",
+  "scenario": "revops_growth"
+}

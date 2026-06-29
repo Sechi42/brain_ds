@@ -1,0 +1,4 @@
+order_id,customer_id,order_date,status,channel,total_amount
+O-1001,C-001,2026-06-01,paid,web,1250.00
+O-1002,C-002,2026-06-02,refunded,partner,410.50
+O-1003,C-001,2026-06-03,paid,web,799.00

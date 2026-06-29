@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import brain_ds.workspaces as workspace_registry
 from brain_ds.ontology.entity_types import EntityType
@@ -327,8 +327,8 @@ def build_source_kind_hierarchy_prose() -> str:
     for source_kind, shape in SOURCE_KIND_HIERARCHY_TEMPLATES.items():
         paths = []
         for item in shape:
-            children = item.get("children") or []
-            child_labels = [child.get("kind") if isinstance(child, dict) else str(child) for child in children]
+            children = cast(list[object], item.get("children") or [])
+            child_labels = [str(child.get("kind")) if isinstance(child, dict) else str(child) for child in children]
             paths.append(f"{item['kind']} -> {', '.join(child_labels) if child_labels else 'leaf'}")
         lines.append(f"### {source_kind}")
         lines.extend(f"- {path}" for path in paths)
@@ -1269,7 +1269,7 @@ CONTRACT_APPLICABILITY: dict[str, str] = {
     "query": "query_consultant_contract",
 }
 
-ARTIFACT_CONTRACT: dict[str, dict[str, object]] = {
+ARTIFACT_CONTRACT: dict[str, object] = {
     "source-docs": {
         "artifact_type": "source-docs",
         "required_keys": (
@@ -1346,6 +1346,43 @@ ARTIFACT_CONTRACT: dict[str, dict[str, object]] = {
         "after any human-readable sections or example blocks."
     ),
 }
+
+
+# Agentic tool-flow verifier contract: composite-first routing table used by the
+# deterministic smoke harness to verify that broad graph tasks choose the narrow
+# server-side tool before falling back to primitive call chains.
+COMPOSITE_ROUTING: dict[str, dict[str, object]] = {
+    "assemble-business-context": {
+        "composite_tool": "get_business_dossier",
+        "supersedes_primitives": ["search_graph", "list_nodes", "get_node"],
+        "args_to_extract": {"graph_id": "required", "query": "required"},
+    },
+    "explore-source-documentation": {
+        "composite_tool": "explore_source",
+        "composite_args": {"level": "documentation"},
+        "supersedes_primitives": ["list_nodes", "get_node"],
+        "args_to_extract": {"graph_id": "required", "node_id": "required"},
+    },
+    "retrieve-reliability-subgraph": {
+        "composite_tool": "retrieve_context",
+        "supersedes_primitives": ["search_graph", "snapshot_edges", "get_node"],
+        "args_to_extract": {"graph_id": "required", "query": "required"},
+    },
+}
+
+
+def resolve_composite_route(route_key: str, args: Mapping[str, object]) -> dict[str, object] | None:
+    """Resolve a deterministic composite-first tool call for an agentic flow route."""
+
+    route = COMPOSITE_ROUTING.get(route_key)
+    if route is None:
+        return None
+
+    resolved_args = dict(args)
+    composite_args = route.get("composite_args", {})
+    if isinstance(composite_args, Mapping):
+        resolved_args.update(composite_args)
+    return {"tool": route["composite_tool"], "args": resolved_args}
 
 
 def build_workspace_context(store: Any) -> dict[str, object]:

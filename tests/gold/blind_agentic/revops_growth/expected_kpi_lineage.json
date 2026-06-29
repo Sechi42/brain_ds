@@ -1,0 +1,10 @@
+{
+  "scenario": "revops_growth",
+  "kpis": {
+    "pipeline": ["marketing_campaigns", "crm_accounts"],
+    "conversion": ["marketing_campaigns", "crm_accounts"],
+    "retention": ["billing_subscriptions", "product_usage", "support_tickets"],
+    "expansion": ["billing_subscriptions", "finance_revenue", "product_usage"],
+    "net_revenue_retention": ["billing_subscriptions", "finance_revenue", "support_tickets"]
+  }
+}
