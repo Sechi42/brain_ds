@@ -142,6 +142,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             report_out.write_text(
                 json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
             )
+        if report.get("scenario") == "datasource_documentation" and report.get("blocking_failures"):
+            codes = ", ".join(str(item.get("code")) for item in report["blocking_failures"])
+            print(f"error: invalid datasource run ({codes})", file=sys.stderr)
+            return 2
     except (CollectEvidenceError, ScoreReportError, CollectAndScoreError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

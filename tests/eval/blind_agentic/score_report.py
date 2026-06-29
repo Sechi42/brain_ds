@@ -701,15 +701,34 @@ def _score_status(overall: float) -> str:
 def _datasource_blocking_failures(
     orchestrator_gate: dict[str, Any], trace_summary: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    if orchestrator_gate.get("status") != "blocked":
-        return []
-    return [
-        {
-            "code": "orchestrator_bypass",
-            "message": orchestrator_gate.get("reason", "Datasource orchestrator gate failed"),
-            "first_brainds_agent": trace_summary.get("first_brainds_agent"),
-        }
-    ]
+    failures: list[dict[str, Any]] = []
+    if orchestrator_gate.get("status") == "blocked":
+        failures.append(
+            {
+                "code": orchestrator_gate.get("code", "orchestrator_bypass"),
+                "message": orchestrator_gate.get("reason", "Datasource orchestrator gate failed"),
+                "first_brainds_agent": trace_summary.get("first_brainds_agent"),
+            }
+        )
+    text_exchange = trace_summary.get("text_exchange", {})
+    if text_exchange.get("status") != "verified":
+        failures.append(
+            {
+                "code": "missing_text_exchange",
+                "message": text_exchange.get("reason", "Missing verifiable user/orchestrator text exchange"),
+                "first_brainds_agent": trace_summary.get("first_brainds_agent"),
+            }
+        )
+    subagent_action = trace_summary.get("subagent_action", {})
+    if subagent_action.get("status") != "verified":
+        failures.append(
+            {
+                "code": "missing_subagent_action",
+                "message": subagent_action.get("reason", "Missing subagent identity with attributable action or tool call"),
+                "first_brainds_agent": trace_summary.get("first_brainds_agent"),
+            }
+        )
+    return failures
 
 
 def _datasource_status(
@@ -763,21 +782,35 @@ def _datasource_freshness_axis(*, weight: float, freshness: dict[str, Any]) -> d
 def _trace_summary(evidence: Path, manifest: dict[str, Any]) -> dict[str, Any]:
     events = _trace_events(evidence, manifest)
     first_brainds = None
+    first_root_brainds = None
     roles: list[str] = []
     undelegated_subagent_contacts: list[dict[str, str | None]] = []
+    wrong_or_fallback_agent: str | None = None
     for event in events:
         role = event.get("role")
         if isinstance(role, str):
             roles.append(role)
         agent = event.get("agent_name")
-        if first_brainds is None and isinstance(agent, str) and agent.startswith("brainds-"):
+        if first_brainds is None and isinstance(agent, str) and _is_brainds_agent(agent):
             first_brainds = agent
+        if wrong_or_fallback_agent is None and isinstance(agent, str) and _is_wrong_or_fallback_agent(agent, role):
+            wrong_or_fallback_agent = agent
         delegated_by = event.get("delegated_by")
+        is_orchestrator_delegated = _is_orchestrator_agent(
+            delegated_by if isinstance(delegated_by, str) else None
+        )
+        if (
+            first_root_brainds is None
+            and isinstance(agent, str)
+            and _is_brainds_agent(agent)
+            and not (role == "subagent" and is_orchestrator_delegated)
+        ):
+            first_root_brainds = agent
         if (
             role == "subagent"
             and isinstance(agent, str)
-            and agent.startswith("brainds-")
-            and delegated_by != "brainds-orchestrator"
+            and _is_brainds_agent(agent)
+            and not is_orchestrator_delegated
         ):
             undelegated_subagent_contacts.append(
                 {
@@ -790,7 +823,11 @@ def _trace_summary(evidence: Path, manifest: dict[str, Any]) -> dict[str, Any]:
         "event_count": len(events),
         "roles": roles,
         "first_brainds_agent": first_brainds,
+        "first_root_brainds_agent": first_root_brainds,
+        "wrong_or_fallback_agent": wrong_or_fallback_agent,
         "undelegated_subagent_contacts": undelegated_subagent_contacts,
+        "text_exchange": _text_exchange_summary(events),
+        "subagent_action": _subagent_action_summary(events),
     }
 
 
@@ -816,7 +853,11 @@ def _pathway_compliance(gold: dict[str, Any], events: list[dict[str, Any]]) -> d
     observed_set = set(observed)
     missing = [milestone for milestone in ordered if milestone not in observed_set]
     out_of_order = _out_of_order_milestones(ordered, observed)
-    off_path_event_count = sum(1 for event in events if not event.get("pathway_milestone"))
+    off_path_event_count = sum(
+        1
+        for event in events
+        if event.get("role") not in {"user", "system"} and not event.get("pathway_milestone")
+    )
     return {
         "ordered_milestones": ordered,
         "observed_milestones": observed,
@@ -925,7 +966,14 @@ def _conversation_axes(
 
 
 def _orchestrator_gate(trace_summary: dict[str, Any]) -> dict[str, Any]:
-    first = trace_summary.get("first_brainds_agent")
+    first = trace_summary.get("first_root_brainds_agent") or trace_summary.get("first_brainds_agent")
+    fallback = trace_summary.get("wrong_or_fallback_agent")
+    if isinstance(fallback, str):
+        return {
+            "status": "blocked",
+            "code": "wrong_agent",
+            "reason": f"Wrong or fallback OpenCode agent '{fallback}' was used instead of brain-ds-orchestrator",
+        }
     undelegated = trace_summary.get("undelegated_subagent_contacts") or []
     if undelegated:
         agents = ", ".join(
@@ -936,11 +984,102 @@ def _orchestrator_gate(trace_summary: dict[str, Any]) -> dict[str, Any]:
             "reason": f"BrainDS subagent contact was not delegated by brainds-orchestrator: {agents}",
             "undelegated_subagent_contacts": undelegated,
         }
-    if first == "brainds-orchestrator":
-        return {"status": "passed", "reason": "First BrainDS agent contacted was brainds-orchestrator"}
+    if _is_orchestrator_agent(first if isinstance(first, str) else None):
+        return {"status": "passed", "reason": "First BrainDS agent contacted was brain-ds-orchestrator"}
     if first is None:
         return {"status": "blocked", "reason": "No BrainDS agent trace event was captured"}
     return {"status": "blocked", "reason": f"First BrainDS agent was {first}, not brainds-orchestrator"}
+
+
+def _text_exchange_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
+    user_events = [event for event in events if event.get("role") == "user" and event.get("content_ref")]
+    assistant_events = [
+        event
+        for event in events
+        if event.get("role") == "orchestrator"
+        and _is_orchestrator_agent(str(event.get("agent_name") or ""))
+        and event.get("content_ref")
+    ]
+    if user_events and assistant_events:
+        return {
+            "status": "verified",
+            "user_text_refs": [str(event["content_ref"]) for event in user_events],
+            "orchestrator_text_refs": [str(event["content_ref"]) for event in assistant_events],
+        }
+    return {
+        "status": "missing",
+        "reason": "Requires at least one user text event and one brain-ds-orchestrator text event",
+        "user_text_count": len(user_events),
+        "orchestrator_text_count": len(assistant_events),
+    }
+
+
+def _subagent_action_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
+    subagent_names = [
+        str(event.get("agent_name"))
+        for event in events
+        if event.get("role") == "subagent" and _is_brainds_agent(str(event.get("agent_name") or ""))
+    ]
+    action_events = [
+        event
+        for event in events
+        if event.get("role") == "subagent"
+        and _is_brainds_agent(str(event.get("agent_name") or ""))
+        and _is_subagent_work_action(event.get("action"))
+    ]
+    subagent_set = set(subagent_names)
+    tool_events = [
+        event
+        for event in events
+        if event.get("role") == "tool"
+        and event.get("action") == "tool_call"
+        and (
+            str(event.get("agent_name") or "") in subagent_set
+            or str(event.get("delegated_by") or "") in subagent_set
+        )
+    ]
+    all_tool_events = [event for event in events if event.get("role") == "tool" and event.get("action") == "tool_call"]
+    if subagent_names and (action_events or tool_events):
+        return {
+            "status": "verified",
+            "subagents": sorted(set(subagent_names)),
+            "action_count": len(action_events),
+            "tool_call_count": len(tool_events),
+        }
+    return {
+        "status": "missing",
+        "reason": "Requires a BrainDS subagent identity plus an attributable action or tool call",
+        "subagents": sorted(set(subagent_names)),
+        "action_count": len(action_events),
+        "tool_call_count": len(all_tool_events),
+    }
+
+
+def _is_orchestrator_agent(agent: str | None) -> bool:
+    return (agent or "").casefold() in {"brainds-orchestrator", "brain-ds-orchestrator"}
+
+
+def _is_brainds_agent(agent: str | None) -> bool:
+    normalized = (agent or "").casefold()
+    return normalized.startswith("brainds-") or normalized.startswith("brain-ds-")
+
+
+def _is_metadata_agent(agent: str | None) -> bool:
+    return (agent or "").casefold() in {"title"}
+
+
+def _is_wrong_or_fallback_agent(agent: str, role: Any) -> bool:
+    normalized = agent.casefold()
+    if normalized == "build":
+        return True
+    if _is_brainds_agent(agent) or _is_metadata_agent(agent):
+        return False
+    return role in {"orchestrator", "verifier", "subagent"}
+
+
+def _is_subagent_work_action(action: Any) -> bool:
+    normalized = str(action or "message").casefold()
+    return normalized not in {"message", "session_created", "agent_stream"}
 
 
 def _freshness_report(manifest: dict[str, Any]) -> dict[str, Any]:

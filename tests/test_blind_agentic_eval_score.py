@@ -562,20 +562,234 @@ class BlindAgenticScoreTests(unittest.TestCase):
         self.assertEqual(report["trace_summary"]["first_brainds_agent"], "brainds-source-explorer")
         self.assertEqual(report["deterministic"]["orchestrator_gate"]["status"], "blocked")
 
+    def test_datasource_score_fails_closed_for_fallback_build_agent(self) -> None:
+        evidence = self._datasource_evidence_bundle(
+            "datasource-build-agent-run",
+            events=[
+                TraceEvent(
+                    ts="2026-06-27T00:00:00+00:00",
+                    role="orchestrator",
+                    agent_name="build",
+                    content_ref="text:assistant:build-agent-response",
+                    text_hash="a" * 64,
+                ),
+                TraceEvent(
+                    ts="2026-06-27T00:00:01+00:00",
+                    role="user",
+                    content_ref="text:user:subject-prompt",
+                    text_hash="b" * 64,
+                ),
+            ],
+        )
+
+        report = score_evidence(
+            scenario="datasource_documentation",
+            evidence_path=evidence,
+            out_path=evidence.parent / "report.json",
+            repo_root=Path.cwd(),
+        )
+
+        self.assertEqual(report["deterministic"]["status"], "fail")
+        self.assertEqual(report["blocking_failures"][0]["code"], "wrong_agent")
+        self.assertIn("fallback", report["blocking_failures"][0]["message"])
+
+    def test_datasource_score_requires_verifiable_text_exchange(self) -> None:
+        evidence = self._datasource_evidence_bundle(
+            "datasource-missing-text-exchange-run",
+            events=[
+                TraceEvent(
+                    ts="2026-06-27T00:00:00+00:00",
+                    role="orchestrator",
+                    agent_name="brain-ds-orchestrator",
+                ),
+                TraceEvent(
+                    ts="2026-06-27T00:00:01+00:00",
+                    role="subagent",
+                    agent_name="brain-ds-source-explorer",
+                    delegated_by="brain-ds-orchestrator",
+                    action="delegated_message",
+                ),
+            ],
+        )
+
+        report = score_evidence(
+            scenario="datasource_documentation",
+            evidence_path=evidence,
+            out_path=evidence.parent / "report.json",
+            repo_root=Path.cwd(),
+        )
+
+        self.assertEqual(report["deterministic"]["status"], "fail")
+        self.assertEqual(report["blocking_failures"][0]["code"], "missing_text_exchange")
+        self.assertEqual(report["trace_summary"]["text_exchange"]["status"], "missing")
+
+    def test_datasource_score_requires_subagent_identity_plus_action(self) -> None:
+        evidence = self._datasource_evidence_bundle(
+            "datasource-subagent-identity-only-run",
+            events=[
+                TraceEvent(
+                    ts="2026-06-27T00:00:00+00:00",
+                    role="user",
+                    content_ref="text:user:prompt",
+                    text_hash="b" * 64,
+                ),
+                TraceEvent(
+                    ts="2026-06-27T00:00:01+00:00",
+                    role="orchestrator",
+                    agent_name="brain-ds-orchestrator",
+                    content_ref="text:assistant:reply",
+                    text_hash="a" * 64,
+                ),
+                TraceEvent(
+                    ts="2026-06-27T00:00:02+00:00",
+                    role="subagent",
+                    agent_name="brain-ds-source-explorer",
+                    delegated_by="brain-ds-orchestrator",
+                ),
+            ],
+        )
+
+        report = score_evidence(
+            scenario="datasource_documentation",
+            evidence_path=evidence,
+            out_path=evidence.parent / "report.json",
+            repo_root=Path.cwd(),
+        )
+
+        self.assertEqual(report["deterministic"]["status"], "fail")
+        self.assertEqual(report["blocking_failures"][0]["code"], "missing_subagent_action")
+        self.assertEqual(report["trace_summary"]["subagent_action"]["status"], "missing")
+
+    def test_datasource_score_does_not_credit_tool_calls_without_subagent_identity(self) -> None:
+        evidence = self._datasource_evidence_bundle(
+            "datasource-tool-without-subagent-run",
+            events=[
+                TraceEvent(
+                    ts="2026-06-27T00:00:00+00:00",
+                    role="user",
+                    content_ref="text:user:prompt",
+                    text_hash="b" * 64,
+                ),
+                TraceEvent(
+                    ts="2026-06-27T00:00:01+00:00",
+                    role="orchestrator",
+                    agent_name="brain-ds-orchestrator",
+                    content_ref="text:assistant:reply",
+                    text_hash="a" * 64,
+                ),
+                TraceEvent(
+                    ts="2026-06-27T00:00:02+00:00",
+                    role="tool",
+                    action="tool_call",
+                    tool_name="brain_ds_explore_source",
+                    target="source-orders",
+                ),
+            ],
+        )
+
+        report = score_evidence(
+            scenario="datasource_documentation",
+            evidence_path=evidence,
+            out_path=evidence.parent / "report.json",
+            repo_root=Path.cwd(),
+        )
+
+        self.assertEqual(report["deterministic"]["status"], "fail")
+        self.assertEqual(report["blocking_failures"][0]["code"], "missing_subagent_action")
+        self.assertEqual(report["trace_summary"]["subagent_action"]["tool_call_count"], 1)
+
+    def test_datasource_score_does_not_credit_subagent_metadata_events_as_work(self) -> None:
+        evidence = self._datasource_evidence_bundle(
+            "datasource-subagent-metadata-only-run",
+            events=[
+                TraceEvent(
+                    ts="2026-06-27T00:00:00+00:00",
+                    role="user",
+                    content_ref="text:user:prompt",
+                    text_hash="b" * 64,
+                ),
+                TraceEvent(
+                    ts="2026-06-27T00:00:01+00:00",
+                    role="orchestrator",
+                    agent_name="brain-ds-orchestrator",
+                    content_ref="text:assistant:reply",
+                    text_hash="a" * 64,
+                ),
+                TraceEvent(
+                    ts="2026-06-27T00:00:02+00:00",
+                    role="subagent",
+                    agent_name="brain-ds-source-explorer",
+                    delegated_by="brain-ds-orchestrator",
+                    action="session_created",
+                ),
+                TraceEvent(
+                    ts="2026-06-27T00:00:03+00:00",
+                    role="subagent",
+                    agent_name="brain-ds-source-explorer",
+                    delegated_by="brain-ds-orchestrator",
+                    action="agent_stream",
+                ),
+            ],
+        )
+
+        report = score_evidence(
+            scenario="datasource_documentation",
+            evidence_path=evidence,
+            out_path=evidence.parent / "report.json",
+            repo_root=Path.cwd(),
+        )
+
+        self.assertEqual(report["deterministic"]["status"], "fail")
+        self.assertEqual(report["blocking_failures"][0]["code"], "missing_subagent_action")
+        self.assertEqual(report["trace_summary"]["subagent_action"]["action_count"], 0)
+
+    def test_datasource_score_blocks_unexpected_primary_fallback_agent_name(self) -> None:
+        evidence = self._datasource_evidence_bundle(
+            "datasource-unexpected-primary-agent-run",
+            events=[
+                TraceEvent(
+                    ts="2026-06-27T00:00:00+00:00",
+                    role="verifier",
+                    agent_name="build-python",
+                    action="agent_stream",
+                ),
+            ],
+        )
+
+        report = score_evidence(
+            scenario="datasource_documentation",
+            evidence_path=evidence,
+            out_path=evidence.parent / "report.json",
+            repo_root=Path.cwd(),
+        )
+
+        self.assertEqual(report["deterministic"]["status"], "fail")
+        self.assertEqual(report["blocking_failures"][0]["code"], "wrong_agent")
+        self.assertEqual(report["trace_summary"]["wrong_or_fallback_agent"], "build-python")
+
     def test_datasource_score_accepts_orchestrator_first_trace_and_subject_local_freshness(self) -> None:
         evidence = self._datasource_evidence_bundle(
             "datasource-orchestrated-run",
             events=[
                 TraceEvent(
                     ts="2026-06-27T00:00:00+00:00",
-                    role="orchestrator",
-                    agent_name="brainds-orchestrator",
+                    role="user",
+                    content_ref="text:user:prompt",
+                    text_hash="b" * 64,
                 ),
                 TraceEvent(
                     ts="2026-06-27T00:00:01+00:00",
+                    role="orchestrator",
+                    agent_name="brain-ds-orchestrator",
+                    content_ref="text:assistant:reply",
+                    text_hash="a" * 64,
+                ),
+                TraceEvent(
+                    ts="2026-06-27T00:00:02+00:00",
                     role="subagent",
-                    agent_name="brainds-source-explorer",
-                    delegated_by="brainds-orchestrator",
+                    agent_name="brain-ds-source-explorer",
+                    delegated_by="brain-ds-orchestrator",
+                    action="delegated_message",
                 ),
             ],
         )
@@ -641,9 +855,24 @@ class BlindAgenticScoreTests(unittest.TestCase):
             events=[
                 TraceEvent(
                     ts="2026-06-27T00:00:00+00:00",
+                    role="user",
+                    content_ref="text:user:prompt",
+                    text_hash="b" * 64,
+                ),
+                TraceEvent(
+                    ts="2026-06-27T00:00:01+00:00",
                     role="orchestrator",
-                    agent_name="brainds-orchestrator",
-                )
+                    agent_name="brain-ds-orchestrator",
+                    content_ref="text:assistant:reply",
+                    text_hash="a" * 64,
+                ),
+                TraceEvent(
+                    ts="2026-06-27T00:00:02+00:00",
+                    role="subagent",
+                    agent_name="brain-ds-source-explorer",
+                    delegated_by="brain-ds-orchestrator",
+                    action="delegated_message",
+                ),
             ],
             freshness_status="degraded",
             subject_local_status="failed",
@@ -865,19 +1094,27 @@ class BlindAgenticScoreTests(unittest.TestCase):
             events=[
                 TraceEvent(
                     ts="2026-06-27T00:00:00+00:00",
-                    role="orchestrator",
-                    agent_name="brainds-orchestrator",
-                    pathway_milestone="orchestrator_entry",
+                    role="user",
+                    content_ref="text:user:prompt",
+                    text_hash="b" * 64,
                 ),
                 TraceEvent(
                     ts="2026-06-27T00:00:01+00:00",
+                    role="orchestrator",
+                    agent_name="brain-ds-orchestrator",
+                    content_ref="text:assistant:reply",
+                    text_hash="a" * 64,
+                    pathway_milestone="orchestrator_entry",
+                ),
+                TraceEvent(
+                    ts="2026-06-27T00:00:02+00:00",
                     role="tool",
                     action="tool_call",
                     tool_name="brain_ds.explore_source",
                     pathway_milestone="explore_source",
                 ),
                 TraceEvent(
-                    ts="2026-06-27T00:00:02+00:00",
+                    ts="2026-06-27T00:00:03+00:00",
                     role="tool",
                     action="tool_response",
                     tool_name="brain_ds.explore_source",
@@ -885,17 +1122,19 @@ class BlindAgenticScoreTests(unittest.TestCase):
                     pathway_milestone="explore_source",
                 ),
                 TraceEvent(
-                    ts="2026-06-27T00:00:03+00:00",
+                    ts="2026-06-27T00:00:04+00:00",
                     role="subagent",
-                    agent_name="brainds-source-explorer",
-                    delegated_by="brainds-orchestrator",
+                    agent_name="brain-ds-source-explorer",
+                    delegated_by="brain-ds-orchestrator",
+                    action="delegated_message",
                     pathway_milestone="document_source",
                 ),
                 TraceEvent(
-                    ts="2026-06-27T00:00:04+00:00",
+                    ts="2026-06-27T00:00:05+00:00",
                     role="subagent",
-                    agent_name="brainds-graph-mapper",
-                    delegated_by="brainds-orchestrator",
+                    agent_name="brain-ds-graph-mapper",
+                    delegated_by="brain-ds-orchestrator",
+                    action="delegated_message",
                     pathway_milestone="map_to_graph",
                 ),
             ],

@@ -14,6 +14,26 @@ For the datasource verifier harness chain, this document covers the PR4
 `stacked-to-main` slice: verifier-B audit metadata, same-pathway model matrix
 outputs, and datasource report interpretation.
 
+## Blind agent flow protocol v1
+
+Protocol version: `blind-agent-flow-v1`
+
+| Rule | Requirement |
+|------|-------------|
+| Required OpenCode agent | Required OpenCode agent: `brain-ds-orchestrator` |
+| Wrong agent | Wrong or fallback agent (`agent=build`) invalidates the run immediately. |
+| Conversation proof | The scorer requires normalized events plus a verifiable text exchange between the user and `brain-ds-orchestrator`. |
+| Subagent proof | Subagent proof requires identity plus action or tool call attributable to that subagent. |
+| Evidence provenance | Generated outputs and `.brain_ds/store.db` must come from the subject workspace unless an explicit override is treated as degraded evidence. |
+| Discoverability | Engram topic: `blind-agentic-eval/protocol/v1` mirrors this versioned protocol for future sessions. |
+
+Archive remains blocked until a live run proves orchestrator conversation,
+subagent capture, generated subject outputs, subject-local graph provenance, and
+protocol discoverability.
+
+Legacy reports may still contain `brainds-orchestrator`; new live runs must use
+`brain-ds-orchestrator`.
+
 ## Pre-run setup
 
 | Check | Command or action |
@@ -50,6 +70,29 @@ opencode
 ```
 
 Do not start OpenCode from the repo root for the blind run. The current working directory must be the subject folder.
+
+## Datasource live proof command shape
+
+For a `datasource_documentation` live proof, prepare the datasource subject and
+start OpenCode with the required BrainDS orchestrator explicitly:
+
+```powershell
+uv run python -m tests.eval.blind_agentic.prepare_subject --scenario datasource_documentation --run-id <run_id>
+cd tmp/blind-agentic-eval/<run_id>/subject
+opencode --agent brain-ds-orchestrator
+```
+
+Before graph writes, the orchestrator must switch BrainDS to the subject
+workspace with `brain_ds_open_workspace` using the subject path. The required
+subject-visible outputs are:
+
+| Path | Requirement |
+|------|-------------|
+| `generated/source_documentation.md` | Stakeholder source documentation with owner, freshness, and data gaps. |
+| `subject/.brain_ds/store.db` | Subject-local graph DB/provenance for the run. |
+
+If the conversation pauses and you need to continue, continue with the same
+agent: `opencode --agent brain-ds-orchestrator`. Do not continue with bare `opencode`; it can resume as fallback `agent=build`, which is a fail-closed protocol violation.
 
 ## Paste this blind prompt exactly
 
@@ -127,9 +170,10 @@ uv run python -m tests.eval.blind_agentic.score_report --scenario revops_growth 
 ```
 
 For the `datasource_documentation` pathway, the trace is required and must start
-with `brainds-orchestrator`. Any undelegated BrainDS subagent contact is a
+with `brain-ds-orchestrator`. Any undelegated BrainDS subagent contact is a
 blocking `orchestrator_gate` failure, whether it appears as the first BrainDS
-event or later in the trace. Inspect `manifest.json` field
+event or later in the trace. Wrong or fallback agents fail closed with no partial
+credit. Inspect `manifest.json` field
 `freshness_checks` before trusting a datasource score: `subject_local_graph`
 must be passed, generated outputs and trace must be captured, and
 `artifact_hashes` binds the graph/output/trace artifacts used by the report.

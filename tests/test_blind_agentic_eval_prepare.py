@@ -84,6 +84,22 @@ class BlindAgenticPrepareTests(unittest.TestCase):
             ["orchestrator_entry", "explore_source", "document_source", "map_to_graph"],
         )
 
+    def test_datasource_subject_metadata_stamps_blind_flow_protocol_version(self) -> None:
+        workspace = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="datasource-protocol-metadata-001",
+            output_root=self._tmp_root(),
+        )
+
+        protocol = json.loads(
+            (workspace.subject_path / ".brain_ds" / "setup.json").read_text(encoding="utf-8")
+        )["blind_agentic_protocol"]
+
+        self.assertEqual(protocol["version"], "blind-agent-flow-v1")
+        self.assertEqual(protocol["required_orchestrator"], "brain-ds-orchestrator")
+        self.assertIn("generated/source_documentation.md", protocol["expected_outputs"])
+        self.assertEqual(protocol["graph_db"], ".brain_ds/store.db")
+
     def test_evaluator_only_files_are_not_copied_to_subject_workspace(self) -> None:
         workspace = prepare_subject(
             scenario="revops_growth",

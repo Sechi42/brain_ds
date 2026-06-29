@@ -210,6 +210,741 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
         self.assertIn("error:", stderr.getvalue())
         self.assertIn("evidence hash", stderr.getvalue())
 
+    def test_collect_and_score_main_returns_invalid_for_fallback_build_agent_trace(self) -> None:
+        run_id = "collect-score-build-agent-invalid"
+        workspace = prepare_subject(
+            scenario="datasource_documentation",
+            run_id=run_id,
+            output_root=Path("tmp") / "blind-agentic-collect-score-test",
+        )
+        self._write_datasource_subject_outputs(workspace.subject_path)
+        opencode_dir = workspace.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        (opencode_dir / "opencode-stderr.log").write_text(
+            "timestamp=2026-06-29T01:37:37.942Z level=INFO message=stream session.id=ses_build agent=build mode=primary\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout.jsonl").write_text(
+            json.dumps({"type": "text", "timestamp": 1782697085951, "sessionID": "ses_build", "part": {"type": "text", "text": "I can document this datasource."}}) + "\n",
+            encoding="utf-8",
+        )
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            exit_code = collect_and_score.main(
+                [
+                    "--scenario",
+                    "datasource_documentation",
+                    "--run-id",
+                    run_id,
+                    "--subject-path",
+                    workspace.subject_path.as_posix(),
+                    "--repo-root",
+                    Path.cwd().as_posix(),
+                    "--opencode-artifacts-path",
+                    opencode_dir.as_posix(),
+                ]
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual("", stdout.getvalue())
+        self.assertIn("wrong_agent", stderr.getvalue())
+        report_path = workspace.subject_path.parent / "report.json"
+        self.assertTrue(report_path.is_file())
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        self.assertEqual(report["deterministic"]["status"], "fail")
+
+    def test_collect_and_score_main_accepts_delegated_child_created_before_parent_stream(
+        self,
+    ) -> None:
+        run_id = "collect-score-created-child-before-parent"
+        workspace = prepare_subject(
+            scenario="datasource_documentation",
+            run_id=run_id,
+            output_root=Path("tmp") / "blind-agentic-collect-score-test",
+        )
+        self._write_datasource_subject_outputs(workspace.subject_path)
+        opencode_dir = workspace.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        orchestrator_session = "ses_orchestrator_late_stream"
+        subagent_session = "ses_subagent_created_first"
+        (opencode_dir / "opencode-stderr.log").write_text(
+            "\n".join(
+                [
+                    f"timestamp=2026-06-29T03:45:21.575Z level=INFO message=created id={subagent_session}",
+                    f"parentID={orchestrator_session} title=\"Run mapper (@brainds-connection-mapper subagent)\"",
+                    "agent=brainds-connection-mapper model=undefined metadata=undefined",
+                    f"timestamp=2026-06-29T03:45:22.099Z level=INFO message=stream session.id={subagent_session} agent=brainds-connection-mapper mode=subagent",
+                    f"timestamp=2026-06-29T03:45:23.369Z level=INFO message=stream session.id={orchestrator_session} agent=brain-ds-orchestrator mode=primary",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "tool_use",
+                            "timestamp": 1782702339008,
+                            "sessionID": orchestrator_session,
+                            "part": {
+                                "type": "tool",
+                                "tool": "read",
+                                "state": {
+                                    "status": "completed",
+                                    "input": {"filePath": "C:/subject/PROMPT.md"},
+                                    "output": "1: Document the Helios datasource.",
+                                },
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "timestamp": 1782702339725,
+                            "sessionID": orchestrator_session,
+                            "part": {"type": "text", "text": "I will document this datasource."},
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "tool_use",
+                            "timestamp": 1782702340123,
+                            "sessionID": subagent_session,
+                            "part": {
+                                "type": "tool",
+                                "tool": "brain_ds_explore_source",
+                                "state": {
+                                    "status": "completed",
+                                    "input": {"node_id": "source-1"},
+                                    "output": "source documented",
+                                },
+                            },
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            exit_code = collect_and_score.main(
+                [
+                    "--scenario",
+                    "datasource_documentation",
+                    "--run-id",
+                    run_id,
+                    "--subject-path",
+                    workspace.subject_path.as_posix(),
+                    "--repo-root",
+                    Path.cwd().as_posix(),
+                    "--opencode-artifacts-path",
+                    opencode_dir.as_posix(),
+                ]
+            )
+
+        self.assertEqual(exit_code, 0, stderr.getvalue())
+        self.assertIn("Score report:", stdout.getvalue())
+        report = json.loads(
+            (workspace.subject_path.parent / "report.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(report["deterministic"]["orchestrator_gate"]["status"], "passed")
+        self.assertNotIn(
+            "orchestrator_bypass",
+            {item.get("code") for item in report["blocking_failures"]},
+        )
+        self.assertEqual(
+            report["trace_summary"]["first_root_brainds_agent"],
+            "brain-ds-orchestrator",
+        )
+
+    def test_collect_and_score_main_rejects_child_created_first_without_parent_link(
+        self,
+    ) -> None:
+        run_id = "collect-score-created-child-without-parent"
+        workspace = prepare_subject(
+            scenario="datasource_documentation",
+            run_id=run_id,
+            output_root=Path("tmp") / "blind-agentic-collect-score-test",
+        )
+        self._write_datasource_subject_outputs(workspace.subject_path)
+        opencode_dir = workspace.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        orchestrator_session = "ses_orchestrator_late_unlinked"
+        subagent_session = "ses_subagent_unlinked_first"
+        (opencode_dir / "opencode-stderr.log").write_text(
+            "\n".join(
+                [
+                    f"timestamp=2026-06-29T03:45:21.575Z level=INFO message=created id={subagent_session}",
+                    "agent=brainds-connection-mapper model=undefined metadata=undefined",
+                    f"timestamp=2026-06-29T03:45:22.099Z level=INFO message=stream session.id={subagent_session} agent=brainds-connection-mapper mode=subagent",
+                    f"timestamp=2026-06-29T03:45:23.369Z level=INFO message=stream session.id={orchestrator_session} agent=brain-ds-orchestrator mode=primary",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "text",
+                    "timestamp": 1782702339725,
+                    "sessionID": orchestrator_session,
+                    "part": {"type": "text", "text": "I will document this datasource."},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            exit_code = collect_and_score.main(
+                [
+                    "--scenario",
+                    "datasource_documentation",
+                    "--run-id",
+                    run_id,
+                    "--subject-path",
+                    workspace.subject_path.as_posix(),
+                    "--repo-root",
+                    Path.cwd().as_posix(),
+                    "--opencode-artifacts-path",
+                    opencode_dir.as_posix(),
+                ]
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual("", stdout.getvalue())
+        self.assertIn("orchestrator_bypass", stderr.getvalue())
+        report = json.loads(
+            (workspace.subject_path.parent / "report.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            report["trace_summary"]["undelegated_subagent_contacts"][0]["agent_name"],
+            "brainds-connection-mapper",
+        )
+
+    def test_collect_and_score_main_rejects_created_and_stream_only_subagent_proof(
+        self,
+    ) -> None:
+        run_id = "collect-score-created-stream-only-subagent"
+        workspace = prepare_subject(
+            scenario="datasource_documentation",
+            run_id=run_id,
+            output_root=Path("tmp") / "blind-agentic-collect-score-test",
+        )
+        self._write_datasource_subject_outputs(workspace.subject_path)
+        opencode_dir = workspace.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        orchestrator_session = "ses_orchestrator_stream_only"
+        subagent_session = "ses_subagent_stream_only"
+        (opencode_dir / "opencode-stderr.log").write_text(
+            "\n".join(
+                [
+                    f"timestamp=2026-06-29T03:45:21.575Z level=INFO message=created id={subagent_session}",
+                    f"parentID={orchestrator_session} title=\"Run mapper (@brainds-connection-mapper subagent)\"",
+                    "agent=brainds-connection-mapper model=undefined metadata=undefined",
+                    f"timestamp=2026-06-29T03:45:22.099Z level=INFO message=stream session.id={subagent_session} agent=brainds-connection-mapper mode=subagent",
+                    f"timestamp=2026-06-29T03:45:23.369Z level=INFO message=stream session.id={orchestrator_session} agent=brain-ds-orchestrator mode=primary",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "tool_use",
+                            "timestamp": 1782702339008,
+                            "sessionID": orchestrator_session,
+                            "part": {
+                                "type": "tool",
+                                "tool": "read",
+                                "state": {
+                                    "status": "completed",
+                                    "input": {"filePath": "C:/subject/PROMPT.md"},
+                                    "output": "1: Document the Helios datasource.",
+                                },
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "timestamp": 1782702339725,
+                            "sessionID": orchestrator_session,
+                            "part": {"type": "text", "text": "I will document this datasource."},
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            exit_code = collect_and_score.main(
+                [
+                    "--scenario",
+                    "datasource_documentation",
+                    "--run-id",
+                    run_id,
+                    "--subject-path",
+                    workspace.subject_path.as_posix(),
+                    "--repo-root",
+                    Path.cwd().as_posix(),
+                    "--opencode-artifacts-path",
+                    opencode_dir.as_posix(),
+                ]
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual("", stdout.getvalue())
+        self.assertIn("missing_subagent_action", stderr.getvalue())
+
+    def test_collect_and_score_main_accepts_attributable_subagent_tool_proof(
+        self,
+    ) -> None:
+        run_id = "collect-score-attributable-subagent-tool"
+        workspace = prepare_subject(
+            scenario="datasource_documentation",
+            run_id=run_id,
+            output_root=Path("tmp") / "blind-agentic-collect-score-test",
+        )
+        self._write_datasource_subject_outputs(workspace.subject_path)
+        opencode_dir = workspace.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        orchestrator_session = "ses_orchestrator_tool_proof"
+        subagent_session = "ses_subagent_tool_proof"
+        (opencode_dir / "opencode-stderr.log").write_text(
+            "\n".join(
+                [
+                    f"timestamp=2026-06-29T03:45:21.575Z level=INFO message=created id={subagent_session}",
+                    f"parentID={orchestrator_session} title=\"Run explorer (@brainds-source-explorer subagent)\"",
+                    "agent=brainds-source-explorer model=undefined metadata=undefined",
+                    f"timestamp=2026-06-29T03:45:22.099Z level=INFO message=stream session.id={subagent_session} agent=brainds-source-explorer mode=subagent",
+                    f"timestamp=2026-06-29T03:45:23.369Z level=INFO message=stream session.id={orchestrator_session} agent=brain-ds-orchestrator mode=primary",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "tool_use",
+                            "timestamp": 1782702339008,
+                            "sessionID": orchestrator_session,
+                            "part": {
+                                "type": "tool",
+                                "tool": "read",
+                                "state": {
+                                    "status": "completed",
+                                    "input": {"filePath": "C:/subject/PROMPT.md"},
+                                    "output": "1: Document the Helios datasource.",
+                                },
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "timestamp": 1782702339725,
+                            "sessionID": orchestrator_session,
+                            "part": {"type": "text", "text": "I will document this datasource."},
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "tool_use",
+                            "timestamp": 1782702340123,
+                            "sessionID": subagent_session,
+                            "part": {
+                                "type": "tool",
+                                "tool": "brain_ds_explore_source",
+                                "state": {
+                                    "status": "completed",
+                                    "input": {"node_id": "source-1"},
+                                    "output": "source documented",
+                                },
+                            },
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            exit_code = collect_and_score.main(
+                [
+                    "--scenario",
+                    "datasource_documentation",
+                    "--run-id",
+                    run_id,
+                    "--subject-path",
+                    workspace.subject_path.as_posix(),
+                    "--repo-root",
+                    Path.cwd().as_posix(),
+                    "--opencode-artifacts-path",
+                    opencode_dir.as_posix(),
+                ]
+            )
+
+        self.assertEqual(exit_code, 0, stderr.getvalue())
+        report = json.loads(
+            (workspace.subject_path.parent / "report.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(report["trace_summary"]["subagent_action"]["status"], "verified")
+
+    def test_collect_and_score_main_accepts_delegated_subagent_text_work(self) -> None:
+        run_id = "collect-score-delegated-subagent-text-work"
+        workspace = prepare_subject(
+            scenario="datasource_documentation",
+            run_id=run_id,
+            output_root=Path("tmp") / "blind-agentic-collect-score-test",
+        )
+        self._write_datasource_subject_outputs(workspace.subject_path)
+        opencode_dir = workspace.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        orchestrator_session = "ses_orchestrator_text_proof"
+        subagent_session = "ses_subagent_text_proof"
+        (opencode_dir / "opencode-stderr.log").write_text(
+            "\n".join(
+                [
+                    f"timestamp=2026-06-29T03:45:21.575Z level=INFO message=created id={subagent_session}",
+                    f"parentID={orchestrator_session} title=\"Run writer (@brainds-source-explorer subagent)\"",
+                    "agent=brainds-source-explorer model=undefined metadata=undefined",
+                    f"timestamp=2026-06-29T03:45:22.099Z level=INFO message=stream session.id={subagent_session} agent=brainds-source-explorer mode=subagent",
+                    f"timestamp=2026-06-29T03:45:23.369Z level=INFO message=stream session.id={orchestrator_session} agent=brain-ds-orchestrator mode=primary",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "tool_use",
+                            "timestamp": 1782702339008,
+                            "sessionID": orchestrator_session,
+                            "part": {
+                                "type": "tool",
+                                "tool": "read",
+                                "state": {
+                                    "status": "completed",
+                                    "input": {"filePath": "C:/subject/PROMPT.md"},
+                                    "output": "1: Document the Helios datasource.",
+                                },
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "timestamp": 1782702339725,
+                            "sessionID": orchestrator_session,
+                            "part": {"type": "text", "text": "I will document this datasource."},
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "timestamp": 1782702340123,
+                            "sessionID": subagent_session,
+                            "part": {
+                                "type": "text",
+                                "text": "Source documentation drafted with owners and freshness notes.",
+                            },
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            exit_code = collect_and_score.main(
+                [
+                    "--scenario",
+                    "datasource_documentation",
+                    "--run-id",
+                    run_id,
+                    "--subject-path",
+                    workspace.subject_path.as_posix(),
+                    "--repo-root",
+                    Path.cwd().as_posix(),
+                    "--opencode-artifacts-path",
+                    opencode_dir.as_posix(),
+                ]
+            )
+
+        self.assertEqual(exit_code, 0, stderr.getvalue())
+        report = json.loads(
+            (workspace.subject_path.parent / "report.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(report["trace_summary"]["subagent_action"]["status"], "verified")
+        self.assertEqual(report["trace_summary"]["subagent_action"]["action_count"], 1)
+
+    def test_collect_and_score_main_scores_root_agent_by_event_chronology(
+        self,
+    ) -> None:
+        run_id = "collect-score-root-agent-chronology"
+        workspace = prepare_subject(
+            scenario="datasource_documentation",
+            run_id=run_id,
+            output_root=Path("tmp") / "blind-agentic-collect-score-test",
+        )
+        self._write_datasource_subject_outputs(workspace.subject_path)
+        opencode_dir = workspace.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        orchestrator_session = "ses_orchestrator_chronology"
+        subagent_session = "ses_subagent_chronology"
+        (opencode_dir / "opencode-stdout-a-later-subagent.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "timestamp": 1782702340000,
+                            "sessionID": subagent_session,
+                            "agent_name": "brainds-source-explorer",
+                            "delegated_by": "brain-ds-orchestrator",
+                            "part": {
+                                "type": "text",
+                                "text": "I am exploring the source as the delegated subagent.",
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "tool_use",
+                            "timestamp": 1782702340123,
+                            "sessionID": subagent_session,
+                            "agent_name": "brainds-source-explorer",
+                            "delegated_by": "brain-ds-orchestrator",
+                            "part": {
+                                "type": "tool",
+                                "tool": "brain_ds_explore_source",
+                                "state": {
+                                    "status": "completed",
+                                    "input": {"node_id": "source-1"},
+                                    "output": "source documented",
+                                },
+                            },
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout-z-earlier-orchestrator.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "tool_use",
+                            "timestamp": 1782702339008,
+                            "sessionID": orchestrator_session,
+                            "agent_name": "brain-ds-orchestrator",
+                            "part": {
+                                "type": "tool",
+                                "tool": "read",
+                                "state": {
+                                    "status": "completed",
+                                    "input": {"filePath": "C:/subject/PROMPT.md"},
+                                    "output": "1: Document the Helios datasource.",
+                                },
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "timestamp": 1782702339725,
+                            "sessionID": orchestrator_session,
+                            "agent_name": "brain-ds-orchestrator",
+                            "part": {"type": "text", "text": "I will document this datasource."},
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            exit_code = collect_and_score.main(
+                [
+                    "--scenario",
+                    "datasource_documentation",
+                    "--run-id",
+                    run_id,
+                    "--subject-path",
+                    workspace.subject_path.as_posix(),
+                    "--repo-root",
+                    Path.cwd().as_posix(),
+                    "--opencode-artifacts-path",
+                    opencode_dir.as_posix(),
+                ]
+            )
+
+        self.assertEqual(exit_code, 0, stderr.getvalue())
+        report = json.loads(
+            (workspace.subject_path.parent / "report.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            report["trace_summary"]["first_root_brainds_agent"],
+            "brain-ds-orchestrator",
+        )
+        self.assertEqual(report["deterministic"]["orchestrator_gate"]["status"], "passed")
+
+    def test_collect_and_score_main_uses_sequence_to_break_equal_timestamp_root_agent_ties(
+        self,
+    ) -> None:
+        run_id = "collect-score-root-agent-equal-timestamp-sequence"
+        workspace = prepare_subject(
+            scenario="datasource_documentation",
+            run_id=run_id,
+            output_root=Path("tmp") / "blind-agentic-collect-score-test",
+        )
+        self._write_datasource_subject_outputs(workspace.subject_path)
+        opencode_dir = workspace.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        orchestrator_session = "ses_orchestrator_sequence"
+        subagent_session = "ses_subagent_sequence"
+        shared_timestamp = 1782702340000
+        (opencode_dir / "opencode-stdout-a-subagent.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "timestamp": shared_timestamp,
+                            "sequence": 3,
+                            "sessionID": subagent_session,
+                            "agent_name": "brainds-source-explorer",
+                            "delegated_by": "brain-ds-orchestrator",
+                            "part": {
+                                "type": "text",
+                                "text": "I am exploring the source as the delegated subagent.",
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "tool_use",
+                            "timestamp": shared_timestamp,
+                            "sequence": 4,
+                            "sessionID": subagent_session,
+                            "agent_name": "brainds-source-explorer",
+                            "delegated_by": "brain-ds-orchestrator",
+                            "part": {
+                                "type": "tool",
+                                "tool": "brain_ds_explore_source",
+                                "state": {
+                                    "status": "completed",
+                                    "input": {"node_id": "source-1"},
+                                    "output": "source documented",
+                                },
+                            },
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout-z-orchestrator.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "tool_use",
+                            "timestamp": shared_timestamp,
+                            "sequence": 1,
+                            "sessionID": orchestrator_session,
+                            "agent_name": "brain-ds-orchestrator",
+                            "part": {
+                                "type": "tool",
+                                "tool": "read",
+                                "state": {
+                                    "status": "completed",
+                                    "input": {"filePath": "C:/subject/PROMPT.md"},
+                                    "output": "1: Document the Helios datasource.",
+                                },
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "timestamp": shared_timestamp,
+                            "sequence": 2,
+                            "sessionID": orchestrator_session,
+                            "agent_name": "brain-ds-orchestrator",
+                            "part": {"type": "text", "text": "I will document this datasource."},
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            exit_code = collect_and_score.main(
+                [
+                    "--scenario",
+                    "datasource_documentation",
+                    "--run-id",
+                    run_id,
+                    "--subject-path",
+                    workspace.subject_path.as_posix(),
+                    "--repo-root",
+                    Path.cwd().as_posix(),
+                    "--opencode-artifacts-path",
+                    opencode_dir.as_posix(),
+                ]
+            )
+
+        self.assertEqual(exit_code, 0, stderr.getvalue())
+        report = json.loads(
+            (workspace.subject_path.parent / "report.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            report["trace_summary"]["first_root_brainds_agent"],
+            "brain-ds-orchestrator",
+        )
+        self.assertEqual(report["deterministic"]["orchestrator_gate"]["status"], "passed")
+
     def test_collect_and_score_main_adds_double_verifier_audit_fields(self) -> None:
         run_id = "collect-score-double-verifier"
         workspace = prepare_subject(
@@ -375,6 +1110,28 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+
+    def _write_datasource_subject_outputs(self, subject_path: Path) -> None:
+        generated = subject_path / "generated"
+        generated.mkdir(parents=True, exist_ok=True)
+        (generated / "source_documentation.md").write_text(
+            "# Source Documentation\n\nOrders has owner, freshness, and data gaps documented.",
+            encoding="utf-8",
+        )
+        graph_db = subject_path / ".brain_ds" / "store.db"
+        graph_db.parent.mkdir(parents=True, exist_ok=True)
+        graph_db.unlink(missing_ok=True)
+        with GraphStore(str(graph_db)) as store:
+            store.create_graph("helios-datasource-docs", name="Helios Retail Source Documentation")
+            for node in [
+                {"id": "source-orders", "label": "Orders", "type": "Data Source"},
+                {"id": "source-customers", "label": "Customers", "type": "Data Source"},
+            ]:
+                store.node_repo.upsert_node("helios-datasource-docs", {**node, "details": {}})
+            store.edge_repo.upsert_edge(
+                "helios-datasource-docs",
+                {"source": "source-orders", "target": "source-customers", "label": "uses", "weight": 1.0},
+            )
 
     def _write_graph_store(self, graph_db: Path) -> None:
         graph_db.parent.mkdir(parents=True, exist_ok=True)

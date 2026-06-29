@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 import shutil
 import sqlite3
@@ -66,6 +67,8 @@ def prepare_subject(
     _copy_allowlisted_subject_files(template_root, subject_path)
     sqlite_name = "datasource.sqlite" if scenario == "datasource_documentation" else "revops.sqlite"
     _build_sqlite_from_csv_sources(subject_path / "sources", sqlite_name=sqlite_name)
+    if scenario == "datasource_documentation":
+        _write_datasource_protocol_metadata(subject_path)
 
     findings = scan_for_contamination(subject_path)
     if findings:
@@ -130,6 +133,28 @@ def _copy_allowlisted_subject_files(template_root: Path, subject_path: Path) -> 
             target = subject_path / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, target)
+
+
+def _write_datasource_protocol_metadata(subject_path: Path) -> None:
+    brain_ds_root = subject_path / ".brain_ds"
+    brain_ds_root.mkdir(parents=True, exist_ok=True)
+    setup = {
+        "blind_agentic_protocol": {
+            "version": "blind-agent-flow-v1",
+            "required_orchestrator": "brain-ds-orchestrator",
+            "expected_outputs": ["generated/source_documentation.md"],
+            "graph_db": ".brain_ds/store.db",
+            "required_evidence": [
+                "normalized_trace_events",
+                "verifiable_text_exchange",
+                "subagent_identity_plus_action_or_tool_call",
+                "subject_local_graph",
+            ],
+        }
+    }
+    (brain_ds_root / "setup.json").write_text(
+        json.dumps(setup, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 def _remove_tree_with_retries(path: Path, *, attempts: int = 5, delay_seconds: float = 0.05) -> None:

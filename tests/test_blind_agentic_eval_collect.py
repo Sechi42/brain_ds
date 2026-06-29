@@ -256,6 +256,967 @@ class BlindAgenticCollectTests(unittest.TestCase):
         self.assertEqual(trace.events[3].tool_name, "brain_ds_explore_source")
         self.assertEqual(trace.events[3].target, "sources/orders.csv")
 
+    def test_opencode_export_parser_normalizes_real_opencode_envelopes_and_stderr_agent(self) -> None:
+        export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-real-envelopes"
+        export_root.mkdir(parents=True, exist_ok=True)
+        session_id = "ses_real_001"
+        (export_root / "opencode-stderr.log").write_text(
+            "\n".join(
+                [
+                    f"timestamp=2026-06-29T01:37:37.942Z level=INFO message=stream session.id={session_id} agent=brain-ds-orchestrator mode=primary",
+                    f"timestamp=2026-06-29T01:37:42.945Z level=INFO message=stream session.id={session_id} agent=brain-ds-source-explorer mode=subagent",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (export_root / "opencode-stdout.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "step_start",
+                            "timestamp": 1782697058984,
+                            "sessionID": session_id,
+                            "part": {"type": "step-start", "messageID": "msg_1"},
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "timestamp": 1782697085951,
+                            "sessionID": session_id,
+                            "part": {
+                                "type": "text",
+                                "messageID": "msg_1",
+                                "text": "I will document the source through BrainDS.",
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "tool_use",
+                            "timestamp": 1782697061687,
+                            "sessionID": session_id,
+                            "part": {
+                                "type": "tool",
+                                "tool": "brain_ds_list_graphs",
+                                "state": {"status": "completed", "input": {}, "output": "[]"},
+                            },
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        trace, omissions = parse_opencode_export(
+            export_root,
+            scenario="datasource_documentation",
+            run_id="trace-real-opencode",
+            pathway_id="datasource_documentation",
+            model_provider="opencode",
+            model="test-model",
+        )
+
+        self.assertEqual(omissions, [])
+        self.assertEqual(trace.events[0].role, "orchestrator")
+        self.assertEqual(trace.events[0].agent_name, "brain-ds-orchestrator")
+        self.assertEqual(trace.events[0].session_id, session_id)
+        self.assertTrue(
+            any(
+                event.role == "subagent" and event.agent_name == "brain-ds-source-explorer"
+                for event in trace.events
+            )
+        )
+        orchestrator_messages = [
+            event
+            for event in trace.events
+            if event.role == "orchestrator" and event.action == "message"
+        ]
+        self.assertEqual(len(orchestrator_messages), 1)
+        self.assertTrue(orchestrator_messages[0].text_hash)
+        tool_events = [event for event in trace.events if event.role == "tool"]
+        self.assertEqual(len(tool_events), 1)
+        self.assertEqual(tool_events[0].tool_name, "brain_ds_list_graphs")
+        self.assertEqual(tool_events[0].action, "tool_call")
+
+    def test_opencode_export_parser_marks_created_subagent_sessions_as_orchestrator_delegated(self) -> None:
+        export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-subagent-created"
+        export_root.mkdir(parents=True, exist_ok=True)
+        orchestrator_session = "ses_orchestrator_001"
+        subagent_session = "ses_subagent_001"
+        (export_root / "opencode-stderr.log").write_text(
+            "\n".join(
+                [
+                    f"timestamp=2026-06-29T03:45:07.022Z level=INFO message=stream session.id={orchestrator_session} agent=brain-ds-orchestrator mode=primary",
+                    f"timestamp=2026-06-29T03:45:21.575Z level=INFO message=created id={subagent_session}",
+                    f"parentID={orchestrator_session} title=\"Run connection mapping phase (@brainds-connection-mapper subagent)\"",
+                    "agent=brainds-connection-mapper model=undefined metadata=undefined",
+                    f"timestamp=2026-06-29T03:45:22.099Z level=INFO message=stream session.id={subagent_session} agent=brainds-connection-mapper mode=subagent",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        trace, omissions = parse_opencode_export(
+            export_root,
+            scenario="datasource_documentation",
+            run_id="trace-subagent-created",
+            pathway_id="datasource_documentation",
+            model_provider="opencode",
+        )
+
+        self.assertEqual(omissions, [])
+        delegated_subagents = [event for event in trace.events if event.role == "subagent"]
+        self.assertGreaterEqual(len(delegated_subagents), 2)
+        self.assertTrue(
+            all(event.delegated_by == "brain-ds-orchestrator" for event in delegated_subagents)
+        )
+        self.assertEqual(delegated_subagents[0].action, "session_created")
+        self.assertEqual(delegated_subagents[0].session_id, subagent_session)
+
+    def test_opencode_export_parser_treats_title_stream_as_metadata_and_binds_text_to_orchestrator(self) -> None:
+        export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-title-metadata"
+        export_root.mkdir(parents=True, exist_ok=True)
+        session_id = "ses_title_then_orchestrator"
+        (export_root / "opencode-stderr.log").write_text(
+            "\n".join(
+                [
+                    f"timestamp=2026-06-29T03:05:16.651Z level=INFO message=stream session.id={session_id} small=true agent=title mode=primary",
+                    f"timestamp=2026-06-29T03:05:23.369Z level=INFO message=stream session.id={session_id} small=false agent=brain-ds-orchestrator mode=primary",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (export_root / "opencode-stdout.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "timestamp": 1782702326650,
+                            "sessionID": session_id,
+                            "part": {"type": "text", "text": "I will document this datasource."},
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "tool_use",
+                            "timestamp": 1782702326766,
+                            "sessionID": session_id,
+                            "part": {
+                                "type": "tool",
+                                "tool": "brain_ds_list_graphs",
+                                "state": {"status": "completed", "input": {}, "output": "[]"},
+                            },
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        trace, omissions = parse_opencode_export(
+            export_root,
+            scenario="datasource_documentation",
+            run_id="trace-title-metadata",
+            pathway_id="datasource_documentation",
+            model_provider="opencode",
+        )
+
+        self.assertEqual(omissions, [])
+        self.assertEqual([event.agent_name for event in trace.events], ["brain-ds-orchestrator", "brain-ds-orchestrator", "brain-ds-orchestrator"])
+        self.assertEqual(trace.events[0].action, "agent_stream")
+        self.assertEqual(trace.events[1].role, "orchestrator")
+        self.assertIsNotNone(trace.events[1].content_ref)
+        self.assertEqual(str(trace.events[1].content_ref)[:14], "opencode:text-")
+        self.assertEqual(trace.events[2].role, "tool")
+
+    def test_opencode_export_parser_binds_stdout_only_step_agent_to_later_text(self) -> None:
+        export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-stdout-step-agent"
+        export_root.mkdir(parents=True, exist_ok=True)
+        session_id = "ses_stdout_only_orchestrator"
+        (export_root / "opencode-stdout.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "step_start",
+                            "timestamp": 1782702326000,
+                            "sessionID": session_id,
+                            "agent": "brain-ds-orchestrator",
+                            "part": {"type": "step-start"},
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "timestamp": 1782702326650,
+                            "sessionID": session_id,
+                            "part": {
+                                "type": "text",
+                                "text": "I will document this datasource from stdout only.",
+                            },
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        trace, omissions = parse_opencode_export(
+            export_root,
+            scenario="datasource_documentation",
+            run_id="trace-stdout-step-agent",
+            pathway_id="datasource_documentation",
+            model_provider="opencode",
+        )
+
+        self.assertEqual(omissions, [])
+        self.assertEqual(len(trace.events), 1)
+        self.assertEqual(trace.events[0].role, "orchestrator")
+        self.assertEqual(trace.events[0].agent_name, "brain-ds-orchestrator")
+        self.assertEqual(trace.events[0].action, "message")
+
+    def test_opencode_export_parser_replaces_unknown_session_agent_with_orchestrator(self) -> None:
+        export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-unknown-placeholder"
+        export_root.mkdir(parents=True, exist_ok=True)
+        session_id = "ses_unknown_then_orchestrator"
+        (export_root / "opencode-stderr.log").write_text(
+            "\n".join(
+                [
+                    f"timestamp=2026-06-29T03:05:16.651Z level=INFO message=stream session.id={session_id} agent=unknown mode=primary",
+                    f"timestamp=2026-06-29T03:05:23.369Z level=INFO message=stream session.id={session_id} agent=brain-ds-orchestrator mode=primary",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (export_root / "opencode-stdout.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "text",
+                    "timestamp": 1782702326650,
+                    "sessionID": session_id,
+                    "part": {"type": "text", "text": "Unknown placeholder must not own this message."},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        trace, omissions = parse_opencode_export(
+            export_root,
+            scenario="datasource_documentation",
+            run_id="trace-unknown-placeholder",
+            pathway_id="datasource_documentation",
+            model_provider="opencode",
+        )
+
+        self.assertEqual(omissions, [])
+        self.assertEqual([event.agent_name for event in trace.events], ["brain-ds-orchestrator", "brain-ds-orchestrator"])
+        self.assertEqual(trace.events[0].action, "agent_stream")
+        self.assertEqual(trace.events[1].role, "orchestrator")
+
+    def test_opencode_export_parser_adds_user_prompt_event_from_subject_prompt_read(self) -> None:
+        export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-prompt-read"
+        export_root.mkdir(parents=True, exist_ok=True)
+        session_id = "ses_prompt_read"
+        (export_root / "opencode-stderr.log").write_text(
+            f"timestamp=2026-06-29T03:05:23.369Z level=INFO message=stream session.id={session_id} agent=brain-ds-orchestrator mode=primary\n",
+            encoding="utf-8",
+        )
+        (export_root / "opencode-stdout.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "tool_use",
+                            "timestamp": 1782702339008,
+                            "sessionID": session_id,
+                            "part": {
+                                "type": "tool",
+                                "tool": "read",
+                                "state": {
+                                    "status": "completed",
+                                    "input": {"filePath": "C:/subject/PROMPT.md"},
+                                    "output": "1: Document the Helios datasource.\n2: Produce stakeholder documentation.",
+                                },
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "timestamp": 1782702339725,
+                            "sessionID": session_id,
+                            "part": {"type": "text", "text": "I will produce source documentation."},
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        trace, omissions = parse_opencode_export(
+            export_root,
+            scenario="datasource_documentation",
+            run_id="trace-prompt-read",
+            pathway_id="datasource_documentation",
+            model_provider="opencode",
+        )
+
+        self.assertEqual(omissions, [])
+        self.assertEqual([event.role for event in trace.events], ["orchestrator", "tool", "user", "orchestrator"])
+        self.assertEqual(trace.events[2].action, "message")
+        self.assertEqual(trace.events[2].agent_name, None)
+        self.assertTrue(trace.events[2].content_ref)
+        self.assertTrue(trace.events[2].text_hash)
+
+    def test_opencode_export_parser_ignores_unrelated_prompt_template_reads(self) -> None:
+        export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-template-prompt-read"
+        export_root.mkdir(parents=True, exist_ok=True)
+        session_id = "ses_template_prompt_read"
+        (export_root / "opencode-stderr.log").write_text(
+            f"timestamp=2026-06-29T03:05:23.369Z level=INFO message=stream session.id={session_id} agent=brain-ds-orchestrator mode=primary\n",
+            encoding="utf-8",
+        )
+        (export_root / "opencode-stdout.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "tool_use",
+                    "timestamp": 1782702339008,
+                    "sessionID": session_id,
+                    "part": {
+                        "type": "tool",
+                        "tool": "read",
+                        "state": {
+                            "status": "completed",
+                            "input": {"filePath": "C:/repo/templates/PROMPT.md"},
+                            "output": "1: Generic template prompt.",
+                        },
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        trace, omissions = parse_opencode_export(
+            export_root,
+            scenario="datasource_documentation",
+            run_id="trace-template-prompt-read",
+            pathway_id="datasource_documentation",
+            model_provider="opencode",
+        )
+
+        self.assertEqual(omissions, [])
+        self.assertEqual([event.role for event in trace.events], ["orchestrator", "tool"])
+        self.assertFalse(any(event.role == "user" for event in trace.events))
+
+    def test_opencode_export_parser_ignores_bare_prompt_basename_reads(self) -> None:
+        export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-bare-prompt-read"
+        export_root.mkdir(parents=True, exist_ok=True)
+        session_id = "ses_bare_prompt_read"
+        (export_root / "opencode-stderr.log").write_text(
+            f"timestamp=2026-06-29T03:05:23.369Z level=INFO message=stream session.id={session_id} agent=brain-ds-orchestrator mode=primary\n",
+            encoding="utf-8",
+        )
+        (export_root / "opencode-stdout.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "tool_use",
+                    "timestamp": 1782702339008,
+                    "sessionID": session_id,
+                    "part": {
+                        "type": "tool",
+                        "tool": "read",
+                        "state": {
+                            "status": "completed",
+                            "input": {"filePath": "PROMPT.md"},
+                            "output": "1: Ambiguous prompt basename without subject path.",
+                        },
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        trace, omissions = parse_opencode_export(
+            export_root,
+            scenario="datasource_documentation",
+            run_id="trace-bare-prompt-read",
+            pathway_id="datasource_documentation",
+            model_provider="opencode",
+        )
+
+        self.assertEqual(omissions, [])
+        self.assertEqual([event.role for event in trace.events], ["orchestrator", "tool"])
+        self.assertFalse(any(event.role == "user" for event in trace.events))
+
+    def test_collect_copies_only_transcript_artifacts_and_avoids_recursive_json_noise(self) -> None:
+        subject = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="datasource-transcript-allowlist-001",
+            output_root=Path("tmp") / "blind-agentic-eval-test",
+        )
+        self._write_core_subject_outputs(subject.subject_path)
+        opencode_dir = subject.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        (opencode_dir / "opencode-stderr.log").write_text(
+            "timestamp=2026-06-29T01:37:37.942Z level=INFO message=stream session.id=ses_1 agent=brain-ds-orchestrator mode=primary\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout.jsonl").write_text(
+            json.dumps({"type": "text", "timestamp": 1782697085951, "sessionID": "ses_1", "part": {"type": "text", "text": "Documenting the datasource."}}) + "\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "evidence").mkdir()
+        (opencode_dir / "evidence" / "manifest.json").write_text("[]\n", encoding="utf-8")
+        (opencode_dir / "subject").mkdir()
+        (opencode_dir / "subject" / "PROMPT.md").write_text("subject prompt", encoding="utf-8")
+
+        bundle = collect_evidence(
+            scenario="datasource_documentation",
+            run_id="datasource-transcript-allowlist-001",
+            subject_path=subject.subject_path,
+            evidence_path=subject.subject_path.parent / "evidence",
+            repo_root=Path.cwd(),
+            opencode_artifacts_path=opencode_dir,
+        )
+
+        manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            manifest["captured"]["opencode_artifacts"],
+            ["opencode/opencode-stderr.log", "opencode/opencode-stdout.jsonl"],
+        )
+        self.assertFalse((bundle.evidence_path / "opencode" / "evidence" / "manifest.json").exists())
+        self.assertNotIn("record 0 is not an object", json.dumps(manifest["omissions"]))
+
+    def test_datasource_collect_materializes_source_documentation_from_final_orchestrator_text(self) -> None:
+        subject = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="datasource-final-text-output-001",
+            output_root=Path("tmp") / "blind-agentic-eval-test",
+        )
+        self._write_subject_graph_only(subject.subject_path)
+        opencode_dir = subject.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        (opencode_dir / "opencode-stderr.log").write_text(
+            "timestamp=2026-06-29T03:05:23.369Z level=INFO message=stream session.id=ses_final agent=brain-ds-orchestrator mode=primary\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "text",
+                    "timestamp": 1782702444659,
+                    "sessionID": "ses_final",
+                    "part": {
+                        "type": "text",
+                        "text": "# Source Documentation\n\nOwner: Revenue Operations. Freshness: daily. Data gaps: amount is text.",
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        bundle = collect_evidence(
+            scenario="datasource_documentation",
+            run_id="datasource-final-text-output-001",
+            subject_path=subject.subject_path,
+            evidence_path=subject.subject_path.parent / "evidence",
+            repo_root=Path.cwd(),
+            opencode_artifacts_path=opencode_dir,
+        )
+
+        manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
+        generated = subject.subject_path / "generated" / "source_documentation.md"
+        self.assertTrue(generated.is_file())
+        self.assertIn("Revenue Operations", generated.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["captured"]["generated_outputs"], ["generated/source_documentation.md"])
+
+    def test_datasource_collect_materializes_final_text_after_title_metadata_agent(self) -> None:
+        subject = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="datasource-title-before-orchestrator-final-text-001",
+            output_root=Path("tmp") / "blind-agentic-eval-test",
+        )
+        self._write_subject_graph_only(subject.subject_path)
+        opencode_dir = subject.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        (opencode_dir / "opencode-stderr.log").write_text(
+            "\n".join(
+                [
+                    "timestamp=2026-06-29T03:05:16.651Z level=INFO message=stream session.id=ses_title_final agent=title mode=primary",
+                    "timestamp=2026-06-29T03:05:23.369Z level=INFO message=stream session.id=ses_title_final agent=brain-ds-orchestrator mode=primary",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "text",
+                    "timestamp": 1782702444659,
+                    "sessionID": "ses_title_final",
+                    "part": {
+                        "type": "text",
+                        "text": "# Source Documentation\n\nTitle metadata must not block final materialization.",
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        collect_evidence(
+            scenario="datasource_documentation",
+            run_id="datasource-title-before-orchestrator-final-text-001",
+            subject_path=subject.subject_path,
+            evidence_path=subject.subject_path.parent / "evidence",
+            repo_root=Path.cwd(),
+            opencode_artifacts_path=opencode_dir,
+        )
+
+        generated = subject.subject_path / "generated" / "source_documentation.md"
+        self.assertIn("Title metadata must not block", generated.read_text(encoding="utf-8"))
+
+    def test_datasource_collect_materializes_final_text_after_unknown_session_agent(self) -> None:
+        subject = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="datasource-unknown-before-orchestrator-final-text-001",
+            output_root=Path("tmp") / "blind-agentic-eval-test",
+        )
+        self._write_subject_graph_only(subject.subject_path)
+        opencode_dir = subject.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        (opencode_dir / "opencode-stdout.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "step_start",
+                            "sessionID": "ses_unknown_final",
+                            "agent": "unknown",
+                            "part": {"type": "step-start"},
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "step_start",
+                            "sessionID": "ses_unknown_final",
+                            "agent": "brain-ds-orchestrator",
+                            "part": {"type": "step-start"},
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "timestamp": 1782702444659,
+                            "sessionID": "ses_unknown_final",
+                            "part": {
+                                "type": "text",
+                                "text": "# Source Documentation\n\nUnknown session agent must be replaced by the orchestrator.",
+                            },
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        collect_evidence(
+            scenario="datasource_documentation",
+            run_id="datasource-unknown-before-orchestrator-final-text-001",
+            subject_path=subject.subject_path,
+            evidence_path=subject.subject_path.parent / "evidence",
+            repo_root=Path.cwd(),
+            opencode_artifacts_path=opencode_dir,
+        )
+
+        generated = subject.subject_path / "generated" / "source_documentation.md"
+        self.assertIn("Unknown session agent must be replaced", generated.read_text(encoding="utf-8"))
+
+    def test_datasource_collect_materializes_incomplete_orchestrator_source_documentation(self) -> None:
+        subject = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="datasource-incomplete-final-text-output-001",
+            output_root=Path("tmp") / "blind-agentic-eval-test",
+        )
+        self._write_subject_graph_only(subject.subject_path)
+        opencode_dir = subject.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        (opencode_dir / "opencode-stderr.log").write_text(
+            "timestamp=2026-06-29T03:05:23.369Z level=INFO message=stream session.id=ses_incomplete agent=brain-ds-orchestrator mode=primary\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "text",
+                    "timestamp": 1782702444659,
+                    "sessionID": "ses_incomplete",
+                    "part": {
+                        "type": "text",
+                        "text": "# Source Documentation\n\nThis datasource response is incomplete and still needs human follow-up.",
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        bundle = collect_evidence(
+            scenario="datasource_documentation",
+            run_id="datasource-incomplete-final-text-output-001",
+            subject_path=subject.subject_path,
+            evidence_path=subject.subject_path.parent / "evidence",
+            repo_root=Path.cwd(),
+            opencode_artifacts_path=opencode_dir,
+        )
+
+        manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
+        generated = subject.subject_path / "generated" / "source_documentation.md"
+        self.assertTrue(generated.is_file())
+        self.assertIn("still needs human follow-up", generated.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["captured"]["generated_outputs"], ["generated/source_documentation.md"])
+
+    def test_datasource_collect_materializes_datasource_markdown_without_exact_heading(self) -> None:
+        subject = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="datasource-contract-markdown-output-001",
+            output_root=Path("tmp") / "blind-agentic-eval-test",
+        )
+        self._write_subject_graph_only(subject.subject_path)
+        opencode_dir = subject.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        (opencode_dir / "opencode-stderr.log").write_text(
+            "timestamp=2026-06-29T03:05:23.369Z level=INFO message=stream session.id=ses_contract agent=brain-ds-orchestrator mode=primary\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "text",
+                    "timestamp": 1782702444659,
+                    "sessionID": "ses_contract",
+                    "part": {
+                        "type": "text",
+                        "text": "# Datasource Profile\n\nOwner: Revenue Operations. Freshness: daily. Columns: account_id, amount.",
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        collect_evidence(
+            scenario="datasource_documentation",
+            run_id="datasource-contract-markdown-output-001",
+            subject_path=subject.subject_path,
+            evidence_path=subject.subject_path.parent / "evidence",
+            repo_root=Path.cwd(),
+            opencode_artifacts_path=opencode_dir,
+        )
+
+        generated = subject.subject_path / "generated" / "source_documentation.md"
+        self.assertIn("Datasource Profile", generated.read_text(encoding="utf-8"))
+
+    def test_datasource_collect_does_not_materialize_generic_datasource_chat(self) -> None:
+        subject = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="datasource-generic-chat-output-001",
+            output_root=Path("tmp") / "blind-agentic-eval-test",
+        )
+        self._write_subject_graph_only(subject.subject_path)
+        opencode_dir = subject.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        (opencode_dir / "opencode-stderr.log").write_text(
+            "timestamp=2026-06-29T03:05:23.369Z level=INFO message=stream session.id=ses_chat agent=brain-ds-orchestrator mode=primary\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "text",
+                    "timestamp": 1782702444659,
+                    "sessionID": "ses_chat",
+                    "part": {
+                        "type": "text",
+                        "text": "I can help with this datasource, but I need more context first.",
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        collect_evidence(
+            scenario="datasource_documentation",
+            run_id="datasource-generic-chat-output-001",
+            subject_path=subject.subject_path,
+            evidence_path=subject.subject_path.parent / "evidence",
+            repo_root=Path.cwd(),
+            opencode_artifacts_path=opencode_dir,
+        )
+
+        generated = subject.subject_path / "generated" / "source_documentation.md"
+        self.assertFalse(generated.exists())
+
+    def test_datasource_collect_materializes_chronological_final_orchestrator_text(self) -> None:
+        subject = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="datasource-chronological-final-text-output-001",
+            output_root=Path("tmp") / "blind-agentic-eval-test",
+        )
+        self._write_subject_graph_only(subject.subject_path)
+        opencode_dir = subject.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        (opencode_dir / "opencode-stderr.log").write_text(
+            "timestamp=2026-06-29T03:05:23.369Z level=INFO message=stream session.id=ses_final agent=brain-ds-orchestrator mode=primary\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout-a-late.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "text",
+                    "timestamp": 1782702459999,
+                    "sessionID": "ses_final",
+                    "part": {
+                        "type": "text",
+                        "text": "# Source Documentation\n\nChronological final text selected across files.",
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout-z-earlier.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "text",
+                    "timestamp": 1782702444659,
+                    "sessionID": "ses_final",
+                    "part": {
+                        "type": "text",
+                        "text": "# Source Documentation\n\nEarlier draft chosen only by filename traversal.",
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        collect_evidence(
+            scenario="datasource_documentation",
+            run_id="datasource-chronological-final-text-output-001",
+            subject_path=subject.subject_path,
+            evidence_path=subject.subject_path.parent / "evidence",
+            repo_root=Path.cwd(),
+            opencode_artifacts_path=opencode_dir,
+        )
+
+        generated = subject.subject_path / "generated" / "source_documentation.md"
+        self.assertIn("Chronological final text", generated.read_text(encoding="utf-8"))
+        self.assertNotIn("Earlier draft", generated.read_text(encoding="utf-8"))
+
+    def test_datasource_collect_uses_sequence_to_break_equal_timestamp_final_text_ties(self) -> None:
+        subject = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="datasource-equal-timestamp-sequence-final-text-001",
+            output_root=Path("tmp") / "blind-agentic-eval-test",
+        )
+        self._write_subject_graph_only(subject.subject_path)
+        opencode_dir = subject.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        (opencode_dir / "opencode-stderr.log").write_text(
+            "timestamp=2026-06-29T03:05:23.369Z level=INFO message=stream session.id=ses_final agent=brain-ds-orchestrator mode=primary\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout-a-late.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "text",
+                    "timestamp": 1782702459999,
+                    "sequence": 2,
+                    "sessionID": "ses_final",
+                    "part": {
+                        "type": "text",
+                        "text": "# Source Documentation\n\nSequence-late final text selected across files.",
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout-z-earlier.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "text",
+                    "timestamp": 1782702459999,
+                    "sequence": 1,
+                    "sessionID": "ses_final",
+                    "part": {
+                        "type": "text",
+                        "text": "# Source Documentation\n\nTraversal-late draft must not win equal timestamps.",
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        collect_evidence(
+            scenario="datasource_documentation",
+            run_id="datasource-equal-timestamp-sequence-final-text-001",
+            subject_path=subject.subject_path,
+            evidence_path=subject.subject_path.parent / "evidence",
+            repo_root=Path.cwd(),
+            opencode_artifacts_path=opencode_dir,
+        )
+
+        generated = subject.subject_path / "generated" / "source_documentation.md"
+        self.assertIn("Sequence-late final text", generated.read_text(encoding="utf-8"))
+        self.assertNotIn("Traversal-late draft", generated.read_text(encoding="utf-8"))
+
+    def test_datasource_collect_materializes_source_documentation_from_json_transcript(self) -> None:
+        subject = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="datasource-json-transcript-final-text-001",
+            output_root=Path("tmp") / "blind-agentic-eval-test",
+        )
+        self._write_subject_graph_only(subject.subject_path)
+        opencode_dir = subject.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        (opencode_dir / "opencode-stderr.log").write_text(
+            "timestamp=2026-06-29T03:05:23.369Z level=INFO message=stream session.id=ses_json agent=brain-ds-orchestrator mode=primary\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "transcript.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "type": "text",
+                        "timestamp": 1782702459999,
+                        "sequence": 1,
+                        "sessionID": "ses_json",
+                        "part": {
+                            "type": "text",
+                            "text": "# Source Documentation\n\nJSON transcript final text is materialized.",
+                        },
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        collect_evidence(
+            scenario="datasource_documentation",
+            run_id="datasource-json-transcript-final-text-001",
+            subject_path=subject.subject_path,
+            evidence_path=subject.subject_path.parent / "evidence",
+            repo_root=Path.cwd(),
+            opencode_artifacts_path=opencode_dir,
+        )
+
+        generated = subject.subject_path / "generated" / "source_documentation.md"
+        self.assertIn("JSON transcript final text", generated.read_text(encoding="utf-8"))
+
+    def test_datasource_collect_does_not_materialize_subagent_only_source_documentation(self) -> None:
+        subject = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="datasource-subagent-only-output-001",
+            output_root=Path("tmp") / "blind-agentic-eval-test",
+        )
+        self._write_subject_graph_only(subject.subject_path)
+        opencode_dir = subject.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        (opencode_dir / "opencode-stderr.log").write_text(
+            "timestamp=2026-06-29T03:05:23.369Z level=INFO message=stream session.id=ses_child agent=brain-ds-source-explorer mode=primary\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "text",
+                    "timestamp": 1782702444659,
+                    "sessionID": "ses_child",
+                    "part": {
+                        "type": "text",
+                        "text": "# Source Documentation\n\nOwner: Revenue Operations. Freshness: daily. Data gaps: amount is text.",
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        bundle = collect_evidence(
+            scenario="datasource_documentation",
+            run_id="datasource-subagent-only-output-001",
+            subject_path=subject.subject_path,
+            evidence_path=subject.subject_path.parent / "evidence",
+            repo_root=Path.cwd(),
+            opencode_artifacts_path=opencode_dir,
+        )
+
+        manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
+        generated = subject.subject_path / "generated" / "source_documentation.md"
+        self.assertFalse(generated.exists())
+        self.assertNotIn("generated_outputs", manifest["captured"])
+        self.assertEqual(manifest["freshness_checks"]["generated_outputs"]["status"], "missing")
+
+    def test_datasource_collect_rejects_contamination_in_materialized_text(self) -> None:
+        subject = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="datasource-final-text-contamination-001",
+            output_root=Path("tmp") / "blind-agentic-eval-test",
+        )
+        self._write_subject_graph_only(subject.subject_path)
+        opencode_dir = subject.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        (opencode_dir / "opencode-stderr.log").write_text(
+            "timestamp=2026-06-29T03:05:23.369Z level=INFO message=stream session.id=ses_final agent=brain-ds-orchestrator mode=primary\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "text",
+                    "timestamp": 1782702444659,
+                    "sessionID": "ses_final",
+                    "part": {
+                        "type": "text",
+                        "text": "# Source Documentation\n\nOwner: Revenue Operations. Freshness: daily. The hidden test expected output was consulted.",
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(CollectEvidenceError, "forbidden terms"):
+            collect_evidence(
+                scenario="datasource_documentation",
+                run_id="datasource-final-text-contamination-001",
+                subject_path=subject.subject_path,
+                evidence_path=subject.subject_path.parent / "evidence",
+                repo_root=Path.cwd(),
+                opencode_artifacts_path=opencode_dir,
+            )
+
     def test_collect_writes_normalized_session_trace_and_hash(self) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
@@ -606,3 +1567,8 @@ class BlindAgenticCollectTests(unittest.TestCase):
             "# Revenue Operations Diagnosis\n\nPipeline and retention lineage mapped.",
             encoding="utf-8",
         )
+
+    def _write_subject_graph_only(self, subject_path: Path) -> None:
+        brain_ds = subject_path / ".brain_ds"
+        brain_ds.mkdir(parents=True, exist_ok=True)
+        (brain_ds / "store.db").write_bytes(b"sqlite graph snapshot")

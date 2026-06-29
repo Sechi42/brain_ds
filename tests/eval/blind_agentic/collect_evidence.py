@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -15,7 +16,14 @@ from pathlib import Path
 from typing import Any
 
 from tests.eval.blind_agentic.prepare_subject import scan_for_contamination
-from tests.eval.blind_agentic.trace_schema import TRACE_VERSION, parse_opencode_export, write_session_trace
+from tests.eval.blind_agentic.trace_schema import (
+    TRACE_VERSION,
+    _extract_records_from_object,
+    _is_transcript_source,
+    _record_chronology_key,
+    parse_opencode_export,
+    write_session_trace,
+)
 
 
 TRACE_REQUIRED_SCENARIOS = ("datasource_documentation",)
@@ -58,10 +66,7 @@ def collect_evidence(
     if not subject.is_dir():
         raise CollectEvidenceError(f"Subject workspace does not exist: {subject}")
 
-    contamination = scan_for_contamination(subject)
-    if contamination:
-        summary = ", ".join(f"{item['path']}:{item['term']}" for item in contamination)
-        raise CollectEvidenceError(f"Subject workspace contains forbidden terms: {summary}")
+    _raise_on_contamination(subject)
 
     if evidence.exists():
         _remove_tree_with_retries(evidence)
@@ -90,6 +95,9 @@ def collect_evidence(
     else:
         omissions.append({"artifact": "setup_metadata", "reason": ".brain_ds/setup.json not found"})
 
+    if scenario == "datasource_documentation":
+        _materialize_datasource_output_from_transcript(subject, opencode_artifacts)
+        _raise_on_contamination(subject)
     generated_outputs = _copy_generated_outputs(subject, evidence)
     if generated_outputs:
         captured["generated_outputs"] = generated_outputs
@@ -194,6 +202,13 @@ def _copy_file(source: Path, target: Path, evidence: Path) -> str:
     return target.relative_to(evidence).as_posix()
 
 
+def _raise_on_contamination(subject: Path) -> None:
+    contamination = scan_for_contamination(subject)
+    if contamination:
+        summary = ", ".join(f"{item['path']}:{item['term']}" for item in contamination)
+        raise CollectEvidenceError(f"Subject workspace contains forbidden terms: {summary}")
+
+
 def _remove_tree_with_retries(path: Path, *, attempts: int = 5, delay_seconds: float = 0.05) -> None:
     """Remove an evidence tree reliably on Windows and retry transient locks."""
 
@@ -233,6 +248,115 @@ def _copy_generated_outputs(subject: Path, evidence: Path) -> list[str]:
     return captured
 
 
+def _materialize_datasource_output_from_transcript(subject: Path, opencode_artifacts: Path | None) -> None:
+    target = subject / "generated" / "source_documentation.md"
+    if target.is_file() or opencode_artifacts is None or not opencode_artifacts.exists():
+        return
+    final_text = _final_opencode_text(opencode_artifacts)
+    if final_text is None:
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(final_text.rstrip() + "\n", encoding="utf-8")
+
+
+def _final_opencode_text(opencode_artifacts: Path) -> str | None:
+    candidates: list[tuple[int, dict[str, Any], str]] = []
+    agent_by_session = _opencode_agent_by_session(opencode_artifacts)
+    record_index = 0
+    for source in sorted(opencode_artifacts.rglob("*")):
+        if not source.is_file() or source.suffix.lower() not in {".json", ".jsonl", ".ndjson"}:
+            continue
+        if not _is_transcript_source(source):
+            continue
+        for record in _json_records_from_source(source):
+            record_index += 1
+            if not isinstance(record, dict) or not _is_materializable_final_text(record, agent_by_session):
+                continue
+            part = record.get("part")
+            if not isinstance(part, dict):
+                continue
+            text = part.get("text")
+            if isinstance(text, str) and _looks_like_source_documentation(text):
+                candidates.append((record_index, record, text))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: _record_chronology_key(item[1], item[0]))[2]
+
+
+def _json_records_from_source(source: Path) -> list[Any]:
+    try:
+        if source.suffix.lower() == ".json":
+            parsed = json.loads(source.read_text(encoding="utf-8"))
+            if isinstance(parsed, list):
+                return parsed
+            if isinstance(parsed, dict):
+                return _extract_records_from_object(parsed)
+            return []
+        records: list[Any] = []
+        for line in source.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                records.append(json.loads(line))
+        return records
+    except json.JSONDecodeError:
+        return []
+
+
+def _is_materializable_final_text(record: dict[str, Any], agent_by_session: dict[str, str]) -> bool:
+    if record.get("type") != "text":
+        return False
+    agent = str(record.get("agent_name") or record.get("agent") or "").strip()
+    session_id = str(record.get("sessionID") or record.get("session_id") or "").strip()
+    if not agent and session_id:
+        agent = agent_by_session.get(session_id, "")
+    return agent.casefold() in {"brainds-orchestrator", "brain-ds-orchestrator"}
+
+
+def _opencode_agent_by_session(opencode_artifacts: Path) -> dict[str, str]:
+    agents: dict[str, str] = {}
+    for source in sorted(opencode_artifacts.rglob("*")):
+        if not source.is_file() or not _is_transcript_source(source):
+            continue
+        if source.suffix.lower() == ".log":
+            for line in source.read_text(encoding="utf-8").splitlines():
+                session_id = _line_value(line, "session.id") or _line_value(line, "id")
+                agent = _line_value(line, "agent")
+                if session_id and agent and not _is_metadata_agent(agent):
+                    agents[session_id] = agent
+            continue
+        if source.suffix.lower() not in {".json", ".jsonl", ".ndjson"}:
+            continue
+        for record in _json_records_from_source(source):
+            if not isinstance(record, dict):
+                continue
+            session_id = str(record.get("sessionID") or record.get("session_id") or "").strip()
+            agent = str(record.get("agent_name") or record.get("agent") or "").strip()
+            if session_id and agent and not _is_metadata_agent(agent):
+                agents[session_id] = agent
+    return agents
+
+
+def _is_metadata_agent(agent: str | None) -> bool:
+    return (agent or "").casefold() in {"title", "unknown"}
+
+
+def _line_value(line: str, key: str) -> str | None:
+    match = re.search(rf"(?:^|\s){re.escape(key)}=(\"[^\"]*\"|\S+)", line)
+    if not match:
+        return None
+    value = match.group(1)
+    return value[1:-1] if value.startswith('"') and value.endswith('"') else value
+
+
+def _looks_like_source_documentation(text: str) -> bool:
+    normalized = text.casefold()
+    if "source documentation" in normalized:
+        return True
+    if "datasource" not in normalized and "data source" not in normalized:
+        return False
+    documentation_signals = ("owner:", "freshness:", "columns:", "data gaps:")
+    return sum(signal in normalized for signal in documentation_signals) >= 2
+
+
 def _write_git_diff(repo: Path, target: Path, evidence: Path) -> str:
     target.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
@@ -266,7 +390,7 @@ def _copy_optional_opencode_artifacts(
 
     files: list[str] = []
     for source in sorted(opencode_artifacts_path.rglob("*")):
-        if source.is_file():
+        if source.is_file() and _is_transcript_source(source):
             target = evidence / "opencode" / source.relative_to(opencode_artifacts_path)
             files.append(_copy_file(source, target, evidence))
     if not files:

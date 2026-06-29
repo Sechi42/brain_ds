@@ -56,6 +56,30 @@ class BlindAgenticRunbookTests(unittest.TestCase):
         self.assertIn("subject_local_graph", text)
         self.assertIn("artifact_hashes", text)
 
+    def test_runbook_documents_versioned_blind_agent_protocol_v1(self) -> None:
+        text = self._runbook_text()
+
+        self.assertIn("Protocol version: `blind-agent-flow-v1`", text)
+        self.assertIn("Required OpenCode agent: `brain-ds-orchestrator`", text)
+        self.assertIn("Wrong or fallback agent (`agent=build`) invalidates the run", text)
+        self.assertIn("normalized events plus a verifiable text exchange", text)
+        self.assertIn("Subagent proof requires identity plus action or tool call", text)
+        self.assertIn("Engram topic: `blind-agentic-eval/protocol/v1`", text)
+        self.assertIn("Archive remains blocked until", text)
+
+    def test_runbook_documents_datasource_live_command_shape_and_subject_local_outputs(self) -> None:
+        text = self._runbook_text()
+
+        self.assertIn(
+            "uv run python -m tests.eval.blind_agentic.prepare_subject --scenario datasource_documentation --run-id <run_id>",
+            text,
+        )
+        self.assertIn("opencode --agent brain-ds-orchestrator", text)
+        self.assertIn("brain_ds_open_workspace", text)
+        self.assertIn("generated/source_documentation.md", text)
+        self.assertIn("subject/.brain_ds/store.db", text)
+        self.assertIn("Do not continue with bare `opencode`; it can resume as fallback `agent=build`", text)
+
     def test_runbook_documents_pr4_comparison_audit_and_stacked_slice_workflow(self) -> None:
         text = self._runbook_text()
 
