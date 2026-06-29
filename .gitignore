@@ -1,5 +1,6 @@
 
 .atl/
+.codegraph/
 private-brain-engram/
 .venv/
 __pycache__/
