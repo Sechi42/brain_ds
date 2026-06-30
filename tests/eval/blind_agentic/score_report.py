@@ -675,7 +675,9 @@ def _datasource_scoring_contract(
     tool_quality = _tool_quality(trace_events)
     conversation_axes = _conversation_axes(pathway_compliance, tool_quality)
     overall = round(sum(axis["score_0_5"] * axis["weight"] for axis in axes.values()), 2)
-    blocking_failures = _datasource_blocking_failures(orchestrator_gate, trace_summary)
+    blocking_failures = _datasource_blocking_failures(
+        orchestrator_gate, trace_summary, manifest=manifest, freshness=freshness
+    )
     return {
         "axes": axes,
         "overall_score_0_5": overall,
@@ -699,7 +701,11 @@ def _score_status(overall: float) -> str:
 
 
 def _datasource_blocking_failures(
-    orchestrator_gate: dict[str, Any], trace_summary: dict[str, Any]
+    orchestrator_gate: dict[str, Any],
+    trace_summary: dict[str, Any],
+    *,
+    manifest: dict[str, Any],
+    freshness: dict[str, Any],
 ) -> list[dict[str, Any]]:
     failures: list[dict[str, Any]] = []
     if orchestrator_gate.get("status") == "blocked":
@@ -726,6 +732,73 @@ def _datasource_blocking_failures(
                 "code": "missing_subagent_action",
                 "message": subagent_action.get("reason", "Missing subagent identity with attributable action or tool call"),
                 "first_brainds_agent": trace_summary.get("first_brainds_agent"),
+            }
+        )
+    required_generated = manifest.get("required_generated_file", {})
+    required_generated_status = required_generated.get("status") if isinstance(required_generated, dict) else None
+    if required_generated_status is not None and required_generated_status not in {
+        "captured",
+        "not_required",
+    }:
+        failures.append(
+            {
+                "code": "missing_generated_source_documentation",
+                "message": required_generated.get(
+                    "reason",
+                    "Missing required generated/source_documentation.md proof artifact",
+                ),
+                "path": required_generated.get("path", "generated/source_documentation.md"),
+            }
+        )
+    workspace_open_gate = manifest.get("workspace_open_gate", {})
+    if isinstance(workspace_open_gate, dict) and workspace_open_gate.get("status") == "missing":
+        failures.append(
+            {
+                "code": "missing_workspace_open",
+                "message": workspace_open_gate.get(
+                    "reason", "Missing brain_ds_open_workspace before graph writes"
+                ),
+            }
+        )
+    elif isinstance(workspace_open_gate, dict) and workspace_open_gate.get("status") == "failed":
+        failures.append(
+            {
+                "code": "write_before_workspace_open",
+                "message": workspace_open_gate.get(
+                    "reason", "Graph write occurred before brain_ds_open_workspace"
+                ),
+                "open_event_ref": workspace_open_gate.get("open_event_ref"),
+                "first_graph_write_ref": workspace_open_gate.get("first_graph_write_ref"),
+            }
+        )
+    elif isinstance(workspace_open_gate, dict) and workspace_open_gate.get("status") == "wrong_subject":
+        failures.append(
+            {
+                "code": "wrong_workspace_open",
+                "message": workspace_open_gate.get(
+                    "reason", "brain_ds_open_workspace opened a workspace outside the subject under review"
+                ),
+                "opened_path": workspace_open_gate.get("opened_path"),
+                "expected_subject_path": workspace_open_gate.get("expected_subject_path"),
+            }
+        )
+    subject_local_graph = freshness.get("subject_local_graph", {})
+    if isinstance(subject_local_graph, dict) and subject_local_graph.get("status") == "stale":
+        failures.append(
+            {
+                "code": "stale_graph_proof",
+                "message": subject_local_graph.get(
+                    "reason", "Subject-local graph proof is stale or unrelated"
+                ),
+            }
+        )
+    elif isinstance(subject_local_graph, dict) and subject_local_graph.get("status") == "failed":
+        failures.append(
+            {
+                "code": "non_subject_local_graph_proof",
+                "message": subject_local_graph.get(
+                    "reason", "Datasource documentation requires subject-local graph proof"
+                ),
             }
         )
     return failures

@@ -31,6 +31,18 @@ TRACE_REQUIRED_SCENARIOS = ("datasource_documentation",)
 # File copies can differ by a sub-second tick across filesystems. Treat only
 # graph snapshots older by more than this tolerance as stale.
 SUBJECT_LOCAL_GRAPH_STALE_TOLERANCE_SECONDS = 1.0
+REQUIRED_DATASOURCE_GENERATED_OUTPUT = "generated/source_documentation.md"
+GRAPH_WRITING_BRAIN_DS_TOOLS = {
+    "brain_ds_create_graph",
+    "brain_ds_update_node",
+    "brain_ds_add_edge",
+    "brain_ds_delete_node",
+    "brain_ds_delete_edge",
+    "brain_ds_insert_pending_question",
+    "brain_ds_manage_clusters",
+    "brain_ds_resolve_confirmation",
+    "brain_ds_import_graph",
+}
 
 
 class CollectEvidenceError(RuntimeError):
@@ -109,6 +121,12 @@ def collect_evidence(
         omissions.append(
             {"artifact": "generated_outputs", "reason": "no generated markdown/json files found"}
         )
+    required_generated_file = _required_generated_file_status(
+        subject=subject,
+        evidence=evidence,
+        generated_outputs=generated_outputs,
+        scenario=scenario,
+    )
 
     captured["git_diff"] = _write_git_diff(repo, evidence / "git_diff.patch", evidence)
     captured["file_inventory"] = _write_inventory(
@@ -152,6 +170,7 @@ def collect_evidence(
             "event_count": len(trace.events),
             "omissions": trace_omissions,
         }
+        workspace_open_gate = _workspace_open_gate(trace.events, subject=subject)
     else:
         trace_status = {
             "status": "missing",
@@ -165,12 +184,15 @@ def collect_evidence(
                     "reason": "required session trace not found for datasource_documentation",
                 }
             )
+        workspace_open_gate = _workspace_open_gate([], subject=subject)
 
     freshness_checks = _freshness_checks(
         captured=captured,
         evidence=evidence,
         graph_db_source=graph_db_source,
         trace_status=trace_status,
+        required_generated_file=required_generated_file,
+        workspace_open_gate=workspace_open_gate,
     )
     minimum = _minimum_evidence_status(
         captured, trace_status=trace_status, freshness_checks=freshness_checks
@@ -194,6 +216,8 @@ def collect_evidence(
         "immutable_evidence_snapshot": immutable_snapshot,
         "session_transcript": session_transcript,
         "trace": trace_status,
+        "required_generated_file": required_generated_file,
+        "workspace_open_gate": workspace_open_gate,
         "freshness_checks": freshness_checks,
         "minimum_evidence": minimum,
         "anti_contamination": {"status": "passed", "findings": []},
@@ -265,6 +289,87 @@ def _copy_generated_outputs(subject: Path, evidence: Path) -> list[str]:
             target = evidence / "generated" / source.relative_to(root)
             captured.append(_copy_file(source, target, evidence))
     return captured
+
+
+def _required_generated_file_status(
+    *, subject: Path, evidence: Path, generated_outputs: list[str], scenario: str
+) -> dict[str, Any]:
+    if scenario != "datasource_documentation":
+        return {"status": "not_required", "path": None}
+    required = subject / REQUIRED_DATASOURCE_GENERATED_OUTPUT
+    expected_ref = REQUIRED_DATASOURCE_GENERATED_OUTPUT
+    if expected_ref not in generated_outputs or not (evidence / expected_ref).is_file():
+        return {
+            "status": "missing",
+            "path": expected_ref,
+            "reason": "datasource_documentation requires generated/source_documentation.md",
+        }
+    copied = evidence / expected_ref
+    return {
+        "status": "captured",
+        "path": expected_ref,
+        "sha256": hashlib.sha256(copied.read_bytes()).hexdigest(),
+        "mtime_utc": datetime.fromtimestamp(required.stat().st_mtime, UTC).isoformat(),
+    }
+
+
+def _workspace_open_gate(events: list[Any], *, subject: Path) -> dict[str, Any]:
+    open_event_ref: str | None = None
+    first_graph_write_ref: str | None = None
+    opened_path: str | None = None
+    open_index: int | None = None
+    first_write_index: int | None = None
+    subject_path = subject.resolve(strict=False)
+    for index, event in enumerate(events):
+        tool_name = str(getattr(event, "tool_name", "") or "")
+        action = str(getattr(event, "action", "") or "")
+        if action != "tool_call":
+            continue
+        event_ref = _trace_event_ref(event, index)
+        if tool_name == "brain_ds_open_workspace" and open_index is None:
+            open_index = index
+            open_event_ref = event_ref
+            opened_path = str(getattr(event, "target", "") or "") or None
+        if tool_name in GRAPH_WRITING_BRAIN_DS_TOOLS and first_write_index is None:
+            first_write_index = index
+            first_graph_write_ref = event_ref
+    opened_before_write = open_index is not None and (
+        first_write_index is None or open_index < first_write_index
+    )
+    opened_subject = (
+        opened_path is not None
+        and Path(opened_path).resolve(strict=False) == subject_path
+    )
+    if first_write_index is None:
+        status = "passed"
+        reason = "no graph-writing BrainDS MCP call was captured in the OpenCode export"
+    elif open_index is None:
+        status = "missing"
+        reason = "brain_ds_open_workspace was not captured before graph writes"
+    elif first_write_index is not None and open_index > first_write_index:
+        status = "failed"
+        reason = "first graph-writing BrainDS MCP call occurred before brain_ds_open_workspace"
+    elif not opened_subject:
+        status = "wrong_subject"
+        reason = "brain_ds_open_workspace did not open the subject workspace under review"
+    else:
+        status = "passed"
+        reason = "brain_ds_open_workspace was captured before graph-writing BrainDS MCP calls"
+    return {
+        "status": status,
+        "reason": reason,
+        "open_event_ref": open_event_ref,
+        "opened_path": opened_path,
+        "expected_subject_path": subject.as_posix(),
+        "first_graph_write_ref": first_graph_write_ref,
+        "opened_before_write": opened_before_write,
+    }
+
+
+def _trace_event_ref(event: Any, index: int) -> str:
+    source = str(getattr(event, "source_path", "") or "session_trace.json")
+    tool = str(getattr(event, "tool_name", "") or getattr(event, "action", "event"))
+    return f"trace:{index}:{tool}:{source}"
 
 
 def _materialize_datasource_output_from_transcript(subject: Path, opencode_artifacts: Path | None) -> None:
@@ -444,6 +549,8 @@ def _freshness_checks(
     evidence: Path,
     graph_db_source: dict[str, str],
     trace_status: dict[str, Any],
+    required_generated_file: dict[str, Any],
+    workspace_open_gate: dict[str, Any],
 ) -> dict[str, Any]:
     subject_local = graph_db_source.get("kind") == "subject_workspace"
     generated = captured.get("generated_outputs", [])
@@ -460,6 +567,8 @@ def _freshness_checks(
             "status": "captured" if generated else "missing",
             "count": len(generated),
         },
+        "required_generated_file": required_generated_file,
+        "workspace_open_gate": workspace_open_gate,
         "trace": {
             "status": trace_status.get("status", "missing"),
             "required": bool(trace_status.get("required")),
@@ -468,7 +577,12 @@ def _freshness_checks(
     }
     failed = [
         name
-        for name in ("subject_local_graph", "generated_outputs", "trace")
+        for name in (
+            "subject_local_graph",
+            "generated_outputs",
+            "workspace_open_gate",
+            "trace",
+        )
         if checks[name].get("status") not in {"passed", "captured"}
         and (name != "trace" or checks[name].get("required"))
     ]
