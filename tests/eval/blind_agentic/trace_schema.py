@@ -321,11 +321,91 @@ def _delegated_by_session(records: list[Any], agent_by_session: dict[str, str]) 
 
 
 def _extract_records_from_object(parsed: dict[str, Any]) -> list[Any]:
+    if isinstance(parsed.get("info"), dict) and isinstance(parsed.get("messages"), list):
+        return _extract_records_from_info_messages_envelope(parsed)
     for key in ("events", "messages", "items", "records"):
         value = parsed.get(key)
         if isinstance(value, list):
             return value
     return [parsed]
+
+
+def _extract_records_from_info_messages_envelope(parsed: dict[str, Any]) -> list[Any]:
+    session_info = _optional_dict(parsed, "info")
+    records: list[Any] = []
+    session_id = _optional_text(session_info, "id")
+    agent = _optional_text(session_info, "agent")
+    if session_id and agent:
+        records.append(
+            {
+                "type": "opencode_session",
+                "timestamp": _time_value(session_info),
+                "sessionID": session_id,
+                "agent_name": agent,
+                "action": "session_created",
+            }
+        )
+    for message in parsed.get("messages", []):
+        if isinstance(message, dict):
+            records.extend(_records_from_message(message, session_info=session_info))
+    return records
+
+
+def _records_from_message(message: dict[str, Any], *, session_info: dict[str, Any]) -> list[dict[str, Any]]:
+    message_info = _optional_dict(message, "info")
+    inherited = {
+        "timestamp": _time_value(message_info),
+        "sessionID": _optional_text(message_info, "sessionID") or _optional_text(session_info, "id"),
+        "agent_name": _optional_text(message_info, "agent") or _optional_text(session_info, "agent"),
+        "role": _optional_text(message_info, "role"),
+        "parent_id": _optional_text(message_info, "parentID"),
+    }
+    records: list[dict[str, Any]] = []
+    for part in message.get("parts", []):
+        if not isinstance(part, dict):
+            continue
+        record = _record_from_message_part(part, inherited=inherited)
+        if record is not None:
+            records.append(record)
+    return records
+
+
+def _record_from_message_part(part: dict[str, Any], *, inherited: dict[str, str | None]) -> dict[str, Any] | None:
+    part_type = _optional_text(part, "type")
+    record_type_by_part = {
+        "text": "text",
+        "tool": "tool_use",
+        "step-start": "step_start",
+        "step_start": "step_start",
+        "step-finish": "step_finish",
+        "step_finish": "step_finish",
+        "reasoning": "reasoning",
+    }
+    record_type = record_type_by_part.get((part_type or "").casefold())
+    if record_type is None:
+        raise TraceSchemaError(f"unsupported OpenCode message part type: {part_type or '<missing>'}")
+    record: dict[str, Any] = {
+        "type": record_type,
+        "timestamp": _time_value(part) or inherited.get("timestamp"),
+        "sessionID": _optional_text(part, "sessionID") or inherited.get("sessionID"),
+        "agent_name": inherited.get("agent_name"),
+        "role": inherited.get("role"),
+        "part": dict(part),
+    }
+    if inherited.get("parent_id"):
+        record["parent_id"] = inherited["parent_id"]
+    if record_type == "tool_use":
+        record["tool_name"] = _optional_text(part, "tool")
+    return record
+
+
+def _time_value(record: dict[str, Any]) -> str | None:
+    time_payload = _optional_dict(record, "time")
+    for key in ("created", "start", "end", "completed", "updated"):
+        value = time_payload.get(key)
+        if value is not None:
+            return str(value)
+    return None
 
 
 def _record_to_events(
@@ -366,7 +446,7 @@ def _record_to_event(
         or _optional_text(part, "tool")
     )
     role = _normalize_role(_optional_text(record, "role"), agent_name=agent_name, tool_name=tool_name)
-    if record_type == "text":
+    if record_type in {"text", "reasoning"} and role != "user":
         role = "orchestrator" if _is_orchestrator_agent(agent_name) else role
     delegated_by = (
         _optional_text(record, "delegated_by")
@@ -374,6 +454,8 @@ def _record_to_event(
         or (delegated_by_session.get(session_id) if session_id else None)
     )
     action = _optional_text(record, "action") or _infer_action(record, role, delegated_by=delegated_by)
+    if tool_name == "task" and _has_completed_task_result(record):
+        action = "delegated_task_result"
     content_ref = _content_ref(record, index=index, root=root)
     return TraceEvent(
         ts=_optional_text(record, "ts") or _optional_text(record, "timestamp") or f"event-{index:04d}",
@@ -454,6 +536,8 @@ def _infer_action(record: dict[str, Any], role: str, *, delegated_by: str | None
         return "delegated_message"
     if record_type == "text":
         return "message"
+    if record_type == "reasoning":
+        return "reasoning"
     if role == "tool":
         return "tool_call" if record.get("arguments") or record.get("input") else "tool_response"
     if delegated_by or record.get("delegated_by") or record.get("parent_agent"):
@@ -463,6 +547,12 @@ def _infer_action(record: dict[str, Any], role: str, *, delegated_by: str | None
 
 def _content_ref(record: dict[str, Any], *, index: int, root: Path) -> str | None:
     part = _optional_dict(record, "part")
+    if _optional_text(record, "type") == "tool_use":
+        state = _optional_dict(part, "state")
+        status = _optional_text(state, "status") or "unknown"
+        body = json.dumps(state, sort_keys=True, default=str)
+        digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+        return f"opencode:tool-{index:04d}:status={status}:{digest[:12]}"
     for key in ("content_ref", "path", "file"):
         value = _optional_text(record, key)
         if value:
@@ -506,6 +596,8 @@ def _is_known_opencode_record(record: dict[str, Any]) -> bool:
         "tool_name",
         "tool",
         "action",
+        "info",
+        "parts",
     }
     return bool(known_top_level.intersection(record))
 
@@ -518,6 +610,7 @@ def _validate_export_record_contract(records: list[Any], agent_by_session: dict[
         "opencode_stream",
         "step_start",
         "step_finish",
+        "reasoning",
     }
     attribution_required_types = {"text", "tool_use", "opencode_session", "opencode_stream"}
     for index, record in enumerate(records):
@@ -557,11 +650,68 @@ def _tool_target(record: dict[str, Any]) -> str | None:
     part = _optional_dict(record, "part")
     state = _optional_dict(part, "state")
     input_payload = _optional_dict(state, "input")
-    for key in ("target", "filePath", "path", "node_id", "graph_id"):
+    for key in ("target", "subagent_type", "filePath", "path", "node_id", "graph_id"):
         value = input_payload.get(key)
         if value is not None:
             return str(value)
+    output_target = _tool_output_target(record)
+    if output_target is not None:
+        return output_target
     return None
+
+
+def _has_completed_task_result(record: dict[str, Any]) -> bool:
+    part = _optional_dict(record, "part")
+    if _optional_text(part, "tool") != "task":
+        return False
+    state = _optional_dict(part, "state")
+    if (_optional_text(state, "status") or "").casefold() not in {"completed", "success", "ok"}:
+        return False
+    output = _optional_text(state, "output") or _optional_text(state, "result")
+    if not output:
+        return False
+    normalized = output.casefold()
+    return "<task_result" in normalized or "task_result" in normalized
+
+
+def _tool_output_target(record: dict[str, Any]) -> str | None:
+    part = _optional_dict(record, "part")
+    if _optional_text(part, "tool") != "brain_ds_list_workspaces":
+        return None
+    state = _optional_dict(part, "state")
+    if (_optional_text(state, "status") or "").casefold() not in {"completed", "success", "ok"}:
+        return None
+    output = _optional_text(state, "output")
+    if not output:
+        return None
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict) or payload.get("active_registered") is not True:
+        return None
+    active_root = payload.get("active_project_root")
+    if not active_root:
+        return None
+    active_root_text = str(active_root)
+    workspaces = payload.get("workspaces")
+    if isinstance(workspaces, list):
+        for workspace in workspaces:
+            if not isinstance(workspace, dict) or workspace.get("active") is not True:
+                continue
+            workspace_path = workspace.get("path") or workspace.get("project_root")
+            if workspace_path is not None and _same_path(str(workspace_path), active_root_text):
+                return active_root_text
+    active_workspace = payload.get("active_workspace")
+    if isinstance(active_workspace, dict):
+        workspace_path = active_workspace.get("path") or active_workspace.get("project_root")
+        if workspace_path is not None and _same_path(str(workspace_path), active_root_text):
+            return active_root_text
+    return None
+
+
+def _same_path(left: str, right: str) -> bool:
+    return Path(left).resolve(strict=False) == Path(right).resolve(strict=False)
 
 
 def _is_orchestrator_agent(agent_name: str | None) -> bool:

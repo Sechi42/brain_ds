@@ -342,6 +342,125 @@ class BlindAgenticCollectTests(unittest.TestCase):
         self.assertEqual(tool_events[0].tool_name, "brain_ds_list_graphs")
         self.assertEqual(tool_events[0].action, "tool_call")
 
+    def test_opencode_export_parser_normalizes_live_info_messages_envelope(self) -> None:
+        export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-info-messages-envelope"
+        export_root.mkdir(parents=True, exist_ok=True)
+        subject = (Path.cwd() / "tmp" / "blind-agentic-eval-test" / "subject").resolve()
+        session_id = "ses_live_envelope"
+        (export_root / "session.json").write_text(
+            json.dumps(
+                {
+                    "info": {
+                        "id": session_id,
+                        "agent": "brain-ds-orchestrator",
+                        "model": {"id": "deepseek-v4-flash", "providerID": "opencode-go"},
+                        "time": {"created": 1782840282411},
+                    },
+                    "messages": [
+                        {
+                            "info": {
+                                "agent": "brain-ds-orchestrator",
+                                "role": "user",
+                                "sessionID": session_id,
+                                "time": {"created": 1782840282567},
+                            },
+                            "parts": [
+                                {
+                                    "type": "text",
+                                    "text": "Document the datasource through BrainDS.",
+                                    "sessionID": session_id,
+                                }
+                            ],
+                        },
+                        {
+                            "info": {
+                                "agent": "brain-ds-orchestrator",
+                                "role": "assistant",
+                                "sessionID": session_id,
+                                "time": {"created": 1782840283594},
+                            },
+                            "parts": [
+                                {"type": "text", "text": "I will open the workspace first."},
+                                {
+                                    "type": "tool",
+                                    "tool": "brain_ds_open_workspace",
+                                    "state": {
+                                        "status": "completed",
+                                        "input": {"path": subject.as_posix()},
+                                        "output": "{\"project_root\": \"%s\"}" % subject.as_posix(),
+                                    },
+                                },
+                                {
+                                    "type": "tool",
+                                    "tool": "brain_ds_add_edge",
+                                    "state": {
+                                        "status": "completed",
+                                        "input": {"graph_id": "helios-datasource-docs"},
+                                        "output": "{\"ok\": true}",
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        trace, omissions = parse_opencode_export(
+            export_root,
+            scenario="datasource_documentation",
+            run_id="trace-live-envelope",
+            pathway_id="datasource_documentation",
+            model_provider="opencode",
+            model="test-model",
+        )
+
+        self.assertEqual(omissions, [])
+        self.assertEqual(trace.events[0].role, "orchestrator")
+        self.assertEqual(trace.events[0].agent_name, "brain-ds-orchestrator")
+        self.assertEqual(trace.events[0].session_id, session_id)
+        self.assertTrue(any(event.role == "user" for event in trace.events))
+        tool_events = [event for event in trace.events if event.role == "tool"]
+        self.assertEqual([event.tool_name for event in tool_events], ["brain_ds_open_workspace", "brain_ds_add_edge"])
+        self.assertEqual(tool_events[0].target, subject.as_posix())
+        self.assertIn("status=completed", str(tool_events[0].content_ref))
+
+    def test_opencode_export_parser_rejects_unknown_live_info_message_part_type(self) -> None:
+        export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-info-messages-unknown-part"
+        export_root.mkdir(parents=True, exist_ok=True)
+        session_id = "ses_live_unknown_part"
+        (export_root / "session.json").write_text(
+            json.dumps(
+                {
+                    "info": {"id": session_id, "agent": "brain-ds-orchestrator"},
+                    "messages": [
+                        {
+                            "info": {
+                                "agent": "brain-ds-orchestrator",
+                                "role": "assistant",
+                                "sessionID": session_id,
+                            },
+                            "parts": [{"type": "unsupported-live-part", "text": "must fail"}],
+                        }
+                    ],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(TraceSchemaError, "unsupported OpenCode message part type"):
+            parse_opencode_export(
+                export_root,
+                scenario="datasource_documentation",
+                run_id="trace-live-unknown-part",
+                pathway_id="datasource_documentation",
+                model_provider="opencode",
+                model="test-model",
+            )
+
     def test_opencode_export_parser_marks_created_subagent_sessions_as_orchestrator_delegated(self) -> None:
         export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-subagent-created"
         export_root.mkdir(parents=True, exist_ok=True)
