@@ -761,9 +761,12 @@ def _datasource_blocking_failures(
             }
         )
     elif isinstance(workspace_open_gate, dict) and workspace_open_gate.get("status") == "failed":
+        code = "workspace_open_failed"
+        if workspace_open_gate.get("open_status") in {None, "completed", "success", "ok"}:
+            code = "write_before_workspace_open"
         failures.append(
             {
-                "code": "write_before_workspace_open",
+                "code": code,
                 "message": workspace_open_gate.get(
                     "reason", "Graph write occurred before brain_ds_open_workspace"
                 ),
@@ -1098,7 +1101,7 @@ def _subagent_action_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
         for event in events
         if event.get("role") == "subagent"
         and _is_brainds_agent(str(event.get("agent_name") or ""))
-        and _is_subagent_work_action(event.get("action"))
+        and _is_subagent_produced_evidence(event)
     ]
     subagent_set = set(subagent_names)
     tool_events = [
@@ -1111,13 +1114,26 @@ def _subagent_action_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
             or str(event.get("delegated_by") or "") in subagent_set
         )
     ]
+    task_delegation_events = [
+        event
+        for event in events
+        if event.get("role") == "tool"
+        and event.get("action") in {"tool_call", "delegated_task_result"}
+        and str(event.get("tool_name") or "") == "task"
+        and _is_brainds_agent(str(event.get("target") or ""))
+    ]
+    subagent_names.extend(str(event.get("target")) for event in task_delegation_events)
+    task_result_events = [
+        event for event in task_delegation_events if event.get("action") == "delegated_task_result"
+    ]
     all_tool_events = [event for event in events if event.get("role") == "tool" and event.get("action") == "tool_call"]
-    if subagent_names and (action_events or tool_events):
+    if subagent_names and (action_events or tool_events or task_result_events):
         return {
             "status": "verified",
             "subagents": sorted(set(subagent_names)),
             "action_count": len(action_events),
             "tool_call_count": len(tool_events),
+            "task_result_count": len(task_result_events),
         }
     return {
         "status": "missing",
@@ -1153,6 +1169,13 @@ def _is_wrong_or_fallback_agent(agent: str, role: Any) -> bool:
 def _is_subagent_work_action(action: Any) -> bool:
     normalized = str(action or "message").casefold()
     return normalized not in {"message", "session_created", "agent_stream"}
+
+
+def _is_subagent_produced_evidence(event: dict[str, Any]) -> bool:
+    action = str(event.get("action") or "message").casefold()
+    if action in {"session_created", "agent_stream"}:
+        return False
+    return bool(event.get("content_ref")) or action == "reasoning" or _is_subagent_work_action(action)
 
 
 def _freshness_report(manifest: dict[str, Any]) -> dict[str, Any]:

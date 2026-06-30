@@ -317,7 +317,9 @@ def _workspace_open_gate(events: list[Any], *, subject: Path) -> dict[str, Any]:
     open_event_ref: str | None = None
     first_graph_write_ref: str | None = None
     opened_path: str | None = None
+    open_status: str | None = None
     open_index: int | None = None
+    successful_open: tuple[int, str, str | None, str | None] | None = None
     first_write_index: int | None = None
     subject_path = subject.resolve(strict=False)
     for index, event in enumerate(events):
@@ -326,40 +328,63 @@ def _workspace_open_gate(events: list[Any], *, subject: Path) -> dict[str, Any]:
         if action != "tool_call":
             continue
         event_ref = _trace_event_ref(event, index)
-        if tool_name == "brain_ds_open_workspace" and open_index is None:
+        is_workspace_open_evidence = tool_name == "brain_ds_open_workspace"
+        is_active_workspace_evidence = tool_name == "brain_ds_list_workspaces" and Path(
+            str(getattr(event, "target", "") or "")
+        ).resolve(strict=False) == subject_path
+        if (is_workspace_open_evidence or is_active_workspace_evidence) and open_index is None:
             open_index = index
             open_event_ref = event_ref
             opened_path = str(getattr(event, "target", "") or "") or None
+            open_status = _tool_status_from_event(event)
+        if is_workspace_open_evidence or is_active_workspace_evidence:
+            candidate_status = _tool_status_from_event(event)
+            if candidate_status in {None, "completed", "success", "ok"} and successful_open is None:
+                successful_open = (
+                    index,
+                    event_ref,
+                    str(getattr(event, "target", "") or "") or None,
+                    candidate_status,
+                )
         if tool_name in GRAPH_WRITING_BRAIN_DS_TOOLS and first_write_index is None:
             first_write_index = index
             first_graph_write_ref = event_ref
-    opened_before_write = open_index is not None and (
+    if successful_open is not None and (
+        first_write_index is None or successful_open[0] < first_write_index
+    ):
+        open_index, open_event_ref, opened_path, open_status = successful_open
+    open_succeeded = open_status in {None, "completed", "success", "ok"}
+    opened_before_write = open_index is not None and open_succeeded and (
         first_write_index is None or open_index < first_write_index
     )
     opened_subject = (
         opened_path is not None
         and Path(opened_path).resolve(strict=False) == subject_path
     )
-    if first_write_index is None:
+    if open_index is not None and not open_succeeded:
+        status = "failed"
+        reason = "workspace activation proof failed before graph-writing BrainDS MCP calls"
+    elif first_write_index is None:
         status = "passed"
         reason = "no graph-writing BrainDS MCP call was captured in the OpenCode export"
     elif open_index is None:
         status = "missing"
-        reason = "brain_ds_open_workspace was not captured before graph writes"
+        reason = "brain_ds_open_workspace or active workspace proof was not captured before graph writes"
     elif first_write_index is not None and open_index > first_write_index:
         status = "failed"
-        reason = "first graph-writing BrainDS MCP call occurred before brain_ds_open_workspace"
+        reason = "first graph-writing BrainDS MCP call occurred before workspace activation proof"
     elif not opened_subject:
         status = "wrong_subject"
-        reason = "brain_ds_open_workspace did not open the subject workspace under review"
+        reason = "workspace activation proof did not match the subject workspace under review"
     else:
         status = "passed"
-        reason = "brain_ds_open_workspace was captured before graph-writing BrainDS MCP calls"
+        reason = "workspace activation proof was captured before graph-writing BrainDS MCP calls"
     return {
         "status": status,
         "reason": reason,
         "open_event_ref": open_event_ref,
         "opened_path": opened_path,
+        "open_status": open_status,
         "expected_subject_path": subject.as_posix(),
         "first_graph_write_ref": first_graph_write_ref,
         "opened_before_write": opened_before_write,
@@ -370,6 +395,12 @@ def _trace_event_ref(event: Any, index: int) -> str:
     source = str(getattr(event, "source_path", "") or "session_trace.json")
     tool = str(getattr(event, "tool_name", "") or getattr(event, "action", "event"))
     return f"trace:{index}:{tool}:{source}"
+
+
+def _tool_status_from_event(event: Any) -> str | None:
+    content_ref = str(getattr(event, "content_ref", "") or "")
+    match = re.search(r"status=([^:]+)", content_ref)
+    return match.group(1).casefold() if match else None
 
 
 def _materialize_datasource_output_from_transcript(subject: Path, opencode_artifacts: Path | None) -> None:
@@ -611,10 +642,7 @@ def _subject_local_graph_check(
         }
 
     graph_mtime = graph_path.stat().st_mtime
-    comparison_refs = [
-        *captured.get("generated_outputs", []),
-        captured.get("session_trace"),
-    ]
+    comparison_refs = [*captured.get("generated_outputs", [])]
     comparison_mtimes = [
         (evidence / str(ref)).stat().st_mtime
         for ref in comparison_refs
@@ -624,10 +652,10 @@ def _subject_local_graph_check(
     if newest_related - graph_mtime > SUBJECT_LOCAL_GRAPH_STALE_TOLERANCE_SECONDS:
         return {
             "status": "stale",
-            "reason": "subject-local graph is older than generated outputs or trace artifacts",
-            "action": "Regenerate the graph after the latest subject outputs/trace, then collect evidence again.",
+            "reason": "subject-local graph is older than generated outputs",
+            "action": "Regenerate the graph after the latest subject outputs, then collect evidence again.",
             "graph_mtime_utc": datetime.fromtimestamp(graph_mtime, UTC).isoformat(),
-            "newest_output_or_trace_mtime_utc": datetime.fromtimestamp(newest_related, UTC).isoformat(),
+            "newest_output_mtime_utc": datetime.fromtimestamp(newest_related, UTC).isoformat(),
         }
 
     return {

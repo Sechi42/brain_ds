@@ -9,7 +9,7 @@ import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from typing import TypedDict
+from typing import Sequence, TypedDict
 
 from brain_ds.store.graph_store import GraphStore
 from tests.eval.blind_agentic import collect_and_score
@@ -682,6 +682,80 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
         )
         self.assertEqual(report["trace_summary"]["subagent_action"]["status"], "verified")
 
+    def test_collect_and_score_main_accepts_completed_task_result_as_subagent_proof(
+        self,
+    ) -> None:
+        run_id = "collect-score-completed-task-result-proof"
+        workspace = prepare_subject(
+            scenario="datasource_documentation",
+            run_id=run_id,
+            output_root=Path("tmp") / "blind-agentic-collect-score-test",
+        )
+        self._write_datasource_subject_outputs(workspace.subject_path)
+        orchestrator_session = "ses_orchestrator_task_result"
+        self._write_export_records(
+            workspace.subject_path,
+            [
+                self._prompt_read_record(orchestrator_session, workspace.subject_path, sequence=1),
+                self._orchestrator_text_record(orchestrator_session, sequence=2),
+                self._open_workspace_record(orchestrator_session, workspace.subject_path, sequence=3),
+                self._task_record(
+                    orchestrator_session,
+                    sequence=4,
+                    subagent_type="brainds-source-explorer",
+                    output="<task id=\"ses_child\" state=\"completed\"><task_result>Read CSV files and produced source documentation findings.</task_result></task>",
+                ),
+                self._graph_write_record(orchestrator_session, sequence=5),
+            ],
+        )
+
+        exit_code, stdout, stderr = self._run_datasource_collect_and_score(
+            run_id=run_id,
+            subject_path=workspace.subject_path,
+        )
+
+        self.assertEqual(exit_code, 0, stderr)
+        self.assertIn("Score report:", stdout)
+        report = json.loads((workspace.subject_path.parent / "report.json").read_text(encoding="utf-8"))
+        self.assertEqual(report["trace_summary"]["subagent_action"]["status"], "verified")
+        self.assertEqual(report["trace_summary"]["subagent_action"]["task_result_count"], 1)
+
+    def test_collect_and_score_main_rejects_bare_task_delegation_as_subagent_proof(
+        self,
+    ) -> None:
+        run_id = "collect-score-bare-task-delegation"
+        workspace = prepare_subject(
+            scenario="datasource_documentation",
+            run_id=run_id,
+            output_root=Path("tmp") / "blind-agentic-collect-score-test",
+        )
+        self._write_datasource_subject_outputs(workspace.subject_path)
+        orchestrator_session = "ses_orchestrator_bare_task"
+        self._write_export_records(
+            workspace.subject_path,
+            [
+                self._prompt_read_record(orchestrator_session, workspace.subject_path, sequence=1),
+                self._orchestrator_text_record(orchestrator_session, sequence=2),
+                self._open_workspace_record(orchestrator_session, workspace.subject_path, sequence=3),
+                self._task_record(
+                    orchestrator_session,
+                    sequence=4,
+                    subagent_type="brainds-source-explorer",
+                    output=None,
+                ),
+                self._graph_write_record(orchestrator_session, sequence=5),
+            ],
+        )
+
+        exit_code, stdout, stderr = self._run_datasource_collect_and_score(
+            run_id=run_id,
+            subject_path=workspace.subject_path,
+        )
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual("", stdout)
+        self.assertIn("missing_subagent_action", stderr)
+
     def test_collect_and_score_main_rejects_missing_workspace_open_gate(self) -> None:
         workspace = prepare_subject(
             scenario="datasource_documentation",
@@ -703,6 +777,146 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             (workspace.subject_path.parent / "report.json").read_text(encoding="utf-8")
         )
         self.assertEqual(report["blocking_failures"][0]["code"], "missing_workspace_open")
+
+    def test_collect_and_score_main_accepts_active_workspace_listing_before_graph_write(
+        self,
+    ) -> None:
+        run_id = "collect-score-active-workspace-listing"
+        workspace = prepare_subject(
+            scenario="datasource_documentation",
+            run_id=run_id,
+            output_root=Path("tmp") / "blind-agentic-collect-score-test",
+        )
+        self._write_datasource_subject_outputs(workspace.subject_path)
+        orchestrator_session = "ses_orchestrator_active_listing"
+        subagent_session = "ses_subagent_active_listing"
+        self._write_export_records(
+            workspace.subject_path,
+            [
+                self._prompt_read_record(orchestrator_session, workspace.subject_path, sequence=1),
+                self._orchestrator_text_record(orchestrator_session, sequence=2),
+                self._workspace_listing_record(orchestrator_session, workspace.subject_path, sequence=3),
+                {
+                    "type": "opencode_session",
+                    "timestamp": 1782702339500,
+                    "sequence": 4,
+                    "sessionID": subagent_session,
+                    "agent_name": "brainds-source-explorer",
+                    "parent_session_id": orchestrator_session,
+                },
+                self._graph_write_record(subagent_session, sequence=5, agent_name="brainds-source-explorer"),
+            ],
+        )
+
+        exit_code, stdout, stderr = self._run_datasource_collect_and_score(
+            run_id=run_id,
+            subject_path=workspace.subject_path,
+        )
+
+        self.assertEqual(exit_code, 0, stderr)
+        self.assertIn("Score report:", stdout)
+        manifest = json.loads(
+            (workspace.subject_path.parent / "evidence" / "manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(manifest["workspace_open_gate"]["status"], "passed")
+        self.assertIn("brain_ds_list_workspaces", manifest["workspace_open_gate"]["open_event_ref"])
+
+    def test_collect_and_score_main_rejects_active_listing_without_active_workspace_entry(
+        self,
+    ) -> None:
+        workspace = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="collect-score-listing-no-active-entry",
+            output_root=Path("tmp") / "blind-agentic-collect-score-test",
+        )
+        self._write_datasource_subject_outputs(workspace.subject_path)
+        self._write_export_records(
+            workspace.subject_path,
+            self._workspace_listing_export_records(
+                workspace.subject_path,
+                listing_payload={
+                    "active_project_root": workspace.subject_path.as_posix(),
+                    "active_registered": True,
+                    "workspaces": [{"path": workspace.subject_path.as_posix()}],
+                },
+            ),
+        )
+
+        exit_code, stdout, stderr = self._run_datasource_collect_and_score(
+            run_id="collect-score-listing-no-active-entry",
+            subject_path=workspace.subject_path,
+        )
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual("", stdout)
+        self.assertIn("missing_workspace_open", stderr)
+
+    def test_collect_and_score_main_rejects_active_listing_for_unrelated_workspace(
+        self,
+    ) -> None:
+        workspace = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="collect-score-listing-unrelated-active",
+            output_root=Path("tmp") / "blind-agentic-collect-score-test",
+        )
+        self._write_datasource_subject_outputs(workspace.subject_path)
+        unrelated = workspace.subject_path.parent / "unrelated-workspace"
+        self._write_export_records(
+            workspace.subject_path,
+            self._workspace_listing_export_records(
+                workspace.subject_path,
+                listing_payload={
+                    "active_project_root": workspace.subject_path.as_posix(),
+                    "active_registered": True,
+                    "workspaces": [{"path": unrelated.as_posix(), "active": True}],
+                },
+            ),
+        )
+
+        exit_code, stdout, stderr = self._run_datasource_collect_and_score(
+            run_id="collect-score-listing-unrelated-active",
+            subject_path=workspace.subject_path,
+        )
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual("", stdout)
+        self.assertIn("missing_workspace_open", stderr)
+
+    def test_collect_and_score_main_rejects_stale_active_workspace_listing(
+        self,
+    ) -> None:
+        workspace = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="collect-score-listing-stale-active",
+            output_root=Path("tmp") / "blind-agentic-collect-score-test",
+        )
+        self._write_datasource_subject_outputs(workspace.subject_path)
+        stale_workspace = workspace.subject_path.parent / "stale-workspace"
+        self._write_export_records(
+            workspace.subject_path,
+            self._workspace_listing_export_records(
+                workspace.subject_path,
+                listing_payload={
+                    "active_project_root": stale_workspace.as_posix(),
+                    "active_registered": True,
+                    "workspaces": [
+                        {"path": workspace.subject_path.as_posix(), "active": False},
+                        {"path": stale_workspace.as_posix(), "active": True},
+                    ],
+                },
+            ),
+        )
+
+        exit_code, stdout, stderr = self._run_datasource_collect_and_score(
+            run_id="collect-score-listing-stale-active",
+            subject_path=workspace.subject_path,
+        )
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual("", stdout)
+        self.assertIn("missing_workspace_open", stderr)
 
     def test_collect_and_score_main_rejects_graph_write_before_workspace_open(self) -> None:
         workspace = prepare_subject(
@@ -727,6 +941,56 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             )
         )
         self.assertFalse(manifest["workspace_open_gate"]["opened_before_write"])
+
+    def test_collect_and_score_main_rejects_failed_workspace_open_before_graph_write(self) -> None:
+        workspace = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="collect-score-failed-open-workspace",
+            output_root=Path("tmp") / "blind-agentic-collect-score-test",
+        )
+        self._write_datasource_subject_outputs(workspace.subject_path)
+        self._write_datasource_export(
+            workspace.subject_path,
+            open_workspace_status="error",
+            open_workspace_error="Workspace not registered",
+        )
+
+        exit_code, stdout, stderr = self._run_datasource_collect_and_score(
+            run_id="collect-score-failed-open-workspace",
+            subject_path=workspace.subject_path,
+        )
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual("", stdout)
+        self.assertIn("workspace_open_failed", stderr)
+        manifest = json.loads(
+            (workspace.subject_path.parent / "evidence" / "manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(manifest["workspace_open_gate"]["status"], "failed")
+        self.assertFalse(manifest["workspace_open_gate"]["opened_before_write"])
+
+    def test_collect_and_score_main_accepts_successful_workspace_open_after_failed_retry(self) -> None:
+        workspace = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="collect-score-open-retry-success",
+            output_root=Path("tmp") / "blind-agentic-collect-score-test",
+        )
+        self._write_datasource_subject_outputs(workspace.subject_path)
+        self._write_datasource_export(workspace.subject_path, failed_open_before_success=True)
+
+        exit_code, stdout, stderr = self._run_datasource_collect_and_score(
+            run_id="collect-score-open-retry-success",
+            subject_path=workspace.subject_path,
+        )
+
+        self.assertEqual(exit_code, 0, stderr)
+        self.assertIn("Score report:", stdout)
+        report = json.loads((workspace.subject_path.parent / "report.json").read_text(encoding="utf-8"))
+        self.assertNotIn("workspace_open_failed", {item["code"] for item in report["blocking_failures"]})
+        manifest = json.loads((workspace.subject_path.parent / "evidence" / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["workspace_open_gate"]["status"], "passed")
 
     def test_collect_and_score_main_rejects_stale_subject_graph_proof(self) -> None:
         workspace = prepare_subject(
@@ -912,6 +1176,107 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
         )
         self.assertEqual(report["trace_summary"]["subagent_action"]["status"], "verified")
         self.assertEqual(report["trace_summary"]["subagent_action"]["action_count"], 1)
+
+    def test_collect_and_score_main_rejects_task_delegation_without_subagent_proof(self) -> None:
+        run_id = "collect-score-task-only-subagent-proof"
+        workspace = prepare_subject(
+            scenario="datasource_documentation",
+            run_id=run_id,
+            output_root=Path("tmp") / "blind-agentic-collect-score-test",
+        )
+        self._write_datasource_subject_outputs(workspace.subject_path)
+        orchestrator_session = "ses_orchestrator_task_only"
+        export_path = workspace.subject_path.parent / "opencode-export" / "session.json"
+        export_path.parent.mkdir(parents=True, exist_ok=True)
+        export_path.write_text(
+            json.dumps(
+                {
+                    "records": [
+                        {
+                            "type": "tool_use",
+                            "timestamp": 1782702339008,
+                            "sequence": 1,
+                            "sessionID": orchestrator_session,
+                            "agent_name": "brain-ds-orchestrator",
+                            "part": {
+                                "type": "tool",
+                                "tool": "read",
+                                "state": {
+                                    "status": "completed",
+                                    "input": {"filePath": (workspace.subject_path / "PROMPT.md").as_posix()},
+                                    "output": "1: Document the Helios datasource.",
+                                },
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "timestamp": 1782702339100,
+                            "sequence": 2,
+                            "sessionID": orchestrator_session,
+                            "agent_name": "brain-ds-orchestrator",
+                            "part": {"type": "text", "text": "I will delegate source documentation."},
+                        },
+                        {
+                            "type": "tool_use",
+                            "timestamp": 1782702339300,
+                            "sequence": 3,
+                            "sessionID": orchestrator_session,
+                            "agent_name": "brain-ds-orchestrator",
+                            "part": {
+                                "type": "tool",
+                                "tool": "brain_ds_open_workspace",
+                                "state": {"status": "completed", "input": {"path": workspace.subject_path.as_posix()}},
+                            },
+                        },
+                        {
+                            "type": "tool_use",
+                            "timestamp": 1782702339400,
+                            "sequence": 4,
+                            "sessionID": orchestrator_session,
+                            "agent_name": "brain-ds-orchestrator",
+                            "part": {
+                                "type": "tool",
+                                "tool": "task",
+                                "state": {
+                                    "status": "completed",
+                                    "input": {"subagent_type": "brainds-source-explorer"},
+                                    "output": "Delegation accepted.",
+                                },
+                            },
+                        },
+                        {
+                            "type": "tool_use",
+                            "timestamp": 1782702339500,
+                            "sequence": 5,
+                            "sessionID": orchestrator_session,
+                            "agent_name": "brain-ds-orchestrator",
+                            "part": {
+                                "type": "tool",
+                                "tool": "brain_ds_update_node",
+                                "state": {"status": "completed", "input": {"graph_id": "helios-datasource-docs"}},
+                            },
+                        },
+                    ]
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+
+        exit_code, stdout, stderr = self._run_datasource_collect_and_score(
+            run_id=run_id,
+            subject_path=workspace.subject_path,
+        )
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual("", stdout)
+        self.assertIn("missing_subagent_action", stderr)
+        report = json.loads((workspace.subject_path.parent / "report.json").read_text(encoding="utf-8"))
+        subagent_action = report["trace_summary"]["subagent_action"]
+        self.assertEqual(subagent_action["status"], "missing")
+        self.assertEqual(subagent_action["subagents"], ["brainds-source-explorer"])
+        self.assertEqual(subagent_action["action_count"], 0)
 
     def test_collect_and_score_main_scores_root_agent_by_event_chronology(
         self,
@@ -1347,6 +1712,9 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
         include_open_workspace: bool = True,
         write_before_open: bool = False,
         open_workspace_path: Path | None = None,
+        open_workspace_status: str = "completed",
+        open_workspace_error: str | None = None,
+        failed_open_before_success: bool = False,
     ) -> Path:
         orchestrator_session = "ses_orchestrator_workspace_gate"
         subagent_session = "ses_subagent_workspace_gate"
@@ -1360,8 +1728,9 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
                 "type": "tool",
                 "tool": "brain_ds_open_workspace",
                 "state": {
-                    "status": "completed",
+                    "status": open_workspace_status,
                     "input": {"path": (open_workspace_path or subject_path).as_posix()},
+                    **({"error": open_workspace_error} if open_workspace_error else {}),
                 },
             },
         }
@@ -1426,6 +1795,20 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
                 },
             },
         ]
+        if failed_open_before_success:
+            failed_open = dict(open_workspace)
+            failed_open["sequence"] = 3
+            failed_open["timestamp"] = 1782702339200
+            failed_open["part"] = {
+                "type": "tool",
+                "tool": "brain_ds_open_workspace",
+                "state": {
+                    "status": "error",
+                    "input": {"path": "relative/subject"},
+                    "error": "Workspace not registered",
+                },
+            }
+            records.append(failed_open)
         if include_open_workspace:
             records.append(open_workspace)
         export_path = subject_path.parent / "opencode-export" / "session.json"
@@ -1435,6 +1818,155 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             encoding="utf-8",
         )
         return export_path
+
+    def _write_export_records(self, subject_path: Path, records: Sequence[object]) -> Path:
+        export_path = subject_path.parent / "opencode-export" / "session.json"
+        export_path.parent.mkdir(parents=True, exist_ok=True)
+        export_path.write_text(
+            json.dumps({"records": records}, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        return export_path
+
+    def _prompt_read_record(self, session_id: str, subject_path: Path, *, sequence: int) -> dict[str, object]:
+        return {
+            "type": "tool_use",
+            "timestamp": 1782702339000 + sequence,
+            "sequence": sequence,
+            "sessionID": session_id,
+            "agent_name": "brain-ds-orchestrator",
+            "part": {
+                "type": "tool",
+                "tool": "read",
+                "state": {
+                    "status": "completed",
+                    "input": {"filePath": (subject_path / "PROMPT.md").as_posix()},
+                    "output": "1: Document the Helios datasource.",
+                },
+            },
+        }
+
+    def _orchestrator_text_record(self, session_id: str, *, sequence: int) -> dict[str, object]:
+        return {
+            "type": "text",
+            "timestamp": 1782702339000 + sequence,
+            "sequence": sequence,
+            "sessionID": session_id,
+            "agent_name": "brain-ds-orchestrator",
+            "part": {"type": "text", "text": "I will document this datasource."},
+        }
+
+    def _open_workspace_record(
+        self, session_id: str, subject_path: Path, *, sequence: int
+    ) -> dict[str, object]:
+        return {
+            "type": "tool_use",
+            "timestamp": 1782702339000 + sequence,
+            "sequence": sequence,
+            "sessionID": session_id,
+            "agent_name": "brain-ds-orchestrator",
+            "part": {
+                "type": "tool",
+                "tool": "brain_ds_open_workspace",
+                "state": {"status": "completed", "input": {"path": subject_path.as_posix()}},
+            },
+        }
+
+    def _workspace_listing_record(
+        self,
+        session_id: str,
+        subject_path: Path,
+        *,
+        sequence: int,
+        listing_payload: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        payload = listing_payload or {
+            "active_project_root": subject_path.as_posix(),
+            "active_registered": True,
+            "workspaces": [{"path": subject_path.as_posix(), "active": True}],
+        }
+        return {
+            "type": "tool_use",
+            "timestamp": 1782702339000 + sequence,
+            "sequence": sequence,
+            "sessionID": session_id,
+            "agent_name": "brain-ds-orchestrator",
+            "part": {
+                "type": "tool",
+                "tool": "brain_ds_list_workspaces",
+                "state": {
+                    "status": "completed",
+                    "input": {},
+                    "output": json.dumps(payload),
+                },
+            },
+        }
+
+    def _workspace_listing_export_records(
+        self,
+        subject_path: Path,
+        *,
+        listing_payload: dict[str, object],
+    ) -> list[dict[str, object]]:
+        orchestrator_session = "ses_orchestrator_active_listing"
+        subagent_session = "ses_subagent_active_listing"
+        return [
+            self._prompt_read_record(orchestrator_session, subject_path, sequence=1),
+            self._orchestrator_text_record(orchestrator_session, sequence=2),
+            self._workspace_listing_record(
+                orchestrator_session,
+                subject_path,
+                sequence=3,
+                listing_payload=listing_payload,
+            ),
+            {
+                "type": "opencode_session",
+                "timestamp": 1782702339500,
+                "sequence": 4,
+                "sessionID": subagent_session,
+                "agent_name": "brainds-source-explorer",
+                "parent_session_id": orchestrator_session,
+            },
+            self._graph_write_record(subagent_session, sequence=5, agent_name="brainds-source-explorer"),
+        ]
+
+    def _task_record(
+        self, session_id: str, *, sequence: int, subagent_type: str, output: str | None
+    ) -> dict[str, object]:
+        state: dict[str, object] = {
+            "status": "completed" if output is not None else "pending",
+            "input": {"subagent_type": subagent_type, "description": "Document sources"},
+        }
+        if output is not None:
+            state["output"] = output
+        return {
+            "type": "tool_use",
+            "timestamp": 1782702339000 + sequence,
+            "sequence": sequence,
+            "sessionID": session_id,
+            "agent_name": "brain-ds-orchestrator",
+            "part": {"type": "tool", "tool": "task", "state": state},
+        }
+
+    def _graph_write_record(
+        self,
+        session_id: str,
+        *,
+        sequence: int,
+        agent_name: str = "brain-ds-orchestrator",
+    ) -> dict[str, object]:
+        return {
+            "type": "tool_use",
+            "timestamp": 1782702339000 + sequence,
+            "sequence": sequence,
+            "sessionID": session_id,
+            "agent_name": agent_name,
+            "part": {
+                "type": "tool",
+                "tool": "brain_ds_update_node",
+                "state": {"status": "completed", "input": {"graph_id": "helios-datasource-docs"}},
+            },
+        }
 
     def _run_datasource_collect_and_score(
         self, *, run_id: str, subject_path: Path, graph_db_path: Path | None = None
