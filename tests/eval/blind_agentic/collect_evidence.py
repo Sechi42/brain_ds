@@ -18,6 +18,7 @@ from typing import Any
 from tests.eval.blind_agentic.prepare_subject import scan_for_contamination
 from tests.eval.blind_agentic.trace_schema import (
     TRACE_VERSION,
+    TraceSchemaError,
     _extract_records_from_object,
     _is_transcript_source,
     _record_chronology_key,
@@ -62,9 +63,15 @@ def collect_evidence(
     repo = Path(repo_root)
     opencode_artifacts = Path(opencode_artifacts_path) if opencode_artifacts_path else None
     graph_db_override = Path(graph_db_path) if graph_db_path is not None else None
+    export_path = _resolve_opencode_export_path(subject)
 
     if not subject.is_dir():
         raise CollectEvidenceError(f"Subject workspace does not exist: {subject}")
+    if scenario in TRACE_REQUIRED_SCENARIOS and export_path is None:
+        raise CollectEvidenceError(
+            "Missing required OpenCode export at opencode-export/session.json; "
+            "stdout/stderr diagnostics are not scoring evidence"
+        )
 
     _raise_on_contamination(subject)
 
@@ -95,9 +102,6 @@ def collect_evidence(
     else:
         omissions.append({"artifact": "setup_metadata", "reason": ".brain_ds/setup.json not found"})
 
-    if scenario == "datasource_documentation":
-        _materialize_datasource_output_from_transcript(subject, opencode_artifacts)
-        _raise_on_contamination(subject)
     generated_outputs = _copy_generated_outputs(subject, evidence)
     if generated_outputs:
         captured["generated_outputs"] = generated_outputs
@@ -112,19 +116,29 @@ def collect_evidence(
     )
 
     trace_required = scenario in TRACE_REQUIRED_SCENARIOS
-    session_transcript = _copy_optional_opencode_artifacts(opencode_artifacts, evidence)
+    session_transcript = _copy_optional_opencode_artifacts(
+        opencode_artifacts,
+        evidence,
+        export_path=export_path,
+    )
     session_transcript["required"] = trace_required
     session_transcript["required_for_scenarios"] = list(TRACE_REQUIRED_SCENARIOS)
     if session_transcript["status"] == "captured":
-        captured["opencode_artifacts"] = session_transcript["files"]
-        trace, trace_omissions = parse_opencode_export(
-            evidence / "opencode",
-            scenario=scenario,
-            run_id=run_id,
-            pathway_id=scenario,
-            model_provider="opencode",
-            model=None,
-        )
+        if session_transcript.get("source") == "export":
+            captured["opencode_export"] = session_transcript["files"][0]
+        else:
+            captured["opencode_artifacts"] = session_transcript["files"]
+        try:
+            trace, trace_omissions = parse_opencode_export(
+                evidence / "opencode",
+                scenario=scenario,
+                run_id=run_id,
+                pathway_id=scenario,
+                model_provider="opencode",
+                model=None,
+            )
+        except TraceSchemaError as exc:
+            raise CollectEvidenceError(f"Invalid OpenCode export schema: {exc}") from exc
         trace_target = evidence / "trace" / "session_trace.json"
         trace_hash = write_session_trace(trace, trace_target)
         captured["session_trace"] = trace_target.relative_to(evidence).as_posix()
@@ -200,6 +214,11 @@ def _copy_file(source: Path, target: Path, evidence: Path) -> str:
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, target)
     return target.relative_to(evidence).as_posix()
+
+
+def _resolve_opencode_export_path(subject: Path) -> Path | None:
+    default = subject.parent / "opencode-export" / "session.json"
+    return default if default.is_file() else None
 
 
 def _raise_on_contamination(subject: Path) -> None:
@@ -383,8 +402,15 @@ def _write_inventory(subject: Path, target: Path, evidence: Path) -> str:
 
 
 def _copy_optional_opencode_artifacts(
-    opencode_artifacts_path: Path | None, evidence: Path
+    opencode_artifacts_path: Path | None, evidence: Path, *, export_path: Path | None = None
 ) -> dict[str, Any]:
+    if export_path is not None:
+        return {
+            "status": "captured",
+            "required": False,
+            "source": "export",
+            "files": [_copy_file(export_path, evidence / "opencode" / "session.json", evidence)],
+        }
     if opencode_artifacts_path is None or not opencode_artifacts_path.exists():
         return {"status": "missing", "required": False, "files": []}
 

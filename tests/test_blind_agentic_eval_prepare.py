@@ -84,6 +84,42 @@ class BlindAgenticPrepareTests(unittest.TestCase):
             ["orchestrator_entry", "explore_source", "document_source", "map_to_graph"],
         )
 
+    def test_prepare_same_run_id_recreates_datasource_workspace_without_sqlite_lock(self) -> None:
+        output_root = self._tmp_root()
+        run_id = "datasource-rerun-recreate-001"
+
+        first = prepare_subject(
+            scenario="datasource_documentation",
+            run_id=run_id,
+            output_root=output_root,
+        )
+        first_db = first.subject_path / "sources" / "datasource.sqlite"
+        conn = sqlite3.connect(first_db)
+        try:
+            first_tables = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            ).fetchall()
+        finally:
+            conn.close()
+
+        second = prepare_subject(
+            scenario="datasource_documentation",
+            run_id=run_id,
+            output_root=output_root,
+        )
+        second_db = second.subject_path / "sources" / "datasource.sqlite"
+        conn = sqlite3.connect(second_db)
+        try:
+            second_tables = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            ).fetchall()
+        finally:
+            conn.close()
+
+        self.assertEqual(second.subject_path, first.subject_path)
+        self.assertTrue(second_db.is_file())
+        self.assertEqual(second_tables, first_tables)
+
     def test_datasource_subject_metadata_stamps_blind_flow_protocol_version(self) -> None:
         workspace = prepare_subject(
             scenario="datasource_documentation",
@@ -97,8 +133,17 @@ class BlindAgenticPrepareTests(unittest.TestCase):
 
         self.assertEqual(protocol["version"], "blind-agent-flow-v1")
         self.assertEqual(protocol["required_orchestrator"], "brain-ds-orchestrator")
+        self.assertEqual(protocol["prompt_path"], "PROMPT.md")
         self.assertIn("generated/source_documentation.md", protocol["expected_outputs"])
         self.assertEqual(protocol["graph_db"], ".brain_ds/store.db")
+        self.assertEqual(
+            protocol["wrapper_diagnostics"],
+            [
+                "diagnostics/opencode-run.stdout.jsonl",
+                "diagnostics/opencode-run.stderr.txt",
+                "diagnostics/opencode-export.stderr.txt",
+            ],
+        )
 
     def test_evaluator_only_files_are_not_copied_to_subject_workspace(self) -> None:
         workspace = prepare_subject(

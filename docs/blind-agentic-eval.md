@@ -10,9 +10,10 @@ Use this runbook to execute the blind Revenue Ops agentic evaluation manually wi
 4. Read `tmp/blind-agentic-eval/<run_id>/evidence/manifest.json` first, then the deterministic score report.
 5. Optional: generate an evaluator-only judge packet for manual advisory review.
 
-For the datasource verifier harness chain, this document covers the PR4
-`stacked-to-main` slice: verifier-B audit metadata, same-pathway model matrix
-outputs, and datasource report interpretation.
+This runbook spans the legacy manual harness plus datasource verifier workflows.
+The controlled verifier wrapper section below documents only the export-first
+wrapper/session/export contract; later verifier-B, model-matrix, and advisory
+judge sections are separate established workflows.
 
 ## Blind agent flow protocol v1
 
@@ -93,6 +94,21 @@ subject-visible outputs are:
 
 If the conversation pauses and you need to continue, continue with the same
 agent: `opencode --agent brain-ds-orchestrator`. Do not continue with bare `opencode`; it can resume as fallback `agent=build`, which is a fail-closed protocol violation.
+
+### Controlled verifier wrapper
+
+For the export-first wrapper flow, run the verifier from the repo root:
+
+```powershell
+uv run python -m tests.eval.blind_agentic.run_opencode_verifier --scenario datasource_documentation --run-id <run_id> --model <provider/model>
+```
+
+The wrapper prepares the subject workspace, validates `PROMPT.md`, registers the
+subject with a run-local `BRAIN_DS_HOME`, launches `opencode run --agent
+brain-ds-orchestrator --format json`, captures `sessionID`, and writes
+`opencode-export/session.json` through `opencode export <sessionID>`. Missing or
+empty prompts, OpenCode launch failures, missing session IDs, export failures,
+and invalid export JSON fail fast with `error: <diagnostic>`.
 
 ## Paste this blind prompt exactly
 

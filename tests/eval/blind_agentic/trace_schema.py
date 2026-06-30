@@ -11,6 +11,14 @@ from typing import Any
 
 TRACE_VERSION = "2026-06-27.pr1"
 TRACE_ROLES = {"verifier", "orchestrator", "subagent", "tool", "user", "system"}
+SESSION_ID_ALIASES = ("sessionID", "session_id", "session.id", "id")
+PARENT_SESSION_ID_ALIASES = (
+    "ParentSessionID",
+    "parentSessionID",
+    "parent_session_id",
+    "parentID",
+    "parent_id",
+)
 
 
 class TraceSchemaError(ValueError):
@@ -79,8 +87,11 @@ def parse_opencode_export(
 
     root = Path(export_root)
     records, omissions = _read_export_records(root)
+    if records and not any(isinstance(record, dict) and _is_known_opencode_record(record) for record in records):
+        raise TraceSchemaError("unknown OpenCode export schema: no recognized session, agent, message, or tool fields")
     agent_by_session = _agent_by_session(records)
     delegated_by_session = _delegated_by_session(records, agent_by_session)
+    _validate_export_record_contract(records, agent_by_session)
     events: list[TraceEvent] = []
     for index, record in enumerate(records):
         if not isinstance(record, dict):
@@ -287,7 +298,7 @@ def _line_value(line: str, key: str) -> str | None:
 def _agent_by_session(records: list[Any]) -> dict[str, str]:
     agents: dict[str, str] = {}
     for record in records:
-        if not isinstance(record, dict) or record.get("type") not in {"opencode_stream", "opencode_session", "step_start"}:
+        if not isinstance(record, dict):
             continue
         session_id = _session_id(record)
         agent = _optional_text(record, "agent_name") or _optional_text(record, "agent")
@@ -302,7 +313,7 @@ def _delegated_by_session(records: list[Any], agent_by_session: dict[str, str]) 
         if not isinstance(record, dict) or record.get("type") != "opencode_session":
             continue
         session_id = _session_id(record)
-        parent_session_id = _optional_text(record, "parent_session_id")
+        parent_session_id = _parent_session_id(record)
         parent_agent = agent_by_session.get(parent_session_id or "")
         if session_id and parent_agent:
             delegated[session_id] = parent_agent
@@ -467,7 +478,73 @@ def _content_ref(record: dict[str, Any], *, index: int, root: Path) -> str | Non
 
 
 def _session_id(record: dict[str, Any]) -> str | None:
-    return _optional_text(record, "sessionID") or _optional_text(record, "session_id") or _optional_text(record, "session.id")
+    return _optional_alias(record, SESSION_ID_ALIASES)
+
+
+def _parent_session_id(record: dict[str, Any]) -> str | None:
+    return _optional_alias(record, PARENT_SESSION_ID_ALIASES)
+
+
+def _optional_alias(record: dict[str, Any], aliases: tuple[str, ...]) -> str | None:
+    for key in aliases:
+        value = _optional_text(record, key)
+        if value:
+            return value
+    return None
+
+
+def _is_known_opencode_record(record: dict[str, Any]) -> bool:
+    known_top_level = {
+        "type",
+        "role",
+        "agent_name",
+        "agent",
+        "name",
+        "part",
+        "content",
+        "text",
+        "tool_name",
+        "tool",
+        "action",
+    }
+    return bool(known_top_level.intersection(record))
+
+
+def _validate_export_record_contract(records: list[Any], agent_by_session: dict[str, str]) -> None:
+    supported_record_types = {
+        "text",
+        "tool_use",
+        "opencode_session",
+        "opencode_stream",
+        "step_start",
+        "step_finish",
+    }
+    attribution_required_types = {"text", "tool_use", "opencode_session", "opencode_stream"}
+    for index, record in enumerate(records):
+        if not isinstance(record, dict):
+            continue
+        record_type = _optional_text(record, "type")
+        if record_type and record_type not in supported_record_types:
+            raise TraceSchemaError(
+                f"unsupported OpenCode export record type at record {index}: {record_type}"
+            )
+        if not record_type and not _is_known_opencode_record(record):
+            raise TraceSchemaError(
+                f"unknown OpenCode export schema at record {index}: no recognized session, agent, message, or tool fields"
+            )
+        if record_type not in attribution_required_types:
+            continue
+        session_id = _session_id(record)
+        agent_name = (
+            _optional_text(record, "agent_name")
+            or _optional_text(record, "agent")
+            or _optional_text(record, "name")
+            or (agent_by_session.get(session_id) if session_id else None)
+        )
+        if not session_id or not agent_name:
+            raise TraceSchemaError(
+                f"record {index} cannot yield valid attribution/session semantics"
+            )
 
 
 def _text_hash(record: dict[str, Any]) -> str | None:

@@ -142,8 +142,14 @@ def _write_datasource_protocol_metadata(subject_path: Path) -> None:
         "blind_agentic_protocol": {
             "version": "blind-agent-flow-v1",
             "required_orchestrator": "brain-ds-orchestrator",
+            "prompt_path": "PROMPT.md",
             "expected_outputs": ["generated/source_documentation.md"],
             "graph_db": ".brain_ds/store.db",
+            "wrapper_diagnostics": [
+                "diagnostics/opencode-run.stdout.jsonl",
+                "diagnostics/opencode-run.stderr.txt",
+                "diagnostics/opencode-export.stderr.txt",
+            ],
             "required_evidence": [
                 "normalized_trace_events",
                 "verifiable_text_exchange",
@@ -187,7 +193,8 @@ def _build_sqlite_from_csv_sources(sources_root: Path, *, sqlite_name: str = "re
     if db_path.exists():
         db_path.unlink()
     csv_paths = sorted(path for path in sources_root.glob("*.csv") if path.is_file())
-    with sqlite3.connect(db_path) as conn:
+    conn = sqlite3.connect(db_path)
+    try:
         for csv_path in csv_paths:
             table = _sqlite_identifier(csv_path.stem)
             with csv_path.open(newline="", encoding="utf-8") as handle:
@@ -202,10 +209,12 @@ def _build_sqlite_from_csv_sources(sources_root: Path, *, sqlite_name: str = "re
                 quoted_names = ", ".join(quoted_column_names)
                 for row in reader:
                     conn.execute(
-                        f"INSERT INTO {table} ({quoted_names}) VALUES ({placeholders})",
-                        [row[column] for column in columns],
-                    )
+                            f"INSERT INTO {table} ({quoted_names}) VALUES ({placeholders})",
+                            [row[column] for column in columns],
+                        )
         conn.commit()
+    finally:
+        conn.close()
 
 
 def _sqlite_identifier(name: str) -> str:

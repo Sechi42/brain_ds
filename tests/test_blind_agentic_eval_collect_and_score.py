@@ -13,6 +13,7 @@ from typing import TypedDict
 from brain_ds.store.graph_store import GraphStore
 from tests.eval.blind_agentic import collect_and_score
 from tests.eval.blind_agentic.prepare_subject import prepare_subject
+from tests.eval.blind_agentic.trace_schema import _parse_opencode_stderr
 
 
 class _PendingQuestion(TypedDict):
@@ -228,6 +229,7 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             json.dumps({"type": "text", "timestamp": 1782697085951, "sessionID": "ses_build", "part": {"type": "text", "text": "I can document this datasource."}}) + "\n",
             encoding="utf-8",
         )
+        self._write_canonical_export_from_legacy(workspace.subject_path, opencode_dir)
 
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -254,6 +256,67 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
         self.assertTrue(report_path.is_file())
         report = json.loads(report_path.read_text(encoding="utf-8"))
         self.assertEqual(report["deterministic"]["status"], "fail")
+
+    def test_collect_and_score_cli_rejects_legacy_diagnostics_without_canonical_export(
+        self,
+    ) -> None:
+        run_id = "collect-score-legacy-diagnostics-no-export"
+        workspace = prepare_subject(
+            scenario="datasource_documentation",
+            run_id=run_id,
+            output_root=Path("tmp") / "blind-agentic-collect-score-test",
+        )
+        self._write_datasource_subject_outputs(workspace.subject_path)
+        opencode_dir = workspace.subject_path.parent / "opencode-artifacts"
+        opencode_dir.mkdir(parents=True)
+        (opencode_dir / "opencode-stderr.log").write_text(
+            "timestamp=2026-06-29T01:37:37.942Z level=INFO "
+            "message=stream session.id=ses_legacy agent=brain-ds-orchestrator mode=primary\n",
+            encoding="utf-8",
+        )
+        (opencode_dir / "opencode-stdout.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "text",
+                    "timestamp": 1782697085951,
+                    "sessionID": "ses_legacy",
+                    "part": {
+                        "type": "text",
+                        "text": "I can document this datasource.",
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "tests.eval.blind_agentic.collect_and_score",
+                "--scenario",
+                "datasource_documentation",
+                "--run-id",
+                run_id,
+                "--subject-path",
+                workspace.subject_path.as_posix(),
+                "--repo-root",
+                Path.cwd().as_posix(),
+                "--opencode-artifacts-path",
+                opencode_dir.as_posix(),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual("", result.stdout)
+        self.assertIn("Missing required OpenCode export", result.stderr)
+        self.assertIn("opencode-export/session.json", result.stderr)
+        self.assertIn("stdout/stderr diagnostics are not scoring evidence", result.stderr)
 
     def test_collect_and_score_main_accepts_delegated_child_created_before_parent_stream(
         self,
@@ -330,6 +393,7 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        self._write_canonical_export_from_legacy(workspace.subject_path, opencode_dir)
 
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -402,6 +466,7 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        self._write_canonical_export_from_legacy(workspace.subject_path, opencode_dir)
 
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -491,6 +556,7 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        self._write_canonical_export_from_legacy(workspace.subject_path, opencode_dir)
 
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -589,6 +655,7 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        self._write_canonical_export_from_legacy(workspace.subject_path, opencode_dir)
 
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -682,6 +749,7 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        self._write_canonical_export_from_legacy(workspace.subject_path, opencode_dir)
 
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -795,6 +863,7 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        self._write_canonical_export_from_legacy(workspace.subject_path, opencode_dir)
 
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -916,6 +985,7 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        self._write_canonical_export_from_legacy(workspace.subject_path, opencode_dir)
 
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -1132,6 +1202,32 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
                 "helios-datasource-docs",
                 {"source": "source-orders", "target": "source-customers", "label": "uses", "weight": 1.0},
             )
+
+    def _write_canonical_export_from_legacy(
+        self, subject_path: Path, opencode_artifacts_path: Path
+    ) -> Path:
+        records: list[object] = []
+        for source in sorted(opencode_artifacts_path.rglob("*")):
+            if not source.is_file():
+                continue
+            name = source.name.lower()
+            if source.suffix.lower() == ".log" and name.startswith("opencode") and "stderr" in name:
+                records.extend(_parse_opencode_stderr(source, root=opencode_artifacts_path))
+                continue
+            if source.suffix.lower() not in {".jsonl", ".ndjson"} or not name.startswith(
+                "opencode-stdout"
+            ):
+                continue
+            for line in source.read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    records.append(json.loads(line))
+        export_path = subject_path.parent / "opencode-export" / "session.json"
+        export_path.parent.mkdir(parents=True, exist_ok=True)
+        export_path.write_text(
+            json.dumps({"records": records}, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        return export_path
 
     def _write_graph_store(self, graph_db: Path) -> None:
         graph_db.parent.mkdir(parents=True, exist_ok=True)

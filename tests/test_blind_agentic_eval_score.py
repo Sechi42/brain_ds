@@ -805,6 +805,48 @@ class BlindAgenticScoreTests(unittest.TestCase):
         self.assertEqual(report["deterministic"]["orchestrator_gate"]["status"], "passed")
         self.assertEqual(report["freshness"]["status"], "passed")
 
+    def test_datasource_score_accepts_normalized_export_alias_lineage(self) -> None:
+        evidence = self._datasource_evidence_bundle(
+            "datasource-normalized-export-alias-lineage",
+            events=[
+                TraceEvent(
+                    ts="2026-06-27T00:00:00+00:00",
+                    role="user",
+                    content_ref="opencode:prompt-0000:abcdef123456",
+                    text_hash="b" * 64,
+                    session_id="ses_orchestrator_alias",
+                ),
+                TraceEvent(
+                    ts="2026-06-27T00:00:01+00:00",
+                    role="orchestrator",
+                    agent_name="brain-ds-orchestrator",
+                    content_ref="opencode:text-0001:abcdef123456",
+                    text_hash="a" * 64,
+                    session_id="ses_orchestrator_alias",
+                ),
+                TraceEvent(
+                    ts="2026-06-27T00:00:02+00:00",
+                    role="subagent",
+                    agent_name="brainds-source-explorer",
+                    delegated_by="brain-ds-orchestrator",
+                    action="delegated_message",
+                    session_id="ses_subagent_alias",
+                ),
+            ],
+        )
+
+        report = score_evidence(
+            scenario="datasource_documentation",
+            evidence_path=evidence,
+            out_path=evidence.parent / "report.json",
+            repo_root=Path.cwd(),
+        )
+
+        self.assertEqual(report["blocking_failures"], [])
+        self.assertEqual(report["trace_summary"]["first_root_brainds_agent"], "brain-ds-orchestrator")
+        self.assertEqual(report["trace_summary"]["subagent_action"]["status"], "verified")
+        self.assertIsNone(report["trace_summary"]["wrong_or_fallback_agent"])
+
     def test_datasource_score_blocks_later_subagent_contact_without_orchestrator_delegation(
         self,
     ) -> None:

@@ -11,7 +11,7 @@ from tests.eval.blind_agentic.collect_evidence import (
     CollectEvidenceError,
     collect_evidence,
 )
-from tests.eval.blind_agentic.trace_schema import parse_opencode_export
+from tests.eval.blind_agentic.trace_schema import TraceSchemaError, parse_opencode_export
 from tests.eval.blind_agentic.prepare_subject import prepare_subject
 
 
@@ -484,6 +484,161 @@ class BlindAgenticCollectTests(unittest.TestCase):
         self.assertEqual(trace.events[0].agent_name, "brain-ds-orchestrator")
         self.assertEqual(trace.events[0].action, "message")
 
+    def test_opencode_export_parser_normalizes_session_id_and_parent_aliases(self) -> None:
+        parent_aliases = (
+            "ParentSessionID",
+            "parentSessionID",
+            "parent_session_id",
+            "parentID",
+            "parent_id",
+        )
+
+        for alias in parent_aliases:
+            with self.subTest(parent_alias=alias):
+                export_root = Path("tmp") / "blind-agentic-eval-test" / f"opencode-aliases-{alias}"
+                export_root.mkdir(parents=True, exist_ok=True)
+                orchestrator_session = f"ses_orchestrator_{alias}"
+                subagent_session = f"ses_subagent_{alias}"
+                (export_root / "session.json").write_text(
+                    json.dumps(
+                        {
+                            "events": [
+                                {
+                                    "type": "text",
+                                    "timestamp": 1,
+                                    "session_id": orchestrator_session,
+                                    "agent": "brain-ds-orchestrator",
+                                    "part": {"type": "text", "text": "I will document the source."},
+                                },
+                                {
+                                    "type": "opencode_session",
+                                    "timestamp": 2,
+                                    "id": subagent_session,
+                                    alias: orchestrator_session,
+                                    "agent_name": "brainds-source-explorer",
+                                    "action": "session_created",
+                                },
+                                {
+                                    "type": "text",
+                                    "timestamp": 3,
+                                    "sessionID": subagent_session,
+                                    "part": {"type": "text", "text": "I profiled the source."},
+                                },
+                            ]
+                        }
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+                trace, omissions = parse_opencode_export(
+                    export_root,
+                    scenario="datasource_documentation",
+                    run_id="trace-aliases",
+                    pathway_id="datasource_documentation",
+                    model_provider="opencode",
+                )
+
+                self.assertEqual(omissions, [])
+                self.assertEqual(trace.events[0].session_id, orchestrator_session)
+                self.assertEqual(trace.events[1].session_id, subagent_session)
+                self.assertEqual(trace.events[1].delegated_by, "brain-ds-orchestrator")
+                self.assertEqual(trace.events[2].agent_name, "brainds-source-explorer")
+                self.assertEqual(trace.events[2].delegated_by, "brain-ds-orchestrator")
+
+    def test_opencode_export_parser_rejects_unknown_export_schema_before_undefined_agent(self) -> None:
+        export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-unknown-schema"
+        export_root.mkdir(parents=True, exist_ok=True)
+        (export_root / "session.json").write_text(
+            json.dumps(
+                {
+                    "events": [
+                        {
+                            "kind": "assistant_output",
+                            "actor": "undefined",
+                            "payload": {"message": "This schema is not recognized."},
+                        }
+                    ]
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(TraceSchemaError, "unknown OpenCode export schema"):
+            parse_opencode_export(
+                export_root,
+                scenario="datasource_documentation",
+                run_id="trace-unknown-schema",
+                pathway_id="datasource_documentation",
+                model_provider="opencode",
+            )
+
+    def test_opencode_export_parser_rejects_mixed_unknown_record_shapes(self) -> None:
+        export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-mixed-unknown-schema"
+        export_root.mkdir(parents=True, exist_ok=True)
+        (export_root / "session.json").write_text(
+            json.dumps(
+                {
+                    "events": [
+                        {
+                            "type": "text",
+                            "timestamp": 1,
+                            "sessionID": "ses_valid",
+                            "agent_name": "brain-ds-orchestrator",
+                            "part": {"type": "text", "text": "Valid exported text."},
+                        },
+                        {
+                            "kind": "assistant_output",
+                            "actor": "brain-ds-orchestrator",
+                            "payload": {"message": "Unknown export shape must fail fast."},
+                        },
+                    ]
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(TraceSchemaError, "unknown OpenCode export schema"):
+            parse_opencode_export(
+                export_root,
+                scenario="datasource_documentation",
+                run_id="trace-mixed-unknown-schema",
+                pathway_id="datasource_documentation",
+                model_provider="opencode",
+            )
+
+    def test_opencode_export_parser_rejects_unsupported_typed_record_shapes(self) -> None:
+        export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-unsupported-type"
+        export_root.mkdir(parents=True, exist_ok=True)
+        (export_root / "session.json").write_text(
+            json.dumps(
+                {
+                    "events": [
+                        {
+                            "type": "assistant_output",
+                            "timestamp": 1,
+                            "sessionID": "ses_unsupported",
+                            "agent_name": "brain-ds-orchestrator",
+                            "part": {"type": "text", "text": "Unsupported typed record."},
+                        }
+                    ]
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(TraceSchemaError, "unsupported OpenCode export record type"):
+            parse_opencode_export(
+                export_root,
+                scenario="datasource_documentation",
+                run_id="trace-unsupported-type",
+                pathway_id="datasource_documentation",
+                model_provider="opencode",
+            )
+
     def test_opencode_export_parser_replaces_unknown_session_agent_with_orchestrator(self) -> None:
         export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-unknown-placeholder"
         export_root.mkdir(parents=True, exist_ok=True)
@@ -683,6 +838,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
         (opencode_dir / "evidence" / "manifest.json").write_text("[]\n", encoding="utf-8")
         (opencode_dir / "subject").mkdir()
         (opencode_dir / "subject" / "PROMPT.md").write_text("subject prompt", encoding="utf-8")
+        self._write_datasource_export(subject.subject_path.parent, session_id="ses_1")
 
         bundle = collect_evidence(
             scenario="datasource_documentation",
@@ -695,13 +851,14 @@ class BlindAgenticCollectTests(unittest.TestCase):
 
         manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
         self.assertEqual(
-            manifest["captured"]["opencode_artifacts"],
-            ["opencode/opencode-stderr.log", "opencode/opencode-stdout.jsonl"],
+            manifest["captured"]["opencode_export"],
+            "opencode/session.json",
         )
         self.assertFalse((bundle.evidence_path / "opencode" / "evidence" / "manifest.json").exists())
+        self.assertFalse((bundle.evidence_path / "opencode" / "opencode-stdout.jsonl").exists())
         self.assertNotIn("record 0 is not an object", json.dumps(manifest["omissions"]))
 
-    def test_datasource_collect_materializes_source_documentation_from_final_orchestrator_text(self) -> None:
+    def test_datasource_collect_does_not_synthesize_source_documentation_from_export_text(self) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
             run_id="datasource-final-text-output-001",
@@ -729,6 +886,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        self._write_datasource_export(subject.subject_path.parent, session_id="ses_final")
 
         bundle = collect_evidence(
             scenario="datasource_documentation",
@@ -741,11 +899,11 @@ class BlindAgenticCollectTests(unittest.TestCase):
 
         manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
         generated = subject.subject_path / "generated" / "source_documentation.md"
-        self.assertTrue(generated.is_file())
-        self.assertIn("Revenue Operations", generated.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["captured"]["generated_outputs"], ["generated/source_documentation.md"])
+        self.assertFalse(generated.exists())
+        self.assertNotIn("generated_outputs", manifest["captured"])
+        self.assertEqual(manifest["freshness_checks"]["generated_outputs"]["status"], "missing")
 
-    def test_datasource_collect_materializes_final_text_after_title_metadata_agent(self) -> None:
+    def test_datasource_collect_does_not_materialize_final_text_after_title_metadata_agent(self) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
             run_id="datasource-title-before-orchestrator-final-text-001",
@@ -779,6 +937,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        self._write_datasource_export(subject.subject_path.parent, session_id="ses_title_final")
 
         collect_evidence(
             scenario="datasource_documentation",
@@ -790,9 +949,9 @@ class BlindAgenticCollectTests(unittest.TestCase):
         )
 
         generated = subject.subject_path / "generated" / "source_documentation.md"
-        self.assertIn("Title metadata must not block", generated.read_text(encoding="utf-8"))
+        self.assertFalse(generated.exists())
 
-    def test_datasource_collect_materializes_final_text_after_unknown_session_agent(self) -> None:
+    def test_datasource_collect_does_not_materialize_final_text_after_unknown_session_agent(self) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
             run_id="datasource-unknown-before-orchestrator-final-text-001",
@@ -836,6 +995,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        self._write_datasource_export(subject.subject_path.parent, session_id="ses_unknown_final")
 
         collect_evidence(
             scenario="datasource_documentation",
@@ -847,9 +1007,9 @@ class BlindAgenticCollectTests(unittest.TestCase):
         )
 
         generated = subject.subject_path / "generated" / "source_documentation.md"
-        self.assertIn("Unknown session agent must be replaced", generated.read_text(encoding="utf-8"))
+        self.assertFalse(generated.exists())
 
-    def test_datasource_collect_materializes_incomplete_orchestrator_source_documentation(self) -> None:
+    def test_datasource_collect_does_not_materialize_incomplete_orchestrator_source_documentation(self) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
             run_id="datasource-incomplete-final-text-output-001",
@@ -877,6 +1037,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        self._write_datasource_export(subject.subject_path.parent, session_id="ses_incomplete")
 
         bundle = collect_evidence(
             scenario="datasource_documentation",
@@ -889,11 +1050,11 @@ class BlindAgenticCollectTests(unittest.TestCase):
 
         manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
         generated = subject.subject_path / "generated" / "source_documentation.md"
-        self.assertTrue(generated.is_file())
-        self.assertIn("still needs human follow-up", generated.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["captured"]["generated_outputs"], ["generated/source_documentation.md"])
+        self.assertFalse(generated.exists())
+        self.assertNotIn("generated_outputs", manifest["captured"])
+        self.assertEqual(manifest["freshness_checks"]["generated_outputs"]["status"], "missing")
 
-    def test_datasource_collect_materializes_datasource_markdown_without_exact_heading(self) -> None:
+    def test_datasource_collect_does_not_materialize_datasource_markdown_without_exact_heading(self) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
             run_id="datasource-contract-markdown-output-001",
@@ -921,6 +1082,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        self._write_datasource_export(subject.subject_path.parent, session_id="ses_contract")
 
         collect_evidence(
             scenario="datasource_documentation",
@@ -932,7 +1094,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
         )
 
         generated = subject.subject_path / "generated" / "source_documentation.md"
-        self.assertIn("Datasource Profile", generated.read_text(encoding="utf-8"))
+        self.assertFalse(generated.exists())
 
     def test_datasource_collect_does_not_materialize_generic_datasource_chat(self) -> None:
         subject = prepare_subject(
@@ -962,6 +1124,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        self._write_datasource_export(subject.subject_path.parent, session_id="ses_chat")
 
         collect_evidence(
             scenario="datasource_documentation",
@@ -975,7 +1138,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
         generated = subject.subject_path / "generated" / "source_documentation.md"
         self.assertFalse(generated.exists())
 
-    def test_datasource_collect_materializes_chronological_final_orchestrator_text(self) -> None:
+    def test_datasource_collect_does_not_materialize_chronological_final_orchestrator_text(self) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
             run_id="datasource-chronological-final-text-output-001",
@@ -1018,6 +1181,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        self._write_datasource_export(subject.subject_path.parent, session_id="ses_final")
 
         collect_evidence(
             scenario="datasource_documentation",
@@ -1029,10 +1193,9 @@ class BlindAgenticCollectTests(unittest.TestCase):
         )
 
         generated = subject.subject_path / "generated" / "source_documentation.md"
-        self.assertIn("Chronological final text", generated.read_text(encoding="utf-8"))
-        self.assertNotIn("Earlier draft", generated.read_text(encoding="utf-8"))
+        self.assertFalse(generated.exists())
 
-    def test_datasource_collect_uses_sequence_to_break_equal_timestamp_final_text_ties(self) -> None:
+    def test_datasource_collect_does_not_materialize_equal_timestamp_final_text_ties(self) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
             run_id="datasource-equal-timestamp-sequence-final-text-001",
@@ -1077,6 +1240,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        self._write_datasource_export(subject.subject_path.parent, session_id="ses_final")
 
         collect_evidence(
             scenario="datasource_documentation",
@@ -1088,10 +1252,9 @@ class BlindAgenticCollectTests(unittest.TestCase):
         )
 
         generated = subject.subject_path / "generated" / "source_documentation.md"
-        self.assertIn("Sequence-late final text", generated.read_text(encoding="utf-8"))
-        self.assertNotIn("Traversal-late draft", generated.read_text(encoding="utf-8"))
+        self.assertFalse(generated.exists())
 
-    def test_datasource_collect_materializes_source_documentation_from_json_transcript(self) -> None:
+    def test_datasource_collect_does_not_materialize_source_documentation_from_json_transcript(self) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
             run_id="datasource-json-transcript-final-text-001",
@@ -1121,6 +1284,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        self._write_datasource_export(subject.subject_path.parent, session_id="ses_json")
 
         collect_evidence(
             scenario="datasource_documentation",
@@ -1132,7 +1296,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
         )
 
         generated = subject.subject_path / "generated" / "source_documentation.md"
-        self.assertIn("JSON transcript final text", generated.read_text(encoding="utf-8"))
+        self.assertFalse(generated.exists())
 
     def test_datasource_collect_does_not_materialize_subagent_only_source_documentation(self) -> None:
         subject = prepare_subject(
@@ -1162,6 +1326,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        self._write_datasource_export(subject.subject_path.parent, session_id="ses_child")
 
         bundle = collect_evidence(
             scenario="datasource_documentation",
@@ -1178,7 +1343,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
         self.assertNotIn("generated_outputs", manifest["captured"])
         self.assertEqual(manifest["freshness_checks"]["generated_outputs"]["status"], "missing")
 
-    def test_datasource_collect_rejects_contamination_in_materialized_text(self) -> None:
+    def test_datasource_collect_keeps_contaminated_transcript_text_diagnostic_only(self) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
             run_id="datasource-final-text-contamination-001",
@@ -1206,16 +1371,19 @@ class BlindAgenticCollectTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        self._write_datasource_export(subject.subject_path.parent, session_id="ses_final")
 
-        with self.assertRaisesRegex(CollectEvidenceError, "forbidden terms"):
-            collect_evidence(
-                scenario="datasource_documentation",
-                run_id="datasource-final-text-contamination-001",
-                subject_path=subject.subject_path,
-                evidence_path=subject.subject_path.parent / "evidence",
-                repo_root=Path.cwd(),
-                opencode_artifacts_path=opencode_dir,
-            )
+        collect_evidence(
+            scenario="datasource_documentation",
+            run_id="datasource-final-text-contamination-001",
+            subject_path=subject.subject_path,
+            evidence_path=subject.subject_path.parent / "evidence",
+            repo_root=Path.cwd(),
+            opencode_artifacts_path=opencode_dir,
+        )
+
+        generated = subject.subject_path / "generated" / "source_documentation.md"
+        self.assertFalse(generated.exists())
 
     def test_collect_writes_normalized_session_trace_and_hash(self) -> None:
         subject = prepare_subject(
@@ -1237,6 +1405,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        self._write_datasource_export(subject.subject_path.parent, session_id="ses_trace")
 
         bundle = collect_evidence(
             scenario="datasource_documentation",
@@ -1257,7 +1426,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
         self.assertEqual(len(manifest["trace"]["sha256"]), 64)
         self.assertEqual(session_trace["trace_version"], "2026-06-27.pr1")
         self.assertEqual(session_trace["events"][0]["role"], "orchestrator")
-        self.assertEqual(session_trace["events"][0]["agent_name"], "brainds-orchestrator")
+        self.assertEqual(session_trace["events"][0]["agent_name"], "brain-ds-orchestrator")
 
     def test_datasource_documentation_missing_required_trace_degrades_minimum_evidence(self) -> None:
         subject = prepare_subject(
@@ -1267,24 +1436,185 @@ class BlindAgenticCollectTests(unittest.TestCase):
         )
         self._write_core_subject_outputs(subject.subject_path)
 
+        with self.assertRaisesRegex(CollectEvidenceError, "opencode-export/session.json"):
+            collect_evidence(
+                scenario="datasource_documentation",
+                run_id="datasource-missing-trace-001",
+                subject_path=subject.subject_path,
+                evidence_path=subject.subject_path.parent / "evidence",
+                repo_root=Path.cwd(),
+            )
+
+    def test_datasource_documentation_requires_opencode_export_session_json(self) -> None:
+        subject = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="datasource-missing-export-session-json",
+            output_root=Path("tmp") / "blind-agentic-eval-test",
+        )
+        self._write_core_subject_outputs(subject.subject_path)
+        diagnostics = subject.subject_path.parent / "diagnostics"
+        diagnostics.mkdir(parents=True)
+        (diagnostics / "opencode-run.stdout.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "text",
+                    "sessionID": "ses_diagnostic_only",
+                    "agent_name": "brain-ds-orchestrator",
+                    "part": {"type": "text", "text": "Diagnostic output only."},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(CollectEvidenceError, "opencode-export/session.json"):
+            collect_evidence(
+                scenario="datasource_documentation",
+                run_id="datasource-missing-export-session-json",
+                subject_path=subject.subject_path,
+                evidence_path=subject.subject_path.parent / "evidence",
+                repo_root=Path.cwd(),
+            )
+
+    def test_datasource_documentation_uses_export_session_json_not_diagnostic_stdout(self) -> None:
+        subject = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="datasource-export-first-trace",
+            output_root=Path("tmp") / "blind-agentic-eval-test",
+        )
+        self._write_core_subject_outputs(subject.subject_path)
+        run_root = subject.subject_path.parent
+        export_dir = run_root / "opencode-export"
+        export_dir.mkdir(parents=True)
+        (export_dir / "session.json").write_text(
+            json.dumps(
+                {
+                    "events": [
+                        {
+                            "type": "text",
+                            "timestamp": 1,
+                            "sessionID": "ses_export",
+                            "agent_name": "brain-ds-orchestrator",
+                            "part": {"type": "text", "text": "Exported orchestrator text."},
+                        }
+                    ]
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        diagnostics = run_root / "diagnostics"
+        diagnostics.mkdir()
+        (diagnostics / "opencode-run.stdout.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "text",
+                    "sessionID": "ses_diagnostic",
+                    "agent_name": "build",
+                    "part": {"type": "text", "text": "Diagnostic fallback must be ignored."},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
         bundle = collect_evidence(
             scenario="datasource_documentation",
-            run_id="datasource-missing-trace-001",
+            run_id="datasource-export-first-trace",
             subject_path=subject.subject_path,
-            evidence_path=subject.subject_path.parent / "evidence",
+            evidence_path=run_root / "evidence",
             repo_root=Path.cwd(),
         )
 
         manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
+        session_trace = json.loads((bundle.evidence_path / "trace" / "session_trace.json").read_text())
 
-        self.assertEqual(manifest["trace"]["status"], "missing")
-        self.assertEqual(manifest["trace"]["required"], True)
-        self.assertEqual(manifest["trace"]["required_for_scenarios"], ["datasource_documentation"])
-        self.assertEqual(manifest["minimum_evidence"]["status"], "degraded")
-        self.assertIn("required session trace", manifest["minimum_evidence"]["reason"])
-        self.assertIn("session_trace", [item["artifact"] for item in manifest["omissions"]])
-        self.assertNotIn("session_trace", manifest["captured"])
-        self.assertFalse((bundle.evidence_path / "trace" / "session_trace.json").exists())
+        self.assertEqual(manifest["captured"]["opencode_export"], "opencode/session.json")
+        self.assertEqual(manifest["trace"]["event_count"], 1)
+        self.assertEqual(session_trace["events"][0]["session_id"], "ses_export")
+        self.assertEqual(session_trace["events"][0]["agent_name"], "brain-ds-orchestrator")
+        self.assertFalse((bundle.evidence_path / "opencode" / "opencode-run.stdout.jsonl").exists())
+
+    def test_datasource_documentation_prefers_canonical_export_over_legacy_session_json(self) -> None:
+        subject = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="datasource-export-canonical-wins",
+            output_root=Path("tmp") / "blind-agentic-eval-test",
+        )
+        self._write_core_subject_outputs(subject.subject_path)
+        run_root = subject.subject_path.parent
+        self._write_datasource_export(run_root, session_id="ses_canonical_export")
+        legacy_dir = run_root / "opencode-artifacts"
+        legacy_dir.mkdir(parents=True)
+        (legacy_dir / "session.json").write_text(
+            json.dumps(
+                {
+                    "events": [
+                        {
+                            "type": "text",
+                            "timestamp": 1,
+                            "sessionID": "ses_legacy_artifact",
+                            "agent_name": "brain-ds-orchestrator",
+                            "part": {"type": "text", "text": "Legacy artifacts are diagnostics only."},
+                        }
+                    ]
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        bundle = collect_evidence(
+            scenario="datasource_documentation",
+            run_id="datasource-export-canonical-wins",
+            subject_path=subject.subject_path,
+            evidence_path=run_root / "evidence",
+            repo_root=Path.cwd(),
+            opencode_artifacts_path=legacy_dir,
+        )
+
+        manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
+        session_trace = json.loads((bundle.evidence_path / "trace" / "session_trace.json").read_text())
+
+        self.assertEqual(manifest["captured"]["opencode_export"], "opencode/session.json")
+        self.assertEqual(session_trace["events"][0]["session_id"], "ses_canonical_export")
+        self.assertNotEqual(session_trace["events"][0]["session_id"], "ses_legacy_artifact")
+
+    def test_datasource_documentation_rejects_legacy_session_json_without_canonical_export(self) -> None:
+        subject = prepare_subject(
+            scenario="datasource_documentation",
+            run_id="datasource-legacy-session-json-rejected",
+            output_root=Path("tmp") / "blind-agentic-eval-test",
+        )
+        self._write_core_subject_outputs(subject.subject_path)
+        legacy_dir = subject.subject_path.parent / "opencode-artifacts"
+        legacy_dir.mkdir(parents=True)
+        (legacy_dir / "session.json").write_text(
+            json.dumps(
+                {
+                    "events": [
+                        {
+                            "type": "text",
+                            "timestamp": 1,
+                            "sessionID": "ses_legacy_only",
+                            "agent_name": "brain-ds-orchestrator",
+                            "part": {"type": "text", "text": "This is not canonical export evidence."},
+                        }
+                    ]
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(CollectEvidenceError, "opencode-export/session.json"):
+            collect_evidence(
+                scenario="datasource_documentation",
+                run_id="datasource-legacy-session-json-rejected",
+                subject_path=subject.subject_path,
+                evidence_path=subject.subject_path.parent / "evidence",
+                repo_root=Path.cwd(),
+                opencode_artifacts_path=legacy_dir,
+            )
 
     def test_datasource_documentation_trace_hash_is_stable_for_same_opencode_export(self) -> None:
         subject = prepare_subject(
@@ -1306,6 +1636,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        self._write_datasource_export(subject.subject_path.parent, session_id="ses_stable_trace")
 
         first = collect_evidence(
             scenario="datasource_documentation",
@@ -1366,6 +1697,66 @@ class BlindAgenticCollectTests(unittest.TestCase):
         self.assertEqual(omissions[0]["artifact"], "opencode_record")
         self.assertIn("unsupported role", omissions[0]["reason"])
 
+    def test_opencode_export_parser_rejects_mixed_shape_drifted_text_record(self) -> None:
+        export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-export-shape-drift"
+        export_root.mkdir(parents=True, exist_ok=True)
+        (export_root / "session.json").write_text(
+            json.dumps(
+                {
+                    "events": [
+                        {
+                            "type": "text",
+                            "timestamp": 1,
+                            "sessionID": "ses_valid",
+                            "agent_name": "brain-ds-orchestrator",
+                            "part": {"type": "text", "text": "Valid exported text."},
+                        },
+                        {
+                            "type": "text",
+                            "timestamp": 2,
+                            "part": {"type": "text", "text": "Shape drift lacks session and attribution."},
+                        },
+                    ]
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(TraceSchemaError, "valid attribution/session"):
+            parse_opencode_export(
+                export_root,
+                scenario="datasource_documentation",
+                run_id="trace-shape-drift",
+                pathway_id="datasource_documentation",
+                model_provider="opencode",
+            )
+
+    def test_opencode_export_parser_rejects_session_alias_only_unknown_shape(self) -> None:
+        export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-export-session-alias-only"
+        export_root.mkdir(parents=True, exist_ok=True)
+        (export_root / "session.json").write_text(
+            json.dumps(
+                {
+                    "kind": "assistant_output",
+                    "sessionID": "ses_unknown",
+                    "actor": "brain-ds-orchestrator",
+                    "payload": {"message": "Unknown export shape"},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(TraceSchemaError, "unknown OpenCode export schema"):
+            parse_opencode_export(
+                export_root,
+                scenario="datasource_documentation",
+                run_id="trace-session-alias-only",
+                pathway_id="datasource_documentation",
+                model_provider="opencode",
+            )
+
     def test_datasource_documentation_manifest_uses_datasource_run_metadata(self) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
@@ -1373,6 +1764,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
             output_root=Path("tmp") / "blind-agentic-eval-test",
         )
         self._write_core_subject_outputs(subject.subject_path)
+        self._write_datasource_export(subject.subject_path.parent, session_id="ses_metadata")
 
         bundle = collect_evidence(
             scenario="datasource_documentation",
@@ -1405,6 +1797,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
             json.dumps({"role": "assistant", "agent_name": "brainds-orchestrator"}) + "\n",
             encoding="utf-8",
         )
+        self._write_datasource_export(subject.subject_path.parent, session_id="ses_freshness_local")
 
         bundle = collect_evidence(
             scenario="datasource_documentation",
@@ -1433,6 +1826,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
             output_root=Path("tmp") / "blind-agentic-eval-test",
         )
         self._write_core_subject_outputs(subject.subject_path)
+        self._write_datasource_export(subject.subject_path.parent, session_id="ses_external_graph")
         (subject.subject_path / ".brain_ds" / "store.db").unlink()
         external_graph = subject.subject_path.parent / "active-workspace" / ".brain_ds" / "store.db"
         external_graph.parent.mkdir(parents=True)
@@ -1471,6 +1865,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
             json.dumps({"role": "assistant", "agent_name": "brainds-orchestrator"}) + "\n",
             encoding="utf-8",
         )
+        self._write_datasource_export(subject.subject_path.parent, session_id="ses_freshness_stale")
 
         bundle = collect_evidence(
             scenario="datasource_documentation",
@@ -1565,6 +1960,27 @@ class BlindAgenticCollectTests(unittest.TestCase):
         generated.mkdir(parents=True, exist_ok=True)
         (generated / "brd.md").write_text(
             "# Revenue Operations Diagnosis\n\nPipeline and retention lineage mapped.",
+            encoding="utf-8",
+        )
+
+    def _write_datasource_export(self, run_root: Path, *, session_id: str = "ses_export") -> None:
+        export_dir = run_root / "opencode-export"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        (export_dir / "session.json").write_text(
+            json.dumps(
+                {
+                    "events": [
+                        {
+                            "type": "text",
+                            "timestamp": 1,
+                            "sessionID": session_id,
+                            "agent_name": "brain-ds-orchestrator",
+                            "part": {"type": "text", "text": "Exported datasource documentation trace."},
+                        }
+                    ]
+                }
+            )
+            + "\n",
             encoding="utf-8",
         )
 
