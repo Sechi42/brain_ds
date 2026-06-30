@@ -109,12 +109,14 @@ def run_verifier(
     )
     run_stdout = diagnostics / "opencode-run.stdout.jsonl"
     run_stderr = diagnostics / "opencode-run.stderr.txt"
-    run_stdout.write_text(run_completed.stdout or "", encoding="utf-8")
-    run_stderr.write_text(run_completed.stderr or "", encoding="utf-8")
+    run_stdout_text = _output_text(run_completed.stdout)
+    run_stderr_text = _output_text(run_completed.stderr)
+    run_stdout.write_text(run_stdout_text, encoding="utf-8")
+    run_stderr.write_text(run_stderr_text, encoding="utf-8")
     if run_completed.returncode != 0:
         raise OpenCodeVerifierError(f"opencode-run-failed: exit {run_completed.returncode}")
 
-    session_id, session_alias = _extract_session_id(run_completed.stdout)
+    session_id, session_alias = _extract_session_id(run_stdout_text)
     if not session_id:
         raise OpenCodeVerifierError("missing-sessionID: OpenCode run did not emit a session identifier")
 
@@ -128,12 +130,14 @@ def run_verifier(
         env=env,
     )
     export_stderr = diagnostics / "opencode-export.stderr.txt"
-    export_stderr.write_text(export_completed.stderr or "", encoding="utf-8")
+    export_stdout_text = _output_text(export_completed.stdout)
+    export_stderr_text = _output_text(export_completed.stderr)
+    export_stderr.write_text(export_stderr_text, encoding="utf-8")
     if export_completed.returncode != 0:
         raise OpenCodeVerifierError(f"export-failed: exit {export_completed.returncode}")
 
     export_path = export_dir / "session.json"
-    _write_valid_export(export_completed.stdout, export_path)
+    _write_valid_export(export_stdout_text, export_path)
 
     manifest = {
         "scenario": scenario,
@@ -207,10 +211,32 @@ def _run_opencode_command(
     phase: str,
     **kwargs: Any,
 ) -> subprocess.CompletedProcess[str]:
+    launch_command = _resolve_opencode_launch_command(command)
+    run_kwargs = dict(kwargs)
+    if run_kwargs.get("text") or run_kwargs.get("universal_newlines"):
+        run_kwargs.setdefault("encoding", "utf-8")
+        run_kwargs.setdefault("errors", "replace")
     try:
-        return subprocess.run(command, **kwargs)
+        return subprocess.run(launch_command, **run_kwargs)
     except OSError as exc:
         raise OpenCodeVerifierError(f"{phase}-launch-failed: {exc}") from exc
+
+
+def _resolve_opencode_launch_command(command: list[str]) -> list[str]:
+    if not command or command[0] != "opencode":
+        return command
+    executable = shutil.which("opencode")
+    if executable is None:
+        return command
+    return [executable, *command[1:]]
+
+
+def _output_text(output: str | bytes | None) -> str:
+    if output is None:
+        return ""
+    if isinstance(output, bytes):
+        return output.decode("utf-8", errors="replace")
+    return output
 
 
 def _extract_session_id(stdout: str) -> tuple[str | None, str | None]:

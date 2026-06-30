@@ -136,6 +136,7 @@ class BlindAgenticPrepareTests(unittest.TestCase):
         self.assertEqual(protocol["prompt_path"], "PROMPT.md")
         self.assertIn("generated/source_documentation.md", protocol["expected_outputs"])
         self.assertEqual(protocol["graph_db"], ".brain_ds/store.db")
+        self.assertEqual(protocol["opencode_export"], "opencode-export/session.json")
         self.assertEqual(
             protocol["wrapper_diagnostics"],
             [
@@ -144,6 +145,8 @@ class BlindAgenticPrepareTests(unittest.TestCase):
                 "diagnostics/opencode-export.stderr.txt",
             ],
         )
+        self.assertIn("opencode_export", protocol["required_evidence"])
+        self.assertIn("workspace_open_before_graph_write", protocol["required_evidence"])
 
     def test_evaluator_only_files_are_not_copied_to_subject_workspace(self) -> None:
         workspace = prepare_subject(

@@ -34,6 +34,16 @@ class _PendingQuestion(TypedDict):
 
 
 class BlindAgenticFixtureLoopTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._opencode_which = patch(
+            "tests.eval.blind_agentic.run_opencode_verifier.shutil.which",
+            return_value=None,
+        )
+        self._opencode_which.start()
+
+    def tearDown(self) -> None:
+        self._opencode_which.stop()
+
     def test_opencode_verifier_builds_required_orchestrator_command(self) -> None:
         command = build_opencode_run_command(Path("/tmp/subject"), model="opencode/test-model")
 
@@ -87,6 +97,92 @@ class BlindAgenticFixtureLoopTests(unittest.TestCase):
 
                 self.assertEqual(run_mock.call_count, 2)
                 self.assertEqual(run_mock.call_args_list[1].args[0], ["opencode", "export", "ses_123"])
+
+    def test_opencode_verifier_launches_resolved_windows_cmd_for_run_and_export(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_root = Path(tmp) / "runs"
+            resolved = r"C:\Users\sergi\AppData\Roaming\npm\opencode.CMD"
+
+            with (
+                patch(
+                    "tests.eval.blind_agentic.run_opencode_verifier.shutil.which",
+                    return_value=resolved,
+                ),
+                patch("tests.eval.blind_agentic.run_opencode_verifier.subprocess.run") as run_mock,
+            ):
+                run_mock.side_effect = [
+                    subprocess.CompletedProcess(
+                        args=[resolved, "run"],
+                        returncode=0,
+                        stdout=json.dumps({"sessionID": "ses_cmd"}),
+                        stderr="",
+                    ),
+                    subprocess.CompletedProcess(
+                        args=[resolved, "export", "ses_cmd"],
+                        returncode=0,
+                        stdout=json.dumps({"events": []}),
+                        stderr="",
+                    ),
+                ]
+
+                run_verifier(
+                    scenario="datasource_documentation",
+                    run_id="resolved-windows-cmd",
+                    output_root=output_root,
+                    repo_root=Path.cwd(),
+                )
+
+            self.assertEqual(run_mock.call_args_list[0].args[0][:2], [resolved, "run"])
+            self.assertEqual(run_mock.call_args_list[1].args[0], [resolved, "export", "ses_cmd"])
+
+    def test_opencode_verifier_decodes_subprocess_output_with_utf8_replacement(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_root = Path(tmp) / "runs"
+
+            def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+                self.assertEqual(kwargs["encoding"], "utf-8")
+                self.assertEqual(kwargs["errors"], "replace")
+                if command[:2] == ["opencode", "run"]:
+                    return subprocess.CompletedProcess(
+                        command,
+                        0,
+                        stdout=b'{"sessionID": "ses_utf8"}',
+                        stderr=b"warning: invalid byte: \xff",
+                    )
+                return subprocess.CompletedProcess(command, 0, stdout=json.dumps({"events": []}), stderr="")
+
+            with patch("tests.eval.blind_agentic.run_opencode_verifier.subprocess.run", side_effect=fake_run):
+                result = run_verifier(
+                    scenario="datasource_documentation",
+                    run_id="utf8-replacement-output",
+                    output_root=output_root,
+                    repo_root=Path.cwd(),
+                )
+
+            self.assertTrue(result.manifest_path.is_file())
+            stderr_path = result.manifest_path.parent / "diagnostics" / "opencode-run.stderr.txt"
+            self.assertIn("�", stderr_path.read_text(encoding="utf-8"))
+
+    def test_opencode_verifier_treats_missing_stdout_stderr_as_empty_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_root = Path(tmp) / "runs"
+
+            with patch("tests.eval.blind_agentic.run_opencode_verifier.subprocess.run") as run_mock:
+                run_mock.return_value = subprocess.CompletedProcess(
+                    args=["opencode", "run"], returncode=0, stdout=None, stderr=None
+                )
+
+                with self.assertRaisesRegex(OpenCodeVerifierError, "missing-sessionID"):
+                    run_verifier(
+                        scenario="datasource_documentation",
+                        run_id="missing-stdout-stderr",
+                        output_root=output_root,
+                        repo_root=Path.cwd(),
+                    )
+
+            run_root = output_root / "missing-stdout-stderr"
+            self.assertEqual((run_root / "diagnostics" / "opencode-run.stdout.jsonl").read_text(encoding="utf-8"), "")
+            self.assertEqual((run_root / "diagnostics" / "opencode-run.stderr.txt").read_text(encoding="utf-8"), "")
 
     def test_opencode_verifier_wraps_run_launch_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -145,16 +145,19 @@ def _write_datasource_protocol_metadata(subject_path: Path) -> None:
             "prompt_path": "PROMPT.md",
             "expected_outputs": ["generated/source_documentation.md"],
             "graph_db": ".brain_ds/store.db",
+            "opencode_export": "opencode-export/session.json",
             "wrapper_diagnostics": [
                 "diagnostics/opencode-run.stdout.jsonl",
                 "diagnostics/opencode-run.stderr.txt",
                 "diagnostics/opencode-export.stderr.txt",
             ],
             "required_evidence": [
+                "opencode_export",
                 "normalized_trace_events",
                 "verifiable_text_exchange",
                 "subagent_identity_plus_action_or_tool_call",
                 "subject_local_graph",
+                "workspace_open_before_graph_write",
             ],
         }
     }

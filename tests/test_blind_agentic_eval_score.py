@@ -928,7 +928,8 @@ class BlindAgenticScoreTests(unittest.TestCase):
         )
 
         self.assertEqual(report["freshness"]["status"], "degraded")
-        self.assertEqual(report["deterministic"]["status"], "review")
+        self.assertEqual(report["deterministic"]["status"], "fail")
+        self.assertEqual(report["blocking_failures"][0]["code"], "non_subject_local_graph_proof")
         self.assertIn("subject_local_graph", report["freshness"]["failing_checks"])
 
     def test_datasource_score_reports_ordered_pathway_progression_and_off_path_loops(self) -> None:
