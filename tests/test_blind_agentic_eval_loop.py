@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -10,7 +11,7 @@ from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
-from typing import TypedDict
+from typing import Any, TypedDict, cast
 
 from brain_ds.store.graph_store import GraphStore
 from tests.eval.blind_agentic.collect_evidence import collect_evidence
@@ -98,6 +99,69 @@ class BlindAgenticFixtureLoopTests(unittest.TestCase):
                 self.assertEqual(run_mock.call_count, 2)
                 self.assertEqual(run_mock.call_args_list[1].args[0], ["opencode", "export", "ses_123"])
 
+    def test_opencode_verifier_cleans_default_workspace_after_run_failure_outside_pytest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_root = Path(tmp) / "runs"
+            non_pytest_env = dict(os.environ)
+            non_pytest_env.pop("PYTEST_CURRENT_TEST", None)
+
+            with (
+                patch.dict(os.environ, non_pytest_env, clear=True),
+                patch("tests.eval.blind_agentic.run_opencode_verifier.subprocess.run") as run_mock,
+                patch("tests.eval.blind_agentic.run_opencode_verifier.workspaces.unregister_workspace", return_value=True) as unregister_mock,
+            ):
+                run_mock.return_value = subprocess.CompletedProcess(
+                    args=["opencode", "run"], returncode=7, stdout="", stderr="run failed"
+                )
+
+                with self.assertRaisesRegex(OpenCodeVerifierError, "opencode-run-failed: exit 7"):
+                    run_verifier(
+                        scenario="datasource_documentation",
+                        run_id="run-failure-cleans-default",
+                        output_root=output_root,
+                        repo_root=Path.cwd(),
+                    )
+
+            self.assertEqual(unregister_mock.call_count, 1)
+            self.assertEqual(
+                unregister_mock.call_args.args[0],
+                output_root / "run-failure-cleans-default" / "subject",
+            )
+
+    def test_opencode_verifier_cleans_default_workspace_after_export_failure_outside_pytest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_root = Path(tmp) / "runs"
+            non_pytest_env = dict(os.environ)
+            non_pytest_env.pop("PYTEST_CURRENT_TEST", None)
+
+            with (
+                patch.dict(os.environ, non_pytest_env, clear=True),
+                patch("tests.eval.blind_agentic.run_opencode_verifier.subprocess.run") as run_mock,
+                patch("tests.eval.blind_agentic.run_opencode_verifier.workspaces.unregister_workspace", return_value=True) as unregister_mock,
+            ):
+                run_mock.side_effect = [
+                    subprocess.CompletedProcess(
+                        args=["opencode", "run"], returncode=0, stdout=json.dumps({"sessionID": "ses_cleanup"}), stderr=""
+                    ),
+                    subprocess.CompletedProcess(
+                        args=["opencode", "export", "ses_cleanup"], returncode=1, stdout="", stderr="no export"
+                    ),
+                ]
+
+                with self.assertRaisesRegex(OpenCodeVerifierError, "export-failed"):
+                    run_verifier(
+                        scenario="datasource_documentation",
+                        run_id="export-failure-cleans-default",
+                        output_root=output_root,
+                        repo_root=Path.cwd(),
+                    )
+
+            self.assertEqual(unregister_mock.call_count, 1)
+            self.assertEqual(
+                unregister_mock.call_args.args[0],
+                output_root / "export-failure-cleans-default" / "subject",
+            )
+
     def test_opencode_verifier_launches_resolved_windows_cmd_for_run_and_export(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output_root = Path(tmp) / "runs"
@@ -139,7 +203,7 @@ class BlindAgenticFixtureLoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             output_root = Path(tmp) / "runs"
 
-            def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[Any]:
                 self.assertEqual(kwargs["encoding"], "utf-8")
                 self.assertEqual(kwargs["errors"], "replace")
                 if command[:2] == ["opencode", "run"]:
@@ -455,9 +519,11 @@ class BlindAgenticFixtureLoopTests(unittest.TestCase):
             def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
                 calls.append("run" if command[:2] == ["opencode", "run"] else "export")
                 if command[:2] == ["opencode", "run"]:
-                    self.assertIn("Use BrainDS MCP action brain_ds_open_workspace", kwargs["input"])
+                    prompt = cast(str, kwargs["input"])
+                    self.assertIn("Use BrainDS MCP action brain_ds_open_workspace", prompt)
+                    self.assertIn("path " + output_root.joinpath("ordered-run", "subject").resolve(strict=False).as_posix(), prompt)
                     self.assertEqual(command[2:6], ["--agent", "brain-ds-orchestrator", "--format", "json"])
-                    self.assertIn("BRAIN_DS_HOME", kwargs["env"])
+                    self.assertIn("BRAIN_DS_HOME", cast(dict[str, str], kwargs["env"]))
                     return subprocess.CompletedProcess(command, 0, json.dumps({"sessionID": "ses_order"}), "run diagnostics")
                 return subprocess.CompletedProcess(command, 0, json.dumps({"events": []}), "export diagnostics")
 
@@ -485,14 +551,13 @@ class BlindAgenticFixtureLoopTests(unittest.TestCase):
             self.assertEqual(manifest["session_id_source_alias"], "sessionID")
             self.assertEqual(manifest["brain_ds_home"], (output_root / "ordered-run" / "brain_ds_home").as_posix())
             self.assertEqual(manifest["prompt_path"], (result.subject_path / "PROMPT.md").as_posix())
+            self.assertEqual(manifest["workspace_registration"]["status"], "registered")
+            self.assertEqual(manifest["workspace_registration"]["path"], result.subject_path.as_posix())
             self.assertEqual(
-                manifest["workspace_registration"],
-                {
-                    "status": "registered",
-                    "path": result.subject_path.as_posix(),
-                    "registry_path": (output_root / "ordered-run" / "brain_ds_home" / "workspaces.json").as_posix(),
-                },
+                manifest["workspace_registration"]["registry_path"],
+                (output_root / "ordered-run" / "brain_ds_home" / "workspaces.json").as_posix(),
             )
+            self.assertEqual(manifest["workspace_registration"]["default_registry"]["status"], "skipped")
             self.assertEqual(manifest["opencode_run"]["command"][3], "brain-ds-orchestrator")
             self.assertEqual(manifest["opencode_run"]["stdout_path"], "diagnostics/opencode-run.stdout.jsonl")
             self.assertEqual(manifest["opencode_run"]["stderr_path"], "diagnostics/opencode-run.stderr.txt")
@@ -501,6 +566,102 @@ class BlindAgenticFixtureLoopTests(unittest.TestCase):
             self.assertEqual(manifest["opencode_export"]["command"], ["opencode", "export", "ses_order"])
             self.assertEqual(manifest["opencode_export"]["stderr_path"], "diagnostics/opencode-export.stderr.txt")
             self.assertTrue((result.manifest_path.parent / manifest["opencode_export"]["stderr_path"]).is_file())
+
+    def test_opencode_verifier_uses_subject_cwd_with_run_local_mcp_config_and_seeds_subject_graph(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_root = Path(tmp) / "runs"
+            repo_root = Path.cwd()
+
+            def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+                if command[:2] == ["opencode", "run"]:
+                    dir_index = command.index("--dir") + 1
+                    self.assertTrue(Path(command[dir_index]).is_absolute())
+                    self.assertEqual(Path(command[dir_index]).name, "subject")
+                    subject = Path(cast(Path, kwargs["cwd"]))
+                    self.assertEqual(subject.name, "subject")
+                    env = cast(dict[str, str], kwargs["env"])
+                    self.assertEqual(env["BRAIN_DS_PROJECT_ROOT"], subject.as_posix())
+                    self.assertEqual(env["BRAIN_DS_HOME"], (output_root / "absolute-dir-seeded-graph" / "brain_ds_home").resolve(strict=False).as_posix())
+                    config = json.loads((subject / ".opencode" / "opencode.json").read_text(encoding="utf-8"))
+                    server = config["mcp"]["brain_ds"]
+                    self.assertEqual(server["command"][-2:], ["--project-root", subject.as_posix()])
+                    self.assertEqual(server["environment"]["BRAIN_DS_PROJECT_ROOT"], subject.as_posix())
+                    self.assertEqual(server["environment"]["BRAIN_DS_HOME"], env["BRAIN_DS_HOME"])
+                    return subprocess.CompletedProcess(command, 0, json.dumps({"sessionID": "ses_abs"}), "")
+                self.assertEqual(Path(cast(Path, kwargs["cwd"])).name, "subject")
+                return subprocess.CompletedProcess(command, 0, json.dumps({"events": []}), "")
+
+            with patch("tests.eval.blind_agentic.run_opencode_verifier.subprocess.run", side_effect=fake_run):
+                result = run_verifier(
+                    scenario="datasource_documentation",
+                    run_id="absolute-dir-seeded-graph",
+                    output_root=output_root,
+                    repo_root=repo_root,
+                )
+
+            graph_db = result.subject_path / ".brain_ds" / "store.db"
+            self.assertTrue(graph_db.is_file())
+            with GraphStore(str(graph_db), read_only=True) as store:
+                self.assertEqual([graph.id for graph in store.list_graphs()], ["helios-datasource-docs"])
+                self.assertEqual(
+                    sorted(node.id for node in store.query_nodes("helios-datasource-docs")),
+                    ["source-customers", "source-orders"],
+                )
+
+            manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["opencode_run"]["cwd"], result.subject_path.as_posix())
+            self.assertEqual(manifest["opencode_mcp_config"]["status"], "written")
+            self.assertEqual(manifest["opencode_mcp_config"]["brain_ds_home"], (output_root / "absolute-dir-seeded-graph" / "brain_ds_home").resolve(strict=False).as_posix())
+            self.assertEqual(manifest["subject_graph_seed"]["status"], "seeded")
+            self.assertEqual(manifest["subject_graph_seed"]["graph_id"], "helios-datasource-docs")
+
+    def test_opencode_verifier_temporarily_overrides_repo_opencode_mcp_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            subject = root / "subject"
+            config_path = root / ".opencode" / "opencode.json"
+            subject.mkdir(parents=True)
+            (subject / "PROMPT.md").write_text("Document this datasource.", encoding="utf-8")
+            config_path.parent.mkdir(parents=True)
+            original_config = {
+                "mcp": {
+                    "brain_ds": {
+                        "type": "local",
+                        "enabled": True,
+                        "command": ["brain_ds", "mcp", "--project-root", "C:/repo"],
+                        "environment": {"BRAIN_DS_PROJECT_ROOT": "C:/repo"},
+                    },
+                    "engram": {"type": "local", "command": ["engram", "mcp"]},
+                }
+            }
+            config_path.write_text(json.dumps(original_config), encoding="utf-8")
+
+            def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+                if command[:2] == ["opencode", "run"]:
+                    live_config = json.loads(config_path.read_text(encoding="utf-8"))
+                    server = live_config["mcp"]["brain_ds"]
+                    self.assertEqual(server["command"][-2:], ["--project-root", subject.as_posix()])
+                    self.assertEqual(server["environment"]["BRAIN_DS_PROJECT_ROOT"], subject.as_posix())
+                    self.assertEqual(server["environment"]["BRAIN_DS_HOME"], cast(dict[str, str], kwargs["env"])["BRAIN_DS_HOME"])
+                    self.assertEqual(live_config["mcp"]["engram"], original_config["mcp"]["engram"])
+                    return subprocess.CompletedProcess(command, 0, json.dumps({"sessionID": "ses_cfg"}), "")
+                return subprocess.CompletedProcess(command, 0, json.dumps({"events": []}), "")
+
+            with (
+                patch(
+                    "tests.eval.blind_agentic.run_opencode_verifier.prepare_subject",
+                    return_value=SimpleNamespace(subject_path=subject),
+                ),
+                patch("tests.eval.blind_agentic.run_opencode_verifier.subprocess.run", side_effect=fake_run),
+            ):
+                run_verifier(
+                    scenario="datasource_documentation",
+                    run_id="repo-config-override",
+                    output_root=Path(tmp) / "runs",
+                    repo_root=root,
+                )
+
+            self.assertEqual(json.loads(config_path.read_text(encoding="utf-8")), original_config)
 
     def test_opencode_verifier_same_run_failure_clears_stale_success_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
