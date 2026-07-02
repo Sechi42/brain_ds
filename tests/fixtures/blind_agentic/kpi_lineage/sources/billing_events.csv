@@ -1,0 +1,4 @@
+account_id,event_type,arr_delta,event_date,source_owner
+a-100,renewal,25000,2026-05-03,Billing Ops
+a-211,expansion,12000,2026-05-11,Billing Ops
+a-314,credit,-4000,2026-05-17,Billing Ops

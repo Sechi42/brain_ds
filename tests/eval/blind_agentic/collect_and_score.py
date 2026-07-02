@@ -8,11 +8,29 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from tests.eval.blind_agentic.collect_evidence import CollectEvidenceError, collect_evidence
+from tests.eval.blind_agentic.path_plan import PathPlanError, normalize_requested_path, validate_sdd_change
+from tests.eval.blind_agentic.prepare_subject import resolve_repo_root
 from tests.eval.blind_agentic.score_report import ScoreReportError, score_evidence
 
 
 class CollectAndScoreError(RuntimeError):
     """Raised when collect-and-score wrapper inputs cannot produce valid outputs."""
+
+
+_COMPARABILITY_KEY_REQUIRED_FIELDS = (
+    "commit_sha",
+    "worktree_dirty",
+    "git_diff_hash",
+    "untracked_files_present",
+    "sdd_change",
+    "path_id",
+    "path_plan_version",
+    "scenario",
+    "prompt_version",
+    "rubric_version",
+    "trace_schema_version",
+    "report_schema_version",
+)
 
 
 def build_model_comparison(
@@ -28,6 +46,7 @@ def build_model_comparison(
     expected_pathway = _report_pathway(first_label, first_report)
     expected_schema = _report_schema(first_label, first_report)
     expected_metadata = _report_comparable_metadata(first_label, first_report)
+    expected_comparability_key = _report_comparability_key(first_label, first_report)
     if expected_scenario != scenario:
         raise CollectAndScoreError(
             f"Model run {first_label!r} scenario {expected_scenario!r} does not match {scenario!r}"
@@ -39,15 +58,22 @@ def build_model_comparison(
         pathway = _report_pathway(label, report)
         schema = _report_schema(label, report)
         metadata = _report_comparable_metadata(label, report)
+        comparability_key = _report_comparability_key(label, report)
         if report_scenario != expected_scenario:
             raise CollectAndScoreError("Model comparison requires the same scenario for every run")
         if pathway != expected_pathway:
             raise CollectAndScoreError("Model comparison requires the same pathway for every run")
         if schema != expected_schema:
-            raise CollectAndScoreError("Model comparison requires the same report schema for every run")
+            raise CollectAndScoreError(
+                "Model comparison requires the same report schema for every run"
+            )
         if metadata != expected_metadata:
             raise CollectAndScoreError(
                 "Model comparison requires matching prompt, fixture, and rubric metadata"
+            )
+        if comparability_key != expected_comparability_key:
+            raise CollectAndScoreError(
+                "Model comparison requires matching selected path comparability key"
             )
         rows.append(
             {
@@ -67,6 +93,7 @@ def build_model_comparison(
         "pathway_id": expected_pathway,
         "report_schema_version": expected_schema,
         "comparable_rerun_metadata": expected_metadata,
+        "comparability_key": expected_comparability_key,
         "runs": rows,
     }
 
@@ -75,7 +102,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Collect blind agentic eval evidence and score it in one command."
     )
-    parser.add_argument("--scenario", required=True)
+    parser.add_argument("--scenario")
+    parser.add_argument("--path-id")
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--subject-path", type=Path)
     parser.add_argument("--evidence-path", type=Path)
@@ -83,6 +111,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     parser.add_argument("--opencode-artifacts-path", type=Path)
     parser.add_argument("--graph-db-path", type=Path)
+    parser.add_argument("--sdd-change")
     parser.add_argument("--graph-id")
     parser.add_argument("--judge-response", type=Path)
     parser.add_argument("--judge-packet-out", type=Path)
@@ -92,7 +121,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--comparison-out", type=Path)
     args = parser.parse_args(argv)
 
-    run_root = Path("tmp") / "blind-agentic-eval" / args.run_id
+    try:
+        scenario = _resolve_requested_scenario(args.scenario, args.path_id, args.sdd_change)
+    except CollectAndScoreError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    repo_root = resolve_repo_root(args.repo_root)
+    run_root = repo_root / "tmp" / "blind-agentic-eval" / args.run_id
     subject_path = args.subject_path or run_root / "subject"
     evidence_path = args.evidence_path or subject_path.parent / "evidence"
     report_out = args.report_out or subject_path.parent / "report.json"
@@ -100,7 +136,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.model_run:
         try:
             comparison = build_model_comparison(
-                scenario=args.scenario,
+                scenario=scenario,
                 model_runs=[_load_model_run(value) for value in args.model_run],
             )
         except CollectAndScoreError as exc:
@@ -116,19 +152,20 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         bundle = collect_evidence(
-            scenario=args.scenario,
+            scenario=scenario,
             run_id=args.run_id,
             subject_path=subject_path,
             evidence_path=evidence_path,
-            repo_root=args.repo_root,
+            repo_root=repo_root,
             opencode_artifacts_path=args.opencode_artifacts_path,
             graph_db_path=args.graph_db_path,
+            sdd_change=args.sdd_change,
         )
         report = score_evidence(
-            scenario=args.scenario,
+            scenario=scenario,
             evidence_path=bundle.evidence_path,
             out_path=report_out,
-            repo_root=args.repo_root,
+            repo_root=repo_root,
             graph_id=args.graph_id,
             judge_response_path=args.judge_response,
             judge_packet_out=args.judge_packet_out,
@@ -155,6 +192,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     if report.get("double_verifier"):
         print(f"Double-verifier audit: {report['double_verifier']['audit_status']}")
     return 0
+
+
+def _resolve_requested_scenario(
+    scenario: str | None, path_id: str | None, sdd_change: str | None
+) -> str:
+    if path_id:
+        try:
+            return normalize_requested_path(
+                path_id,
+                sdd_change=validate_sdd_change(sdd_change or "agentic-evaluation-lab"),
+            ).scenario
+        except PathPlanError as exc:
+            raise CollectAndScoreError(str(exc)) from exc
+    if scenario:
+        return scenario
+    raise CollectAndScoreError("one of --path-id or --scenario is required")
 
 
 def _load_model_run(value: str) -> tuple[str, dict[str, Any]]:
@@ -192,7 +245,9 @@ def _report_pathway(label: str, report: dict[str, Any]) -> str:
 def _report_schema(label: str, report: dict[str, Any]) -> str:
     schema = report.get("freshness", {}).get("report_schema_version")
     if not isinstance(schema, str) or not schema:
-        raise CollectAndScoreError(f"Model run {label!r} is missing freshness.report_schema_version")
+        raise CollectAndScoreError(
+            f"Model run {label!r} is missing freshness.report_schema_version"
+        )
     return schema
 
 
@@ -204,6 +259,35 @@ def _report_comparable_metadata(label: str, report: dict[str, Any]) -> dict[str,
         "prompt_version": metadata.get("prompt_version"),
         "fixture_version": metadata.get("fixture_version"),
         "rubric_version": metadata.get("rubric_version"),
+    }
+
+
+def _report_comparability_key(label: str, report: dict[str, Any]) -> dict[str, Any]:
+    comparability = report.get("comparability")
+    if not isinstance(comparability, dict):
+        raise CollectAndScoreError(f"Model run {label!r} is missing comparability")
+    if comparability.get("status") != "comparable":
+        raise CollectAndScoreError(
+            f"Model run {label!r} is {comparability.get('status')}: {comparability.get('reason')}"
+        )
+    key = comparability.get("key")
+    if not isinstance(key, dict):
+        raise CollectAndScoreError(f"Model run {label!r} is missing comparability.key")
+    for name in _COMPARABILITY_KEY_REQUIRED_FIELDS:
+        if name not in key:
+            raise CollectAndScoreError(
+                f"Model run {label!r} is missing comparability.key.{name}"
+            )
+    selected_path = report.get("selected_path")
+    path_id = selected_path.get("path_id") if isinstance(selected_path, dict) else None
+    key_path_id = key.get("path_id")
+    if path_id is not None and key_path_id != path_id:
+        raise CollectAndScoreError(
+            f"Model run {label!r} selected path does not match comparability key"
+        )
+    return {
+        name: key.get(name)
+        for name in _COMPARABILITY_KEY_REQUIRED_FIELDS
     }
 
 

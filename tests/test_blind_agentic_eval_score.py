@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import tempfile
 import unittest
 from pathlib import Path
 from typing import TypedDict
@@ -19,7 +21,15 @@ from tests.eval.blind_agentic.score_report import (
     normalize_gold_alias,
     score_evidence,
 )
-from tests.eval.blind_agentic.trace_schema import SessionTrace, TraceEvent, TRACE_VERSION, write_session_trace
+from tests.eval.blind_agentic.trace_schema import (
+    SessionTrace,
+    TraceEvent,
+    TRACE_VERSION,
+    write_session_trace,
+)
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class PendingQuestionInput(TypedDict):
@@ -31,6 +41,25 @@ class PendingQuestionInput(TypedDict):
 
 
 class BlindAgenticScoreTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory(prefix="blind-agentic-score-")
+        self._test_root = Path(self._tmp.name)
+        self._previous_sdd_change = os.environ.get("BRAIN_DS_SDD_CHANGE")
+        self._previous_output_root = os.environ.get("BRAIN_DS_BLIND_AGENTIC_OUTPUT_ROOT")
+        os.environ["BRAIN_DS_SDD_CHANGE"] = "agentic-evaluation-lab"
+        os.environ["BRAIN_DS_BLIND_AGENTIC_OUTPUT_ROOT"] = self._test_root.as_posix()
+
+    def tearDown(self) -> None:
+        if self._previous_sdd_change is None:
+            os.environ.pop("BRAIN_DS_SDD_CHANGE", None)
+        else:
+            os.environ["BRAIN_DS_SDD_CHANGE"] = self._previous_sdd_change
+        if self._previous_output_root is None:
+            os.environ.pop("BRAIN_DS_BLIND_AGENTIC_OUTPUT_ROOT", None)
+        else:
+            os.environ["BRAIN_DS_BLIND_AGENTIC_OUTPUT_ROOT"] = self._previous_output_root
+        self._tmp.cleanup()
+
     def test_gold_v2_loader_requires_contract_sections_and_rubric_version(self) -> None:
         gold = load_gold_v2(
             Path("tests") / "gold" / "blind_agentic" / "revops_growth" / "gold_v2.json"
@@ -46,7 +75,7 @@ class BlindAgenticScoreTests(unittest.TestCase):
         self.assertIn("pending_question_themes", gold)
 
     def test_gold_v2_loader_fails_closed_when_required_data_is_missing(self) -> None:
-        invalid_path = Path("tmp") / "blind-agentic-score-test" / "invalid-gold-v2.json"
+        invalid_path = self._test_root / "invalid-gold-v2.json"
         invalid_path.parent.mkdir(parents=True, exist_ok=True)
         invalid_path.write_text(
             json.dumps({"version": 2, "scenario": "revops_growth", "rubric": {"version": "x"}}),
@@ -57,11 +86,11 @@ class BlindAgenticScoreTests(unittest.TestCase):
             load_gold_v2(invalid_path)
 
     def test_score_report_fails_closed_when_gold_v2_is_missing(self) -> None:
-        repo_root = Path("tmp") / "blind-agentic-score-test" / "missing-gold-v2-repo"
+        repo_root = self._test_root / "missing-gold-v2-repo"
         gold_root = repo_root / "tests" / "gold" / "blind_agentic" / "revops_growth"
         gold_root.mkdir(parents=True, exist_ok=True)
         for name in ("rubric.json", "expected_kpi_lineage.json", "gold_graph.json"):
-            source = Path("tests") / "gold" / "blind_agentic" / "revops_growth" / name
+            source = REPO_ROOT / "tests" / "gold" / "blind_agentic" / "revops_growth" / name
             (gold_root / name).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
         evidence = self._evidence_bundle(
             "score-run-missing-gold-v2", generated_text=self._complete_generated_text()
@@ -377,7 +406,7 @@ class BlindAgenticScoreTests(unittest.TestCase):
             repo_root=Path.cwd(),
         )
 
-        expected_root = Path("tests") / "gold" / "blind_agentic" / "revops_growth"
+        expected_root = REPO_ROOT / "tests" / "gold" / "blind_agentic" / "revops_growth"
         expected_json = json.loads(
             (expected_root / "expected_report_success.json").read_text(encoding="utf-8")
         )
@@ -458,7 +487,7 @@ class BlindAgenticScoreTests(unittest.TestCase):
         self.assertEqual(packet["missing_items"]["artifact_classes"], [])
 
     def test_judge_response_ingestion_rejects_evidence_hash_mismatch(self) -> None:
-        response_path = Path("tmp") / "blind-agentic-score-test" / "mismatch-response.json"
+        response_path = self._test_root / "mismatch-response.json"
         response_path.parent.mkdir(parents=True, exist_ok=True)
         response_path.write_text(
             json.dumps(
@@ -767,7 +796,9 @@ class BlindAgenticScoreTests(unittest.TestCase):
         self.assertEqual(report["blocking_failures"][0]["code"], "wrong_agent")
         self.assertEqual(report["trace_summary"]["wrong_or_fallback_agent"], "build-python")
 
-    def test_datasource_score_accepts_orchestrator_first_trace_and_subject_local_freshness(self) -> None:
+    def test_datasource_score_accepts_orchestrator_first_trace_and_subject_local_freshness(
+        self,
+    ) -> None:
         evidence = self._datasource_evidence_bundle(
             "datasource-orchestrated-run",
             events=[
@@ -843,7 +874,9 @@ class BlindAgenticScoreTests(unittest.TestCase):
         )
 
         self.assertEqual(report["blocking_failures"], [])
-        self.assertEqual(report["trace_summary"]["first_root_brainds_agent"], "brain-ds-orchestrator")
+        self.assertEqual(
+            report["trace_summary"]["first_root_brainds_agent"], "brain-ds-orchestrator"
+        )
         self.assertEqual(report["trace_summary"]["subagent_action"]["status"], "verified")
         self.assertIsNone(report["trace_summary"]["wrong_or_fallback_agent"])
 
@@ -973,13 +1006,21 @@ class BlindAgenticScoreTests(unittest.TestCase):
         )
 
         compliance = report["pathway_compliance"]
-        self.assertEqual(compliance["ordered_milestones"], ["orchestrator_entry", "explore_source", "document_source", "map_to_graph"])
-        self.assertEqual(compliance["observed_milestones"], ["orchestrator_entry", "document_source", "explore_source"])
+        self.assertEqual(
+            compliance["ordered_milestones"],
+            ["orchestrator_entry", "explore_source", "document_source", "map_to_graph"],
+        )
+        self.assertEqual(
+            compliance["observed_milestones"],
+            ["orchestrator_entry", "document_source", "explore_source"],
+        )
         self.assertEqual(compliance["completed_milestones"], ["orchestrator_entry"])
         self.assertEqual(compliance["out_of_order_milestones"], ["explore_source"])
         self.assertEqual(compliance["missing_milestones"], ["map_to_graph"])
         self.assertEqual(compliance["off_path_event_count"], 1)
-        self.assertLess(report["deterministic"]["conversation_axes"]["pathway_progression"]["score_0_5"], 5)
+        self.assertLess(
+            report["deterministic"]["conversation_axes"]["pathway_progression"]["score_0_5"], 5
+        )
 
     def test_datasource_score_reports_tool_quality_metrics(self) -> None:
         evidence = self._datasource_evidence_bundle(
@@ -1040,7 +1081,9 @@ class BlindAgenticScoreTests(unittest.TestCase):
         self.assertEqual(tool_quality["irrelevant_tool_calls"], ["unrelated.weather.lookup"])
         self.assertEqual(tool_quality["unusable_output_count"], 1)
         self.assertGreaterEqual(tool_quality["confusion_count"], 1)
-        self.assertLess(report["deterministic"]["conversation_axes"]["tool_quality"]["score_0_5"], 5)
+        self.assertLess(
+            report["deterministic"]["conversation_axes"]["tool_quality"]["score_0_5"], 5
+        )
 
     def test_datasource_tool_quality_score_is_capped_at_five_for_duplicate_responses(self) -> None:
         evidence = self._datasource_evidence_bundle(
@@ -1091,6 +1134,193 @@ class BlindAgenticScoreTests(unittest.TestCase):
             report["deterministic"]["conversation_axes"]["tool_quality"]["score_0_5"], 5
         )
 
+    def test_datasource_tool_quality_counts_same_event_completed_output_as_success(self) -> None:
+        evidence = self._datasource_evidence_bundle(
+            "datasource-tool-quality-same-event-success-run",
+            events=[
+                TraceEvent(
+                    ts="2026-06-27T00:00:00+00:00",
+                    role="tool",
+                    action="tool_call",
+                    tool_name="brain_ds_explore_source",
+                    target="orders",
+                    pathway_milestone="explore_source",
+                    tool_status="completed",
+                    tool_output_present=True,
+                ),
+            ],
+        )
+
+        report = score_evidence(
+            scenario="datasource_documentation",
+            evidence_path=evidence,
+            out_path=evidence.parent / "report.json",
+            repo_root=Path.cwd(),
+        )
+
+        tool_quality = report["tool_quality"]
+        self.assertEqual(tool_quality["tool_call_count"], 1)
+        self.assertEqual(tool_quality["tool_response_count"], 1)
+        self.assertEqual(tool_quality["successful_response_count"], 1)
+        self.assertEqual(tool_quality["unusable_output_count"], 0)
+
+    def test_datasource_pathway_infers_milestones_from_trace_sequence(self) -> None:
+        evidence = self._datasource_evidence_bundle(
+            "datasource-pathway-inferred-run",
+            events=[
+                TraceEvent(
+                    ts="2026-06-27T00:00:00+00:00",
+                    role="orchestrator",
+                    agent_name="brain-ds-orchestrator",
+                    content_ref="text:assistant:reply",
+                ),
+                TraceEvent(
+                    ts="2026-06-27T00:00:01+00:00",
+                    role="subagent",
+                    agent_name="brainds-source-explorer",
+                    delegated_by="brain-ds-orchestrator",
+                    action="delegated_message",
+                ),
+                TraceEvent(
+                    ts="2026-06-27T00:00:02+00:00",
+                    role="tool",
+                    action="tool_call",
+                    tool_name="brain_ds_explore_source",
+                    target="orders.csv",
+                ),
+                TraceEvent(
+                    ts="2026-06-27T00:00:03+00:00",
+                    role="tool",
+                    action="tool_call",
+                    tool_name="write",
+                    target="generated/source_documentation.md",
+                ),
+                TraceEvent(
+                    ts="2026-06-27T00:00:04+00:00",
+                    role="tool",
+                    action="tool_call",
+                    tool_name="brain_ds_add_edge",
+                    target="helios-datasource-docs",
+                ),
+            ],
+        )
+
+        report = score_evidence(
+            scenario="datasource_documentation",
+            evidence_path=evidence,
+            out_path=evidence.parent / "report.json",
+            repo_root=Path.cwd(),
+        )
+
+        compliance = report["pathway_compliance"]
+        self.assertEqual(
+            compliance["observed_milestones"],
+            ["orchestrator_entry", "explore_source", "document_source", "map_to_graph"],
+        )
+        self.assertEqual(compliance["completed_milestones"], compliance["ordered_milestones"])
+        self.assertEqual(
+            [item["milestone"] for item in compliance["inferred_milestones"]],
+            ["orchestrator_entry", "explore_source", "document_source", "map_to_graph"],
+        )
+
+    def test_datasource_generated_axis_accepts_data_quality_caveats_vocabulary(self) -> None:
+        evidence = self._datasource_evidence_bundle(
+            "datasource-vocabulary-tolerant-run",
+            generated_text="\n".join(
+                [
+                    "# Source Documentation",
+                    "Owner: RevOps Analytics",
+                    "Freshness: updated weekly from warehouse snapshots.",
+                    "Data Quality Caveats: null renewal dates require stakeholder confirmation.",
+                ]
+            ),
+        )
+
+        report = score_evidence(
+            scenario="datasource_documentation",
+            evidence_path=evidence,
+            out_path=evidence.parent / "report.json",
+            repo_root=Path.cwd(),
+        )
+
+        axis = report["deterministic"]["axes"]["source_documentation"]
+        self.assertEqual(axis["score_0_5"], 5)
+        self.assertEqual(axis["missing_expected"], [])
+
+    def test_datasource_generated_axis_still_requires_quality_caveats(self) -> None:
+        evidence = self._datasource_evidence_bundle(
+            "datasource-vocabulary-missing-caveat-run",
+            generated_text="\n".join(
+                [
+                    "# Source Documentation",
+                    "Owner: RevOps Analytics",
+                    "Freshness: updated weekly from warehouse snapshots.",
+                    "Columns: order_id, account_id, amount.",
+                ]
+            ),
+        )
+
+        report = score_evidence(
+            scenario="datasource_documentation",
+            evidence_path=evidence,
+            out_path=evidence.parent / "report.json",
+            repo_root=Path.cwd(),
+        )
+
+        axis = report["deterministic"]["axes"]["source_documentation"]
+        self.assertLess(axis["score_0_5"], 5)
+        self.assertIn("data_gap_or_quality_caveat", axis["missing_expected"])
+
+    def test_report_uses_wrapper_model_when_export_model_is_empty(self) -> None:
+        evidence = self._graph_evidence_bundle(
+            "score-run-wrapper-model-fallback",
+            include_all_expected=True,
+            generated_text=self._business_generated_text_without_lineage_ids(),
+            metadata={"model_provider": "opencode", "wrapper_model": "opencode-go/minimax-m3"},
+        )
+
+        report = score_evidence(
+            scenario="revops_growth",
+            evidence_path=evidence,
+            out_path=evidence.parent / "report.json",
+            repo_root=Path.cwd(),
+        )
+
+        self.assertEqual(report["comparable_rerun_metadata"]["model"], "opencode-go/minimax-m3")
+        self.assertIn(
+            "Model: `opencode-go/minimax-m3`",
+            (evidence.parent / "report.md").read_text(encoding="utf-8"),
+        )
+
+    def test_report_lists_bash_commands_from_trace_tool_calls(self) -> None:
+        evidence = self._datasource_evidence_bundle(
+            "datasource-bash-command-diagnostics-run",
+            events=[
+                TraceEvent(
+                    ts="2026-06-27T00:00:00+00:00",
+                    role="tool",
+                    action="tool_call",
+                    tool_name="bash",
+                    target="uv run pytest tests/test_blind_agentic_eval_score.py -q",
+                    tool_command="uv run pytest tests/test_blind_agentic_eval_score.py -q",
+                    tool_status="completed",
+                    tool_output_present=True,
+                ),
+            ],
+        )
+
+        report = score_evidence(
+            scenario="datasource_documentation",
+            evidence_path=evidence,
+            out_path=evidence.parent / "report.json",
+            repo_root=Path.cwd(),
+        )
+
+        self.assertEqual(
+            report["tool_quality"]["bash_commands"],
+            ["uv run pytest tests/test_blind_agentic_eval_score.py -q"],
+        )
+
     def test_datasource_generate_judge_packet_uses_datasource_failure_status(self) -> None:
         evidence = self._datasource_evidence_bundle(
             "datasource-packet-bypass-run",
@@ -1128,10 +1358,13 @@ class BlindAgenticScoreTests(unittest.TestCase):
 
         self.assertEqual(packet["deterministic_summary"]["status"], "fail")
         self.assertEqual(packet["trace_summary"]["first_brainds_agent"], "brainds-source-explorer")
-        self.assertEqual(packet["trace_summary"]["undelegated_subagent_contacts"], [{"agent_name": "brainds-source-explorer", "delegated_by": None}])
+        self.assertEqual(
+            packet["trace_summary"]["undelegated_subagent_contacts"],
+            [{"agent_name": "brainds-source-explorer", "delegated_by": None}],
+        )
 
     def test_datasource_report_and_judge_packet_lock_conversation_contract_fields(self) -> None:
-        packet_path = Path("tmp") / "blind-agentic-score-test" / "datasource-contract-packet.json"
+        packet_path = self._test_root / "datasource-contract-packet.json"
         evidence = self._datasource_evidence_bundle(
             "datasource-contract-run",
             events=[
@@ -1216,9 +1449,25 @@ class BlindAgenticScoreTests(unittest.TestCase):
         self.assertEqual(
             persisted["pathway_compliance"],
             {
-                "ordered_milestones": ["orchestrator_entry", "explore_source", "document_source", "map_to_graph"],
-                "observed_milestones": ["orchestrator_entry", "explore_source", "document_source", "map_to_graph"],
-                "completed_milestones": ["orchestrator_entry", "explore_source", "document_source", "map_to_graph"],
+                "ordered_milestones": [
+                    "orchestrator_entry",
+                    "explore_source",
+                    "document_source",
+                    "map_to_graph",
+                ],
+                "observed_milestones": [
+                    "orchestrator_entry",
+                    "explore_source",
+                    "document_source",
+                    "map_to_graph",
+                ],
+                "inferred_milestones": [],
+                "completed_milestones": [
+                    "orchestrator_entry",
+                    "explore_source",
+                    "document_source",
+                    "map_to_graph",
+                ],
                 "missing_milestones": [],
                 "out_of_order_milestones": [],
                 "off_path_event_count": 0,
@@ -1246,6 +1495,100 @@ class BlindAgenticScoreTests(unittest.TestCase):
         self.assertIn("## Pathway Compliance", markdown)
         self.assertIn("## Tool Quality", markdown)
 
+    def test_score_report_emits_path_matrix_payload_and_interpretation_lanes(self) -> None:
+        evidence = self._graph_evidence_bundle(
+            "score-run-output-contract",
+            include_all_expected=True,
+            generated_text=self._business_generated_text_without_lineage_ids(),
+        )
+
+        report = score_evidence(
+            scenario="revops_growth",
+            evidence_path=evidence,
+            out_path=evidence.parent / "report.json",
+            repo_root=Path.cwd(),
+        )
+
+        selected_path = report["selected_path"]
+        self.assertEqual(selected_path["scenario"], "graph_qa")
+        self.assertEqual(
+            selected_path["required_evidence"],
+            ["manifest.json", "session_trace.json", "graph/store.db"],
+        )
+        self.assertEqual(selected_path["expected_artifacts"], ["report.json", "report.md"])
+        self.assertEqual(selected_path["scorer"], "deterministic-local-evidence")
+        self.assertEqual(selected_path["rubric_version"], "agentic-eval-rubric.v1")
+        self.assertEqual(selected_path["output_contract"], "blind-agentic-report.v1")
+        self.assertEqual(report["freshness"]["report_schema_version"], "2026-06-30.pr3")
+        self.assertEqual(report["comparability"]["status"], "comparable")
+        self.assertEqual(report["comparability"]["key"]["path_id"], "graph-qa")
+
+        lanes = {lane["lane"]: lane for lane in report["interpretation"]}
+        self.assertEqual(
+            set(lanes),
+            {"artifact_quality", "flow_tool_delegation_quality", "model_capability_context"},
+        )
+        for lane in lanes.values():
+            self.assertIn(lane["status"], {"pass", "warn", "fail", "not_applicable"})
+            self.assertTrue(lane["evidence_refs"])
+
+    def test_score_report_rejects_missing_output_contract_fields(self) -> None:
+        evidence = self._graph_evidence_bundle(
+            "score-run-missing-output-contract",
+            include_all_expected=True,
+            generated_text=self._business_generated_text_without_lineage_ids(),
+        )
+        manifest_path = evidence / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest.pop("selected_path")
+        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+
+        with self.assertRaisesRegex(ScoreReportError, "selected_path"):
+            score_evidence(
+                scenario="revops_growth",
+                evidence_path=evidence,
+                out_path=evidence.parent / "report.json",
+                repo_root=Path.cwd(),
+            )
+
+    def test_score_report_rejects_invalid_lineage_sdd_change(self) -> None:
+        evidence = self._graph_evidence_bundle(
+            "score-run-invalid-lineage-sdd",
+            include_all_expected=True,
+            generated_text=self._business_generated_text_without_lineage_ids(),
+        )
+        manifest_path = evidence / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["lineage"]["sdd_change"] = "Agentic-Evaluation-Lab"
+        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+
+        with self.assertRaisesRegex(ScoreReportError, "lineage.*sdd_change"):
+            score_evidence(
+                scenario="revops_growth",
+                evidence_path=evidence,
+                out_path=evidence.parent / "report.json",
+                repo_root=Path.cwd(),
+            )
+
+    def test_score_report_rejects_incomplete_comparability_key(self) -> None:
+        evidence = self._graph_evidence_bundle(
+            "score-run-incomplete-comparability-key",
+            include_all_expected=True,
+            generated_text=self._business_generated_text_without_lineage_ids(),
+        )
+        manifest_path = evidence / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["comparability"]["key"].pop("git_diff_hash")
+        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+
+        with self.assertRaisesRegex(ScoreReportError, "comparability.key.*git_diff_hash"):
+            score_evidence(
+                scenario="revops_growth",
+                evidence_path=evidence,
+                out_path=evidence.parent / "report.json",
+                repo_root=Path.cwd(),
+            )
+
     def _evidence_bundle(
         self,
         run_id: str,
@@ -1253,7 +1596,7 @@ class BlindAgenticScoreTests(unittest.TestCase):
         generated_text: str,
         metadata: dict[str, object] | None = None,
     ) -> Path:
-        evidence = Path("tmp") / "blind-agentic-score-test" / run_id / "evidence"
+        evidence = self._test_root / run_id / "evidence"
         generated = evidence / "generated"
         generated.mkdir(parents=True, exist_ok=True)
         (generated / "diagnosis.md").write_text(generated_text, encoding="utf-8")
@@ -1282,6 +1625,47 @@ class BlindAgenticScoreTests(unittest.TestCase):
                 "fixture_version": "revops-growth-fixture-v1",
                 **(metadata or {}),
             },
+            "lineage": {
+                "commit_sha": "abc123def456",
+                "sdd_change": "agentic-evaluation-lab",
+                "worktree_dirty": False,
+                "git_diff_hash": None,
+                "untracked_files_present": False,
+                "captured_at_utc": "2026-06-30T00:00:00Z",
+            },
+            "path_plan_version": "2026-06-30.pr1",
+            "selected_path": {
+                "path_id": "graph-qa",
+                "path_plan_version": "2026-06-30.pr1",
+                "label": "Graph Q&A dossier answer",
+                "scenario": "graph_qa",
+                "agents_or_tools": ["brainds-query-consultant"],
+                "required_evidence": ["manifest.json", "session_trace.json", "graph/store.db"],
+                "expected_artifacts": ["report.json", "report.md"],
+                "scorer": "deterministic-local-evidence",
+                "rubric_version": "agentic-eval-rubric.v1",
+                "output_contract": "blind-agentic-report.v1",
+                "status": "required",
+                "execute_in_first_slice": True,
+            },
+            "comparability": {
+                "status": "comparable",
+                "reason": None,
+                "key": {
+                    "commit_sha": "abc123def456",
+                    "worktree_dirty": False,
+                    "git_diff_hash": None,
+                    "untracked_files_present": False,
+                    "sdd_change": "agentic-evaluation-lab",
+                    "path_id": "graph-qa",
+                    "path_plan_version": "2026-06-30.pr1",
+                    "scenario": "graph_qa",
+                    "prompt_version": "revops-growth-v1",
+                    "rubric_version": "agentic-eval-rubric.v1",
+                    "trace_schema_version": "2026-06-27.pr1",
+                    "report_schema_version": "2026-06-30.pr3",
+                },
+            },
         }
         (evidence / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"
@@ -1292,18 +1676,22 @@ class BlindAgenticScoreTests(unittest.TestCase):
         self,
         run_id: str,
         *,
-        events: list[TraceEvent],
+        events: list[TraceEvent] | None = None,
         freshness_status: str = "passed",
         subject_local_status: str = "passed",
+        generated_text: str | None = None,
     ) -> Path:
-        evidence = Path("tmp") / "blind-agentic-score-test" / run_id / "evidence"
+        evidence = self._test_root / run_id / "evidence"
         generated = evidence / "generated"
         generated.mkdir(parents=True, exist_ok=True)
         (generated / "source_documentation.md").write_text(
-            "# Source Documentation\n\nOrders and Customers have owners, freshness cadence, and data gaps.",
+            generated_text
+            or "# Source Documentation\n\nOrders and Customers have owners, freshness cadence, and data gaps.",
             encoding="utf-8",
         )
-        (evidence / "git_diff.patch").write_text("diff --git a/generated/source_documentation.md", encoding="utf-8")
+        (evidence / "git_diff.patch").write_text(
+            "diff --git a/generated/source_documentation.md", encoding="utf-8"
+        )
         graph_db = evidence / "graph" / "store.db"
         graph_db.parent.mkdir(parents=True, exist_ok=True)
         graph_db.unlink(missing_ok=True)
@@ -1316,7 +1704,12 @@ class BlindAgenticScoreTests(unittest.TestCase):
                 store.node_repo.upsert_node("helios-datasource-docs", {**node, "details": {}})
             store.edge_repo.upsert_edge(
                 "helios-datasource-docs",
-                {"source": "source-orders", "target": "source-customers", "label": "uses", "weight": 1.0},
+                {
+                    "source": "source-orders",
+                    "target": "source-customers",
+                    "label": "uses",
+                    "weight": 1.0,
+                },
             )
         trace = SessionTrace(
             trace_version=TRACE_VERSION,
@@ -1326,7 +1719,7 @@ class BlindAgenticScoreTests(unittest.TestCase):
             model_provider="opencode",
             model="test-model",
             created_at_utc="2026-06-27T00:00:00+00:00",
-            events=events,
+            events=events or [],
             freshness={"status": freshness_status, "schema_version": TRACE_VERSION},
         )
         trace_hash = write_session_trace(trace, evidence / "trace" / "session_trace.json")
@@ -1341,21 +1734,85 @@ class BlindAgenticScoreTests(unittest.TestCase):
                 "git_diff": "git_diff.patch",
                 "session_trace": "trace/session_trace.json",
             },
-            "trace": {"status": "captured", "path": "trace/session_trace.json", "sha256": trace_hash["sha256"], "event_count": len(events)},
+            "trace": {
+                "status": "captured",
+                "path": "trace/session_trace.json",
+                "sha256": trace_hash["sha256"],
+                "event_count": len(events or []),
+            },
             "freshness_checks": {
                 "status": freshness_status,
                 "report_schema_version": "2026-06-27.pr2",
                 "trace_schema_version": TRACE_VERSION,
-                "subject_local_graph": {"status": subject_local_status, "reason": "subject workspace graph required"},
+                "subject_local_graph": {
+                    "status": subject_local_status,
+                    "reason": "subject workspace graph required",
+                },
                 "generated_outputs": {"status": "captured"},
                 "trace": {"status": "captured"},
-                "artifact_hashes": {"graph/store.db": "a" * 64, "generated/source_documentation.md": "b" * 64},
+                "artifact_hashes": {
+                    "graph/store.db": "a" * 64,
+                    "generated/source_documentation.md": "b" * 64,
+                },
             },
-            "minimum_evidence": {"status": "accepted", "reason": "graph snapshot plus output/diff evidence captured"},
+            "minimum_evidence": {
+                "status": "accepted",
+                "reason": "graph snapshot plus output/diff evidence captured",
+            },
             "anti_contamination": {"status": "passed", "findings": []},
-            "run_metadata": {"prompt_version": "datasource-documentation-v1", "fixture_version": "datasource-documentation-fixture-v1"},
+            "run_metadata": {
+                "prompt_version": "datasource-documentation-v1",
+                "fixture_version": "datasource-documentation-fixture-v1",
+            },
+            "lineage": {
+                "commit_sha": "abc123def456",
+                "sdd_change": "agentic-evaluation-lab",
+                "worktree_dirty": False,
+                "git_diff_hash": None,
+                "untracked_files_present": False,
+                "captured_at_utc": "2026-06-30T00:00:00Z",
+            },
+            "path_plan_version": "2026-06-30.pr1",
+            "selected_path": {
+                "path_id": "doc-map",
+                "path_plan_version": "2026-06-30.pr1",
+                "label": "Source documentation to graph mapping",
+                "scenario": "datasource_documentation",
+                "agents_or_tools": [
+                    "brainds-source-explorer",
+                    "brainds-graph-mapper",
+                    "brainds-connection-mapper",
+                ],
+                "required_evidence": ["manifest.json", "session_trace.json", "graph/store.db"],
+                "expected_artifacts": ["report.json", "report.md"],
+                "scorer": "deterministic-local-evidence",
+                "rubric_version": "agentic-eval-rubric.v1",
+                "output_contract": "blind-agentic-report.v1",
+                "status": "required",
+                "execute_in_first_slice": True,
+            },
+            "comparability": {
+                "status": "comparable",
+                "reason": None,
+                "key": {
+                    "commit_sha": "abc123def456",
+                    "worktree_dirty": False,
+                    "git_diff_hash": None,
+                    "untracked_files_present": False,
+                    "sdd_change": "agentic-evaluation-lab",
+                    "path_id": "doc-map",
+                    "path_plan_version": "2026-06-30.pr1",
+                    "scenario": "datasource_documentation",
+                    "prompt_version": "datasource-documentation-v1",
+                    "rubric_version": "agentic-eval-rubric.v1",
+                    "trace_schema_version": TRACE_VERSION,
+                    "report_schema_version": "2026-06-30.pr3",
+                },
+            },
         }
-        (evidence / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+        (evidence / "manifest.json").write_text(
+            json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"
+        )
         return evidence
 
     def _graph_evidence_bundle(
@@ -1478,7 +1935,7 @@ class BlindAgenticScoreTests(unittest.TestCase):
         include_all_expected: bool = False,
         generated_text: str | None = None,
     ) -> Path:
-        subject = Path("tmp") / "blind-agentic-score-test" / run_id / "subject"
+        subject = self._test_root / run_id / "subject"
         generated = subject / "generated"
         generated.mkdir(parents=True, exist_ok=True)
         (generated / "diagnosis.md").write_text(
@@ -1507,11 +1964,26 @@ class BlindAgenticScoreTests(unittest.TestCase):
                 )
                 edges.extend(
                     [
-                        {"source": "crm", "target": "pipeline", "label": "depends_on", "weight": 1.0},
-                        {"source": "billing", "target": "nrr", "label": "depends_on", "weight": 1.0},
+                        {
+                            "source": "crm",
+                            "target": "pipeline",
+                            "label": "depends_on",
+                            "weight": 1.0,
+                        },
+                        {
+                            "source": "billing",
+                            "target": "nrr",
+                            "label": "depends_on",
+                            "weight": 1.0,
+                        },
                         {"source": "finance", "target": "nrr", "label": "measures", "weight": 1.0},
                         {"source": "usage", "target": "nrr", "label": "uses", "weight": 1.0},
-                        {"source": "support", "target": "nrr", "label": "influences", "weight": 1.0},
+                        {
+                            "source": "support",
+                            "target": "nrr",
+                            "label": "influences",
+                            "weight": 1.0,
+                        },
                     ]
                 )
             for node in nodes:

@@ -55,7 +55,7 @@ logger = logging.getLogger(__name__)
 # aliasing — two distinct symlinks to the same inode would produce two cache
 # entries but refer to the same DB.  resolve_store_path() in the workspace
 # registry always canonicalizes, so production paths are safe.
-_migrated_paths: dict[str, tuple[int, float]] = {}
+_migrated_paths: dict[str, tuple[int, float | None]] = {}
 
 
 class GraphStore:

@@ -1,0 +1,31 @@
+{
+  "version": 2,
+  "scenario": "currency_elicitation",
+  "pathway_id": "currency_elicitation",
+  "rubric": {
+    "version": "2026-07-02-slice2",
+    "axes": {
+      "lineage": {"weight": 0.25, "max_score": 5},
+      "entity_source": {"weight": 0.2, "max_score": 5},
+      "pending_questions": {"weight": 0.2, "max_score": 5},
+      "business_usefulness": {"weight": 0.15, "max_score": 5},
+      "evidence_quality": {"weight": 0.1, "max_score": 5},
+      "artifact_hygiene": {"weight": 0.05, "max_score": 5},
+      "anti_contamination": {"weight": 0.05, "max_score": 5}
+    }
+  },
+  "canonical_nodes": [
+    {"id": "customer_success_notes", "type": "Data Source", "label": "Customer Success Notes", "aliases": ["Success Notes"]},
+    {"id": "currency_question", "type": "Question", "label": "Confirm data currency owner", "aliases": ["Currency Confirmation Question"]}
+  ],
+  "expected_edges": [
+    {"source": "customer_success_notes", "target": "currency_question", "compatible_labels": ["raises", "depends_on", "uses"], "direction": "source_to_target"}
+  ],
+  "optional_edges": [],
+  "forbidden_edges": [],
+  "pending_question_themes": [
+    {"id": "currency_owner", "entity_type": "Data Source", "expected_terms": ["currency", "owner"], "min_hits": 2}
+  ],
+  "business_terms": ["next actions", "assumptions", "data gaps", "source ownership", "kpi definitions"],
+  "forbidden_subject_terms": ["eval", "rubric", "gold", "answer key", "expected output", "benchmark", "hidden test"]
+}

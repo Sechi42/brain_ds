@@ -3,9 +3,9 @@ from __future__ import annotations
 import io
 import json
 import os
-import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -15,6 +15,9 @@ from brain_ds.store.graph_store import GraphStore
 from tests.eval.blind_agentic import collect_and_score
 from tests.eval.blind_agentic.prepare_subject import prepare_subject
 from tests.eval.blind_agentic.trace_schema import _parse_opencode_stderr
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class _PendingQuestion(TypedDict):
@@ -27,7 +30,33 @@ class _PendingQuestion(TypedDict):
 
 class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
     def setUp(self) -> None:
-        shutil.rmtree(Path("tmp") / "blind-agentic-collect-score-test", ignore_errors=True)
+        self._tmp = tempfile.TemporaryDirectory(prefix="blind-agentic-collect-score-")
+        self._test_root = Path(self._tmp.name)
+        self._previous_sdd_change = os.environ.get("BRAIN_DS_SDD_CHANGE")
+        self._previous_pythonpath = os.environ.get("PYTHONPATH")
+        self._previous_output_root = os.environ.get("BRAIN_DS_BLIND_AGENTIC_OUTPUT_ROOT")
+        os.environ["BRAIN_DS_SDD_CHANGE"] = "agentic-evaluation-lab"
+        os.environ["BRAIN_DS_BLIND_AGENTIC_OUTPUT_ROOT"] = self._test_root.as_posix()
+        os.environ["PYTHONPATH"] = (
+            REPO_ROOT.as_posix()
+            if self._previous_pythonpath is None
+            else f"{REPO_ROOT.as_posix()}{os.pathsep}{self._previous_pythonpath}"
+        )
+
+    def tearDown(self) -> None:
+        if self._previous_sdd_change is None:
+            os.environ.pop("BRAIN_DS_SDD_CHANGE", None)
+        else:
+            os.environ["BRAIN_DS_SDD_CHANGE"] = self._previous_sdd_change
+        if self._previous_pythonpath is None:
+            os.environ.pop("PYTHONPATH", None)
+        else:
+            os.environ["PYTHONPATH"] = self._previous_pythonpath
+        if self._previous_output_root is None:
+            os.environ.pop("BRAIN_DS_BLIND_AGENTIC_OUTPUT_ROOT", None)
+        else:
+            os.environ["BRAIN_DS_BLIND_AGENTIC_OUTPUT_ROOT"] = self._previous_output_root
+        self._tmp.cleanup()
 
     def test_collect_and_score_cli_fails_clearly_when_graph_db_is_missing(self) -> None:
         run_id = "collect-score-missing-graph"
@@ -106,6 +135,42 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
         self.assertTrue(manifest_path.is_file())
         report = json.loads(report_path.read_text(encoding="utf-8"))
         self.assertEqual(report["run_id"], run_id)
+
+    def test_collect_and_score_main_defaults_repo_root_from_module_not_cwd(self) -> None:
+        run_id = "collect-score-default-repo-root-from-tests-cwd"
+        workspace = prepare_subject(
+            scenario="revops_growth",
+            run_id=run_id,
+            output_root=Path("tmp") / "blind-agentic-collect-score-test",
+        )
+        self._write_subject_outputs(workspace.subject_path)
+        graph_db = workspace.subject_path.parent / "external-workspace" / ".brain_ds" / "store.db"
+        self._write_graph_store(graph_db)
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        previous_cwd = Path.cwd()
+        os.chdir(REPO_ROOT / "tests")
+        try:
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                exit_code = collect_and_score.main(
+                    [
+                        "--scenario",
+                        "revops_growth",
+                        "--run-id",
+                        run_id,
+                        "--subject-path",
+                        workspace.subject_path.as_posix(),
+                        "--graph-db-path",
+                        graph_db.as_posix(),
+                    ]
+                )
+        finally:
+            os.chdir(previous_cwd)
+
+        self.assertEqual(exit_code, 0, stderr.getvalue())
+        self.assertIn("Score report:", stdout.getvalue())
+        self.assertTrue((workspace.subject_path.parent / "report.json").is_file())
 
     def test_collect_and_score_cli_accepts_optional_graph_id_and_packet_output(self) -> None:
         run_id = "collect-score-judge"
@@ -227,7 +292,15 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             encoding="utf-8",
         )
         (opencode_dir / "opencode-stdout.jsonl").write_text(
-            json.dumps({"type": "text", "timestamp": 1782697085951, "sessionID": "ses_build", "part": {"type": "text", "text": "I can document this datasource."}}) + "\n",
+            json.dumps(
+                {
+                    "type": "text",
+                    "timestamp": 1782697085951,
+                    "sessionID": "ses_build",
+                    "part": {"type": "text", "text": "I can document this datasource."},
+                }
+            )
+            + "\n",
             encoding="utf-8",
         )
         self._write_canonical_export_from_legacy(workspace.subject_path, opencode_dir)
@@ -337,7 +410,7 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             "\n".join(
                 [
                     f"timestamp=2026-06-29T03:45:21.575Z level=INFO message=created id={subagent_session}",
-                    f"parentID={orchestrator_session} title=\"Run mapper (@brainds-connection-mapper subagent)\"",
+                    f'parentID={orchestrator_session} title="Run mapper (@brainds-connection-mapper subagent)"',
                     "agent=brainds-connection-mapper model=undefined metadata=undefined",
                     f"timestamp=2026-06-29T03:45:22.099Z level=INFO message=stream session.id={subagent_session} agent=brainds-connection-mapper mode=subagent",
                     f"timestamp=2026-06-29T03:45:23.369Z level=INFO message=stream session.id={orchestrator_session} agent=brain-ds-orchestrator mode=primary",
@@ -516,7 +589,7 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             "\n".join(
                 [
                     f"timestamp=2026-06-29T03:45:21.575Z level=INFO message=created id={subagent_session}",
-                    f"parentID={orchestrator_session} title=\"Run mapper (@brainds-connection-mapper subagent)\"",
+                    f'parentID={orchestrator_session} title="Run mapper (@brainds-connection-mapper subagent)"',
                     "agent=brainds-connection-mapper model=undefined metadata=undefined",
                     f"timestamp=2026-06-29T03:45:22.099Z level=INFO message=stream session.id={subagent_session} agent=brainds-connection-mapper mode=subagent",
                     f"timestamp=2026-06-29T03:45:23.369Z level=INFO message=stream session.id={orchestrator_session} agent=brain-ds-orchestrator mode=primary",
@@ -599,7 +672,7 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             "\n".join(
                 [
                     f"timestamp=2026-06-29T03:45:21.575Z level=INFO message=created id={subagent_session}",
-                    f"parentID={orchestrator_session} title=\"Run explorer (@brainds-source-explorer subagent)\"",
+                    f'parentID={orchestrator_session} title="Run explorer (@brainds-source-explorer subagent)"',
                     "agent=brainds-source-explorer model=undefined metadata=undefined",
                     f"timestamp=2026-06-29T03:45:22.099Z level=INFO message=stream session.id={subagent_session} agent=brainds-source-explorer mode=subagent",
                     f"timestamp=2026-06-29T03:45:23.369Z level=INFO message=stream session.id={orchestrator_session} agent=brain-ds-orchestrator mode=primary",
@@ -698,12 +771,14 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             [
                 self._prompt_read_record(orchestrator_session, workspace.subject_path, sequence=1),
                 self._orchestrator_text_record(orchestrator_session, sequence=2),
-                self._open_workspace_record(orchestrator_session, workspace.subject_path, sequence=3),
+                self._open_workspace_record(
+                    orchestrator_session, workspace.subject_path, sequence=3
+                ),
                 self._task_record(
                     orchestrator_session,
                     sequence=4,
                     subagent_type="brainds-source-explorer",
-                    output="<task id=\"ses_child\" state=\"completed\"><task_result>Read CSV files and produced source documentation findings.</task_result></task>",
+                    output='<task id="ses_child" state="completed"><task_result>Read CSV files and produced source documentation findings.</task_result></task>',
                 ),
                 self._graph_write_record(orchestrator_session, sequence=5),
             ],
@@ -716,7 +791,9 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0, stderr)
         self.assertIn("Score report:", stdout)
-        report = json.loads((workspace.subject_path.parent / "report.json").read_text(encoding="utf-8"))
+        report = json.loads(
+            (workspace.subject_path.parent / "report.json").read_text(encoding="utf-8")
+        )
         self.assertEqual(report["trace_summary"]["subagent_action"]["status"], "verified")
         self.assertEqual(report["trace_summary"]["subagent_action"]["task_result_count"], 1)
 
@@ -736,7 +813,9 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             [
                 self._prompt_read_record(orchestrator_session, workspace.subject_path, sequence=1),
                 self._orchestrator_text_record(orchestrator_session, sequence=2),
-                self._open_workspace_record(orchestrator_session, workspace.subject_path, sequence=3),
+                self._open_workspace_record(
+                    orchestrator_session, workspace.subject_path, sequence=3
+                ),
                 self._task_record(
                     orchestrator_session,
                     sequence=4,
@@ -795,7 +874,9 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             [
                 self._prompt_read_record(orchestrator_session, workspace.subject_path, sequence=1),
                 self._orchestrator_text_record(orchestrator_session, sequence=2),
-                self._workspace_listing_record(orchestrator_session, workspace.subject_path, sequence=3),
+                self._workspace_listing_record(
+                    orchestrator_session, workspace.subject_path, sequence=3
+                ),
                 {
                     "type": "opencode_session",
                     "timestamp": 1782702339500,
@@ -804,7 +885,9 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
                     "agent_name": "brainds-source-explorer",
                     "parent_session_id": orchestrator_session,
                 },
-                self._graph_write_record(subagent_session, sequence=5, agent_name="brainds-source-explorer"),
+                self._graph_write_record(
+                    subagent_session, sequence=5, agent_name="brainds-source-explorer"
+                ),
             ],
         )
 
@@ -971,7 +1054,9 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
         self.assertEqual(manifest["workspace_open_gate"]["status"], "failed")
         self.assertFalse(manifest["workspace_open_gate"]["opened_before_write"])
 
-    def test_collect_and_score_main_accepts_successful_workspace_open_after_failed_retry(self) -> None:
+    def test_collect_and_score_main_accepts_successful_workspace_open_after_failed_retry(
+        self,
+    ) -> None:
         workspace = prepare_subject(
             scenario="datasource_documentation",
             run_id="collect-score-open-retry-success",
@@ -987,9 +1072,17 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0, stderr)
         self.assertIn("Score report:", stdout)
-        report = json.loads((workspace.subject_path.parent / "report.json").read_text(encoding="utf-8"))
-        self.assertNotIn("workspace_open_failed", {item["code"] for item in report["blocking_failures"]})
-        manifest = json.loads((workspace.subject_path.parent / "evidence" / "manifest.json").read_text(encoding="utf-8"))
+        report = json.loads(
+            (workspace.subject_path.parent / "report.json").read_text(encoding="utf-8")
+        )
+        self.assertNotIn(
+            "workspace_open_failed", {item["code"] for item in report["blocking_failures"]}
+        )
+        manifest = json.loads(
+            (workspace.subject_path.parent / "evidence" / "manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
         self.assertEqual(manifest["workspace_open_gate"]["status"], "passed")
 
     def test_collect_and_score_main_rejects_stale_subject_graph_proof(self) -> None:
@@ -1098,7 +1191,7 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             "\n".join(
                 [
                     f"timestamp=2026-06-29T03:45:21.575Z level=INFO message=created id={subagent_session}",
-                    f"parentID={orchestrator_session} title=\"Run writer (@brainds-source-explorer subagent)\"",
+                    f'parentID={orchestrator_session} title="Run writer (@brainds-source-explorer subagent)"',
                     "agent=brainds-source-explorer model=undefined metadata=undefined",
                     f"timestamp=2026-06-29T03:45:22.099Z level=INFO message=stream session.id={subagent_session} agent=brainds-source-explorer mode=subagent",
                     f"timestamp=2026-06-29T03:45:23.369Z level=INFO message=stream session.id={orchestrator_session} agent=brain-ds-orchestrator mode=primary",
@@ -1203,7 +1296,11 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
                                 "tool": "read",
                                 "state": {
                                     "status": "completed",
-                                    "input": {"filePath": (workspace.subject_path / "PROMPT.md").as_posix()},
+                                    "input": {
+                                        "filePath": (
+                                            workspace.subject_path / "PROMPT.md"
+                                        ).as_posix()
+                                    },
                                     "output": "1: Document the Helios datasource.",
                                 },
                             },
@@ -1214,7 +1311,10 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
                             "sequence": 2,
                             "sessionID": orchestrator_session,
                             "agent_name": "brain-ds-orchestrator",
-                            "part": {"type": "text", "text": "I will delegate source documentation."},
+                            "part": {
+                                "type": "text",
+                                "text": "I will delegate source documentation.",
+                            },
                         },
                         {
                             "type": "tool_use",
@@ -1225,7 +1325,10 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
                             "part": {
                                 "type": "tool",
                                 "tool": "brain_ds_open_workspace",
-                                "state": {"status": "completed", "input": {"path": workspace.subject_path.as_posix()}},
+                                "state": {
+                                    "status": "completed",
+                                    "input": {"path": workspace.subject_path.as_posix()},
+                                },
                             },
                         },
                         {
@@ -1253,7 +1356,10 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
                             "part": {
                                 "type": "tool",
                                 "tool": "brain_ds_update_node",
-                                "state": {"status": "completed", "input": {"graph_id": "helios-datasource-docs"}},
+                                "state": {
+                                    "status": "completed",
+                                    "input": {"graph_id": "helios-datasource-docs"},
+                                },
                             },
                         },
                     ]
@@ -1272,7 +1378,9 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
         self.assertEqual(exit_code, 2)
         self.assertEqual("", stdout)
         self.assertIn("missing_subagent_action", stderr)
-        report = json.loads((workspace.subject_path.parent / "report.json").read_text(encoding="utf-8"))
+        report = json.loads(
+            (workspace.subject_path.parent / "report.json").read_text(encoding="utf-8")
+        )
         subagent_action = report["trace_summary"]["subagent_action"]
         self.assertEqual(subagent_action["status"], "missing")
         self.assertEqual(subagent_action["subagents"], ["brainds-source-explorer"])
@@ -1578,7 +1686,7 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
         )
 
     def test_collect_and_score_main_writes_same_pathway_model_matrix(self) -> None:
-        comparison_root = Path("tmp") / "blind-agentic-collect-score-test" / "comparison"
+        comparison_root = self._test_root / "comparison"
         comparison_root.mkdir(parents=True, exist_ok=True)
         report_a = self._write_report_for_comparison(
             comparison_root / "model-a-report.json",
@@ -1626,8 +1734,142 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
             [("model-a", "model-a", 4.5), ("model-b", "model-b", 3.25)],
         )
 
+    def test_collect_and_score_model_matrix_requires_comparable_reports(self) -> None:
+        comparison_root = self._test_root / "comparison-non-comparable"
+        comparison_root.mkdir(parents=True, exist_ok=True)
+        report_a = self._write_report_for_comparison(
+            comparison_root / "model-a-report.json",
+            run_id="model-a-run",
+            model="model-a",
+            score=4.5,
+            schema_version="2026-06-30.pr3",
+        )
+        report_b = self._write_report_for_comparison(
+            comparison_root / "model-b-report.json",
+            run_id="model-b-run",
+            model="model-b",
+            score=3.25,
+            schema_version="2026-06-30.pr3",
+            comparability={
+                "status": "non_comparable",
+                "reason": "untracked_files_not_captured",
+                "key": None,
+            },
+        )
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            exit_code = collect_and_score.main(
+                [
+                    "--scenario",
+                    "datasource_documentation",
+                    "--run-id",
+                    "comparison-non-comparable",
+                    "--model-run",
+                    f"model-a={report_a.as_posix()}",
+                    "--model-run",
+                    f"model-b={report_b.as_posix()}",
+                ]
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual("", stdout.getvalue())
+        self.assertIn("non_comparable", stderr.getvalue())
+
+    def test_collect_and_score_model_matrix_rejects_incomplete_comparability_key(self) -> None:
+        comparison_root = self._test_root / "comparison-incomplete-key"
+        comparison_root.mkdir(parents=True, exist_ok=True)
+        report_a = self._write_report_for_comparison(
+            comparison_root / "model-a-report.json",
+            run_id="model-a-run",
+            model="model-a",
+            score=4.5,
+            schema_version="2026-06-30.pr3",
+        )
+        incomplete_key: dict[str, object] = {
+            "status": "comparable",
+            "reason": None,
+            "key": {
+                "commit_sha": "abc123def456",
+                "path_id": "doc-map",
+                "path_plan_version": "2026-06-30.pr1",
+                "prompt_version": "datasource-documentation-v1",
+                "rubric_version": "datasource-documentation-rubric-v1",
+                "scenario": "datasource_documentation",
+            },
+        }
+        report_b = self._write_report_for_comparison(
+            comparison_root / "model-b-report.json",
+            run_id="model-b-run",
+            model="model-b",
+            score=3.25,
+            schema_version="2026-06-30.pr3",
+            comparability=incomplete_key,
+        )
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            exit_code = collect_and_score.main(
+                [
+                    "--scenario",
+                    "datasource_documentation",
+                    "--run-id",
+                    "comparison-incomplete-key",
+                    "--model-run",
+                    f"model-a={report_a.as_posix()}",
+                    "--model-run",
+                    f"model-b={report_b.as_posix()}",
+                ]
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual("", stdout.getvalue())
+        self.assertIn("comparability.key.worktree_dirty", stderr.getvalue())
+
+    def test_collect_and_score_model_matrix_requires_matching_selected_path_key(self) -> None:
+        comparison_root = self._test_root / "comparison-path-key"
+        comparison_root.mkdir(parents=True, exist_ok=True)
+        report_a = self._write_report_for_comparison(
+            comparison_root / "model-a-report.json",
+            run_id="model-a-run",
+            model="model-a",
+            score=4.5,
+            schema_version="2026-06-30.pr3",
+            path_id="doc-map",
+        )
+        report_b = self._write_report_for_comparison(
+            comparison_root / "model-b-report.json",
+            run_id="model-b-run",
+            model="model-b",
+            score=3.25,
+            schema_version="2026-06-30.pr3",
+            path_id="graph-qa",
+        )
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            exit_code = collect_and_score.main(
+                [
+                    "--scenario",
+                    "datasource_documentation",
+                    "--run-id",
+                    "comparison-path-key",
+                    "--model-run",
+                    f"model-a={report_a.as_posix()}",
+                    "--model-run",
+                    f"model-b={report_b.as_posix()}",
+                ]
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual("", stdout.getvalue())
+        self.assertIn("selected path", stderr.getvalue())
+
     def test_collect_and_score_main_rejects_model_matrix_schema_drift(self) -> None:
-        comparison_root = Path("tmp") / "blind-agentic-collect-score-test" / "comparison-drift"
+        comparison_root = self._test_root / "comparison-drift"
         comparison_root.mkdir(parents=True, exist_ok=True)
         report_a = self._write_report_for_comparison(
             comparison_root / "model-a-report.json",
@@ -1702,7 +1944,12 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
                 store.node_repo.upsert_node("helios-datasource-docs", {**node, "details": {}})
             store.edge_repo.upsert_edge(
                 "helios-datasource-docs",
-                {"source": "source-orders", "target": "source-customers", "label": "uses", "weight": 1.0},
+                {
+                    "source": "source-orders",
+                    "target": "source-customers",
+                    "label": "uses",
+                    "weight": 1.0,
+                },
             )
 
     def _write_datasource_export(
@@ -1828,7 +2075,9 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
         )
         return export_path
 
-    def _prompt_read_record(self, session_id: str, subject_path: Path, *, sequence: int) -> dict[str, object]:
+    def _prompt_read_record(
+        self, session_id: str, subject_path: Path, *, sequence: int
+    ) -> dict[str, object]:
         return {
             "type": "tool_use",
             "timestamp": 1782702339000 + sequence,
@@ -1927,7 +2176,9 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
                 "agent_name": "brainds-source-explorer",
                 "parent_session_id": orchestrator_session,
             },
-            self._graph_write_record(subagent_session, sequence=5, agent_name="brainds-source-explorer"),
+            self._graph_write_record(
+                subagent_session, sequence=5, agent_name="brainds-source-explorer"
+            ),
         ]
 
     def _task_record(
@@ -2074,7 +2325,27 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
         model: str,
         score: float,
         schema_version: str,
+        path_id: str = "doc-map",
+        comparability: dict[str, object] | None = None,
     ) -> Path:
+        comparability_payload = comparability or {
+            "status": "comparable",
+            "reason": None,
+                "key": {
+                    "commit_sha": "abc123def456",
+                    "worktree_dirty": False,
+                    "git_diff_hash": None,
+                    "untracked_files_present": False,
+                    "sdd_change": "agentic-evaluation-lab",
+                    "path_id": path_id,
+                    "path_plan_version": "2026-06-30.pr1",
+                    "trace_schema_version": "2026-06-27.pr1",
+                    "report_schema_version": schema_version,
+                    "prompt_version": "datasource-documentation-v1",
+                    "rubric_version": "datasource-documentation-rubric-v1",
+                    "scenario": "datasource_documentation",
+            },
+        }
         path.write_text(
             json.dumps(
                 {
@@ -2083,6 +2354,8 @@ class BlindAgenticCollectAndScoreCliTests(unittest.TestCase):
                     "overall_score_0_5": score,
                     "deterministic": {"status": "passed"},
                     "freshness": {"report_schema_version": schema_version, "status": "passed"},
+                    "comparability": comparability_payload,
+                    "selected_path": {"path_id": path_id, "path_plan_version": "2026-06-30.pr1"},
                     "trace_summary": {"model": model, "pathway_id": "datasource_documentation"},
                     "comparable_rerun_metadata": {
                         "prompt_version": "datasource-documentation-v1",

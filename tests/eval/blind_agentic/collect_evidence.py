@@ -6,7 +6,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import stat
 import time
@@ -15,8 +14,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from tests.eval.blind_agentic.prepare_subject import scan_for_contamination
+from tests.eval.blind_agentic.prepare_subject import resolve_repo_root, scan_for_contamination
+from tests.eval.blind_agentic.path_plan import (
+    PathPlanError,
+    build_comparability_state,
+    build_default_plan,
+    discover_git_lineage,
+    _combined_tracked_diff,
+    validate_sdd_change,
+)
 from tests.eval.blind_agentic.trace_schema import (
+    REPORT_SCHEMA_VERSION,
     TRACE_VERSION,
     TraceSchemaError,
     _extract_records_from_object,
@@ -67,15 +75,29 @@ def collect_evidence(
     repo_root: Path | str = Path.cwd(),
     opencode_artifacts_path: Path | str | None = None,
     graph_db_path: Path | str | None = None,
+    sdd_change: str | None = None,
 ) -> EvidenceBundle:
     """Collect deterministic evidence from a completed blind subject run."""
 
+    repo = resolve_repo_root(repo_root)
     subject = Path(subject_path)
+    if not subject.is_absolute():
+        subject = (repo / subject).resolve()
     evidence = Path(evidence_path) if evidence_path is not None else subject.parent / "evidence"
-    repo = Path(repo_root)
+    if not evidence.is_absolute():
+        evidence = (repo / evidence).resolve()
     opencode_artifacts = Path(opencode_artifacts_path) if opencode_artifacts_path else None
     graph_db_override = Path(graph_db_path) if graph_db_path is not None else None
     export_path = _resolve_opencode_export_path(subject)
+    try:
+        plan_payload = _resolve_plan_payload(
+            subject=subject,
+            repo=repo,
+            sdd_change=sdd_change,
+            scenario=scenario,
+        )
+    except PathPlanError as exc:
+        raise CollectEvidenceError(f"sdd_change: {exc}") from exc
 
     if not subject.is_dir():
         raise CollectEvidenceError(f"Subject workspace does not exist: {subject}")
@@ -94,7 +116,10 @@ def collect_evidence(
     captured: dict[str, Any] = {}
     omissions: list[dict[str, str]] = []
 
-    graph_db_source = {"kind": "subject_workspace", "path": (subject / ".brain_ds" / "store.db").as_posix()}
+    graph_db_source = {
+        "kind": "subject_workspace",
+        "path": (subject / ".brain_ds" / "store.db").as_posix(),
+    }
     graph_db = subject / ".brain_ds" / "store.db"
     if graph_db_override is not None:
         graph_db = graph_db_override
@@ -102,7 +127,9 @@ def collect_evidence(
     if not graph_db.is_file():
         hint = " Pass --graph-db-path <path-to-active-workspace/.brain_ds/store.db> if BrainDS wrote to a registered/global workspace."
         if graph_db_override is not None:
-            raise CollectEvidenceError(f"Missing graph snapshot at explicit --graph-db-path: {graph_db}.{hint}")
+            raise CollectEvidenceError(
+                f"Missing graph snapshot at explicit --graph-db-path: {graph_db}.{hint}"
+            )
         raise CollectEvidenceError(f"Missing graph snapshot at subject .brain_ds/store.db.{hint}")
     captured["graph_db"] = _copy_file(graph_db, evidence / "graph" / "store.db", evidence)
 
@@ -171,6 +198,7 @@ def collect_evidence(
             "omissions": trace_omissions,
         }
         workspace_open_gate = _workspace_open_gate(trace.events, subject=subject)
+        graph_write_attribution = _graph_write_attribution(trace.events)
     else:
         trace_status = {
             "status": "missing",
@@ -185,6 +213,7 @@ def collect_evidence(
                 }
             )
         workspace_open_gate = _workspace_open_gate([], subject=subject)
+        graph_write_attribution = _graph_write_attribution([])
 
     freshness_checks = _freshness_checks(
         captured=captured,
@@ -207,8 +236,10 @@ def collect_evidence(
         "created_at_utc": datetime.now(UTC).isoformat(),
         "subject_path": subject.as_posix(),
         "evidence_path": evidence.as_posix(),
+        **plan_payload,
         "run_metadata": {
             **_run_metadata_for_scenario(scenario),
+            **plan_payload.get("run_metadata", {}),
         },
         "captured": captured,
         "graph_db_source": graph_db_source,
@@ -218,6 +249,7 @@ def collect_evidence(
         "trace": trace_status,
         "required_generated_file": required_generated_file,
         "workspace_open_gate": workspace_open_gate,
+        "graph_write_attribution": graph_write_attribution,
         "freshness_checks": freshness_checks,
         "minimum_evidence": minimum,
         "anti_contamination": {"status": "passed", "findings": []},
@@ -245,6 +277,96 @@ def _resolve_opencode_export_path(subject: Path) -> Path | None:
     return default if default.is_file() else None
 
 
+def _resolve_plan_payload(
+    *, subject: Path, repo: Path, sdd_change: str | None, scenario: str
+) -> dict[str, Any]:
+    verifier_manifest = subject.parent / "opencode-verifier-manifest.json"
+    if verifier_manifest.is_file():
+        payload = json.loads(verifier_manifest.read_text(encoding="utf-8"))
+        lineage = payload["lineage"]
+        manifest_sdd_change = validate_sdd_change(
+            lineage.get("sdd_change") if isinstance(lineage, dict) else None
+        )
+        plan = build_default_plan(sdd_change=manifest_sdd_change)
+        expected_path = _select_path_for_scenario(plan, scenario)
+        _validate_manifest_plan_payload(
+            selected_path=payload["selected_path"],
+            comparability=payload["comparability"],
+            expected_path=expected_path,
+        )
+        return {
+            "lineage": lineage,
+            "path_plan_version": payload["path_plan_version"],
+            "selected_path": payload["selected_path"],
+            "comparability": payload["comparability"],
+            "run_metadata": {"wrapper_model": payload.get("model")} if payload.get("model") else {},
+        }
+
+    resolved_sdd_change = validate_sdd_change(sdd_change or os.environ.get("BRAIN_DS_SDD_CHANGE"))
+    plan = build_default_plan(sdd_change=resolved_sdd_change)
+    selected_path = _select_path_for_scenario(plan, scenario)
+    lineage = discover_git_lineage(repo, sdd_change=resolved_sdd_change)
+    run_metadata = _run_metadata_for_scenario(scenario)
+    comparability = build_comparability_state(
+        lineage=lineage,
+        selected_path=selected_path,
+        prompt_version=run_metadata["prompt_version"],
+        trace_schema_version=TRACE_VERSION,
+        report_schema_version=REPORT_SCHEMA_VERSION,
+    )
+    return {
+        "lineage": lineage.__dict__,
+        "path_plan_version": plan.path_plan_version,
+        "selected_path": selected_path.__dict__,
+        "comparability": comparability.__dict__,
+    }
+
+
+def _select_path_for_scenario(plan: Any, scenario: str) -> Any:
+    return plan.path_for_scenario(scenario)
+
+
+def _validate_manifest_plan_payload(
+    *, selected_path: dict[str, Any], comparability: dict[str, Any], expected_path: Any
+) -> None:
+    selected_path_id = selected_path.get("path_id")
+    selected_plan_version = selected_path.get("path_plan_version")
+    if (
+        selected_path_id != expected_path.path_id
+        or selected_plan_version != expected_path.path_plan_version
+    ):
+        raise PathPlanError(
+            "Verifier manifest selected_path conflicts with current scenario: "
+            f"expected {expected_path.path_id}, got {selected_path_id}"
+        )
+    selected_scenario = selected_path.get("scenario")
+    if selected_scenario is not None and selected_scenario != expected_path.scenario:
+        raise PathPlanError(
+            "Verifier manifest selected_path scenario conflicts with current scenario: "
+            f"expected {expected_path.scenario}, got {selected_scenario}"
+        )
+
+    key = comparability.get("key")
+    if key is None:
+        return
+    if key.get("path_id") != expected_path.path_id:
+        raise PathPlanError(
+            "Verifier manifest comparability key conflicts with current scenario: "
+            f"expected path_id {expected_path.path_id}, got {key.get('path_id')}"
+        )
+    if key.get("path_plan_version") != expected_path.path_plan_version:
+        raise PathPlanError(
+            "Verifier manifest comparability key conflicts with current scenario: "
+            "path_plan_version mismatch"
+        )
+    key_scenario = key.get("scenario")
+    if key_scenario is not None and key_scenario != expected_path.scenario:
+        raise PathPlanError(
+            "Verifier manifest comparability key conflicts with current scenario: "
+            f"expected scenario {expected_path.scenario}, got {key_scenario}"
+        )
+
+
 def _raise_on_contamination(subject: Path) -> None:
     contamination = scan_for_contamination(subject)
     if contamination:
@@ -252,7 +374,9 @@ def _raise_on_contamination(subject: Path) -> None:
         raise CollectEvidenceError(f"Subject workspace contains forbidden terms: {summary}")
 
 
-def _remove_tree_with_retries(path: Path, *, attempts: int = 5, delay_seconds: float = 0.05) -> None:
+def _remove_tree_with_retries(
+    path: Path, *, attempts: int = 5, delay_seconds: float = 0.05
+) -> None:
     """Remove an evidence tree reliably on Windows and retry transient locks."""
 
     last_error: BaseException | None = None
@@ -329,9 +453,10 @@ def _workspace_open_gate(events: list[Any], *, subject: Path) -> dict[str, Any]:
             continue
         event_ref = _trace_event_ref(event, index)
         is_workspace_open_evidence = tool_name == "brain_ds_open_workspace"
-        is_active_workspace_evidence = tool_name == "brain_ds_list_workspaces" and Path(
-            str(getattr(event, "target", "") or "")
-        ).resolve(strict=False) == subject_path
+        is_active_workspace_evidence = (
+            tool_name == "brain_ds_list_workspaces"
+            and Path(str(getattr(event, "target", "") or "")).resolve(strict=False) == subject_path
+        )
         if (is_workspace_open_evidence or is_active_workspace_evidence) and open_index is None:
             open_index = index
             open_event_ref = event_ref
@@ -354,12 +479,13 @@ def _workspace_open_gate(events: list[Any], *, subject: Path) -> dict[str, Any]:
     ):
         open_index, open_event_ref, opened_path, open_status = successful_open
     open_succeeded = open_status in {None, "completed", "success", "ok"}
-    opened_before_write = open_index is not None and open_succeeded and (
-        first_write_index is None or open_index < first_write_index
+    opened_before_write = (
+        open_index is not None
+        and open_succeeded
+        and (first_write_index is None or open_index < first_write_index)
     )
     opened_subject = (
-        opened_path is not None
-        and Path(opened_path).resolve(strict=False) == subject_path
+        opened_path is not None and Path(opened_path).resolve(strict=False) == subject_path
     )
     if open_index is not None and not open_succeeded:
         status = "failed"
@@ -369,7 +495,9 @@ def _workspace_open_gate(events: list[Any], *, subject: Path) -> dict[str, Any]:
         reason = "no graph-writing BrainDS MCP call was captured in the OpenCode export"
     elif open_index is None:
         status = "missing"
-        reason = "brain_ds_open_workspace or active workspace proof was not captured before graph writes"
+        reason = (
+            "brain_ds_open_workspace or active workspace proof was not captured before graph writes"
+        )
     elif first_write_index is not None and open_index > first_write_index:
         status = "failed"
         reason = "first graph-writing BrainDS MCP call occurred before workspace activation proof"
@@ -391,10 +519,81 @@ def _workspace_open_gate(events: list[Any], *, subject: Path) -> dict[str, Any]:
     }
 
 
+def _graph_write_attribution(events: list[Any]) -> dict[str, Any]:
+    writes: list[dict[str, Any]] = []
+    latest_subagent_by_session: dict[str, tuple[str, str]] = {}
+    for index, event in enumerate(events):
+        event_ref = _trace_event_ref(event, index)
+        session_id = str(getattr(event, "session_id", "") or "")
+        agent_name = str(getattr(event, "agent_name", "") or "")
+        role = str(getattr(event, "role", "") or "")
+        delegated_by = str(getattr(event, "delegated_by", "") or "")
+        if session_id and _is_attributable_brainds_subagent(agent_name) and (
+            role == "subagent" or delegated_by
+        ):
+            latest_subagent_by_session[session_id] = (agent_name, event_ref)
+
+        tool_name = str(getattr(event, "tool_name", "") or "")
+        action = str(getattr(event, "action", "") or "")
+        if action != "tool_call" or tool_name not in GRAPH_WRITING_BRAIN_DS_TOOLS:
+            continue
+
+        owner_agent: str | None = None
+        evidence: str | None = None
+        subagent_event_ref: str | None = None
+        ambiguity: str | None = None
+        if _is_attributable_brainds_subagent(agent_name):
+            owner_agent = agent_name
+            evidence = "direct_graph_write_agent"
+        elif session_id and session_id in latest_subagent_by_session:
+            owner_agent, subagent_event_ref = latest_subagent_by_session[session_id]
+            evidence = "nearest_prior_delegated_subagent"
+        else:
+            ambiguity = "no_subagent_attribution_evidence"
+
+        writes.append(
+            {
+                "event_ref": event_ref,
+                "tool_name": tool_name,
+                "owner_agent": owner_agent,
+                "evidence": evidence,
+                "subagent_event_ref": subagent_event_ref,
+                "ambiguity": ambiguity,
+            }
+        )
+
+    attributed_writes = sum(1 for write in writes if write["owner_agent"] is not None)
+    ambiguous_writes = len(writes) - attributed_writes
+    if not writes:
+        status = "no_writes"
+    elif ambiguous_writes == 0:
+        status = "attributed"
+    elif attributed_writes:
+        status = "partial"
+    else:
+        status = "ambiguous"
+    return {
+        "status": status,
+        "summary": {
+            "total_writes": len(writes),
+            "attributed_writes": attributed_writes,
+            "ambiguous_writes": ambiguous_writes,
+        },
+        "writes": writes,
+    }
+
+
 def _trace_event_ref(event: Any, index: int) -> str:
     source = str(getattr(event, "source_path", "") or "session_trace.json")
     tool = str(getattr(event, "tool_name", "") or getattr(event, "action", "event"))
     return f"trace:{index}:{tool}:{source}"
+
+
+def _is_attributable_brainds_subagent(agent_name: str) -> bool:
+    normalized = agent_name.casefold()
+    if normalized in {"brainds-orchestrator", "brain-ds-orchestrator"}:
+        return False
+    return normalized.startswith("brainds-") or normalized.startswith("brain-ds-")
 
 
 def _tool_status_from_event(event: Any) -> str | None:
@@ -403,7 +602,9 @@ def _tool_status_from_event(event: Any) -> str | None:
     return match.group(1).casefold() if match else None
 
 
-def _materialize_datasource_output_from_transcript(subject: Path, opencode_artifacts: Path | None) -> None:
+def _materialize_datasource_output_from_transcript(
+    subject: Path, opencode_artifacts: Path | None
+) -> None:
     target = subject / "generated" / "source_documentation.md"
     if target.is_file() or opencode_artifacts is None or not opencode_artifacts.exists():
         return
@@ -425,7 +626,9 @@ def _final_opencode_text(opencode_artifacts: Path) -> str | None:
             continue
         for record in _json_records_from_source(source):
             record_index += 1
-            if not isinstance(record, dict) or not _is_materializable_final_text(record, agent_by_session):
+            if not isinstance(record, dict) or not _is_materializable_final_text(
+                record, agent_by_session
+            ):
                 continue
             part = record.get("part")
             if not isinstance(part, dict):
@@ -514,15 +717,7 @@ def _looks_like_source_documentation(text: str) -> bool:
 
 def _write_git_diff(repo: Path, target: Path, evidence: Path) -> str:
     target.parent.mkdir(parents=True, exist_ok=True)
-    result = subprocess.run(
-        ["git", "diff", "--no-ext-diff"],
-        cwd=repo,
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
-    target.write_text(result.stdout, encoding="utf-8")
+    target.write_text(_combined_tracked_diff(repo), encoding="utf-8")
     return target.relative_to(evidence).as_posix()
 
 
@@ -591,7 +786,7 @@ def _freshness_checks(
         subject_local=subject_local,
     )
     checks: dict[str, Any] = {
-        "report_schema_version": "2026-06-27.pr2",
+        "report_schema_version": REPORT_SCHEMA_VERSION,
         "trace_schema_version": TRACE_VERSION,
         "subject_local_graph": subject_local_graph,
         "generated_outputs": {
@@ -682,15 +877,25 @@ def _artifact_hashes(evidence: Path, captured: dict[str, Any]) -> dict[str, str]
 
 
 def _run_metadata_for_scenario(scenario: str) -> dict[str, str]:
-    if scenario == "datasource_documentation":
-        return {
+    metadata = {
+        "datasource_documentation": {
             "prompt_version": "datasource-documentation-v1",
             "fixture_version": "datasource-documentation-fixture-v1",
-        }
-    return {
-        "prompt_version": "revops-growth-v1",
-        "fixture_version": "revops-growth-fixture-v1",
+        },
+        "revops_growth": {
+            "prompt_version": "revops-growth-v1",
+            "fixture_version": "revops-growth-fixture-v1",
+        },
+        "kpi_lineage": {
+            "prompt_version": "kpi-lineage-v1",
+            "fixture_version": "kpi-lineage-fixture-v1",
+        },
+        "currency_elicitation": {
+            "prompt_version": "currency-elicitation-v1",
+            "fixture_version": "currency-elicitation-fixture-v1",
+        },
     }
+    return metadata[scenario]
 
 
 def _freeze_evidence_snapshot(evidence: Path, captured: dict[str, Any]) -> dict[str, Any]:
@@ -730,6 +935,7 @@ def main() -> None:
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     parser.add_argument("--opencode-artifacts-path", type=Path)
     parser.add_argument("--graph-db-path", type=Path)
+    parser.add_argument("--sdd-change")
     args = parser.parse_args()
 
     subject_path = args.subject_path or Path("tmp") / "blind-agentic-eval" / args.run_id / "subject"
@@ -745,6 +951,7 @@ def main() -> None:
             repo_root=args.repo_root,
             opencode_artifacts_path=args.opencode_artifacts_path,
             graph_db_path=args.graph_db_path,
+            sdd_change=args.sdd_change,
         )
     except CollectEvidenceError as exc:
         print(f"error: {exc}", file=sys.stderr)

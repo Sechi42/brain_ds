@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from brain_ds.store.graph_store import GraphStore
+from tests.eval.blind_agentic.path_plan import PathPlanError, build_interpretation_lane, validate_sdd_change
+from tests.eval.blind_agentic.prepare_subject import resolve_repo_root
+from tests.eval.blind_agentic.trace_schema import REPORT_SCHEMA_VERSION
 
 
 class ScoreReportError(RuntimeError):
@@ -86,6 +89,28 @@ _GOLD_V2_REQUIRED_KEYS = {
 }
 _GENERATED_EXCERPT_MAX_LINES = 20
 _GENERATED_EXCERPT_MAX_CHARS = 1200
+_LINEAGE_REQUIRED_FIELDS = (
+    "commit_sha",
+    "sdd_change",
+    "worktree_dirty",
+    "git_diff_hash",
+    "untracked_files_present",
+    "captured_at_utc",
+)
+_COMPARABILITY_KEY_REQUIRED_FIELDS = (
+    "commit_sha",
+    "worktree_dirty",
+    "git_diff_hash",
+    "untracked_files_present",
+    "sdd_change",
+    "path_id",
+    "path_plan_version",
+    "scenario",
+    "prompt_version",
+    "rubric_version",
+    "trace_schema_version",
+    "report_schema_version",
+)
 
 
 def load_gold_v2(path: Path | str) -> dict[str, Any]:
@@ -153,21 +178,23 @@ def score_evidence(
     scenario: str,
     evidence_path: Path | str,
     out_path: Path | str,
-    repo_root: Path | str = Path.cwd(),
+    repo_root: Path | str | None = None,
     graph_id: str | None = None,
     judge_response_path: Path | str | None = None,
     judge_packet_out: Path | str | None = None,
 ) -> dict[str, Any]:
     """Score a collected blind-agentic evidence bundle and write JSON/Markdown reports."""
 
+    repo = resolve_repo_root(repo_root)
     evidence = Path(evidence_path)
     output = Path(out_path)
-    gold_root = Path(repo_root) / "tests" / "gold" / "blind_agentic" / scenario
+    gold_root = repo / "tests" / "gold" / "blind_agentic" / scenario
     gold_v2 = load_gold_v2(gold_root / "gold_v2.json")
     manifest = _load_json(evidence / "manifest.json")
 
     if manifest.get("scenario") != scenario:
         raise ScoreReportError(f"Evidence scenario does not match requested scenario: {scenario}")
+    output_contract = _output_contract(manifest)
 
     generated_text = _read_generated_text(evidence, manifest)
     if graph_id is not None:
@@ -208,9 +235,7 @@ def score_evidence(
         else round(sum(axis["score_0_5"] * axis["weight"] for axis in axes.values()), 2)
     )
     blocking_failures = (
-        datasource_contract["blocking_failures"]
-        if datasource_contract is not None
-        else []
+        datasource_contract["blocking_failures"] if datasource_contract is not None else []
     )
     status = (
         datasource_contract["status"]
@@ -242,6 +267,12 @@ def score_evidence(
         "blocking_failures": blocking_failures,
         "trace_summary": trace_summary,
         "freshness": freshness,
+        **output_contract,
+        "interpretation": _interpretation_lanes(
+            deterministic=deterministic,
+            freshness=freshness,
+            selected_path=output_contract["selected_path"],
+        ),
         "comparable_rerun_metadata": _comparable_metadata(manifest, gold_v2["rubric"]),
         # Compatibility keys for callers not yet moved to the v2 deterministic lane.
         "overall_score_0_5": overall,
@@ -288,13 +319,14 @@ def generate_judge_packet(
     *,
     scenario: str,
     evidence_path: Path | str,
-    repo_root: Path | str = Path.cwd(),
+    repo_root: Path | str | None = None,
     graph_id: str | None = None,
 ) -> dict[str, Any]:
     """Build an evaluator-only packet for an optional manual advisory judge."""
 
+    repo = resolve_repo_root(repo_root)
     evidence = Path(evidence_path)
-    gold_root = Path(repo_root) / "tests" / "gold" / "blind_agentic" / scenario
+    gold_root = repo / "tests" / "gold" / "blind_agentic" / scenario
     gold_v2 = load_gold_v2(gold_root / "gold_v2.json")
     manifest = _load_json(evidence / "manifest.json")
     if graph_id is not None:
@@ -387,6 +419,8 @@ def ingest_judge_response(
 
 
 def _load_json(path: Path) -> dict[str, Any]:
+    if not path.is_file() and not path.is_absolute() and path.parts[:1] == ("tests",):
+        path = resolve_repo_root() / path
     if not path.is_file():
         raise ScoreReportError(f"Missing required scorer input: {path}")
     return json.loads(path.read_text(encoding="utf-8"))
@@ -497,8 +531,7 @@ def _generated_excerpts(evidence: Path, generated_refs: list[str]) -> list[dict[
             continue
         text = path.read_text(encoding="utf-8")
         excerpt = "\n".join(
-            line.rstrip()
-            for line in text.strip().splitlines()[:_GENERATED_EXCERPT_MAX_LINES]
+            line.rstrip() for line in text.strip().splitlines()[:_GENERATED_EXCERPT_MAX_LINES]
         )
         excerpts.append({"path": relative, "excerpt": excerpt[:_GENERATED_EXCERPT_MAX_CHARS]})
     return excerpts
@@ -633,7 +666,9 @@ def _score_datasource_axes(
             weight=weights["orchestrator_entry"]["weight"], gate=orchestrator_gate
         ),
         "source_documentation": _datasource_generated_axis(
-            weight=weights["source_documentation"]["weight"], manifest=manifest, generated_text=generated_text
+            weight=weights["source_documentation"]["weight"],
+            manifest=manifest,
+            generated_text=generated_text,
         ),
         "ownership_and_freshness": _datasource_freshness_axis(
             weight=weights["ownership_and_freshness"]["weight"], freshness=freshness
@@ -721,7 +756,9 @@ def _datasource_blocking_failures(
         failures.append(
             {
                 "code": "missing_text_exchange",
-                "message": text_exchange.get("reason", "Missing verifiable user/orchestrator text exchange"),
+                "message": text_exchange.get(
+                    "reason", "Missing verifiable user/orchestrator text exchange"
+                ),
                 "first_brainds_agent": trace_summary.get("first_brainds_agent"),
             }
         )
@@ -730,12 +767,16 @@ def _datasource_blocking_failures(
         failures.append(
             {
                 "code": "missing_subagent_action",
-                "message": subagent_action.get("reason", "Missing subagent identity with attributable action or tool call"),
+                "message": subagent_action.get(
+                    "reason", "Missing subagent identity with attributable action or tool call"
+                ),
                 "first_brainds_agent": trace_summary.get("first_brainds_agent"),
             }
         )
     required_generated = manifest.get("required_generated_file", {})
-    required_generated_status = required_generated.get("status") if isinstance(required_generated, dict) else None
+    required_generated_status = (
+        required_generated.get("status") if isinstance(required_generated, dict) else None
+    )
     if required_generated_status is not None and required_generated_status not in {
         "captured",
         "not_required",
@@ -774,12 +815,16 @@ def _datasource_blocking_failures(
                 "first_graph_write_ref": workspace_open_gate.get("first_graph_write_ref"),
             }
         )
-    elif isinstance(workspace_open_gate, dict) and workspace_open_gate.get("status") == "wrong_subject":
+    elif (
+        isinstance(workspace_open_gate, dict)
+        and workspace_open_gate.get("status") == "wrong_subject"
+    ):
         failures.append(
             {
                 "code": "wrong_workspace_open",
                 "message": workspace_open_gate.get(
-                    "reason", "brain_ds_open_workspace opened a workspace outside the subject under review"
+                    "reason",
+                    "brain_ds_open_workspace opened a workspace outside the subject under review",
                 ),
                 "opened_path": workspace_open_gate.get("opened_path"),
                 "expected_subject_path": workspace_open_gate.get("expected_subject_path"),
@@ -831,9 +876,27 @@ def _datasource_orchestrator_axis(*, weight: float, gate: dict[str, Any]) -> dic
 def _datasource_generated_axis(
     *, weight: float, manifest: dict[str, Any], generated_text: str
 ) -> dict[str, Any]:
-    expected = ["owner", "freshness", "data gaps"]
-    missing_terms = [term for term in expected if term not in generated_text]
-    missing_artifacts = [] if manifest.get("captured", {}).get("generated_outputs") else ["generated_outputs"]
+    concepts = {
+        "owner": ("owner", "ownership", "accountable"),
+        "freshness": ("freshness", "fresh", "updated", "cadence"),
+        "data_gap_or_quality_caveat": (
+            "data gaps",
+            "data gap",
+            "gap",
+            "caveat",
+            "caveats",
+            "data quality",
+            "quality caveat",
+        ),
+    }
+    missing_terms = [
+        concept
+        for concept, vocabulary in concepts.items()
+        if not any(term in generated_text for term in vocabulary)
+    ]
+    missing_artifacts = (
+        [] if manifest.get("captured", {}).get("generated_outputs") else ["generated_outputs"]
+    )
     missing = [*missing_artifacts, *missing_terms]
     return {
         "score_0_5": 5 if not missing else max(0, 5 - len(missing)),
@@ -869,7 +932,11 @@ def _trace_summary(evidence: Path, manifest: dict[str, Any]) -> dict[str, Any]:
         agent = event.get("agent_name")
         if first_brainds is None and isinstance(agent, str) and _is_brainds_agent(agent):
             first_brainds = agent
-        if wrong_or_fallback_agent is None and isinstance(agent, str) and _is_wrong_or_fallback_agent(agent, role):
+        if (
+            wrong_or_fallback_agent is None
+            and isinstance(agent, str)
+            and _is_wrong_or_fallback_agent(agent, role)
+        ):
             wrong_or_fallback_agent = agent
         delegated_by = event.get("delegated_by")
         is_orchestrator_delegated = _is_orchestrator_agent(
@@ -908,7 +975,9 @@ def _trace_summary(evidence: Path, manifest: dict[str, Any]) -> dict[str, Any]:
 
 
 def _trace_events(evidence: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
-    trace_ref = manifest.get("captured", {}).get("session_trace") or manifest.get("trace", {}).get("path")
+    trace_ref = manifest.get("captured", {}).get("session_trace") or manifest.get("trace", {}).get(
+        "path"
+    )
     events: list[dict[str, Any]] = []
     if isinstance(trace_ref, str) and (evidence / trace_ref).is_file():
         payload = _load_json(evidence / trace_ref)
@@ -920,7 +989,7 @@ def _trace_events(evidence: Path, manifest: dict[str, Any]) -> list[dict[str, An
 
 def _pathway_compliance(gold: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
     ordered = [str(item["id"]) for item in gold.get("pathway_milestones", [])]
-    observed = _observed_milestones(events)
+    observed, inferred = _observed_milestones(events)
     completed: list[str] = []
     for expected, actual in zip(ordered, observed, strict=False):
         if expected != actual:
@@ -937,6 +1006,7 @@ def _pathway_compliance(gold: dict[str, Any], events: list[dict[str, Any]]) -> d
     return {
         "ordered_milestones": ordered,
         "observed_milestones": observed,
+        "inferred_milestones": inferred,
         "completed_milestones": completed,
         "missing_milestones": missing,
         "out_of_order_milestones": out_of_order,
@@ -945,15 +1015,48 @@ def _pathway_compliance(gold: dict[str, Any], events: list[dict[str, Any]]) -> d
     }
 
 
-def _observed_milestones(events: list[dict[str, Any]]) -> list[str]:
+def _observed_milestones(events: list[dict[str, Any]]) -> tuple[list[str], list[dict[str, str]]]:
     observed: list[str] = []
     seen: set[str] = set()
+    inferred: list[dict[str, str]] = []
     for event in events:
         milestone = event.get("pathway_milestone")
+        explicit = isinstance(milestone, str) and bool(milestone)
+        if not explicit:
+            milestone = _infer_milestone(event)
         if isinstance(milestone, str) and milestone and milestone not in seen:
             observed.append(milestone)
             seen.add(milestone)
-    return observed
+            if not explicit:
+                inferred.append({"milestone": milestone, "evidence_ref": _event_evidence_ref(event)})
+    return observed, inferred
+
+
+def _infer_milestone(event: dict[str, Any]) -> str | None:
+    role = str(event.get("role") or "").casefold()
+    action = str(event.get("action") or "").casefold()
+    agent = str(event.get("agent_name") or "").casefold()
+    tool = str(event.get("tool_name") or "").casefold()
+    target = str(event.get("target") or "").casefold()
+    if role == "orchestrator" and _is_orchestrator_agent(agent):
+        return "orchestrator_entry"
+    if "source-explorer" in agent or tool in {"brain_ds_explore_source", "brain_ds.explore_source"}:
+        return "explore_source"
+    if "source_documentation" in target or tool in {"write", "edit"}:
+        return "document_source"
+    if tool.startswith("brain_ds_") and any(
+        term in tool for term in ("add_edge", "update_node", "create_graph", "insert_pending_question")
+    ):
+        return "map_to_graph"
+    if "graph-mapper" in agent or (action == "delegated_task_result" and "graph" in target):
+        return "map_to_graph"
+    return None
+
+
+def _event_evidence_ref(event: dict[str, Any]) -> str:
+    source = str(event.get("source_path") or "session_trace.json")
+    label = str(event.get("tool_name") or event.get("agent_name") or event.get("action") or "event")
+    return f"trace:{label}:{source}"
 
 
 def _out_of_order_milestones(ordered: list[str], observed: list[str]) -> list[str]:
@@ -972,23 +1075,42 @@ def _out_of_order_milestones(ordered: list[str], observed: list[str]) -> list[st
 
 
 def _tool_quality(events: list[dict[str, Any]]) -> dict[str, Any]:
-    calls = [event for event in events if event.get("role") == "tool" and event.get("action") == "tool_call"]
-    responses = [
-        event for event in events if event.get("role") == "tool" and event.get("action") == "tool_response"
+    calls = [
+        event
+        for event in events
+        if event.get("role") == "tool" and event.get("action") == "tool_call"
     ]
-    irrelevant = [str(event.get("tool_name")) for event in calls if not _tool_call_is_relevant(event)]
-    unusable = [event for event in responses if _tool_response_is_unusable(event)]
-    successful = [event for event in responses if _tool_response_is_successful(event)]
+    responses = [
+        event
+        for event in events
+        if event.get("role") == "tool" and event.get("action") == "tool_response"
+    ]
+    same_event_responses = [event for event in calls if _tool_call_has_same_event_response(event)]
+    all_responses = [*responses, *same_event_responses]
+    irrelevant = [
+        str(event.get("tool_name")) for event in calls if not _tool_call_is_relevant(event)
+    ]
+    unusable = [event for event in all_responses if _tool_response_is_unusable(event)]
+    successful = [event for event in all_responses if _tool_response_is_successful(event)]
     confusion = len(irrelevant) + len(unusable)
-    return {
+    payload = {
         "tool_call_count": len(calls),
-        "tool_response_count": len(responses),
+        "tool_response_count": len(all_responses),
         "successful_response_count": len(successful),
         "relevant_tool_call_count": len(calls) - len(irrelevant),
         "irrelevant_tool_calls": irrelevant,
         "unusable_output_count": len(unusable),
         "confusion_count": confusion,
     }
+    bash_commands = [str(event.get("tool_command")) for event in calls if event.get("tool_command")]
+    if bash_commands:
+        payload["bash_commands"] = bash_commands
+    return payload
+
+
+def _tool_call_has_same_event_response(event: dict[str, Any]) -> bool:
+    status = str(event.get("tool_status") or "").casefold()
+    return status in {"completed", "success", "ok"} and bool(event.get("tool_output_present"))
 
 
 def _tool_call_is_relevant(event: dict[str, Any]) -> bool:
@@ -997,11 +1119,16 @@ def _tool_call_is_relevant(event: dict[str, Any]) -> bool:
 
 
 def _tool_response_is_successful(event: dict[str, Any]) -> bool:
+    if _tool_call_has_same_event_response(event):
+        return True
     marker = _tool_response_marker(event)
     return "success" in marker and not _tool_response_is_unusable(event)
 
 
 def _tool_response_is_unusable(event: dict[str, Any]) -> bool:
+    status = str(event.get("tool_status") or "").casefold()
+    if status in {"error", "failed", "failure"}:
+        return True
     marker = _tool_response_marker(event)
     return any(term in marker for term in ("error", "failed", "failure", "unusable", "empty"))
 
@@ -1042,7 +1169,9 @@ def _conversation_axes(
 
 
 def _orchestrator_gate(trace_summary: dict[str, Any]) -> dict[str, Any]:
-    first = trace_summary.get("first_root_brainds_agent") or trace_summary.get("first_brainds_agent")
+    first = trace_summary.get("first_root_brainds_agent") or trace_summary.get(
+        "first_brainds_agent"
+    )
     fallback = trace_summary.get("wrong_or_fallback_agent")
     if isinstance(fallback, str):
         return {
@@ -1061,14 +1190,22 @@ def _orchestrator_gate(trace_summary: dict[str, Any]) -> dict[str, Any]:
             "undelegated_subagent_contacts": undelegated,
         }
     if _is_orchestrator_agent(first if isinstance(first, str) else None):
-        return {"status": "passed", "reason": "First BrainDS agent contacted was brain-ds-orchestrator"}
+        return {
+            "status": "passed",
+            "reason": "First BrainDS agent contacted was brain-ds-orchestrator",
+        }
     if first is None:
         return {"status": "blocked", "reason": "No BrainDS agent trace event was captured"}
-    return {"status": "blocked", "reason": f"First BrainDS agent was {first}, not brainds-orchestrator"}
+    return {
+        "status": "blocked",
+        "reason": f"First BrainDS agent was {first}, not brainds-orchestrator",
+    }
 
 
 def _text_exchange_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
-    user_events = [event for event in events if event.get("role") == "user" and event.get("content_ref")]
+    user_events = [
+        event for event in events if event.get("role") == "user" and event.get("content_ref")
+    ]
     assistant_events = [
         event
         for event in events
@@ -1126,7 +1263,11 @@ def _subagent_action_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
     task_result_events = [
         event for event in task_delegation_events if event.get("action") == "delegated_task_result"
     ]
-    all_tool_events = [event for event in events if event.get("role") == "tool" and event.get("action") == "tool_call"]
+    all_tool_events = [
+        event
+        for event in events
+        if event.get("role") == "tool" and event.get("action") == "tool_call"
+    ]
     if subagent_names and (action_events or tool_events or task_result_events):
         return {
             "status": "verified",
@@ -1175,20 +1316,166 @@ def _is_subagent_produced_evidence(event: dict[str, Any]) -> bool:
     action = str(event.get("action") or "message").casefold()
     if action in {"session_created", "agent_stream"}:
         return False
-    return bool(event.get("content_ref")) or action == "reasoning" or _is_subagent_work_action(action)
+    return (
+        bool(event.get("content_ref")) or action == "reasoning" or _is_subagent_work_action(action)
+    )
 
 
 def _freshness_report(manifest: dict[str, Any]) -> dict[str, Any]:
     checks = manifest.get("freshness_checks")
     if not isinstance(checks, dict):
-        return {"status": "unknown", "failing_checks": ["freshness_checks"]}
+        return {
+            "status": "unknown",
+            "report_schema_version": REPORT_SCHEMA_VERSION,
+            "failing_checks": ["freshness_checks"],
+        }
     failing = list(checks.get("failing_checks", []))
     if not failing:
         for name in ("subject_local_graph", "generated_outputs", "trace"):
             value = checks.get(name, {})
             if isinstance(value, dict) and value.get("status") in {"failed", "missing", "stale"}:
                 failing.append(name)
-    return {**checks, "failing_checks": failing}
+    return {**checks, "report_schema_version": REPORT_SCHEMA_VERSION, "failing_checks": failing}
+
+
+def _output_contract(manifest: dict[str, Any]) -> dict[str, Any]:
+    lineage = _required_dict(manifest, "lineage")
+    selected_path = _required_dict(manifest, "selected_path")
+    comparability = _required_dict(manifest, "comparability")
+    _validate_lineage(lineage)
+    path_plan_version = manifest.get("path_plan_version")
+    if not isinstance(path_plan_version, str) or not path_plan_version:
+        raise ScoreReportError("Evidence manifest is missing path_plan_version")
+    for field in (
+        "path_id",
+        "path_plan_version",
+        "label",
+        "scenario",
+        "agents_or_tools",
+        "required_evidence",
+        "expected_artifacts",
+        "scorer",
+        "rubric_version",
+        "output_contract",
+        "status",
+        "execute_in_first_slice",
+    ):
+        if field not in selected_path:
+            raise ScoreReportError(f"Evidence manifest selected_path is missing {field}")
+    if selected_path.get("path_plan_version") != path_plan_version:
+        raise ScoreReportError("Evidence manifest selected_path path_plan_version mismatch")
+    if comparability.get("status") not in {"comparable", "non_comparable"}:
+        raise ScoreReportError("Evidence manifest comparability status is invalid")
+    _validate_comparability(comparability, selected_path, lineage, path_plan_version)
+    return {
+        "lineage": lineage,
+        "path_plan_version": path_plan_version,
+        "selected_path": _normalize_path_entry(selected_path),
+        "comparability": comparability,
+    }
+
+
+def _required_dict(payload: dict[str, Any], key: str) -> dict[str, Any]:
+    value = payload.get(key)
+    if not isinstance(value, dict):
+        raise ScoreReportError(f"Evidence manifest is missing {key}")
+    return value
+
+
+def _validate_lineage(lineage: dict[str, Any]) -> None:
+    for field in _LINEAGE_REQUIRED_FIELDS:
+        if field not in lineage:
+            raise ScoreReportError(f"Evidence manifest lineage is missing {field}")
+    if not isinstance(lineage.get("commit_sha"), str) or not lineage["commit_sha"]:
+        raise ScoreReportError("Evidence manifest lineage.commit_sha is required")
+    if not isinstance(lineage.get("captured_at_utc"), str) or not lineage["captured_at_utc"]:
+        raise ScoreReportError("Evidence manifest lineage.captured_at_utc is required")
+    if not isinstance(lineage.get("worktree_dirty"), bool) or not isinstance(
+        lineage.get("untracked_files_present"), bool
+    ):
+        raise ScoreReportError("Evidence manifest lineage dirty flags must be booleans")
+    diff_hash = lineage.get("git_diff_hash")
+    if diff_hash is not None and (not isinstance(diff_hash, str) or not diff_hash):
+        raise ScoreReportError("Evidence manifest lineage.git_diff_hash must be null or a string")
+    try:
+        validate_sdd_change(lineage.get("sdd_change"))
+    except PathPlanError as exc:
+        raise ScoreReportError(f"Evidence manifest lineage.{exc}") from exc
+
+
+def _validate_comparability(
+    comparability: dict[str, Any],
+    selected_path: dict[str, Any],
+    lineage: dict[str, Any],
+    path_plan_version: str,
+) -> None:
+    if comparability.get("status") == "non_comparable":
+        if not comparability.get("reason"):
+            raise ScoreReportError("Evidence manifest non-comparable comparability requires reason")
+        return
+    key = comparability.get("key")
+    if not isinstance(key, dict):
+        raise ScoreReportError("Evidence manifest comparable comparability requires key")
+    for field in _COMPARABILITY_KEY_REQUIRED_FIELDS:
+        if field not in key:
+            raise ScoreReportError(f"Evidence manifest comparability.key is missing {field}")
+    try:
+        validate_sdd_change(key.get("sdd_change"))
+    except PathPlanError as exc:
+        raise ScoreReportError(f"Evidence manifest comparability.key.{exc}") from exc
+    for field in ("commit_sha", "worktree_dirty", "git_diff_hash", "untracked_files_present", "sdd_change"):
+        if key.get(field) != lineage.get(field):
+            raise ScoreReportError(f"Evidence manifest comparability.key {field} does not match lineage")
+    if key.get("path_id") != selected_path.get("path_id"):
+        raise ScoreReportError("Evidence manifest comparability.key path_id does not match selected_path")
+    if key.get("path_plan_version") != path_plan_version:
+        raise ScoreReportError("Evidence manifest comparability.key path_plan_version mismatch")
+    if key.get("scenario") != selected_path.get("scenario"):
+        raise ScoreReportError("Evidence manifest comparability.key scenario does not match selected_path")
+
+
+def _normalize_path_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(entry)
+    for field in ("agents_or_tools", "required_evidence", "expected_artifacts"):
+        value = normalized.get(field)
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise ScoreReportError(
+                f"Evidence manifest selected_path.{field} must be a list of strings"
+            )
+        normalized[field] = list(value)
+    return normalized
+
+
+def _interpretation_lanes(
+    *, deterministic: dict[str, Any], freshness: dict[str, Any], selected_path: dict[str, Any]
+) -> list[dict[str, Any]]:
+    status = str(deterministic.get("status", "fail"))
+    artifact_status = "pass" if status == "pass" else "warn" if status == "review" else "fail"
+    flow_status = (
+        "not_applicable"
+        if selected_path.get("scenario") != "datasource_documentation"
+        else artifact_status
+    )
+    model_status = "not_applicable"
+    if freshness.get("status") == "degraded" and artifact_status == "pass":
+        artifact_status = "warn"
+    return [
+        build_interpretation_lane(
+            lane="artifact_quality",
+            status=artifact_status,
+            evidence_refs=["manifest.json", *selected_path.get("expected_artifacts", [])],
+        ),
+        build_interpretation_lane(
+            lane="flow_tool_delegation_quality",
+            status=flow_status,
+            evidence_refs=["trace/session_trace.json", "manifest.json"],
+        ),
+        build_interpretation_lane(
+            lane="model_capability_context",
+            status=model_status,
+            evidence_refs=["manifest.json"],
+        ),
+    ]
 
 
 def _canonical_by_graph_node_id(
@@ -1451,13 +1738,14 @@ def _anti_contamination_axis(*, weight: float, manifest: dict[str, Any]) -> dict
 
 def _comparable_metadata(manifest: dict[str, Any], rubric: dict[str, Any]) -> dict[str, Any]:
     metadata = manifest.get("run_metadata", {})
+    model = metadata.get("model") or metadata.get("wrapper_model") or "unknown"
     return {
         "prompt_version": metadata.get("prompt_version", "unknown"),
         "fixture_version": metadata.get("fixture_version", "unknown"),
         "rubric_version": rubric.get("version", "unknown"),
         "run_timestamp_utc": manifest.get("created_at_utc", "unknown"),
         "model_provider": metadata.get("model_provider", "unknown"),
-        "model": metadata.get("model", "unknown"),
+        "model": model,
         "manual_deviations": metadata.get("manual_deviations", []),
     }
 
@@ -1565,7 +1853,7 @@ def main() -> None:
     parser.add_argument("--scenario", required=True)
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--repo-root", type=Path, default=Path.cwd())
+    parser.add_argument("--repo-root", type=Path)
     parser.add_argument("--graph-id")
     parser.add_argument("--judge-response", type=Path)
     parser.add_argument("--judge-packet-out", type=Path)

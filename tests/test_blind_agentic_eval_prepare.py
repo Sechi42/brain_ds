@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sqlite3
 import subprocess
@@ -16,6 +17,9 @@ from tests.eval.blind_agentic.prepare_subject import (
     scan_for_contamination,
     validate_non_goal_request,
 )
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class BlindAgenticPrepareTests(unittest.TestCase):
@@ -58,6 +62,27 @@ class BlindAgenticPrepareTests(unittest.TestCase):
                 "support_tickets",
             },
         )
+
+    def test_prepare_subject_anchors_default_output_root_to_repo_root_from_tests_cwd(self) -> None:
+        run_id = "unit-run-cwd-stable"
+        run_root = REPO_ROOT / "tmp" / "blind-agentic-eval" / run_id
+        wrong_run_root = REPO_ROOT / "tests" / "tmp" / "blind-agentic-eval" / run_id
+        shutil.rmtree(run_root, ignore_errors=True)
+        shutil.rmtree(wrong_run_root, ignore_errors=True)
+        self.addCleanup(lambda: shutil.rmtree(run_root, ignore_errors=True))
+        self.addCleanup(lambda: shutil.rmtree(wrong_run_root, ignore_errors=True))
+
+        previous_cwd = Path.cwd()
+        os.chdir(REPO_ROOT / "tests")
+        try:
+            workspace = prepare_subject(scenario="revops_growth", run_id=run_id)
+        finally:
+            os.chdir(previous_cwd)
+
+        self.assertEqual(workspace.subject_path, run_root / "subject")
+        self.assertTrue(workspace.subject_path.is_absolute())
+        self.assertTrue((workspace.subject_path / "PROMPT.md").is_file())
+        self.assertFalse((wrong_run_root / "subject").exists())
 
     def test_datasource_documentation_fixture_and_gold_contract_are_isolated(self) -> None:
         workspace = prepare_subject(
@@ -147,6 +172,40 @@ class BlindAgenticPrepareTests(unittest.TestCase):
         )
         self.assertIn("opencode_export", protocol["required_evidence"])
         self.assertIn("workspace_open_before_graph_write", protocol["required_evidence"])
+
+    def test_slice2_path_fixtures_and_gold_are_isolated_and_subject_ready(self) -> None:
+        cases = {
+            "kpi_lineage": {
+                "pathway_id": "kpi_lineage",
+                "sqlite": "kpi_lineage.sqlite",
+                "source": "sources/kpi_targets.csv",
+            },
+            "currency_elicitation": {
+                "pathway_id": "currency_elicitation",
+                "sqlite": "currency_elicitation.sqlite",
+                "source": "sources/stakeholder_signals.csv",
+            },
+        }
+
+        for scenario, expected in cases.items():
+            with self.subTest(scenario=scenario):
+                workspace = prepare_subject(
+                    scenario=scenario,
+                    run_id=f"{scenario}-001",
+                    output_root=self._tmp_root(),
+                )
+                files = {path.relative_to(workspace.subject_path).as_posix() for path in workspace.files}
+                gold_root = Path(__file__).parent / "gold" / "blind_agentic" / scenario
+                gold = json.loads((gold_root / "gold_v2.json").read_text(encoding="utf-8"))
+
+                self.assertIn("PROMPT.md", files)
+                self.assertIn("seed_graph.json", files)
+                self.assertIn(expected["source"], files)
+                self.assertIn(f"sources/{expected['sqlite']}", files)
+                self.assertEqual(gold["scenario"], scenario)
+                self.assertEqual(gold["pathway_id"], expected["pathway_id"])
+                self.assertNotIn("rubric.json", {Path(path).name for path in files})
+                self.assertEqual(scan_for_contamination(workspace.subject_path), [])
 
     def test_evaluator_only_files_are_not_copied_to_subject_workspace(self) -> None:
         workspace = prepare_subject(

@@ -2,22 +2,39 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
+import subprocess
+import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from tests.eval.blind_agentic.collect_evidence import (
     CollectEvidenceError,
+    _graph_write_attribution,
+    _write_git_diff,
     collect_evidence,
 )
-from tests.eval.blind_agentic.trace_schema import TraceSchemaError, parse_opencode_export
+from tests.eval.blind_agentic.path_plan import EvaluationLineage
+from tests.eval.blind_agentic.trace_schema import TraceEvent, TraceSchemaError, parse_opencode_export
 from tests.eval.blind_agentic.prepare_subject import prepare_subject
 
 
 class BlindAgenticCollectTests(unittest.TestCase):
     def setUp(self) -> None:
-        shutil.rmtree(Path("tmp") / "blind-agentic-eval-test", ignore_errors=True)
+        self._tmp = tempfile.TemporaryDirectory(prefix="blind-agentic-collect-")
+        self._sdd_env = patch.dict(
+            os.environ,
+            {
+                "BRAIN_DS_SDD_CHANGE": "agentic-evaluation-lab",
+                "BRAIN_DS_BLIND_AGENTIC_OUTPUT_ROOT": self._tmp.name,
+            },
+        )
+        self._sdd_env.start()
+
+    def tearDown(self) -> None:
+        self._sdd_env.stop()
+        self._tmp.cleanup()
 
     def test_collect_writes_manifest_with_core_evidence_and_missing_transcript(self) -> None:
         subject = self._prepared_subject("collect-run-001")
@@ -52,6 +69,270 @@ class BlindAgenticCollectTests(unittest.TestCase):
         self.assertTrue((bundle.evidence_path / "graph" / "store.db").is_file())
         self.assertTrue((bundle.evidence_path / "generated" / "brd.md").is_file())
         self.assertTrue((bundle.evidence_path / "git_diff.patch").is_file())
+
+    def test_collect_requires_sdd_change_for_evidence_only_lineage(self) -> None:
+        subject = self._prepared_subject("collect-run-missing-sdd")
+        self._write_core_subject_outputs(subject.subject_path)
+
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(CollectEvidenceError, "sdd_change"):
+                collect_evidence(
+                    scenario="revops_growth",
+                    run_id="collect-run-missing-sdd",
+                    subject_path=subject.subject_path,
+                    evidence_path=subject.subject_path.parent / "evidence",
+                    repo_root=Path.cwd(),
+                )
+
+    def test_collect_persists_evidence_only_lineage_and_comparability_from_env(self) -> None:
+        subject = self._prepared_subject("collect-run-lineage")
+        self._write_core_subject_outputs(subject.subject_path)
+
+        bundle = collect_evidence(
+            scenario="revops_growth",
+            run_id="collect-run-lineage",
+            subject_path=subject.subject_path,
+            evidence_path=subject.subject_path.parent / "evidence",
+            repo_root=Path.cwd(),
+        )
+
+        manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(manifest["lineage"]["sdd_change"], "agentic-evaluation-lab")
+        self.assertRegex(manifest["lineage"]["commit_sha"], r"^[0-9a-f]{40}$")
+        self.assertEqual(manifest["selected_path"]["path_id"], "graph-qa")
+        self.assertEqual(
+            manifest["path_plan_version"], manifest["selected_path"]["path_plan_version"]
+        )
+        self.assertIn(manifest["comparability"]["status"], {"comparable", "non_comparable"})
+
+    def test_collect_rejects_unknown_scenario_without_doc_map_fallback(self) -> None:
+        subject = self._prepared_subject("collect-run-unknown-scenario")
+        self._write_core_subject_outputs(subject.subject_path)
+
+        with self.assertRaisesRegex(CollectEvidenceError, "Unknown scenario"):
+            collect_evidence(
+                scenario="unknown_scenario",
+                run_id="collect-run-unknown-scenario",
+                subject_path=subject.subject_path,
+                evidence_path=subject.subject_path.parent / "evidence",
+                repo_root=Path.cwd(),
+            )
+
+    def test_collect_copies_lineage_from_verifier_manifest_when_present(self) -> None:
+        subject = self._prepared_subject("collect-run-verifier-manifest")
+        self._write_core_subject_outputs(subject.subject_path)
+        verifier_manifest = subject.subject_path.parent / "opencode-verifier-manifest.json"
+        verifier_manifest.write_text(
+            json.dumps(
+                {
+                    "lineage": {"commit_sha": "a" * 40, "sdd_change": "from-verifier"},
+                    "path_plan_version": "2026-06-30.pr1",
+                    "selected_path": {"path_id": "graph-qa", "path_plan_version": "2026-06-30.pr1"},
+                    "comparability": {
+                        "status": "non_comparable",
+                        "reason": "verifier_reason",
+                        "key": None,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        bundle = collect_evidence(
+            scenario="revops_growth",
+            run_id="collect-run-verifier-manifest",
+            subject_path=subject.subject_path,
+            evidence_path=subject.subject_path.parent / "evidence",
+            repo_root=Path.cwd(),
+        )
+
+        manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["lineage"]["sdd_change"], "from-verifier")
+        self.assertEqual(manifest["selected_path"]["path_id"], "graph-qa")
+        self.assertEqual(manifest["comparability"]["reason"], "verifier_reason")
+
+    def test_collect_propagates_wrapper_model_from_verifier_manifest(self) -> None:
+        subject = self._prepared_subject("collect-run-wrapper-model")
+        self._write_core_subject_outputs(subject.subject_path)
+        verifier_manifest = subject.subject_path.parent / "opencode-verifier-manifest.json"
+        verifier_manifest.write_text(
+            json.dumps(
+                {
+                    "lineage": {"commit_sha": "a" * 40, "sdd_change": "agentic-evaluation-lab"},
+                    "path_plan_version": "2026-06-30.pr1",
+                    "selected_path": {"path_id": "graph-qa", "path_plan_version": "2026-06-30.pr1"},
+                    "comparability": {
+                        "status": "non_comparable",
+                        "reason": "test_only",
+                        "key": None,
+                    },
+                    "model": "opencode-go/minimax-m3",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        bundle = collect_evidence(
+            scenario="revops_growth",
+            run_id="collect-run-wrapper-model",
+            subject_path=subject.subject_path,
+            evidence_path=subject.subject_path.parent / "evidence",
+            repo_root=Path.cwd(),
+        )
+
+        manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["run_metadata"]["wrapper_model"], "opencode-go/minimax-m3")
+
+    def test_collect_rejects_unknown_scenario_even_with_verifier_manifest(self) -> None:
+        subject = self._prepared_subject("collect-run-manifest-unknown-scenario")
+        self._write_core_subject_outputs(subject.subject_path)
+        verifier_manifest = subject.subject_path.parent / "opencode-verifier-manifest.json"
+        verifier_manifest.write_text(
+            json.dumps(
+                {
+                    "lineage": {"commit_sha": "a" * 40, "sdd_change": "agentic-evaluation-lab"},
+                    "path_plan_version": "2026-06-30.pr1",
+                    "selected_path": {"path_id": "graph-qa", "path_plan_version": "2026-06-30.pr1"},
+                    "comparability": {
+                        "status": "non_comparable",
+                        "reason": "verifier_reason",
+                        "key": None,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(CollectEvidenceError, "Unknown scenario"):
+            collect_evidence(
+                scenario="unknown_scenario",
+                run_id="collect-run-manifest-unknown-scenario",
+                subject_path=subject.subject_path,
+                evidence_path=subject.subject_path.parent / "evidence",
+                repo_root=Path.cwd(),
+            )
+
+    def test_collect_rejects_verifier_manifest_path_conflicting_with_scenario(self) -> None:
+        subject = self._prepared_subject("collect-run-manifest-wrong-path")
+        self._write_core_subject_outputs(subject.subject_path)
+        verifier_manifest = subject.subject_path.parent / "opencode-verifier-manifest.json"
+        verifier_manifest.write_text(
+            json.dumps(
+                {
+                    "lineage": {"commit_sha": "a" * 40, "sdd_change": "agentic-evaluation-lab"},
+                    "path_plan_version": "2026-06-30.pr1",
+                    "selected_path": {"path_id": "graph-qa", "path_plan_version": "2026-06-30.pr1"},
+                    "comparability": {
+                        "status": "comparable",
+                        "reason": None,
+                        "key": {
+                            "path_id": "graph-qa",
+                            "path_plan_version": "2026-06-30.pr1",
+                            "scenario": "graph_qa",
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(CollectEvidenceError, "selected_path conflicts"):
+            collect_evidence(
+                scenario="datasource_documentation",
+                run_id="collect-run-manifest-wrong-path",
+                subject_path=subject.subject_path,
+                evidence_path=subject.subject_path.parent / "evidence",
+                repo_root=Path.cwd(),
+            )
+
+    def test_write_git_diff_captures_staged_tracked_changes(self) -> None:
+        repo = Path(tempfile.mkdtemp(prefix="blind-agentic-tracked-diff-"))
+        subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
+        tracked = repo / "tracked.txt"
+        tracked.write_text("before\n", encoding="utf-8")
+        subprocess.run(["git", "add", "tracked.txt"], cwd=repo, check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.email=test@example.invalid",
+                "-c",
+                "user.name=Test User",
+                "commit",
+                "-m",
+                "init",
+            ],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        tracked.write_text("after\n", encoding="utf-8")
+        subprocess.run(["git", "add", "tracked.txt"], cwd=repo, check=True)
+        (repo / "untracked.txt").write_text("not captured\n", encoding="utf-8")
+
+        evidence = repo / "evidence"
+        captured_path = _write_git_diff(repo, evidence / "git_diff.patch", evidence)
+
+        patch_text = (evidence / captured_path).read_text(encoding="utf-8")
+        self.assertIn("-- unstaged diff --", patch_text)
+        self.assertIn("-- staged diff --", patch_text)
+        self.assertIn("+after", patch_text)
+        self.assertNotIn("untracked.txt", patch_text)
+
+    def test_collect_marks_uncaptured_untracked_runs_non_comparable(self) -> None:
+        subject = self._prepared_subject("collect-run-untracked")
+        self._write_core_subject_outputs(subject.subject_path)
+        lineage = EvaluationLineage(
+            "a" * 40, "agentic-evaluation-lab", True, None, True, "2026-07-01T00:00:00Z"
+        )
+
+        with patch(
+            "tests.eval.blind_agentic.collect_evidence.discover_git_lineage", return_value=lineage
+        ):
+            bundle = collect_evidence(
+                scenario="revops_growth",
+                run_id="collect-run-untracked",
+                subject_path=subject.subject_path,
+                evidence_path=subject.subject_path.parent / "evidence",
+                repo_root=Path.cwd(),
+            )
+
+        manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["comparability"]["status"], "non_comparable")
+        self.assertEqual(manifest["comparability"]["reason"], "untracked_files_not_captured")
+
+    def test_collect_discloses_ignored_allowlisted_untracked_outputs(self) -> None:
+        subject = self._prepared_subject("collect-run-allowlisted-untracked")
+        self._write_core_subject_outputs(subject.subject_path)
+        lineage = EvaluationLineage(
+            "a" * 40,
+            "agentic-evaluation-lab",
+            True,
+            None,
+            True,
+            "2026-07-01T00:00:00Z",
+            untracked_files=("tmp/blind-agentic-eval/run_001/report.json",),
+        )
+
+        with patch(
+            "tests.eval.blind_agentic.collect_evidence.discover_git_lineage", return_value=lineage
+        ):
+            bundle = collect_evidence(
+                scenario="revops_growth",
+                run_id="collect-run-allowlisted-untracked",
+                subject_path=subject.subject_path,
+                evidence_path=subject.subject_path.parent / "evidence",
+                repo_root=Path.cwd(),
+            )
+
+        manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["comparability"]["status"], "comparable")
+        self.assertEqual(
+            manifest["comparability"]["key"]["ignored_untracked_files"],
+            ["tmp/blind-agentic-eval/run_001/report.json"],
+        )
 
     def test_collect_accepts_missing_transcript_when_required_evidence_exists(self) -> None:
         subject = self._prepared_subject("collect-run-002")
@@ -196,7 +477,67 @@ class BlindAgenticCollectTests(unittest.TestCase):
             manifest["captured"]["opencode_artifacts"],
             ["opencode/sessions/transcript.jsonl"],
         )
-        self.assertTrue((bundle.evidence_path / "opencode" / "sessions" / "transcript.jsonl").is_file())
+        self.assertTrue(
+            (bundle.evidence_path / "opencode" / "sessions" / "transcript.jsonl").is_file()
+        )
+
+    def test_collect_manifest_records_graph_write_attribution_from_trace(self) -> None:
+        subject = self._prepared_subject("collect-run-graph-attribution")
+        self._write_core_subject_outputs(subject.subject_path)
+        opencode_dir = subject.subject_path.parent / "opencode-artifacts"
+        (opencode_dir / "sessions").mkdir(parents=True)
+        (opencode_dir / "sessions" / "session.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "text",
+                            "timestamp": 1,
+                            "sessionID": "ses_graph_mapper",
+                            "agent_name": "brainds-graph-mapper",
+                            "delegated_by": "brainds-orchestrator",
+                            "part": {"type": "text", "text": "I will map the source."},
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "tool_use",
+                            "timestamp": 2,
+                            "sessionID": "ses_graph_mapper",
+                            "agent_name": "brainds-graph-mapper",
+                            "part": {
+                                "type": "tool",
+                                "tool": "brain_ds_add_edge",
+                                "state": {
+                                    "status": "completed",
+                                    "input": {"graph_id": "helios-docs"},
+                                    "output": '{"ok": true}',
+                                },
+                            },
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        bundle = collect_evidence(
+            scenario="revops_growth",
+            run_id="collect-run-graph-attribution",
+            subject_path=subject.subject_path,
+            evidence_path=subject.subject_path.parent / "evidence",
+            repo_root=Path.cwd(),
+            opencode_artifacts_path=opencode_dir,
+        )
+
+        manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
+        attribution = manifest["graph_write_attribution"]
+        self.assertEqual(attribution["status"], "attributed")
+        self.assertEqual(attribution["summary"]["total_writes"], 1)
+        self.assertEqual(attribution["writes"][0]["owner_agent"], "brainds-graph-mapper")
+        self.assertEqual(attribution["writes"][0]["evidence"], "direct_graph_write_agent")
+        self.assertIsNone(attribution["writes"][0]["ambiguity"])
 
     def test_opencode_export_parser_normalizes_roles_and_parent_links(self) -> None:
         export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-export-roles"
@@ -249,14 +590,18 @@ class BlindAgenticCollectTests(unittest.TestCase):
         self.assertEqual(omissions, [])
         self.assertEqual(trace.scenario, "datasource_documentation")
         self.assertEqual(trace.pathway_id, "datasource_documentation")
-        self.assertEqual([event.role for event in trace.events], ["user", "orchestrator", "subagent", "tool"])
+        self.assertEqual(
+            [event.role for event in trace.events], ["user", "orchestrator", "subagent", "tool"]
+        )
         self.assertEqual(trace.events[1].agent_name, "brainds-orchestrator")
         self.assertEqual(trace.events[2].delegated_by, "brainds-orchestrator")
         self.assertEqual(trace.events[2].pathway_milestone, "explore_source")
         self.assertEqual(trace.events[3].tool_name, "brain_ds_explore_source")
         self.assertEqual(trace.events[3].target, "sources/orders.csv")
 
-    def test_opencode_export_parser_normalizes_real_opencode_envelopes_and_stderr_agent(self) -> None:
+    def test_opencode_export_parser_normalizes_real_opencode_envelopes_and_stderr_agent(
+        self,
+    ) -> None:
         export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-real-envelopes"
         export_root.mkdir(parents=True, exist_ok=True)
         session_id = "ses_real_001"
@@ -387,7 +732,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
                                     "state": {
                                         "status": "completed",
                                         "input": {"path": subject.as_posix()},
-                                        "output": "{\"project_root\": \"%s\"}" % subject.as_posix(),
+                                        "output": '{"project_root": "%s"}' % subject.as_posix(),
                                     },
                                 },
                                 {
@@ -396,7 +741,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
                                     "state": {
                                         "status": "completed",
                                         "input": {"graph_id": "helios-datasource-docs"},
-                                        "output": "{\"ok\": true}",
+                                        "output": '{"ok": true}',
                                     },
                                 },
                             ],
@@ -423,12 +768,136 @@ class BlindAgenticCollectTests(unittest.TestCase):
         self.assertEqual(trace.events[0].session_id, session_id)
         self.assertTrue(any(event.role == "user" for event in trace.events))
         tool_events = [event for event in trace.events if event.role == "tool"]
-        self.assertEqual([event.tool_name for event in tool_events], ["brain_ds_open_workspace", "brain_ds_add_edge"])
+        self.assertEqual(
+            [event.tool_name for event in tool_events],
+            ["brain_ds_open_workspace", "brain_ds_add_edge"],
+        )
         self.assertEqual(tool_events[0].target, subject.as_posix())
         self.assertIn("status=completed", str(tool_events[0].content_ref))
 
+    def test_opencode_export_parser_extracts_tool_status_output_and_bash_command(self) -> None:
+        export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-tool-metadata"
+        export_root.mkdir(parents=True, exist_ok=True)
+        session_id = "ses_tool_metadata"
+        (export_root / "session.json").write_text(
+            json.dumps(
+                {
+                    "info": {"id": session_id, "agent": "brain-ds-orchestrator"},
+                    "messages": [
+                        {
+                            "info": {"agent": "brain-ds-orchestrator", "sessionID": session_id},
+                            "parts": [
+                                {
+                                    "type": "tool",
+                                    "tool": "bash",
+                                    "state": {
+                                        "status": "completed",
+                                        "input": {"command": "uv run pytest -q"},
+                                        "output": "1 passed",
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        trace, omissions = parse_opencode_export(
+            export_root,
+            scenario="datasource_documentation",
+            run_id="trace-tool-metadata",
+            pathway_id="datasource_documentation",
+            model_provider="opencode",
+            model="test-model",
+        )
+
+        self.assertEqual(omissions, [])
+        tool_event = next(event for event in trace.events if event.tool_name == "bash")
+        self.assertEqual(tool_event.tool_status, "completed")
+        self.assertTrue(tool_event.tool_output_present)
+        self.assertEqual(tool_event.tool_command, "uv run pytest -q")
+
+    def test_graph_write_attribution_uses_direct_subagent_owner(self) -> None:
+        attribution = _graph_write_attribution(
+            [
+                TraceEvent(
+                    ts="1",
+                    role="tool",
+                    action="tool_call",
+                    agent_name="brainds-graph-mapper",
+                    delegated_by="brainds-orchestrator",
+                    tool_name="brain_ds_add_edge",
+                    source_path="session.json",
+                )
+            ]
+        )
+
+        self.assertEqual(attribution["status"], "attributed")
+        self.assertEqual(attribution["summary"]["attributed_writes"], 1)
+        self.assertEqual(attribution["writes"][0]["owner_agent"], "brainds-graph-mapper")
+        self.assertEqual(attribution["writes"][0]["evidence"], "direct_graph_write_agent")
+        self.assertIsNone(attribution["writes"][0]["ambiguity"])
+
+    def test_graph_write_attribution_uses_nearest_prior_delegated_subagent_in_same_session(
+        self,
+    ) -> None:
+        attribution = _graph_write_attribution(
+            [
+                TraceEvent(
+                    ts="1",
+                    role="subagent",
+                    action="delegated_message",
+                    agent_name="brainds-graph-mapper",
+                    delegated_by="brainds-orchestrator",
+                    session_id="ses-child",
+                    content_ref="opencode:text-0001",
+                ),
+                TraceEvent(
+                    ts="2",
+                    role="tool",
+                    action="tool_call",
+                    agent_name="brainds-orchestrator",
+                    tool_name="brain_ds_update_node",
+                    session_id="ses-child",
+                    source_path="session.json",
+                ),
+            ]
+        )
+
+        self.assertEqual(attribution["status"], "attributed")
+        self.assertEqual(attribution["writes"][0]["owner_agent"], "brainds-graph-mapper")
+        self.assertEqual(attribution["writes"][0]["evidence"], "nearest_prior_delegated_subagent")
+        self.assertEqual(attribution["writes"][0]["subagent_event_ref"], "trace:0:delegated_message:session_trace.json")
+
+    def test_graph_write_attribution_preserves_explicit_ambiguity_without_subagent_evidence(
+        self,
+    ) -> None:
+        attribution = _graph_write_attribution(
+            [
+                TraceEvent(
+                    ts="1",
+                    role="tool",
+                    action="tool_call",
+                    agent_name="brainds-orchestrator",
+                    tool_name="brain_ds_add_edge",
+                    session_id="ses-orchestrator",
+                    source_path="session.json",
+                )
+            ]
+        )
+
+        self.assertEqual(attribution["status"], "ambiguous")
+        self.assertEqual(attribution["summary"], {"total_writes": 1, "attributed_writes": 0, "ambiguous_writes": 1})
+        self.assertIsNone(attribution["writes"][0]["owner_agent"])
+        self.assertEqual(attribution["writes"][0]["ambiguity"], "no_subagent_attribution_evidence")
+
     def test_opencode_export_parser_rejects_unknown_live_info_message_part_type(self) -> None:
-        export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-info-messages-unknown-part"
+        export_root = (
+            Path("tmp") / "blind-agentic-eval-test" / "opencode-info-messages-unknown-part"
+        )
         export_root.mkdir(parents=True, exist_ok=True)
         session_id = "ses_live_unknown_part"
         (export_root / "session.json").write_text(
@@ -461,7 +930,9 @@ class BlindAgenticCollectTests(unittest.TestCase):
                 model="test-model",
             )
 
-    def test_opencode_export_parser_marks_created_subagent_sessions_as_orchestrator_delegated(self) -> None:
+    def test_opencode_export_parser_marks_created_subagent_sessions_as_orchestrator_delegated(
+        self,
+    ) -> None:
         export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-subagent-created"
         export_root.mkdir(parents=True, exist_ok=True)
         orchestrator_session = "ses_orchestrator_001"
@@ -471,7 +942,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
                 [
                     f"timestamp=2026-06-29T03:45:07.022Z level=INFO message=stream session.id={orchestrator_session} agent=brain-ds-orchestrator mode=primary",
                     f"timestamp=2026-06-29T03:45:21.575Z level=INFO message=created id={subagent_session}",
-                    f"parentID={orchestrator_session} title=\"Run connection mapping phase (@brainds-connection-mapper subagent)\"",
+                    f'parentID={orchestrator_session} title="Run connection mapping phase (@brainds-connection-mapper subagent)"',
                     "agent=brainds-connection-mapper model=undefined metadata=undefined",
                     f"timestamp=2026-06-29T03:45:22.099Z level=INFO message=stream session.id={subagent_session} agent=brainds-connection-mapper mode=subagent",
                 ]
@@ -497,7 +968,9 @@ class BlindAgenticCollectTests(unittest.TestCase):
         self.assertEqual(delegated_subagents[0].action, "session_created")
         self.assertEqual(delegated_subagents[0].session_id, subagent_session)
 
-    def test_opencode_export_parser_treats_title_stream_as_metadata_and_binds_text_to_orchestrator(self) -> None:
+    def test_opencode_export_parser_treats_title_stream_as_metadata_and_binds_text_to_orchestrator(
+        self,
+    ) -> None:
         export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-title-metadata"
         export_root.mkdir(parents=True, exist_ok=True)
         session_id = "ses_title_then_orchestrator"
@@ -549,7 +1022,10 @@ class BlindAgenticCollectTests(unittest.TestCase):
         )
 
         self.assertEqual(omissions, [])
-        self.assertEqual([event.agent_name for event in trace.events], ["brain-ds-orchestrator", "brain-ds-orchestrator", "brain-ds-orchestrator"])
+        self.assertEqual(
+            [event.agent_name for event in trace.events],
+            ["brain-ds-orchestrator", "brain-ds-orchestrator", "brain-ds-orchestrator"],
+        )
         self.assertEqual(trace.events[0].action, "agent_stream")
         self.assertEqual(trace.events[1].role, "orchestrator")
         self.assertIsNotNone(trace.events[1].content_ref)
@@ -665,7 +1141,9 @@ class BlindAgenticCollectTests(unittest.TestCase):
                 self.assertEqual(trace.events[2].agent_name, "brainds-source-explorer")
                 self.assertEqual(trace.events[2].delegated_by, "brain-ds-orchestrator")
 
-    def test_opencode_export_parser_rejects_unknown_export_schema_before_undefined_agent(self) -> None:
+    def test_opencode_export_parser_rejects_unknown_export_schema_before_undefined_agent(
+        self,
+    ) -> None:
         export_root = Path("tmp") / "blind-agentic-eval-test" / "opencode-unknown-schema"
         export_root.mkdir(parents=True, exist_ok=True)
         (export_root / "session.json").write_text(
@@ -778,7 +1256,10 @@ class BlindAgenticCollectTests(unittest.TestCase):
                     "type": "text",
                     "timestamp": 1782702326650,
                     "sessionID": session_id,
-                    "part": {"type": "text", "text": "Unknown placeholder must not own this message."},
+                    "part": {
+                        "type": "text",
+                        "text": "Unknown placeholder must not own this message.",
+                    },
                 }
             )
             + "\n",
@@ -794,7 +1275,10 @@ class BlindAgenticCollectTests(unittest.TestCase):
         )
 
         self.assertEqual(omissions, [])
-        self.assertEqual([event.agent_name for event in trace.events], ["brain-ds-orchestrator", "brain-ds-orchestrator"])
+        self.assertEqual(
+            [event.agent_name for event in trace.events],
+            ["brain-ds-orchestrator", "brain-ds-orchestrator"],
+        )
         self.assertEqual(trace.events[0].action, "agent_stream")
         self.assertEqual(trace.events[1].role, "orchestrator")
 
@@ -830,7 +1314,10 @@ class BlindAgenticCollectTests(unittest.TestCase):
                             "type": "text",
                             "timestamp": 1782702339725,
                             "sessionID": session_id,
-                            "part": {"type": "text", "text": "I will produce source documentation."},
+                            "part": {
+                                "type": "text",
+                                "text": "I will produce source documentation.",
+                            },
                         }
                     ),
                 ]
@@ -848,7 +1335,9 @@ class BlindAgenticCollectTests(unittest.TestCase):
         )
 
         self.assertEqual(omissions, [])
-        self.assertEqual([event.role for event in trace.events], ["orchestrator", "tool", "user", "orchestrator"])
+        self.assertEqual(
+            [event.role for event in trace.events], ["orchestrator", "tool", "user", "orchestrator"]
+        )
         self.assertEqual(trace.events[2].action, "message")
         self.assertEqual(trace.events[2].agent_name, None)
         self.assertTrue(trace.events[2].content_ref)
@@ -950,7 +1439,15 @@ class BlindAgenticCollectTests(unittest.TestCase):
             encoding="utf-8",
         )
         (opencode_dir / "opencode-stdout.jsonl").write_text(
-            json.dumps({"type": "text", "timestamp": 1782697085951, "sessionID": "ses_1", "part": {"type": "text", "text": "Documenting the datasource."}}) + "\n",
+            json.dumps(
+                {
+                    "type": "text",
+                    "timestamp": 1782697085951,
+                    "sessionID": "ses_1",
+                    "part": {"type": "text", "text": "Documenting the datasource."},
+                }
+            )
+            + "\n",
             encoding="utf-8",
         )
         (opencode_dir / "evidence").mkdir()
@@ -973,11 +1470,15 @@ class BlindAgenticCollectTests(unittest.TestCase):
             manifest["captured"]["opencode_export"],
             "opencode/session.json",
         )
-        self.assertFalse((bundle.evidence_path / "opencode" / "evidence" / "manifest.json").exists())
+        self.assertFalse(
+            (bundle.evidence_path / "opencode" / "evidence" / "manifest.json").exists()
+        )
         self.assertFalse((bundle.evidence_path / "opencode" / "opencode-stdout.jsonl").exists())
         self.assertNotIn("record 0 is not an object", json.dumps(manifest["omissions"]))
 
-    def test_datasource_collect_does_not_synthesize_source_documentation_from_export_text(self) -> None:
+    def test_datasource_collect_does_not_synthesize_source_documentation_from_export_text(
+        self,
+    ) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
             run_id="datasource-final-text-output-001",
@@ -1022,7 +1523,9 @@ class BlindAgenticCollectTests(unittest.TestCase):
         self.assertNotIn("generated_outputs", manifest["captured"])
         self.assertEqual(manifest["freshness_checks"]["generated_outputs"]["status"], "missing")
 
-    def test_datasource_collect_does_not_materialize_final_text_after_title_metadata_agent(self) -> None:
+    def test_datasource_collect_does_not_materialize_final_text_after_title_metadata_agent(
+        self,
+    ) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
             run_id="datasource-title-before-orchestrator-final-text-001",
@@ -1070,7 +1573,9 @@ class BlindAgenticCollectTests(unittest.TestCase):
         generated = subject.subject_path / "generated" / "source_documentation.md"
         self.assertFalse(generated.exists())
 
-    def test_datasource_collect_does_not_materialize_final_text_after_unknown_session_agent(self) -> None:
+    def test_datasource_collect_does_not_materialize_final_text_after_unknown_session_agent(
+        self,
+    ) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
             run_id="datasource-unknown-before-orchestrator-final-text-001",
@@ -1128,7 +1633,9 @@ class BlindAgenticCollectTests(unittest.TestCase):
         generated = subject.subject_path / "generated" / "source_documentation.md"
         self.assertFalse(generated.exists())
 
-    def test_datasource_collect_does_not_materialize_incomplete_orchestrator_source_documentation(self) -> None:
+    def test_datasource_collect_does_not_materialize_incomplete_orchestrator_source_documentation(
+        self,
+    ) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
             run_id="datasource-incomplete-final-text-output-001",
@@ -1173,7 +1680,9 @@ class BlindAgenticCollectTests(unittest.TestCase):
         self.assertNotIn("generated_outputs", manifest["captured"])
         self.assertEqual(manifest["freshness_checks"]["generated_outputs"]["status"], "missing")
 
-    def test_datasource_collect_does_not_materialize_datasource_markdown_without_exact_heading(self) -> None:
+    def test_datasource_collect_does_not_materialize_datasource_markdown_without_exact_heading(
+        self,
+    ) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
             run_id="datasource-contract-markdown-output-001",
@@ -1257,7 +1766,9 @@ class BlindAgenticCollectTests(unittest.TestCase):
         generated = subject.subject_path / "generated" / "source_documentation.md"
         self.assertFalse(generated.exists())
 
-    def test_datasource_collect_does_not_materialize_chronological_final_orchestrator_text(self) -> None:
+    def test_datasource_collect_does_not_materialize_chronological_final_orchestrator_text(
+        self,
+    ) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
             run_id="datasource-chronological-final-text-output-001",
@@ -1373,7 +1884,9 @@ class BlindAgenticCollectTests(unittest.TestCase):
         generated = subject.subject_path / "generated" / "source_documentation.md"
         self.assertFalse(generated.exists())
 
-    def test_datasource_collect_does_not_materialize_source_documentation_from_json_transcript(self) -> None:
+    def test_datasource_collect_does_not_materialize_source_documentation_from_json_transcript(
+        self,
+    ) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
             run_id="datasource-json-transcript-final-text-001",
@@ -1417,7 +1930,9 @@ class BlindAgenticCollectTests(unittest.TestCase):
         generated = subject.subject_path / "generated" / "source_documentation.md"
         self.assertFalse(generated.exists())
 
-    def test_datasource_collect_does_not_materialize_subagent_only_source_documentation(self) -> None:
+    def test_datasource_collect_does_not_materialize_subagent_only_source_documentation(
+        self,
+    ) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
             run_id="datasource-subagent-only-output-001",
@@ -1547,7 +2062,9 @@ class BlindAgenticCollectTests(unittest.TestCase):
         self.assertEqual(session_trace["events"][0]["role"], "orchestrator")
         self.assertEqual(session_trace["events"][0]["agent_name"], "brain-ds-orchestrator")
 
-    def test_datasource_documentation_missing_required_trace_degrades_minimum_evidence(self) -> None:
+    def test_datasource_documentation_missing_required_trace_degrades_minimum_evidence(
+        self,
+    ) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
             run_id="datasource-missing-trace-001",
@@ -1646,7 +2163,9 @@ class BlindAgenticCollectTests(unittest.TestCase):
         )
 
         manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
-        session_trace = json.loads((bundle.evidence_path / "trace" / "session_trace.json").read_text())
+        session_trace = json.loads(
+            (bundle.evidence_path / "trace" / "session_trace.json").read_text()
+        )
 
         self.assertEqual(manifest["captured"]["opencode_export"], "opencode/session.json")
         self.assertEqual(manifest["trace"]["event_count"], 1)
@@ -1654,7 +2173,9 @@ class BlindAgenticCollectTests(unittest.TestCase):
         self.assertEqual(session_trace["events"][0]["agent_name"], "brain-ds-orchestrator")
         self.assertFalse((bundle.evidence_path / "opencode" / "opencode-run.stdout.jsonl").exists())
 
-    def test_datasource_documentation_prefers_canonical_export_over_legacy_session_json(self) -> None:
+    def test_datasource_documentation_prefers_canonical_export_over_legacy_session_json(
+        self,
+    ) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
             run_id="datasource-export-canonical-wins",
@@ -1674,7 +2195,10 @@ class BlindAgenticCollectTests(unittest.TestCase):
                             "timestamp": 1,
                             "sessionID": "ses_legacy_artifact",
                             "agent_name": "brain-ds-orchestrator",
-                            "part": {"type": "text", "text": "Legacy artifacts are diagnostics only."},
+                            "part": {
+                                "type": "text",
+                                "text": "Legacy artifacts are diagnostics only.",
+                            },
                         }
                     ]
                 }
@@ -1692,13 +2216,17 @@ class BlindAgenticCollectTests(unittest.TestCase):
         )
 
         manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
-        session_trace = json.loads((bundle.evidence_path / "trace" / "session_trace.json").read_text())
+        session_trace = json.loads(
+            (bundle.evidence_path / "trace" / "session_trace.json").read_text()
+        )
 
         self.assertEqual(manifest["captured"]["opencode_export"], "opencode/session.json")
         self.assertEqual(session_trace["events"][0]["session_id"], "ses_canonical_export")
         self.assertNotEqual(session_trace["events"][0]["session_id"], "ses_legacy_artifact")
 
-    def test_datasource_documentation_rejects_legacy_session_json_without_canonical_export(self) -> None:
+    def test_datasource_documentation_rejects_legacy_session_json_without_canonical_export(
+        self,
+    ) -> None:
         subject = prepare_subject(
             scenario="datasource_documentation",
             run_id="datasource-legacy-session-json-rejected",
@@ -1716,7 +2244,10 @@ class BlindAgenticCollectTests(unittest.TestCase):
                             "timestamp": 1,
                             "sessionID": "ses_legacy_only",
                             "agent_name": "brain-ds-orchestrator",
-                            "part": {"type": "text", "text": "This is not canonical export evidence."},
+                            "part": {
+                                "type": "text",
+                                "text": "This is not canonical export evidence.",
+                            },
                         }
                     ]
                 }
@@ -1778,7 +2309,9 @@ class BlindAgenticCollectTests(unittest.TestCase):
         first_manifest = json.loads(first.manifest_path.read_text(encoding="utf-8"))
         second_manifest = json.loads(second.manifest_path.read_text(encoding="utf-8"))
         first_trace = json.loads((first.evidence_path / "trace" / "session_trace.json").read_text())
-        second_trace = json.loads((second.evidence_path / "trace" / "session_trace.json").read_text())
+        second_trace = json.loads(
+            (second.evidence_path / "trace" / "session_trace.json").read_text()
+        )
 
         self.assertEqual(first_manifest["trace"]["sha256"], second_manifest["trace"]["sha256"])
         self.assertEqual(first_trace["created_at_utc"], second_trace["created_at_utc"])
@@ -1833,7 +2366,10 @@ class BlindAgenticCollectTests(unittest.TestCase):
                         {
                             "type": "text",
                             "timestamp": 2,
-                            "part": {"type": "text", "text": "Shape drift lacks session and attribution."},
+                            "part": {
+                                "type": "text",
+                                "text": "Shape drift lacks session and attribution.",
+                            },
                         },
                     ]
                 }
@@ -1931,7 +2467,7 @@ class BlindAgenticCollectTests(unittest.TestCase):
         freshness = manifest["freshness_checks"]
 
         self.assertEqual(freshness["status"], "passed")
-        self.assertEqual(freshness["report_schema_version"], "2026-06-27.pr2")
+        self.assertEqual(freshness["report_schema_version"], "2026-06-30.pr3")
         self.assertEqual(freshness["trace_schema_version"], "2026-06-27.pr1")
         self.assertEqual(freshness["subject_local_graph"]["status"], "passed")
         self.assertEqual(freshness["generated_outputs"]["status"], "captured")
@@ -2094,7 +2630,10 @@ class BlindAgenticCollectTests(unittest.TestCase):
                             "timestamp": 1,
                             "sessionID": session_id,
                             "agent_name": "brain-ds-orchestrator",
-                            "part": {"type": "text", "text": "Exported datasource documentation trace."},
+                            "part": {
+                                "type": "text",
+                                "text": "Exported datasource documentation trace.",
+                            },
                         }
                     ]
                 }

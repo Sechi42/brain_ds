@@ -33,6 +33,20 @@ DEFAULT_INFRASTRUCTURE_EXCLUDE_DIRS = (
 )
 
 
+def resolve_repo_root(repo_root: Path | str | None = None) -> Path:
+    """Return the repository root for blind-agentic fixtures, independent of cwd."""
+
+    candidate = Path(repo_root) if repo_root is not None else Path(__file__).resolve().parents[3]
+    root = candidate if candidate.is_absolute() else (Path.cwd() / candidate)
+    root = root.resolve()
+
+    if (root / "tests" / "fixtures" / "blind_agentic").is_dir():
+        return root
+    if root.name == "tests" and (root.parent / "tests" / "fixtures" / "blind_agentic").is_dir():
+        return root.parent
+    return root
+
+
 class PrepareSubjectError(RuntimeError):
     """Raised when a blind subject workspace would violate run constraints."""
 
@@ -54,18 +68,32 @@ def prepare_subject(
 ) -> PreparedSubjectWorkspace:
     """Materialize a subject-only workspace for a blind agentic run."""
 
-    root = Path(repo_root) if repo_root is not None else Path(__file__).resolve().parents[3]
+    root = resolve_repo_root(repo_root)
     template_root = root / "tests" / "fixtures" / "blind_agentic" / scenario
     if not template_root.is_dir():
         raise PrepareSubjectError(f"Unknown blind subject scenario: {scenario}")
 
-    subject_path = Path(output_root) / run_id / "subject"
-    if subject_path.exists():
-        _remove_tree_with_retries(subject_path)
+    output_base = Path(output_root)
+    pytest_output_root = os.environ.get("BRAIN_DS_BLIND_AGENTIC_OUTPUT_ROOT")
+    if pytest_output_root and not output_base.is_absolute():
+        output_base = Path(pytest_output_root) / output_base.name
+    if not output_base.is_absolute():
+        output_base = root / output_base
+    subject_path = (output_base / run_id / "subject").resolve()
+    run_root = subject_path.parent
+    if run_root.exists():
+        wrapper_active = (run_root / "brain_ds_home").exists()
+        for child in run_root.iterdir():
+            if wrapper_active and child.name in {"diagnostics", "opencode-export", "brain_ds_home"}:
+                continue
+            if child.is_dir():
+                _remove_tree_with_retries(child)
+            else:
+                child.unlink()
     subject_path.mkdir(parents=True)
 
     _copy_allowlisted_subject_files(template_root, subject_path)
-    sqlite_name = "datasource.sqlite" if scenario == "datasource_documentation" else "revops.sqlite"
+    sqlite_name = _sqlite_name_for_scenario(scenario)
     _build_sqlite_from_csv_sources(subject_path / "sources", sqlite_name=sqlite_name)
     if scenario == "datasource_documentation":
         _write_datasource_protocol_metadata(subject_path)
@@ -218,6 +246,15 @@ def _build_sqlite_from_csv_sources(sources_root: Path, *, sqlite_name: str = "re
         conn.commit()
     finally:
         conn.close()
+
+
+def _sqlite_name_for_scenario(scenario: str) -> str:
+    return {
+        "datasource_documentation": "datasource.sqlite",
+        "revops_growth": "revops.sqlite",
+        "kpi_lineage": "kpi_lineage.sqlite",
+        "currency_elicitation": "currency_elicitation.sqlite",
+    }.get(scenario, f"{scenario}.sqlite")
 
 
 def _sqlite_identifier(name: str) -> str:

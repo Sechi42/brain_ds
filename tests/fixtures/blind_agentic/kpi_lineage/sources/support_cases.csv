@@ -1,0 +1,4 @@
+account_id,ticket_count,severity_mix,estimated_cost,period
+a-100,8,medium,1200,2026-05
+a-211,3,low,350,2026-05
+a-314,14,high,4200,2026-05

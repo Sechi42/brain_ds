@@ -1,0 +1,4 @@
+kpi_id,kpi_name,definition,target,owner,review_cadence
+gross_margin,Gross Margin,Revenue minus cost of goods sold divided by revenue,42%,Finance Analytics,monthly
+nrr,Net Revenue Retention,Retained and expanded ARR divided by starting ARR,112%,Revenue Operations,monthly
+support_cost_ratio,Support Cost Ratio,Support cost divided by recurring revenue,8%,Customer Operations,quarterly

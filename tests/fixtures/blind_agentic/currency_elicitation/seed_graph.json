@@ -1,0 +1,11 @@
+{
+  "graph_id": "meridian-currency-elicitation",
+  "name": "Meridian Currency Elicitation",
+  "project": "blind-agentic-subject",
+  "nodes": [
+    {"id": "source-success-notes", "label": "Customer Success Notes", "type": "Data Source"},
+    {"id": "source-refresh-log", "label": "Source Refresh Log", "type": "Data Source"},
+    {"id": "source-open-questions", "label": "Open Questions", "type": "Data Source"}
+  ],
+  "edges": []
+}

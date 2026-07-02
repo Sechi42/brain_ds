@@ -1,0 +1,4 @@
+source_id,stakeholder,last_confirmed,confidence,note
+success_notes,Customer Success,2026-04-18,medium,Needs confirmation after territory changes
+refresh_log,Data Engineering,2026-05-22,high,Automated ingestion is active
+open_questions,Analytics Operations,2026-05-01,low,Several answers remain unresolved

@@ -10,6 +10,7 @@ from typing import Any
 
 
 TRACE_VERSION = "2026-06-27.pr1"
+REPORT_SCHEMA_VERSION = "2026-06-30.pr3"
 TRACE_ROLES = {"verifier", "orchestrator", "subagent", "tool", "user", "system"}
 SESSION_ID_ALIASES = ("sessionID", "session_id", "session.id", "id")
 PARENT_SESSION_ID_ALIASES = (
@@ -39,6 +40,9 @@ class TraceEvent:
     source_path: str | None = None
     session_id: str | None = None
     text_hash: str | None = None
+    tool_status: str | None = None
+    tool_output_present: bool = False
+    tool_command: str | None = None
 
     def __post_init__(self) -> None:
         if self.role not in TRACE_ROLES:
@@ -87,15 +91,21 @@ def parse_opencode_export(
 
     root = Path(export_root)
     records, omissions = _read_export_records(root)
-    if records and not any(isinstance(record, dict) and _is_known_opencode_record(record) for record in records):
-        raise TraceSchemaError("unknown OpenCode export schema: no recognized session, agent, message, or tool fields")
+    if records and not any(
+        isinstance(record, dict) and _is_known_opencode_record(record) for record in records
+    ):
+        raise TraceSchemaError(
+            "unknown OpenCode export schema: no recognized session, agent, message, or tool fields"
+        )
     agent_by_session = _agent_by_session(records)
     delegated_by_session = _delegated_by_session(records, agent_by_session)
     _validate_export_record_contract(records, agent_by_session)
     events: list[TraceEvent] = []
     for index, record in enumerate(records):
         if not isinstance(record, dict):
-            omissions.append({"artifact": "opencode_record", "reason": f"record {index} is not an object"})
+            omissions.append(
+                {"artifact": "opencode_record", "reason": f"record {index} is not an object"}
+            )
             continue
         try:
             events.extend(
@@ -108,9 +118,13 @@ def parse_opencode_export(
                 )
             )
         except TraceSchemaError as exc:
-            omissions.append({"artifact": "opencode_record", "reason": f"record {index}: {str(exc).lower()}"})
+            omissions.append(
+                {"artifact": "opencode_record", "reason": f"record {index}: {str(exc).lower()}"}
+            )
     if not events:
-        omissions.append({"artifact": "session_trace", "reason": "no traceable OpenCode records found"})
+        omissions.append(
+            {"artifact": "session_trace", "reason": "no traceable OpenCode records found"}
+        )
 
     trace = SessionTrace(
         trace_version=TRACE_VERSION,
@@ -137,7 +151,10 @@ def write_session_trace(trace: SessionTrace, target: Path) -> dict[str, str]:
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = trace.to_json() + "\n"
     target.write_text(payload, encoding="utf-8")
-    return {"path": target.as_posix(), "sha256": hashlib.sha256(payload.encode("utf-8")).hexdigest()}
+    return {
+        "path": target.as_posix(),
+        "sha256": hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+    }
 
 
 def _read_export_records(root: Path) -> tuple[list[Any], list[dict[str, str]]]:
@@ -154,9 +171,14 @@ def _read_export_records(root: Path) -> tuple[list[Any], list[dict[str, str]]]:
                 if isinstance(parsed, list):
                     records.extend(_with_source(item, source, root) for item in parsed)
                 elif isinstance(parsed, dict):
-                    records.extend(_with_source(item, source, root) for item in _extract_records_from_object(parsed))
+                    records.extend(
+                        _with_source(item, source, root)
+                        for item in _extract_records_from_object(parsed)
+                    )
                 else:
-                    omissions.append({"artifact": source.as_posix(), "reason": "JSON root is not an object/list"})
+                    omissions.append(
+                        {"artifact": source.as_posix(), "reason": "JSON root is not an object/list"}
+                    )
             else:
                 for line in source.read_text(encoding="utf-8").splitlines():
                     if line.strip():
@@ -172,7 +194,9 @@ def _read_export_records(root: Path) -> tuple[list[Any], list[dict[str, str]]]:
     return records, omissions
 
 
-def _record_chronology_key(record: Any, fallback_index: int) -> tuple[int, float | str | int, float | int, int]:
+def _record_chronology_key(
+    record: Any, fallback_index: int
+) -> tuple[int, float | str | int, float | int, int]:
     if not isinstance(record, dict):
         return (3, fallback_index, fallback_index, fallback_index)
     sequence = _record_sequence_value(record, fallback_index)
@@ -351,12 +375,16 @@ def _extract_records_from_info_messages_envelope(parsed: dict[str, Any]) -> list
     return records
 
 
-def _records_from_message(message: dict[str, Any], *, session_info: dict[str, Any]) -> list[dict[str, Any]]:
+def _records_from_message(
+    message: dict[str, Any], *, session_info: dict[str, Any]
+) -> list[dict[str, Any]]:
     message_info = _optional_dict(message, "info")
     inherited = {
         "timestamp": _time_value(message_info),
-        "sessionID": _optional_text(message_info, "sessionID") or _optional_text(session_info, "id"),
-        "agent_name": _optional_text(message_info, "agent") or _optional_text(session_info, "agent"),
+        "sessionID": _optional_text(message_info, "sessionID")
+        or _optional_text(session_info, "id"),
+        "agent_name": _optional_text(message_info, "agent")
+        or _optional_text(session_info, "agent"),
         "role": _optional_text(message_info, "role"),
         "parent_id": _optional_text(message_info, "parentID"),
     }
@@ -370,7 +398,9 @@ def _records_from_message(message: dict[str, Any], *, session_info: dict[str, An
     return records
 
 
-def _record_from_message_part(part: dict[str, Any], *, inherited: dict[str, str | None]) -> dict[str, Any] | None:
+def _record_from_message_part(
+    part: dict[str, Any], *, inherited: dict[str, str | None]
+) -> dict[str, Any] | None:
     part_type = _optional_text(part, "type")
     record_type_by_part = {
         "text": "text",
@@ -383,7 +413,9 @@ def _record_from_message_part(part: dict[str, Any], *, inherited: dict[str, str 
     }
     record_type = record_type_by_part.get((part_type or "").casefold())
     if record_type is None:
-        raise TraceSchemaError(f"unsupported OpenCode message part type: {part_type or '<missing>'}")
+        raise TraceSchemaError(
+            f"unsupported OpenCode message part type: {part_type or '<missing>'}"
+        )
     record: dict[str, Any] = {
         "type": record_type,
         "timestamp": _time_value(part) or inherited.get("timestamp"),
@@ -409,7 +441,12 @@ def _time_value(record: dict[str, Any]) -> str | None:
 
 
 def _record_to_events(
-    record: dict[str, Any], *, index: int, root: Path, agent_by_session: dict[str, str], delegated_by_session: dict[str, str]
+    record: dict[str, Any],
+    *,
+    index: int,
+    root: Path,
+    agent_by_session: dict[str, str],
+    delegated_by_session: dict[str, str],
 ) -> list[TraceEvent]:
     event = _record_to_event(
         record,
@@ -425,7 +462,12 @@ def _record_to_events(
 
 
 def _record_to_event(
-    record: dict[str, Any], *, index: int, root: Path, agent_by_session: dict[str, str], delegated_by_session: dict[str, str]
+    record: dict[str, Any],
+    *,
+    index: int,
+    root: Path,
+    agent_by_session: dict[str, str],
+    delegated_by_session: dict[str, str],
 ) -> TraceEvent | None:
     record_type = _optional_text(record, "type")
     part = _optional_dict(record, "part")
@@ -445,7 +487,9 @@ def _record_to_event(
         or _optional_text(record, "tool")
         or _optional_text(part, "tool")
     )
-    role = _normalize_role(_optional_text(record, "role"), agent_name=agent_name, tool_name=tool_name)
+    role = _normalize_role(
+        _optional_text(record, "role"), agent_name=agent_name, tool_name=tool_name
+    )
     if record_type in {"text", "reasoning"} and role != "user":
         role = "orchestrator" if _is_orchestrator_agent(agent_name) else role
     delegated_by = (
@@ -453,12 +497,17 @@ def _record_to_event(
         or _optional_text(record, "parent_agent")
         or (delegated_by_session.get(session_id) if session_id else None)
     )
-    action = _optional_text(record, "action") or _infer_action(record, role, delegated_by=delegated_by)
+    action = _optional_text(record, "action") or _infer_action(
+        record, role, delegated_by=delegated_by
+    )
     if tool_name == "task" and _has_completed_task_result(record):
         action = "delegated_task_result"
     content_ref = _content_ref(record, index=index, root=root)
+    state = _tool_state(record)
     return TraceEvent(
-        ts=_optional_text(record, "ts") or _optional_text(record, "timestamp") or f"event-{index:04d}",
+        ts=_optional_text(record, "ts")
+        or _optional_text(record, "timestamp")
+        or f"event-{index:04d}",
         role=role,
         agent_name=agent_name,
         action=action,
@@ -466,14 +515,20 @@ def _record_to_event(
         content_ref=content_ref,
         tool_name=tool_name,
         delegated_by=delegated_by,
-        pathway_milestone=_optional_text(record, "pathway_milestone") or _optional_text(record, "milestone"),
+        pathway_milestone=_optional_text(record, "pathway_milestone")
+        or _optional_text(record, "milestone"),
         source_path=_optional_text(record, "_source_path"),
         session_id=session_id,
         text_hash=_text_hash(record),
+        tool_status=_tool_status(state),
+        tool_output_present=_tool_output_present(state),
+        tool_command=_tool_command(state),
     )
 
 
-def _prompt_read_event(record: dict[str, Any], *, index: int, agent_name: str | None) -> TraceEvent | None:
+def _prompt_read_event(
+    record: dict[str, Any], *, index: int, agent_name: str | None
+) -> TraceEvent | None:
     if _optional_text(record, "type") != "tool_use":
         return None
     part = _optional_dict(record, "part")
@@ -489,7 +544,9 @@ def _prompt_read_event(record: dict[str, Any], *, index: int, agent_name: str | 
         return None
     digest = hashlib.sha256(output.encode("utf-8")).hexdigest()
     return TraceEvent(
-        ts=_optional_text(record, "ts") or _optional_text(record, "timestamp") or f"event-{index:04d}",
+        ts=_optional_text(record, "ts")
+        or _optional_text(record, "timestamp")
+        or f"event-{index:04d}",
         role="user",
         agent_name=None,
         action="message",
@@ -532,7 +589,9 @@ def _infer_action(record: dict[str, Any], role: str, *, delegated_by: str | None
         return "agent_stream"
     if record_type == "tool_use":
         return "tool_call"
-    if role == "subagent" and (delegated_by or record.get("delegated_by") or record.get("parent_agent")):
+    if role == "subagent" and (
+        delegated_by or record.get("delegated_by") or record.get("parent_agent")
+    ):
         return "delegated_message"
     if record_type == "text":
         return "message"
@@ -563,8 +622,31 @@ def _content_ref(record: dict[str, Any], *, index: int, root: Path) -> str | Non
         return f"opencode:text-{index:04d}:{digest[:12]}"
     if "content" not in record:
         return None
-    digest = hashlib.sha256(json.dumps(record["content"], sort_keys=True).encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(
+        json.dumps(record["content"], sort_keys=True).encode("utf-8")
+    ).hexdigest()
     return f"opencode:event-{index:04d}:{digest[:12]}"
+
+
+def _tool_state(record: dict[str, Any]) -> dict[str, Any]:
+    if _optional_text(record, "type") != "tool_use":
+        return {}
+    part = _optional_dict(record, "part")
+    return _optional_dict(part, "state")
+
+
+def _tool_status(state: dict[str, Any]) -> str | None:
+    status = _optional_text(state, "status")
+    return status.casefold() if status else None
+
+
+def _tool_output_present(state: dict[str, Any]) -> bool:
+    return bool(_optional_text(state, "output") or _optional_text(state, "result"))
+
+
+def _tool_command(state: dict[str, Any]) -> str | None:
+    input_payload = _optional_dict(state, "input")
+    return _optional_text(input_payload, "command") or _optional_text(input_payload, "cmd")
 
 
 def _session_id(record: dict[str, Any]) -> str | None:
@@ -642,7 +724,11 @@ def _validate_export_record_contract(records: list[Any], agent_by_session: dict[
 
 def _text_hash(record: dict[str, Any]) -> str | None:
     part = _optional_dict(record, "part")
-    text = _optional_text(record, "content") or _optional_text(record, "text") or _optional_text(part, "text")
+    text = (
+        _optional_text(record, "content")
+        or _optional_text(record, "text")
+        or _optional_text(part, "text")
+    )
     return hashlib.sha256(text.encode("utf-8")).hexdigest() if text else None
 
 

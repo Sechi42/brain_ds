@@ -1,0 +1,33 @@
+{
+  "version": 2,
+  "scenario": "kpi_lineage",
+  "pathway_id": "kpi_lineage",
+  "rubric": {
+    "version": "2026-07-02-slice2",
+    "axes": {
+      "lineage": {"weight": 0.35, "max_score": 5},
+      "entity_source": {"weight": 0.15, "max_score": 5},
+      "pending_questions": {"weight": 0.15, "max_score": 5},
+      "business_usefulness": {"weight": 0.15, "max_score": 5},
+      "evidence_quality": {"weight": 0.1, "max_score": 5},
+      "artifact_hygiene": {"weight": 0.05, "max_score": 5},
+      "anti_contamination": {"weight": 0.05, "max_score": 5}
+    }
+  },
+  "canonical_nodes": [
+    {"id": "gross_margin", "type": "KPI", "label": "Gross Margin", "aliases": ["Gross Margin KPI"]},
+    {"id": "finance_ledger", "type": "Data Source", "label": "Finance Ledger", "aliases": ["Finance Ledger Data"]},
+    {"id": "billing_events", "type": "Data Source", "label": "Billing Events", "aliases": ["Billing Event Records"]}
+  ],
+  "expected_edges": [
+    {"source": "finance_ledger", "target": "gross_margin", "compatible_labels": ["measures", "depends_on", "uses"], "direction": "source_to_target"},
+    {"source": "billing_events", "target": "gross_margin", "compatible_labels": ["depends_on", "uses", "influences"], "direction": "source_to_target"}
+  ],
+  "optional_edges": [],
+  "forbidden_edges": [],
+  "pending_question_themes": [
+    {"id": "currency_owner", "entity_type": "Data Source", "expected_terms": ["currency", "owner"], "min_hits": 2}
+  ],
+  "business_terms": ["next actions", "assumptions", "data gaps", "source ownership", "kpi definitions"],
+  "forbidden_subject_terms": ["eval", "rubric", "gold", "answer key", "expected output", "benchmark", "hidden test"]
+}

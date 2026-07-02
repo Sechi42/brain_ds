@@ -28,6 +28,17 @@ This skill encodes the brain_ds harness-maintenance contract from CLAUDE.md. For
 
 ---
 
+## blind-agentic-path-evaluator
+
+**Trigger**: when launching a verifier to evaluate one BrainDS path with deterministic evidence plus behavioral analysis.
+**Inputs**: orchestrator context packet with path, scenario, OpenCode Go model, report destination, run label, artifact refs, protocol version, and visibility limits.
+**Outputs**: one evidence-grounded report for exactly one path; mandatory concise key points saved to Engram for every completed evaluation; full report to file, Engram, or both according to user selection.
+**MCP tools**: none directly (verifier protocol skill; key-point persistence is performed by the invoking agent for every completed evaluation).
+
+This skill defines the local blind-agentic path evaluator protocol. It requires missing launch questions before execution, rejects multiple paths in one context, reads and understands the selected target flow as the cognitive benchmark before judging behavior, preserves user-facing path identity, forces behavioral analysis to cite evidence while naming omissions, opaque gaps, and visibility limits, and always saves concise key points to Engram for completed evaluations.
+
+---
+
 ## elicit-context
 
 **Trigger**: `/elicit-context` (explicit slash command only — never auto-activated).

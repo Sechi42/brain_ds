@@ -28,6 +28,7 @@ After `install-opencode.ps1` or `install-opencode.sh`, OpenCode auto-discovers p
 | `share-brainds` | Regenerate SHARED_CONTEXT.md skill index | [SKILL.md](skills/share-brainds/SKILL.md) |
 | `brainds-docs` | Node documentation and card_sections authoring | [SKILL.md](skills/brainds-docs/SKILL.md) |
 | `brainds-registry` | Harness/ontology/tool sync audit checklist | [SKILL.md](skills/brainds-registry/SKILL.md) |
+| `blind-agentic-path-evaluator` | One-path blind agentic verifier protocol | [SKILL.md](skills/blind-agentic-path-evaluator/SKILL.md) |
 
 See `skills/SHARED_CONTEXT.md` for one-paragraph summaries of every skill.
 
@@ -43,6 +44,7 @@ See `skills/SHARED_CONTEXT.md` for one-paragraph summaries of every skill.
 | `brainds-currency-elicitor` | sonnet | Runs Brick-E currency elicitation from assess_currency/retrieve_context and defers stakeholder questions through insert_pending_question | [.claude/agents/brainds-currency-elicitor.md](.claude/agents/brainds-currency-elicitor.md) |
 | `brainds-kpi-composer` | sonnet | Standalone KPI dossier composer; proposes KPI lineage candidates, defers confirmation, and materializes only confirmed measured-from/depends-on edges | [.claude/agents/brainds-kpi-composer.md](.claude/agents/brainds-kpi-composer.md) |
 | `brainds-orchestrator` | opus | Coordinates elicit → source-docs → map → BRD and owns the dry-run recipe | [.claude/agents/brainds-orchestrator.md](.claude/agents/brainds-orchestrator.md) |
+| `blind-agentic-path-evaluator` | sonnet | Runs exactly one blind-agentic path evaluation with deterministic evidence, benchmark-first behavioral analysis, and mandatory Engram key points | [.claude/agents/blind-agentic-path-evaluator.md](.claude/agents/blind-agentic-path-evaluator.md) |
 
 ## Harness maintenance
 

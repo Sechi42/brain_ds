@@ -13,7 +13,16 @@ from typing import Any, Iterator, Sequence
 
 from brain_ds import workspaces
 from brain_ds.store.graph_store import GraphStore
+from tests.eval.blind_agentic.path_plan import (
+    PathPlanError,
+    build_comparability_state,
+    build_default_plan,
+    discover_git_lineage,
+    normalize_requested_path,
+    validate_sdd_change,
+)
 from tests.eval.blind_agentic.prepare_subject import PrepareSubjectError, prepare_subject
+from tests.eval.blind_agentic.trace_schema import REPORT_SCHEMA_VERSION, TRACE_VERSION
 
 
 REQUIRED_ORCHESTRATOR = "brain-ds-orchestrator"
@@ -27,6 +36,7 @@ class OpenCodeVerifierError(RuntimeError):
 @dataclass(frozen=True)
 class OpenCodeVerifierResult:
     scenario: str
+    path_id: str
     run_id: str
     subject_path: Path
     manifest_path: Path
@@ -63,15 +73,39 @@ def build_opencode_run_command(
 
 def run_verifier(
     *,
-    scenario: str,
+    scenario: str | None = None,
+    path_id: str | None = None,
     run_id: str,
     output_root: Path | str = Path("tmp") / "blind-agentic-eval",
     repo_root: Path | str | None = None,
     model: str | None = None,
+    sdd_change: str | None = None,
 ) -> OpenCodeVerifierResult:
     """Prepare, run, export, and manifest a controlled OpenCode verifier session."""
 
     root = Path(repo_root) if repo_root is not None else Path.cwd()
+    try:
+        resolved_sdd_change = _resolve_sdd_change(sdd_change)
+        plan = build_default_plan(sdd_change=resolved_sdd_change)
+        if path_id is not None:
+            normalized = normalize_requested_path(path_id, sdd_change=resolved_sdd_change)
+            scenario = normalized.scenario
+            selected_path = normalized.plan_entry
+        elif scenario is not None:
+            selected_path = plan.path_for_scenario(scenario)
+            path_id = selected_path.path_id
+        else:
+            raise PathPlanError("path_id or scenario is required")
+        lineage = discover_git_lineage(root, sdd_change=resolved_sdd_change)
+        comparability = build_comparability_state(
+            lineage=lineage,
+            selected_path=selected_path,
+            prompt_version=_prompt_version_for_scenario(scenario),
+            trace_schema_version=TRACE_VERSION,
+            report_schema_version=REPORT_SCHEMA_VERSION,
+        )
+    except PathPlanError as exc:
+        raise OpenCodeVerifierError(f"sdd_change: {exc}") from exc
     output = Path(output_root)
     run_root = output / run_id
     diagnostics = run_root / "diagnostics"
@@ -132,7 +166,9 @@ def run_verifier(
 
         session_id, session_alias = _extract_session_id(run_stdout_text)
         if not session_id:
-            raise OpenCodeVerifierError("missing-sessionID: OpenCode run did not emit a session identifier")
+            raise OpenCodeVerifierError(
+                "missing-sessionID: OpenCode run did not emit a session identifier"
+            )
 
         export_command = ["opencode", "export", session_id]
         export_completed = _run_opencode_command(
@@ -159,12 +195,18 @@ def run_verifier(
         raise
 
     manifest = {
+        "path_id": path_id,
         "scenario": scenario,
         "run_id": run_id,
         "subject_path": subject.as_posix(),
         "brain_ds_home": brain_ds_home.as_posix(),
         "prompt_path": prompt_path.as_posix(),
+        "lineage": lineage.__dict__,
+        "path_plan_version": plan.path_plan_version,
+        "selected_path": selected_path.__dict__,
+        "comparability": comparability.__dict__,
         "session_id": session_id,
+        "model": model,
         "session_id_source_alias": session_alias,
         "workspace_registration": registration,
         "workspace_unregistration": default_unregistration,
@@ -184,10 +226,13 @@ def run_verifier(
             "returncode": export_completed.returncode,
         },
     }
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
     return OpenCodeVerifierResult(
         scenario=scenario,
+        path_id=path_id,
         run_id=run_id,
         subject_path=subject,
         manifest_path=manifest_path,
@@ -210,6 +255,19 @@ def _read_prompt(prompt_path: Path, subject: Path) -> str:
         "write the stakeholder artifact exactly to generated/source_documentation.md."
     )
     return f"{prompt}{gate}\n"
+
+
+def _resolve_sdd_change(value: str | None) -> str:
+    return validate_sdd_change(value or os.environ.get("BRAIN_DS_SDD_CHANGE"))
+
+
+def _prompt_version_for_scenario(scenario: str) -> str:
+    return {
+        "datasource_documentation": "datasource-documentation-v1",
+        "revops_growth": "revops-growth-v1",
+        "kpi_lineage": "kpi-lineage-v1",
+        "currency_elicitation": "currency-elicitation-v1",
+    }[scenario]
 
 
 def _register_subject_workspace(subject: Path, *, env: dict[str, str]) -> dict[str, Any]:
@@ -258,7 +316,10 @@ def _unregister_default_workspace(subject: Path) -> dict[str, Any]:
     finally:
         if previous is not None:
             os.environ["BRAIN_DS_HOME"] = previous
-    return {"status": "unregistered" if removed else "not_registered", "path": subject.resolve(strict=False).as_posix()}
+    return {
+        "status": "unregistered" if removed else "not_registered",
+        "path": subject.resolve(strict=False).as_posix(),
+    }
 
 
 def _seed_subject_graph_store(subject: Path) -> dict[str, Any]:
@@ -289,7 +350,14 @@ def _write_subject_opencode_config(subject: Path, brain_ds_home: Path) -> dict[s
             "brain_ds": {
                 "type": "local",
                 "enabled": True,
-                "command": [sys.executable, "-m", "brain_ds", "mcp", "--project-root", subject_root],
+                "command": [
+                    sys.executable,
+                    "-m",
+                    "brain_ds",
+                    "mcp",
+                    "--project-root",
+                    subject_root,
+                ],
                 "environment": {
                     "BRAIN_DS_PROJECT_ROOT": subject_root,
                     "BRAIN_DS_HOME": home_root,
@@ -307,7 +375,9 @@ def _write_subject_opencode_config(subject: Path, brain_ds_home: Path) -> dict[s
 
 
 @contextmanager
-def _temporary_repo_opencode_mcp_config(repo_root: Path, subject: Path, brain_ds_home: Path) -> Iterator[None]:
+def _temporary_repo_opencode_mcp_config(
+    repo_root: Path, subject: Path, brain_ds_home: Path
+) -> Iterator[None]:
     config_path = repo_root / ".opencode" / "opencode.json"
     if not config_path.exists():
         yield
@@ -440,18 +510,37 @@ def _write_valid_export(stdout: str, export_path: Path) -> None:
     try:
         payload = json.loads(stdout)
     except json.JSONDecodeError as exc:
-        raise OpenCodeVerifierError("export-invalid-json: opencode export did not emit JSON") from exc
+        raise OpenCodeVerifierError(
+            "export-invalid-json: opencode export did not emit JSON"
+        ) from exc
     export_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run a controlled OpenCode blind-agent verifier.")
-    for name in ("--scenario", "--run-id"):
-        parser.add_argument(name, required=True)
+    parser.add_argument("--scenario")
+    parser.add_argument("--path-id")
+    parser.add_argument("--run-id", required=True)
     parser.add_argument("--model")
+    parser.add_argument("--sdd-change")
     parser.add_argument("--output-root", type=Path, default=Path("tmp") / "blind-agentic-eval")
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv)
+    if not args.scenario and not args.path_id:
+        parser.error("one of --path-id or --scenario is required")
+    if args.path_id:
+        try:
+            normalized = normalize_requested_path(
+                args.path_id,
+                sdd_change=args.sdd_change
+                or os.environ.get("BRAIN_DS_SDD_CHANGE")
+                or "agentic-evaluation-lab",
+            )
+        except PathPlanError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        args.scenario = normalized.scenario
+        args.path_id = normalized.path_id
     try:
         result = run_verifier(**vars(args))
     except (OpenCodeVerifierError, PrepareSubjectError) as exc:
