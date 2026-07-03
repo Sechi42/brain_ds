@@ -2208,6 +2208,61 @@ def _resolve_connector(connection: dict[str, Any], project_root: Path):
         return GoogleSheetsConnector(params)
 
     # ------------------------------------------------------------------
+    # google-sheets-json — local service-account handle + direct API connector
+    # ------------------------------------------------------------------
+    if kind == "google-sheets-json":
+        secret_handle = connection.get("secret_handle")
+        if not secret_handle:
+            raise ValidationError(
+                code=-32000,
+                message=(
+                    "google-sheets-json connection descriptor missing 'secret_handle'. "
+                    "Set details.connection.secret_handle to the registered Google Sheets secret handle name."
+                ),
+            )
+
+        catalog = SecretCatalog(project_root)
+        try:
+            catalog.load()
+        except SecretManifestError as exc:
+            raise ValidationError(
+                code=-32000,
+                message=f"Failed to load secret catalog: {exc}",
+            ) from exc
+
+        entry = catalog.get(secret_handle)
+        if entry is None:
+            raise ValidationError(
+                code=-32000,
+                message=(
+                    f"Secret handle {secret_handle!r} not found in the workspace secret catalog. "
+                    "Register it first via the Secrets panel or validate_secret_handle."
+                ),
+            )
+
+        from brain_ds.connectors.secrets.providers.google_sheets import (
+            GoogleSheetsJsonAdapter,
+            RAW_VALUE_METADATA_KEY,
+        )
+
+        adapter = GoogleSheetsJsonAdapter()
+        try:
+            metadata = dict(entry.metadata)
+            raw_value = catalog.get_raw(entry.handle)
+            if raw_value:
+                metadata[RAW_VALUE_METADATA_KEY] = raw_value
+            params = adapter.resolve(secret_handle, metadata)
+        except ValidationError:
+            raise
+        except Exception as exc:
+            raise ValidationError(
+                code=-32000,
+                message="Failed to resolve google-sheets-json secret handle for Google Sheets exploration.",
+            ) from exc
+
+        return GoogleSheetsConnector(params)
+
+    # ------------------------------------------------------------------
     # File-based kinds — require path within project_root sandbox
     # ------------------------------------------------------------------
     raw_path = connection.get("path", "")
@@ -2218,7 +2273,8 @@ def _resolve_connector(connection: dict[str, Any], project_root: Path):
             message=(
                 f"Connection descriptor for kind {kind!r} missing 'path'. "
                 "Supported file-based kinds: sqlite, csv, tsv. "
-                "For AWS Postgres use kind 'aws-postgres' with 'secret_handle'."
+                "For secret-backed sources use kind 'aws-postgres', 'aws-google-sheets', "
+                "or 'google-sheets-json' with 'secret_handle'."
             ),
         )
 
@@ -2236,7 +2292,10 @@ def _resolve_connector(connection: dict[str, Any], project_root: Path):
     else:
         raise ValidationError(
             code=-32000,
-            message=f"Unsupported connection kind: {kind!r}. Supported: sqlite, csv, tsv, aws-postgres",
+            message=(
+                f"Unsupported connection kind: {kind!r}. Supported: sqlite, csv, tsv, "
+                "aws-postgres, aws-google-sheets, google-sheets-json"
+            ),
         )
 
 

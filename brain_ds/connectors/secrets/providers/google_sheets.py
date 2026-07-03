@@ -5,8 +5,8 @@ import json
 import os
 from hashlib import sha256
 from typing import Any
-from urllib.parse import parse_qs, urlparse
 
+from brain_ds.connectors.google_sheets_api import parse_google_sheet_url
 from brain_ds.mcp.security import ValidationError
 
 from ..base import SecretProviderAdapter
@@ -27,32 +27,6 @@ _SERVICE_ACCOUNT_FIELDS = (
 )
 
 RAW_VALUE_METADATA_KEY = "_raw_value"
-
-
-def parse_google_sheet_url(url: str) -> dict[str, str]:
-    """Extract spreadsheet_id and optional gid from a Google Sheets URL."""
-    if not isinstance(url, str) or not url.strip():
-        raise ValidationError(message="spreadsheet_url must be a non-empty string")
-    parsed = urlparse(url.strip())
-    parts = [part for part in parsed.path.split("/") if part]
-    try:
-        spreadsheets_index = parts.index("spreadsheets")
-    except ValueError as exc:
-        raise ValidationError(message="spreadsheet_url must contain /spreadsheets/d/{spreadsheetId}") from exc
-    if len(parts) <= spreadsheets_index + 2 or parts[spreadsheets_index + 1] != "d":
-        raise ValidationError(message="spreadsheet_url must contain /spreadsheets/d/{spreadsheetId}")
-    spreadsheet_id = parts[spreadsheets_index + 2].strip()
-    if not spreadsheet_id:
-        raise ValidationError(message="spreadsheet_url is missing spreadsheet_id")
-
-    gid = ""
-    query_gid = parse_qs(parsed.query).get("gid", [""])[0]
-    fragment_gid = parse_qs(parsed.fragment).get("gid", [""])[0]
-    gid = fragment_gid or query_gid
-    result = {"spreadsheet_id": spreadsheet_id}
-    if gid:
-        result["gid"] = gid
-    return result
 
 
 def _load_service_account(raw_value: str) -> dict[str, Any]:
@@ -156,6 +130,14 @@ class GoogleSheetsJsonAdapter(SecretProviderAdapter):
 
     def resolve(self, handle: str, metadata: dict[str, Any]) -> dict[str, Any]:
         self.validate(metadata)
+        raw_value = metadata.get(RAW_VALUE_METADATA_KEY)
+        if isinstance(raw_value, str) and raw_value:
+            return {
+                "spreadsheet_id": metadata["spreadsheet_id"],
+                "sheet_range": metadata["sheet_range"],
+                "service_account_info": _load_service_account(raw_value),
+                "use_direct_api": True,
+            }
         service_account_ref = metadata["service_account_ref"]
         return {
             "spreadsheet_id": metadata["spreadsheet_id"],

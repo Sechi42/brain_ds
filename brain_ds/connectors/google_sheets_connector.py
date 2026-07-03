@@ -1,8 +1,8 @@
 """Read-only Google Sheets connector.
 
-Connects via gspread (``pip install brain_ds[gsheets]``). Enforces
-read-only access structurally — the connector class exposes NO write
-methods whatsoever.
+Connects via direct Google Sheets API when configured, with the legacy gspread
+path retained for older callers. Enforces read-only access structurally — the
+connector class exposes NO write methods whatsoever.
 
 Row caps (matching sqlite_connector):
   - preview() cap: 50 rows
@@ -20,11 +20,13 @@ preview()         returns first N rows (capped at 50) as dicts keyed by
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from brain_ds.connectors.sqlite_connector import _PREVIEW_ROW_CAP
 
 from .base import ReadOnlyConnector
+from .google_sheets_api import DEFAULT_PROFILE_RANGE, GoogleSheetsApiClient, profile_workbook
 
 # Install hint raised when gspread is not installed.
 _GSPREAD_HINT = (
@@ -76,11 +78,35 @@ class GoogleSheetsConnector(ReadOnlyConnector):
 
     def __init__(self, params: dict[str, Any]) -> None:
         self._params = params
-        # Authenticate once at init via gspread (lazy import).
-        gspread = _lazy_gspread()
-        self._gc = gspread.service_account_from_dict(params["service_account_info"])
         self._spreadsheet_id = params["spreadsheet_id"]
         self._sheet_range = params.get("sheet_range", "")
+        service_account_info = self._service_account_info(params)
+        self._use_direct_api = bool(params.get("use_direct_api") or params.get("api_builder"))
+        self._api_profile: dict[str, Any] | None = None
+        if self._use_direct_api:
+            self._gc = None
+            self._api_client = GoogleSheetsApiClient(
+                service_account_info,
+                builder=params.get("api_builder"),
+                formula_builder=params.get("formula_api_builder"),
+            )
+        else:
+            # Authenticate once at init via gspread (lazy import).
+            gspread = _lazy_gspread()
+            self._gc = gspread.service_account_from_dict(service_account_info)
+            self._api_client = None
+
+    @staticmethod
+    def _service_account_info(params: dict[str, Any]) -> dict[str, Any]:
+        info = params.get("service_account_info")
+        if isinstance(info, dict):
+            return info
+        raw_json = params.get("service_account_json")
+        if isinstance(raw_json, str):
+            loaded = json.loads(raw_json)
+            if isinstance(loaded, dict):
+                return loaded
+        raise KeyError("service_account_info")
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -88,7 +114,34 @@ class GoogleSheetsConnector(ReadOnlyConnector):
 
     def _open_spreadsheet(self):
         """Open and return the gspread Spreadsheet object."""
+        if self._gc is None:
+            raise RuntimeError("gspread spreadsheet is unavailable for direct API connector")
         return self._gc.open_by_key(self._spreadsheet_id)
+
+    def _workbook_profile(self) -> dict[str, Any]:
+        if self._api_profile is None:
+            if self._api_client is None:
+                raise RuntimeError("direct Google Sheets API profile is unavailable")
+            if "!" in self._sheet_range:
+                default_range = self._sheet_range.split("!", 1)[1]
+            else:
+                default_range = self._sheet_range or DEFAULT_PROFILE_RANGE
+            self._api_profile = profile_workbook(
+                self._api_client,
+                self._spreadsheet_id,
+                default_range=default_range,
+            )
+        return self._api_profile
+
+    def _sheet_profiles(self) -> list[dict[str, Any]]:
+        return list(self._workbook_profile().get("sheets", []))
+
+    def sheet_profile(self, table: str) -> dict[str, Any]:
+        """Return the rich profile for one worksheet tab."""
+        for profile in self._sheet_profiles():
+            if profile.get("title") == table or profile.get("gid") == str(table):
+                return profile
+        raise KeyError(f"Worksheet not found: {table}")
 
     # ------------------------------------------------------------------
     # ReadOnlyConnector ABC
@@ -96,6 +149,24 @@ class GoogleSheetsConnector(ReadOnlyConnector):
 
     def describe(self) -> dict[str, Any]:
         """Return source-level metadata. Never includes credentials."""
+        if self._use_direct_api:
+            workbook = self._workbook_profile()
+            title = workbook.get("title", "")
+            return {
+                "kind": "google-sheets",
+                "spreadsheet_id": self._spreadsheet_id,
+                "title": title,
+                "url": f"https://docs.google.com/spreadsheets/d/{self._spreadsheet_id}",
+                "sheet_range": self._sheet_range,
+                "profile": {
+                    "sheet_count": len(workbook.get("sheets", [])),
+                    "provenance": "google-sheets-api",
+                },
+                "description": (
+                    f"Google Sheets spreadsheet '{title}' "
+                    f"(id: {self._spreadsheet_id})"
+                ),
+            }
         ss = self._open_spreadsheet()
         return {
             "kind": "google-sheets",
@@ -115,11 +186,15 @@ class GoogleSheetsConnector(ReadOnlyConnector):
 
         A spreadsheet is the top-level container. There is always exactly one.
         """
+        if self._use_direct_api:
+            return [str(self._workbook_profile().get("title") or "")]
         ss = self._open_spreadsheet()
         return [ss.title]
 
     def list_tables(self, container: str) -> list[str]:
         """Return worksheet tab titles within the spreadsheet."""
+        if self._use_direct_api:
+            return [str(profile.get("title") or "") for profile in self._sheet_profiles()]
         ss = self._open_spreadsheet()
         # gspread: Spreadsheet.worksheets() is a method, not a property.
         return [ws.title for ws in ss.worksheets()]
@@ -134,6 +209,23 @@ class GoogleSheetsConnector(ReadOnlyConnector):
           - columns: list of {name, type, sample, meaning} dicts
           - row_count_estimate: -1 (Google Sheets does not expose a cheap row count)
         """
+        if self._use_direct_api:
+            profile = self.sheet_profile(table)
+            samples = profile.get("samples", [])
+            sample_row = samples[0] if samples else {}
+            return {
+                "columns": [
+                    {
+                        "name": header,
+                        "type": _infer_type(str(sample_row.get(header, ""))),
+                        "sample": sample_row.get(header),
+                        "meaning": "",
+                    }
+                    for header in profile.get("headers", [])
+                ],
+                "row_count_estimate": profile.get("grid", {}).get("row_count", -1),
+                "profile": profile,
+            }
         ss = self._open_spreadsheet()
         ws = ss.worksheet(table)
         all_rows = ws.get_all_values()
@@ -169,6 +261,20 @@ class GoogleSheetsConnector(ReadOnlyConnector):
         No write operation is performed.
         """
         capped = min(max(1, limit), _PREVIEW_ROW_CAP)
+
+        if self._use_direct_api:
+            profile = self.sheet_profile(table)
+            samples = list(profile.get("samples", []))
+            data_row_count = max(0, int((profile.get("detected_ranges") or [{}])[0].get("row_count") or 0) - 1)
+            if not self._sheet_range:
+                data_row_count = max(data_row_count, int(profile.get("grid", {}).get("row_count") or 0) - 1)
+            truncated = data_row_count > capped
+            return {
+                "columns": list(profile.get("headers", [])),
+                "rows": samples[:capped],
+                "truncated": truncated,
+                "profile": profile,
+            }
 
         ss = self._open_spreadsheet()
         ws = ss.worksheet(table)

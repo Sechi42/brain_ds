@@ -12,12 +12,184 @@ Design invariants verified:
 """
 from __future__ import annotations
 
-import sys
+import json
+import tempfile
 import types
 import unittest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
-import pytest
+
+class _FakeSheetsRequest:
+    def __init__(self, response):
+        self._response = response
+
+    def execute(self):
+        return self._response
+
+
+class _FakeValuesResource:
+    def __init__(self, values_by_range):
+        self.values_by_range = values_by_range
+        self.batch_get_calls = []
+
+    def batchGet(self, **kwargs):
+        self.batch_get_calls.append(kwargs)
+        value_ranges = []
+        for range_name in kwargs.get("ranges", []):
+            value_ranges.append(
+                {
+                    "range": range_name,
+                    "values": self.values_by_range.get(range_name, []),
+                }
+            )
+        return _FakeSheetsRequest({"valueRanges": value_ranges})
+
+
+class _FakeSpreadsheetsResource:
+    def __init__(self, metadata, values_by_range):
+        self.metadata = metadata
+        self.values_resource = _FakeValuesResource(values_by_range)
+        self.get_calls = []
+
+    def get(self, **kwargs):
+        self.get_calls.append(kwargs)
+        return _FakeSheetsRequest(self.metadata)
+
+    def values(self):
+        return self.values_resource
+
+
+class _FakeSheetsService:
+    def __init__(self, metadata, values_by_range):
+        self.spreadsheets_resource = _FakeSpreadsheetsResource(metadata, values_by_range)
+
+    def spreadsheets(self):
+        return self.spreadsheets_resource
+
+
+
+def _rich_api_fixture():
+    metadata = {
+        "spreadsheetId": "sheet-123",
+        "properties": {"title": "Finance Workbook"},
+        "sheets": [
+            {
+                "properties": {
+                    "sheetId": 101,
+                    "title": "Budget",
+                    "index": 0,
+                    "gridProperties": {
+                        "rowCount": 100,
+                        "columnCount": 6,
+                        "frozenRowCount": 1,
+                        "frozenColumnCount": 1,
+                        "hideGridlines": False,
+                    },
+                    "hidden": False,
+                },
+                "charts": [
+                    {"chartId": 7, "spec": {"title": "Spend by Month"}},
+                ],
+                "protectedRanges": [
+                    {"protectedRangeId": 55, "range": {"sheetId": 101, "startRowIndex": 0, "endRowIndex": 1}, "description": "Headers"},
+                ],
+                "filterViews": [
+                    {"filterViewId": 88, "title": "Active budget", "range": {"sheetId": 101, "startColumnIndex": 0, "endColumnIndex": 3}},
+                ],
+                "developerMetadata": [
+                    {"metadataId": 9, "metadataKey": "owner", "metadataValue": "finance"},
+                ],
+            },
+            {
+                "properties": {
+                    "sheetId": 202,
+                    "title": "Empty",
+                    "index": 1,
+                    "gridProperties": {"rowCount": 0, "columnCount": 0},
+                    "hidden": True,
+                }
+            },
+        ],
+    }
+    display_values = {
+        "Budget!A1:Z50": [
+            ["month", "amount", "variance"],
+            ["Jan", "100", "10"],
+            ["Feb", "125", "=B3-B2"],
+        ],
+        "Empty!A1:Z50": [],
+    }
+    formula_values = {
+        "Budget!A1:Z50": [
+            ["month", "amount", "variance"],
+            ["Jan", "100", "=B2-90"],
+            ["Feb", "125", "=B3-B2"],
+        ],
+        "Empty!A1:Z50": [],
+    }
+    return metadata, display_values, formula_values
+
+
+def _many_rows_api_fixture(
+    row_count: int = 60,
+    range_name: str = "'Large Data'!A1:Z50",
+    value_row_count: int | None = None,
+):
+    if value_row_count is None:
+        value_row_count = row_count
+    metadata = {
+        "spreadsheetId": "sheet-many",
+        "properties": {"title": "Large Workbook"},
+        "sheets": [
+            {
+                "properties": {
+                    "sheetId": 303,
+                    "title": "Large Data",
+                    "index": 0,
+                    "gridProperties": {"rowCount": row_count + 1, "columnCount": 2},
+                }
+            }
+        ],
+    }
+    values = {
+        range_name: [["id", "value"]] + [[str(i), f"v{i}"] for i in range(1, value_row_count + 1)],
+    }
+    return metadata, values, values
+
+
+def _special_titles_api_fixture():
+    metadata = {
+        "spreadsheetId": "sheet-special",
+        "properties": {"title": "Special Workbook"},
+        "sheets": [
+            {"properties": {"sheetId": 404, "title": "Sales Q1", "index": 0, "gridProperties": {"rowCount": 2, "columnCount": 2}}},
+            {"properties": {"sheetId": 405, "title": "Owner's View", "index": 1, "gridProperties": {"rowCount": 2, "columnCount": 2}}},
+        ],
+    }
+    display_values = {
+        "'Sales Q1'!A1:Z50": [["id", "amount"], ["1", "100"]],
+        "'Owner''s View'!A1:Z50": [["owner", "status"], ["Ada", "active"]],
+    }
+    return metadata, display_values, display_values
+
+
+def _make_direct_api_connector():
+    metadata, display_values, formula_values = _rich_api_fixture()
+    display_service = _FakeSheetsService(metadata, display_values)
+    formula_service = _FakeSheetsService(metadata, formula_values)
+
+    def fake_builder(service_account_info):
+        assert service_account_info["private_key"] == _VALID_PARAMS["service_account_info"]["private_key"]
+        return display_service
+
+    from brain_ds.connectors.google_sheets_connector import GoogleSheetsConnector
+
+    params = dict(_VALID_PARAMS)
+    params["sheet_range"] = "Budget!A1:Z50"
+    params["api_builder"] = fake_builder
+    params["formula_api_builder"] = lambda service_account_info: formula_service
+    params["use_direct_api"] = True
+    return GoogleSheetsConnector(params), display_service, formula_service
 
 
 # ---------------------------------------------------------------------------
@@ -429,7 +601,6 @@ class TestResolveConnectorAwsGoogleSheetsDispatch(unittest.TestCase):
     """_resolve_connector with kind='aws-google-sheets' returns a GoogleSheetsConnector."""
 
     def _make_store_with_secret(self, project_root, handle, kind, metadata):
-        import json
         from pathlib import Path
         import importlib.resources as resources
 
@@ -460,7 +631,6 @@ class TestResolveConnectorAwsGoogleSheetsDispatch(unittest.TestCase):
 
     def test_resolve_connector_dispatches_aws_google_sheets(self):
         """kind='aws-google-sheets' -> GoogleSheetsConnector (adapter monkeypatched)."""
-        import tempfile
         from pathlib import Path
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -505,7 +675,6 @@ class TestResolveConnectorAwsGoogleSheetsDispatch(unittest.TestCase):
 
     def test_resolve_connector_aws_google_sheets_missing_handle_raises(self):
         """aws-google-sheets without secret_handle raises an error."""
-        import tempfile
         from pathlib import Path
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -521,7 +690,6 @@ class TestResolveConnectorAwsGoogleSheetsDispatch(unittest.TestCase):
 
     def test_resolve_connector_aws_google_sheets_unknown_handle_raises(self):
         """aws-google-sheets with unknown handle raises an error."""
-        import tempfile, json
         from pathlib import Path
         import importlib.resources as resources
 
@@ -573,7 +741,6 @@ class TestResolveConnectorAwsGoogleSheetsDispatch(unittest.TestCase):
 
     def test_resolve_connector_sqlite_still_works_after_gsheets_branch(self):
         """sqlite dispatch still works after adding aws-google-sheets branch."""
-        import tempfile
         import sqlite3
         from pathlib import Path
 
@@ -590,3 +757,213 @@ class TestResolveConnectorAwsGoogleSheetsDispatch(unittest.TestCase):
             result = _resolve_connector(connection, Path(tmpdir))
 
             self.assertEqual(type(result).__name__, "SQLiteConnector")
+
+
+class TestGoogleSheetsDirectApiProfile(unittest.TestCase):
+    def test_parse_google_sheet_url_accepts_gid_from_fragment_and_query(self):
+        from brain_ds.connectors.google_sheets_api import parse_google_sheet_url
+
+        fragment = parse_google_sheet_url("https://docs.google.com/spreadsheets/d/sheet-123/edit#gid=456")
+        query = parse_google_sheet_url("https://docs.google.com/spreadsheets/d/sheet-abc/view?gid=789")
+
+        self.assertEqual(fragment["spreadsheet_id"], "sheet-123")
+        self.assertEqual(fragment["gid"], "456")
+        self.assertEqual(query["spreadsheet_id"], "sheet-abc")
+        self.assertEqual(query["gid"], "789")
+
+    def test_parse_google_sheet_url_rejects_non_sheet_urls(self):
+        from brain_ds.connectors.google_sheets_api import parse_google_sheet_url
+        from brain_ds.mcp.security import ValidationError
+
+        with self.assertRaises(ValidationError):
+            parse_google_sheet_url("https://docs.google.com/document/d/not-a-sheet/edit")
+
+    def test_sheet_profile_maps_grid_headers_samples_and_formula_cells(self):
+        connector, _display_service, formula_service = _make_direct_api_connector()
+
+        profile = connector.sheet_profile("Budget")
+
+        self.assertEqual(profile["spreadsheet_id"], "sheet-123")
+        self.assertEqual(profile["title"], "Budget")
+        self.assertEqual(profile["gid"], "101")
+        self.assertEqual(profile["grid"]["row_count"], 100)
+        self.assertEqual(profile["grid"]["frozen_row_count"], 1)
+        self.assertEqual(profile["headers"], ["month", "amount", "variance"])
+        self.assertEqual(profile["samples"][0], {"month": "Jan", "amount": "100", "variance": "10"})
+        self.assertEqual(profile["formulas"], [{"row": 2, "column": "variance", "formula": "=B2-90"}, {"row": 3, "column": "variance", "formula": "=B3-B2"}])
+        self.assertEqual(
+            formula_service.spreadsheets_resource.values_resource.batch_get_calls[0]["valueRenderOption"],
+            "FORMULA",
+        )
+
+    def test_sheet_profile_maps_charts_protected_filter_and_metadata(self):
+        connector, display_service, _formula_service = _make_direct_api_connector()
+
+        profile = connector.sheet_profile("Budget")
+
+        self.assertEqual(profile["charts"], [{"chart_id": 7, "title": "Spend by Month"}])
+        self.assertEqual(profile["protected_ranges"][0]["description"], "Headers")
+        self.assertEqual(profile["filter_views"], [{"filter_view_id": 88, "title": "Active budget"}])
+        self.assertEqual(profile["developer_metadata"], [{"metadata_id": 9, "key": "owner", "value": "finance"}])
+        self.assertIn("sheets.properties", display_service.spreadsheets_resource.get_calls[0]["fields"])
+        self.assertIn("sheets.charts", display_service.spreadsheets_resource.get_calls[0]["fields"])
+
+    def test_sheet_profile_records_limitations_for_empty_or_unsupported_surfaces(self):
+        connector, _display_service, _formula_service = _make_direct_api_connector()
+
+        profile = connector.sheet_profile("Empty")
+        self.assertIn("No values returned for range Empty!A1:Z50", profile["limitations"])
+        self.assertIn("Apps Script metadata is unavailable from the Sheets API profile", profile["limitations"])
+
+    def test_direct_api_preserves_readonly_methods_without_secret_leakage(self):
+        connector, _display_service, _formula_service = _make_direct_api_connector()
+
+        self.assertEqual(connector.list_containers(), ["Finance Workbook"])
+        self.assertEqual(connector.list_tables("Finance Workbook"), ["Budget", "Empty"])
+        self.assertEqual(connector.get_table_schema("Finance Workbook", "Budget")["columns"][1]["sample"], "100")
+        self.assertEqual(connector.preview("Finance Workbook", "Budget", limit=1)["rows"], [{"month": "Jan", "amount": "100", "variance": "10"}])
+        self.assertNotIn("private_key", str(connector.describe()))
+        self.assertNotIn(_VALID_PARAMS["service_account_info"]["private_key"], str(connector.sheet_profile("Budget")))
+
+    def test_direct_api_quotes_special_sheet_titles_in_a1_ranges(self):
+        from brain_ds.connectors.google_sheets_connector import GoogleSheetsConnector
+
+        metadata, display_values, formula_values = _special_titles_api_fixture()
+        display_service = _FakeSheetsService(metadata, display_values)
+        formula_service = _FakeSheetsService(metadata, formula_values)
+        params = dict(_VALID_PARAMS)
+        params.pop("sheet_range")
+        params.update(
+            {
+                "spreadsheet_id": "sheet-special",
+                "sheet_range": "A1:Z50",
+                "api_builder": lambda _info: display_service,
+                "formula_api_builder": lambda _info: formula_service,
+                "use_direct_api": True,
+            }
+        )
+
+        connector = GoogleSheetsConnector(params)
+        self.assertEqual(connector.preview("Special Workbook", "Sales Q1", limit=1)["rows"], [{"id": "1", "amount": "100"}])
+        self.assertEqual(connector.preview("Special Workbook", "Owner's View", limit=1)["rows"], [{"owner": "Ada", "status": "active"}])
+        ranges = display_service.spreadsheets_resource.values_resource.batch_get_calls[0]["ranges"]
+        self.assertIn("'Sales Q1'!A1:Z50", ranges)
+        self.assertIn("'Owner''s View'!A1:Z50", ranges)
+
+    def test_direct_api_default_profile_range_includes_header_plus_50_data_rows(self):
+        from brain_ds.connectors.google_sheets_connector import GoogleSheetsConnector
+
+        metadata, display_values, formula_values = _many_rows_api_fixture(
+            row_count=60,
+            range_name="'Large Data'!A1:Z51",
+            value_row_count=50,
+        )
+        display_service = _FakeSheetsService(metadata, display_values)
+        formula_service = _FakeSheetsService(metadata, formula_values)
+        params = dict(_VALID_PARAMS)
+        params.pop("sheet_range")
+        params.update(
+            {
+                "spreadsheet_id": "sheet-many",
+                "api_builder": lambda _info: display_service,
+                "formula_api_builder": lambda _info: formula_service,
+                "use_direct_api": True,
+            }
+        )
+
+        connector = GoogleSheetsConnector(params)
+        preview = connector.preview("Large Workbook", "Large Data", limit=50)
+
+        self.assertEqual(len(preview["rows"]), 50)
+        self.assertEqual(preview["rows"][0], {"id": "1", "value": "v1"})
+        self.assertEqual(preview["rows"][49], {"id": "50", "value": "v50"})
+        self.assertTrue(preview["truncated"])
+        ranges = display_service.spreadsheets_resource.values_resource.batch_get_calls[0]["ranges"]
+        self.assertEqual(ranges, ["'Large Data'!A1:Z51"])
+
+    def test_connector_accepts_legacy_service_account_json_params(self):
+        from brain_ds.connectors.google_sheets_connector import GoogleSheetsConnector
+
+        fake_gspread, _fake_gc = _make_fake_gspread()
+        params = {
+            "service_account_json": json.dumps(_VALID_PARAMS["service_account_info"]),
+            "spreadsheet_id": "1AbC",
+            "sheet_range": "Sheet1!A1:Z100",
+        }
+
+        with _patch_gspread_in_connector(fake_gspread):
+            connector = GoogleSheetsConnector(params)
+
+        self.assertEqual(connector.list_tables("My Spreadsheet"), ["Sheet1", "Sheet2"])
+
+    def test_resolve_connector_preserves_legacy_google_sheets_json_env_ref(self):
+        from pathlib import Path
+
+        from brain_ds.connectors.secrets.catalog import SecretCatalog, SecretEntry
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmproot = Path(tmpdir)
+            catalog = SecretCatalog(tmproot)
+            catalog.add(
+                SecretEntry(
+                    handle="legacy-google-handle",
+                    kind="google-sheets-json",
+                    metadata={
+                        "spreadsheet_id": "sheet-legacy",
+                        "sheet_range": "Sheet1!A1:Z50",
+                        "service_account_ref": "LEGACY_GOOGLE_SHEETS_JSON",
+                    },
+                    created_at="2024-01-01T00:00:00Z",
+                )
+            )
+
+            fake_gspread, _fake_gc = _make_fake_gspread()
+            from brain_ds.mcp.tools import _resolve_connector
+
+            with patch.dict(
+                "os.environ",
+                {"LEGACY_GOOGLE_SHEETS_JSON": json.dumps(_VALID_PARAMS["service_account_info"])},
+                clear=False,
+            ):
+                with _patch_gspread_in_connector(fake_gspread):
+                    connector = _resolve_connector(
+                        {"kind": "google-sheets-json", "secret_handle": "legacy-google-handle"},
+                        tmproot,
+                    )
+
+            self.assertEqual(type(connector).__name__, "GoogleSheetsConnector")
+            self.assertEqual(connector.list_tables("My Spreadsheet"), ["Sheet1", "Sheet2"])
+
+    def test_resolve_connector_dispatches_google_sheets_json_with_raw_secret(self):
+        from pathlib import Path
+
+        from brain_ds.connectors.secrets.catalog import SecretCatalog, SecretEntry
+        from brain_ds.connectors.secrets.providers.google_sheets import GoogleSheetsJsonAdapter
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmproot = Path(tmpdir)
+            catalog = SecretCatalog(tmproot)
+            catalog.add(
+                SecretEntry(
+                    handle="google-handle",
+                    kind="google-sheets-json",
+                    metadata={
+                        "spreadsheet_id": "sheet-123",
+                        "sheet_range": "Budget!A1:Z50",
+                        "credential_type": "service_account",
+                        "project_id": "my-project",
+                    },
+                    created_at="2024-01-01T00:00:00Z",
+                ),
+                raw_value=json.dumps(_VALID_PARAMS["service_account_info"]),
+            )
+
+            from brain_ds.mcp.tools import _resolve_connector
+
+            metadata, display_values, _formula_values = _rich_api_fixture()
+            service = _FakeSheetsService(metadata, display_values)
+            with patch.object(GoogleSheetsJsonAdapter, "resolve", return_value={"service_account_info": _VALID_PARAMS["service_account_info"], "spreadsheet_id": "sheet-123", "sheet_range": "Budget!A1:Z50", "api_builder": lambda _info: service, "use_direct_api": True}):
+                result = _resolve_connector({"kind": "google-sheets-json", "secret_handle": "google-handle"}, tmproot)
+
+            self.assertEqual(type(result).__name__, "GoogleSheetsConnector")
+            self.assertEqual(result.list_tables("Finance Workbook"), ["Budget", "Empty"])
