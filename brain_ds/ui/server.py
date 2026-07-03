@@ -164,6 +164,7 @@ class ServerRuntime:
 def build_ui_app(*, project_root: Path, store: GraphStore) -> FastAPI:
     runtime = ServerRuntime(project_root=project_root, store=store)
     app = create_app(project_root=project_root, store=store)
+    app.state.secret_admin_enabled = True
 
     @app.get("/")
     def root_page(graph_id: str | None = None) -> HTMLResponse:

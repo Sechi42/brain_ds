@@ -5,13 +5,14 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Response, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from brain_ds.api.events import EventBus
 from brain_ds.connectors.secrets import SecretCatalog, SecretEntry, SecretManifestError, get_provider_adapter
+from brain_ds.connectors.secrets.providers.google_sheets import RAW_VALUE_METADATA_KEY
 from brain_ds.connectors.secrets.redaction import redact_secrets
-from brain_ds.mcp.security import SecurityError, ValidationError, is_workspace_admin
+from brain_ds.mcp.security import ValidationError
 from brain_ds.mcp import tools as mcp_tools
 from brain_ds.store.errors import GraphNotFoundError
 from brain_ds.store.graph_store import GraphStore
@@ -110,10 +111,9 @@ def _secret_permission_denied() -> JSONResponse:
     )
 
 
-def _require_workspace_admin(agent_scope: str | None) -> JSONResponse | None:
-    try:
-        is_workspace_admin({"agent_scope": agent_scope} if agent_scope is not None else {})
-    except SecurityError:
+def _require_workspace_admin(request: Request) -> JSONResponse | None:
+    """Authorize secret APIs from server-owned local UI state, not query params."""
+    if not bool(getattr(request.app.state, "secret_admin_enabled", False)):
         return _secret_permission_denied()
     return None
 
@@ -123,11 +123,17 @@ def _validate_secret_entry(catalog: SecretCatalog, entry: SecretEntry, *, probe:
         adapter = get_provider_adapter(entry.kind)
         adapter.validate(entry.metadata)
         if probe:
-            adapter.probe(entry.handle, entry.metadata)
+            probe_metadata = dict(entry.metadata)
+            raw_value = catalog.get_raw(entry.handle)
+            if entry.kind == "google-sheets-json" and raw_value:
+                probe_metadata[RAW_VALUE_METADATA_KEY] = raw_value
+            adapter.probe(entry.handle, probe_metadata)
     except ValidationError as exc:
+        reason = _safe_secret_failure_reason(str(exc))
         return {
             "status": "error",
             "connection": "probe_failed" if probe else "not_probed",
+            "reason": reason,
             "message": f"No se pudo validar la conexión de forma segura: {exc}",
         }
     return {
@@ -137,6 +143,42 @@ def _validate_secret_entry(catalog: SecretCatalog, entry: SecretEntry, *, probe:
         if probe
         else "Validación segura OK; contrato del proveedor verificado.",
     }
+
+
+def _audit_secret_api(
+    store: GraphStore,
+    tool_name: str,
+    graph_id: str,
+    result_status: str,
+    *,
+    handle: str | None = None,
+    kind: str | None = None,
+    probe: bool | None = None,
+    reason: str | None = None,
+) -> None:
+    """Write a secret-safe HTTP audit breadcrumb with no raw metadata."""
+    audit_input: dict[str, Any] = {"graph_id": graph_id}
+    if handle is not None:
+        audit_input["handle"] = handle
+    if kind is not None:
+        audit_input["kind"] = kind
+    if probe is not None:
+        audit_input["probe"] = probe
+    if reason is not None:
+        audit_input["reason"] = reason
+    store.log_audit(tool_name, audit_input, result_status)
+
+
+def _safe_secret_failure_reason(message: str) -> str:
+    """Classify secret validation/probe failures without exposing raw provider text."""
+    text = message.lower()
+    if "retry later" in text or "temporary" in text or "rate" in text or "timeout" in text:
+        return "retryable_provider_error"
+    if "share the spreadsheet" in text or "permission" in text or "access denied" in text or "forbidden" in text:
+        return "permission_denied"
+    if "not found" in text or "verify the spreadsheet url" in text:
+        return "not_found"
+    return "validation_error"
 
 
 def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
@@ -260,9 +302,11 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
         return {"graph_id": graph_id, "query": query, "results": _search_graph_api_result(query, result)}
 
     @router.get("/secrets")
-    def list_secrets(graph_id: str, agent_scope: str | None = None) -> Any:
-        denied = _require_workspace_admin(agent_scope)
+    def list_secrets(request: Request, graph_id: str, agent_scope: str | None = None) -> Any:
+        del agent_scope  # Backward-compatible ignored query param; never grants admin.
+        denied = _require_workspace_admin(request)
         if denied is not None:
+            _audit_secret_api(store, "api_list_secrets", graph_id, "error", reason="workspace_admin_required")
             return denied
         try:
             catalog = _load_secret_catalog(store, graph_id)
@@ -292,6 +336,7 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
 
     @router.post("/secrets/validate")
     def probe_secret(
+        request: Request,
         graph_id: str,
         handle: str,
         agent_scope: str | None = None,
@@ -302,8 +347,18 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
         an ephemeral validation result (not persisted to the catalog). Used by the
         UI per-row "Probar conexión" button.
         """
-        denied = _require_workspace_admin(agent_scope)
+        del agent_scope  # Backward-compatible ignored query param; never grants admin.
+        denied = _require_workspace_admin(request)
         if denied is not None:
+            _audit_secret_api(
+                store,
+                "api_validate_secret",
+                graph_id,
+                "error",
+                handle=handle,
+                probe=True,
+                reason="workspace_admin_required",
+            )
             return denied
         try:
             catalog = _load_secret_catalog(store, graph_id)
@@ -313,19 +368,43 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
             raise HTTPException(status_code=400, detail=f"Secret manifest error: {exc}") from exc
         entry = catalog.get(handle)
         if entry is None:
+            _audit_secret_api(store, "api_validate_secret", graph_id, "error", handle=handle, probe=True)
             raise HTTPException(status_code=404, detail=f"Secret handle '{handle}' not found")
         validation = _validate_secret_entry(catalog, entry, probe=True)
+        _audit_secret_api(
+            store,
+            "api_validate_secret",
+            graph_id,
+            "ok" if validation["status"] == "ok" else "error",
+            handle=handle,
+            kind=entry.kind,
+            probe=True,
+        )
         return {"graph_id": graph_id, "handle": handle, **validation}
 
     @router.post("/secrets", status_code=201)
     def add_secret(
+        request: Request,
         graph_id: str,
         payload: dict[str, Any],
         agent_scope: str | None = None,
         probe: bool = False,
     ) -> Any:
-        denied = _require_workspace_admin(agent_scope)
+        del agent_scope  # Backward-compatible ignored query param; never grants admin.
+        denied = _require_workspace_admin(request)
         if denied is not None:
+            handle_hint = payload.get("handle") if isinstance(payload, dict) else None
+            kind_hint = payload.get("kind") if isinstance(payload, dict) else None
+            _audit_secret_api(
+                store,
+                "api_create_secret",
+                graph_id,
+                "error",
+                handle=handle_hint if isinstance(handle_hint, str) else None,
+                kind=kind_hint if isinstance(kind_hint, str) else None,
+                probe=probe,
+                reason="workspace_admin_required",
+            )
             return denied
         try:
             catalog = _load_secret_catalog(store, graph_id)
@@ -354,6 +433,15 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
         raw_value: str | None = payload.get("raw_value") or None
         if provider_requires_raw_value:
             if not isinstance(raw_value, str) or not raw_value:
+                _audit_secret_api(
+                    store,
+                    "api_create_secret",
+                    graph_id,
+                    "error",
+                    handle=handle_value.strip(),
+                    kind=kind_value.strip(),
+                    probe=probe,
+                )
                 raise HTTPException(
                     status_code=422,
                     detail=(
@@ -366,25 +454,105 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
         # persisted in an inconsistent state. Adapters own the per-kind contract.
         try:
             adapter = get_provider_adapter(kind_value)
+            if (
+                kind_value == "google-sheets-json"
+                and isinstance(raw_value, str)
+                and "service_account_ref" in metadata_value
+            ):
+                raise ValidationError(message="service_account_ref is not allowed with uploaded raw_value")
+            if (
+                kind_value == "google-sheets-json"
+                and isinstance(raw_value, str)
+                and "service_account_ref" not in metadata_value
+            ):
+                metadata_value = adapter.validate_upload(metadata_value, raw_value)  # type: ignore[attr-defined]
             adapter.validate(metadata_value)
         except ValidationError as exc:
+            _audit_secret_api(
+                store,
+                "api_create_secret",
+                graph_id,
+                "error",
+                handle=handle_value.strip(),
+                kind=kind_value.strip(),
+                probe=probe,
+            )
             raise HTTPException(status_code=422, detail=f"Invalid secret payload: {exc}") from exc
         entry = SecretEntry(
             handle=handle_value.strip(),
             kind=kind_value,
             metadata=dict(metadata_value),
         )
+        validation: dict[str, str] | None = None
+        if probe:
+            try:
+                probe_metadata = dict(entry.metadata)
+                if kind_value == "google-sheets-json" and raw_value:
+                    probe_metadata[RAW_VALUE_METADATA_KEY] = raw_value
+                adapter.probe(entry.handle, probe_metadata)
+            except ValidationError as exc:
+                reason = _safe_secret_failure_reason(str(exc))
+                validation = {
+                    "status": "error",
+                    "connection": "probe_failed",
+                    "reason": reason,
+                    "message": f"No se pudo validar la conexión de forma segura: {exc}",
+                }
+                _audit_secret_api(
+                    store,
+                    "api_create_secret",
+                    graph_id,
+                    "error",
+                    handle=entry.handle,
+                    kind=entry.kind,
+                    probe=probe,
+                    reason=reason,
+                )
+                raise HTTPException(status_code=422, detail=validation)
+            validation = {
+                "status": "ok",
+                "connection": "probed",
+                "message": "Validación segura OK; la conexión respondió correctamente.",
+            }
         try:
             catalog.add(entry, raw_value=raw_value)
         except (SecretManifestError, ValueError) as exc:
+            _audit_secret_api(
+                store,
+                "api_create_secret",
+                graph_id,
+                "error",
+                handle=entry.handle,
+                kind=entry.kind,
+                probe=probe,
+            )
             raise HTTPException(status_code=422, detail=f"Invalid secret payload: {exc}") from exc
-        validation = _validate_secret_entry(catalog, entry, probe=probe)
+        if validation is None:
+            validation = _validate_secret_entry(catalog, entry, probe=probe)
+        _audit_secret_api(
+            store,
+            "api_create_secret",
+            graph_id,
+            "ok" if validation["status"] == "ok" else "error",
+            handle=entry.handle,
+            kind=entry.kind,
+            probe=probe,
+        )
         return {"graph_id": graph_id, "handle": entry.handle, "created_at": entry.created_at, "validation": validation}
 
     @router.delete("/secrets/{handle}")
-    def remove_secret(graph_id: str, handle: str, agent_scope: str | None = None) -> Any:
-        denied = _require_workspace_admin(agent_scope)
+    def remove_secret(request: Request, graph_id: str, handle: str, agent_scope: str | None = None) -> Any:
+        del agent_scope  # Backward-compatible ignored query param; never grants admin.
+        denied = _require_workspace_admin(request)
         if denied is not None:
+            _audit_secret_api(
+                store,
+                "api_delete_secret",
+                graph_id,
+                "error",
+                handle=handle,
+                reason="workspace_admin_required",
+            )
             return denied
         try:
             catalog = _load_secret_catalog(store, graph_id)
@@ -392,9 +560,12 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except SecretManifestError as exc:
             raise HTTPException(status_code=400, detail=f"Secret manifest error: {exc}") from exc
-        if catalog.get(handle) is None:
+        entry = catalog.get(handle)
+        if entry is None:
+            _audit_secret_api(store, "api_delete_secret", graph_id, "error", handle=handle)
             raise HTTPException(status_code=404, detail=f"Secret handle '{handle}' not found")
         catalog.remove(handle)
+        _audit_secret_api(store, "api_delete_secret", graph_id, "ok", handle=handle, kind=entry.kind)
         return Response(status_code=204)
 
     # -------------------------------------------------------------------------

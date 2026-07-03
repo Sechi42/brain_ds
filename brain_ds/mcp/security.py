@@ -493,14 +493,24 @@ def validate_card_sections(items: Any) -> list[dict[str, Any]]:
 
 
 def is_workspace_admin(params: dict[str, Any]) -> None:
-    """Fail-closed scope guard for secret-mutating MCP tools.
+    """Legacy explicit-scope guard for trusted UI-owned routes.
 
-    The caller passes its claimed scope via ``agent_scope``; only
-    ``workspace_admin`` is allowed. Scope failures raise ``SecurityError``
-    (code -32001) to distinguish them from schema validation errors.
+    Do not use this for MCP secret tools: MCP tool parameters are caller-owned
+    data and must not grant admin access by themselves.
     """
     scope = params.get("agent_scope")
     if scope != "workspace_admin":
+        raise SecurityError("requires workspace_admin")
+
+
+def require_trusted_workspace_admin(is_authorized: bool) -> None:
+    """Fail closed unless the host runtime marked this request as admin.
+
+    This guard intentionally ignores MCP tool parameters such as
+    ``agent_scope``. Secret-list/probe MCP tools receive untrusted caller input,
+    so only server-owned authorization state may unlock them.
+    """
+    if not is_authorized:
         raise SecurityError("requires workspace_admin")
 
 

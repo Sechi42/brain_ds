@@ -27,7 +27,14 @@ async function mountSecretPanel(
         schema_version: "1.0",
         provider_kinds: {
           postgres: { required: ["host", "port", "database", "username", "sslmode"], types: { host: "string", port: "integer", database: "string", username: "string", sslmode: "string" } },
-          "google-sheets-json": { required: ["spreadsheet_id", "sheet_range", "service_account_ref"], types: { spreadsheet_id: "string", sheet_range: "string", service_account_ref: "string" } },
+          "google-sheets-json": {
+            required: ["spreadsheet_id", "sheet_range"],
+            types: { spreadsheet_id: "string", sheet_range: "string" },
+            ui_fields: { spreadsheet_url: "string", sheet_range: "string" },
+            requires_raw_value: true,
+            raw_value_label: "Google service-account JSON",
+            raw_value_placeholder: '{"type":"service_account"}',
+          },
         },
       };
 
@@ -104,10 +111,14 @@ test("panel renders handles and redacts secret-bearing metadata", async ({ page 
   expect(panelText).toContain("***");
 });
 
-test("credential value input is a password field", async ({ page }) => {
+test("Google Sheets credential value input is a multiline service-account JSON textarea", async ({ page }) => {
   await mountSecretPanel(page, []);
+  await page.locator("#secret-new-kind").selectOption("google-sheets-json");
+
   const valueInput = page.locator("#secret-new-value");
-  await expect(valueInput).toHaveAttribute("type", "password");
+  await expect(valueInput).toHaveJSProperty("tagName", "TEXTAREA");
+  await expect(page.locator('label[for="secret-new-value"]')).toHaveText("Google service-account JSON");
+  await expect(valueInput).toHaveAttribute("placeholder", /service_account/);
 });
 
 test("add secret form posts to API and refreshes list without leaking value", async ({ page }) => {

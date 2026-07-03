@@ -32,7 +32,7 @@ from brain_ds.mcp.security import (
     SecurityError,
     ValidationError,
     error_boundary,
-    is_workspace_admin,
+    require_trusted_workspace_admin,
     validate_card_sections,
     validate_path_within_root,
     validate_tool_input,
@@ -286,14 +286,19 @@ def _load_secret_catalog(store: GraphStore) -> SecretCatalog:
     return catalog
 
 
+def _require_mcp_secret_admin(store: GraphStore) -> None:
+    """Authorize MCP secret tools from trusted host state, not caller params."""
+    require_trusted_workspace_admin(bool(getattr(store, "secret_admin_enabled", False)))
+
+
 @error_boundary
 def list_secret_handles(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     """List workspace secret handles and redacted metadata (admin only)."""
     validated = validate_tool_input("list_secret_handles", params, TOOL_SCHEMAS["list_secret_handles"])
     try:
-        is_workspace_admin(params)
+        _require_mcp_secret_admin(store)
     except SecurityError:
-        store.log_audit("list_secret_handles", params, "error")
+        store.log_audit("list_secret_handles", validated, "error")
         raise
     catalog = _load_secret_catalog(store)
     limit, offset, compact = _pagination_params(validated)
@@ -309,7 +314,7 @@ def list_secret_handles(store: GraphStore, params: dict[str, Any]) -> dict[str, 
             item["metadata"] = redact_secrets(entry.metadata)
         handles.append(item)
 
-    store.log_audit("list_secret_handles", params, "ok")
+    store.log_audit("list_secret_handles", validated, "ok")
     page, next_offset = _page(handles, limit=limit, offset=offset)
     return {"handles": page, "total": len(handles), "limit": limit, "offset": offset, "next_offset": next_offset}
 
@@ -321,7 +326,7 @@ def validate_secret_handle(store: GraphStore, params: dict[str, Any]) -> dict[st
         "validate_secret_handle", params, TOOL_SCHEMAS["validate_secret_handle"]
     )
     try:
-        is_workspace_admin(params)
+        _require_mcp_secret_admin(store)
     except SecurityError:
         store.log_audit("validate_secret_handle", validated, "error")
         raise
@@ -339,11 +344,16 @@ def validate_secret_handle(store: GraphStore, params: dict[str, Any]) -> dict[st
 
     try:
         from brain_ds.connectors.secrets.providers import get_provider_adapter
+        from brain_ds.connectors.secrets.providers.google_sheets import RAW_VALUE_METADATA_KEY
 
         adapter = get_provider_adapter(entry.kind)
         adapter.validate(entry.metadata)
         if validated.get("probe"):
-            adapter.probe(entry.handle, entry.metadata)
+            probe_metadata = dict(entry.metadata)
+            raw_value = catalog.get_raw(entry.handle)
+            if entry.kind == "google-sheets-json" and raw_value:
+                probe_metadata[RAW_VALUE_METADATA_KEY] = raw_value
+            adapter.probe(entry.handle, probe_metadata)
     except ValidationError as exc:
         store.log_audit("validate_secret_handle", validated, "error")
         return {"valid": False, "status": "invalid", "reason": str(exc)}

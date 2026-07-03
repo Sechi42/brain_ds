@@ -176,6 +176,32 @@ class TestCatalogSchemaValidation:
 
         assert catalog.validate_all() == []
 
+    def test_google_sheets_upload_metadata_never_requires_raw_service_account_fields(
+        self, tmp_path: Path
+    ) -> None:
+        catalog = SecretCatalog(tmp_path)
+        catalog.add(
+            SecretEntry(
+                handle="gs_upload",
+                kind="google-sheets-json",
+                metadata={
+                    "spreadsheet_id": "1oVc-jvWV1s-0dW8YNK3nlK-vn3pLF5kInnHWqRWt5Ig",
+                    "sheet_range": "Sheet1!A1:Z",
+                    "credential_type": "service_account",
+                    "project_id": "catalog-project",
+                    "gid": "242408990",
+                },
+            ),
+            raw_value='{"private_key":"CATALOG_SENTINEL_PRIVATE_KEY","client_email":"catalog-sentinel@example.iam.gserviceaccount.com"}',
+        )
+
+        manifest_text = _manifest_path(tmp_path).read_text(encoding="utf-8")
+        assert "CATALOG_SENTINEL_PRIVATE_KEY" not in manifest_text
+        assert "catalog-sentinel@example" not in manifest_text
+        assert "private_key" not in manifest_text
+        assert "client_email" not in manifest_text
+        assert catalog.validate_all() == []
+
     def test_validate_all_reports_missing_required_metadata_field(self, tmp_path: Path) -> None:
         catalog = SecretCatalog(tmp_path)
         catalog.add(

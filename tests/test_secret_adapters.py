@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import json
 from unittest import mock
 
 import pytest
@@ -18,6 +19,8 @@ from brain_ds.connectors.secrets.providers import (
     SqliteAdapter,
     get_provider_adapter,
 )
+from brain_ds.connectors.secrets.providers import google_sheets as google_sheets_provider
+from brain_ds.connectors.secrets.providers.google_sheets import RAW_VALUE_METADATA_KEY, parse_google_sheet_url
 from brain_ds.mcp.security import ValidationError
 
 
@@ -134,6 +137,29 @@ class TestAwsSecretsAdapter:
 class TestGoogleSheetsAdapter:
     """2.4: Google Sheets JSON credential adapter."""
 
+    def _service_account(self, **overrides: object) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "type": "service_account",
+            "project_id": "sentinel-project",
+            "private_key_id": "sentinel-key-id",
+            "private_key": "-----BEGIN PRIVATE KEY-----\nSENTINEL_PRIVATE_KEY\n-----END PRIVATE KEY-----\n",
+            "client_email": "sentinel-sa@example.iam.gserviceaccount.com",
+            "client_id": "1234567890",
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/sentinel",
+            "universe_domain": "googleapis.com",
+        }
+        payload.update(overrides)
+        return payload
+
+    def _upload_metadata(self) -> dict[str, str]:
+        return {
+            "spreadsheet_url": "https://docs.google.com/spreadsheets/d/1oVc-jvWV1s-0dW8YNK3nlK-vn3pLF5kInnHWqRWt5Ig/edit?gid=242408990#gid=242408990",
+            "sheet_range": "Sheet1!A1:Z",
+        }
+
     def test_validate_rejects_missing_range(self) -> None:
         adapter = GoogleSheetsJsonAdapter()
         with pytest.raises(ValidationError) as excinfo:
@@ -160,6 +186,125 @@ class TestGoogleSheetsAdapter:
         assert result["spreadsheet_id"] == "abc123"
         assert result["sheet_range"] == "A1:C10"
         assert "private_key" in result["service_account_json"]
+
+    def test_validate_accepts_uploaded_service_account_json_and_url(self) -> None:
+        adapter = GoogleSheetsJsonAdapter()
+        metadata = self._upload_metadata()
+        raw_value = json.dumps(self._service_account())
+
+        redacted = adapter.validate_upload(metadata, raw_value)
+
+        assert redacted["spreadsheet_id"] == "1oVc-jvWV1s-0dW8YNK3nlK-vn3pLF5kInnHWqRWt5Ig"
+        assert redacted["gid"] == "242408990"
+        assert redacted["project_id"] == "sentinel-project"
+        assert redacted["credential_type"] == "service_account"
+        assert "client_email" not in redacted
+        assert "private_key" not in redacted
+
+    @pytest.mark.parametrize(
+        ("field", "bad_value"),
+        [
+            ("type", "authorized_user"),
+            ("private_key", None),
+            ("client_email", 12345),
+            ("token_uri", ""),
+        ],
+    )
+    def test_validate_upload_rejects_bad_service_account_fields(
+        self, field: str, bad_value: object
+    ) -> None:
+        adapter = GoogleSheetsJsonAdapter()
+        credential = self._service_account(**{field: bad_value})
+
+        with pytest.raises(ValidationError) as excinfo:
+            adapter.validate_upload(self._upload_metadata(), json.dumps(credential))
+
+        assert field in str(excinfo.value)
+        assert "SENTINEL_PRIVATE_KEY" not in str(excinfo.value)
+        assert "sentinel-sa@example" not in str(excinfo.value)
+
+    def test_probe_uses_fakeable_google_api_boundary_without_leaking_secrets(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        adapter = GoogleSheetsJsonAdapter()
+        metadata = adapter.validate_upload(
+            self._upload_metadata(), json.dumps(self._service_account())
+        )
+        metadata[RAW_VALUE_METADATA_KEY] = json.dumps(self._service_account())
+        calls: list[dict[str, object]] = []
+
+        class _FakeSheets:
+            def spreadsheets(self) -> "_FakeSheets":
+                return self
+
+            def get(self, **kwargs: object) -> "_FakeSheets":
+                calls.append(kwargs)
+                return self
+
+            def execute(self) -> dict[str, object]:
+                return {"spreadsheetId": metadata["spreadsheet_id"], "properties": {"title": "Budget"}}
+
+        def fake_build(credential: dict[str, object]) -> _FakeSheets:
+            assert credential["client_email"] == "sentinel-sa@example.iam.gserviceaccount.com"
+            return _FakeSheets()
+
+        monkeypatch.setattr(google_sheets_provider, "_build_sheets_service", fake_build)
+
+        result = adapter.probe("gsheets", metadata)
+
+        assert result == {
+            "spreadsheet_id": "1oVc-jvWV1s-0dW8YNK3nlK-vn3pLF5kInnHWqRWt5Ig",
+            "title": "Budget",
+        }
+        assert calls == [
+            {
+                "spreadsheetId": "1oVc-jvWV1s-0dW8YNK3nlK-vn3pLF5kInnHWqRWt5Ig",
+                "fields": "spreadsheetId,properties.title",
+            }
+        ]
+
+    def test_probe_permission_failure_guides_fix_forward_without_secret_echo(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        adapter = GoogleSheetsJsonAdapter()
+        metadata = adapter.validate_upload(
+            self._upload_metadata(), json.dumps(self._service_account())
+        )
+        metadata[RAW_VALUE_METADATA_KEY] = json.dumps(self._service_account())
+
+        class PermissionDenied(Exception):
+            status_code = 403
+
+        class _FakeSheets:
+            def spreadsheets(self) -> "_FakeSheets":
+                return self
+
+            def get(self, **_kwargs: object) -> "_FakeSheets":
+                return self
+
+            def execute(self) -> dict[str, object]:
+                raise PermissionDenied("PERMISSION_DENIED SENTINEL_PRIVATE_KEY client_email")
+
+        monkeypatch.setattr(google_sheets_provider, "_build_sheets_service", lambda _credential: _FakeSheets())
+
+        with pytest.raises(ValidationError) as excinfo:
+            adapter.probe("gsheets", metadata)
+
+        message = str(excinfo.value)
+        assert "share the spreadsheet" in message
+        assert "retry later" not in message.lower()
+        assert "SENTINEL_PRIVATE_KEY" not in message
+        assert "client_email" not in message
+
+    def test_parse_google_sheet_url_extracts_spreadsheet_id_and_gid(self) -> None:
+        result = parse_google_sheet_url(
+            "https://docs.google.com/spreadsheets/d/1oVc-jvWV1s-0dW8YNK3nlK-vn3pLF5kInnHWqRWt5Ig/edit?gid=242408990#gid=242408990"
+        )
+
+        assert result == {
+            "spreadsheet_id": "1oVc-jvWV1s-0dW8YNK3nlK-vn3pLF5kInnHWqRWt5Ig",
+            "gid": "242408990",
+        }
 
 
 class TestMockPostgresAdapter:

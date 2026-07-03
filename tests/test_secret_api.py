@@ -57,7 +57,9 @@ def _seed_catalog(store: GraphStore) -> SecretCatalog:
 
 
 def _api_client(store: GraphStore, tmp_path: Path) -> TestClient:
-    return TestClient(create_app(project_root=tmp_path, store=store, event_bus=EventBus()))
+    app = create_app(project_root=tmp_path, store=store, event_bus=EventBus())
+    app.state.secret_admin_enabled = True
+    return TestClient(app)
 
 
 class TestListSecrets:
@@ -132,27 +134,30 @@ class TestAddSecret:
                 "/api/secrets?graph_id=graph-secrets&agent_scope=workspace_admin",
                 json={
                     "handle": "sales_q3",
-                    "kind": "google-sheets-json",
+                    "kind": "postgres",
                     "metadata": {
-                        "spreadsheet_id": "abc123",
-                        "sheet_range": "A1:C10",
-                        "service_account_ref": "BRAINDS_GSA",
+                        "host": "db.local",
+                        "port": 5432,
+                        "database": "warehouse",
+                        "username": "etl",
+                        "sslmode": "require",
+                        "secret_ref": "BRAINDS_WH_PWD",
                     },
-                    "raw_value": '{"private_key":"GS_PRIVATE_KEY_VALUE"}',
+                    "raw_value": "PG_PASSWORD_VALUE",
                 },
             )
 
             assert response.status_code == 201
             body = response.json()
             assert body["handle"] == "sales_q3"
-            assert "GS_PRIVATE_KEY_VALUE" not in response.text
+            assert "PG_PASSWORD_VALUE" not in response.text
 
             catalog = SecretCatalog(tmp_path)
             catalog.load()
             entry = catalog.get("sales_q3")
             assert entry is not None
-            assert entry.kind == "google-sheets-json"
-            assert catalog.get_raw("sales_q3") == '{"private_key":"GS_PRIVATE_KEY_VALUE"}'
+            assert entry.kind == "postgres"
+            assert catalog.get_raw("sales_q3") == "PG_PASSWORD_VALUE"
         finally:
             store.close()
 
@@ -175,13 +180,16 @@ class TestAddSecretValidation:
     def _valid_postgres_payload(self, **overrides):
         payload = {
             "handle": "sales_q3",
-            "kind": "google-sheets-json",
+            "kind": "postgres",
             "metadata": {
-                "spreadsheet_id": "abc123",
-                "sheet_range": "A1:C10",
-                "service_account_ref": "BRAINDS_GSA",
+                "host": "db.local",
+                "port": 5432,
+                "database": "warehouse",
+                "username": "etl",
+                "sslmode": "require",
+                "secret_ref": "BRAINDS_WH_PWD",
             },
-            "raw_value": '{"private_key":"GS_PRIVATE_KEY_VALUE"}',
+            "raw_value": "PG_PASSWORD_VALUE",
         }
         payload.update(overrides)
         return payload

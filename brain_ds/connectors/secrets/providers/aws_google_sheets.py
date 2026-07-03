@@ -174,7 +174,7 @@ class AwsGoogleSheetsAdapter(SecretProviderAdapter):
         except Exception as exc:
             raise ValidationError(
                 message=(
-                    f"Google Sheets service-account JSON is invalid: {exc}. "
+                    "Google Sheets service-account JSON is invalid. "
                     "Verify the SA JSON stored in AWS Secrets Manager."
                 )
             ) from exc

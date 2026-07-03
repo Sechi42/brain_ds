@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 from brain_ds.connectors.secrets import SecretCatalog, SecretEntry
-from brain_ds.connectors.secrets.providers import PostgresAdapter
+from brain_ds.connectors.secrets.providers import GoogleSheetsJsonAdapter, PostgresAdapter
+from brain_ds.connectors.secrets.providers.google_sheets import RAW_VALUE_METADATA_KEY
 from brain_ds.mcp.tools import (
     explore_source,
     list_secret_handles,
@@ -17,6 +18,8 @@ from brain_ds.mcp.tools import (
 from brain_ds.store.graph_store import GraphStore
 
 _CANARY = "mcp-secret-canary-7777"
+_GSHEETS_PRIVATE_KEY = "MCP_SENTINEL_PRIVATE_KEY"
+_GSHEETS_CLIENT_EMAIL = "mcp-sentinel@example.iam.gserviceaccount.com"
 
 
 def _project_root(store: GraphStore) -> Path:
@@ -48,10 +51,25 @@ def _seed_catalog(store: GraphStore) -> SecretCatalog:
             metadata={
                 "spreadsheet_id": "abc123",
                 "sheet_range": "A1:C10",
-                "service_account_ref": "BRAINDS_GSA",
+                "credential_type": "service_account",
+                "project_id": "mcp-project",
             },
         ),
-        raw_value='{"private_key":"GS_PRIVATE_KEY_VALUE"}',
+        raw_value=json.dumps(
+            {
+                "type": "service_account",
+                "project_id": "mcp-project",
+                "private_key_id": "mcp-key-id",
+                "private_key": _GSHEETS_PRIVATE_KEY,
+                "client_email": _GSHEETS_CLIENT_EMAIL,
+                "client_id": "1234567890",
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/mcp",
+                "universe_domain": "googleapis.com",
+            }
+        ),
     )
     return catalog
 
@@ -76,6 +94,10 @@ def _store_with_graph(tmp_path: Path) -> GraphStore:
     return store
 
 
+def _enable_secret_admin(store: GraphStore) -> None:
+    store.secret_admin_enabled = True
+
+
 class TestListSecretHandles:
     """MCP-SEC-01: admin lists handles; non-admin is denied; no raw values leak."""
 
@@ -83,6 +105,7 @@ class TestListSecretHandles:
         store = _store_with_graph(tmp_path)
         try:
             _seed_catalog(store)
+            _enable_secret_admin(store)
             result = list_secret_handles(store, {"agent_scope": "workspace_admin"})
 
             handles = {entry["handle"] for entry in result["handles"]}
@@ -121,12 +144,28 @@ class TestListSecretHandles:
         store = _store_with_graph(tmp_path)
         try:
             _seed_catalog(store)
+            _enable_secret_admin(store)
             result = list_secret_handles(store, {"agent_scope": "workspace_admin"})
 
             serialized = json.dumps(result, default=str)
             assert _CANARY not in serialized
-            assert "GS_PRIVATE_KEY_VALUE" not in serialized
+            assert _GSHEETS_PRIVATE_KEY not in serialized
+            assert _GSHEETS_CLIENT_EMAIL not in serialized
+            assert "private_key" not in serialized
+            assert "client_email" not in serialized
             assert "BRAINDS_WH_PWD" not in serialized
+        finally:
+            store.close()
+
+    def test_self_declared_workspace_admin_param_does_not_grant_access(self, tmp_path: Path) -> None:
+        store = _store_with_graph(tmp_path)
+        try:
+            _seed_catalog(store)
+
+            result = list_secret_handles(store, {"agent_scope": "workspace_admin"})
+
+            assert result["code"] == -32001
+            assert _CANARY not in json.dumps(result)
         finally:
             store.close()
 
@@ -138,6 +177,7 @@ class TestValidateSecretHandle:
         store = _store_with_graph(tmp_path)
         try:
             _seed_catalog(store)
+            _enable_secret_admin(store)
             result = validate_secret_handle(
                 store, {"handle": "warehouse_ro", "agent_scope": "workspace_admin"}
             )
@@ -154,6 +194,7 @@ class TestValidateSecretHandle:
         store = _store_with_graph(tmp_path)
         try:
             _seed_catalog(store)
+            _enable_secret_admin(store)
             result = validate_secret_handle(
                 store, {"handle": "missing", "agent_scope": "workspace_admin"}
             )
@@ -168,6 +209,7 @@ class TestValidateSecretHandle:
         store = _store_with_graph(tmp_path)
         try:
             catalog = SecretCatalog(_project_root(store))
+            _enable_secret_admin(store)
             catalog.add(
                 SecretEntry(
                     handle="broken_pg",
@@ -208,7 +250,7 @@ class TestValidateSecretHandle:
         try:
             _seed_catalog(store)
             result = validate_secret_handle(
-                store, {"handle": "warehouse_ro", "agent_scope": "workspace_member"}
+                store, {"handle": "warehouse_ro", "agent_scope": "workspace_admin"}
             )
 
             assert result["code"] == -32001
@@ -219,6 +261,7 @@ class TestValidateSecretHandle:
         store = _store_with_graph(tmp_path)
         try:
             _seed_catalog(store)
+            _enable_secret_admin(store)
             calls = []
             monkeypatch.setattr(
                 PostgresAdapter,
@@ -254,7 +297,7 @@ class TestValidateSecretHandle:
 
             result = validate_secret_handle(
                 store,
-                {"handle": "warehouse_ro", "agent_scope": "workspace_member", "probe": True},
+                {"handle": "warehouse_ro", "agent_scope": "workspace_admin", "probe": True},
             )
 
             assert result["code"] == -32001
@@ -266,11 +309,43 @@ class TestValidateSecretHandle:
         store = _store_with_graph(tmp_path)
         try:
             _seed_catalog(store)
+            _enable_secret_admin(store)
             result = validate_secret_handle(
                 store, {"handle": "warehouse_ro", "agent_scope": "workspace_admin"}
             )
 
             assert _CANARY not in json.dumps(result)
+        finally:
+            store.close()
+
+    def test_google_sheets_probe_result_never_contains_raw_service_account(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        store = _store_with_graph(tmp_path)
+        try:
+            _seed_catalog(store)
+            _enable_secret_admin(store)
+            captured_metadata: list[dict[str, object]] = []
+            monkeypatch.setattr(
+                GoogleSheetsJsonAdapter,
+                "probe",
+                lambda _self, handle, metadata: captured_metadata.append(dict(metadata))
+                or {"spreadsheet_id": metadata["spreadsheet_id"], "title": "Budget"},
+            )
+
+            result = validate_secret_handle(
+                store, {"handle": "sales_q3", "agent_scope": "workspace_admin", "probe": True}
+            )
+
+            serialized = json.dumps(result, default=str)
+            assert result["valid"] is True
+            assert _GSHEETS_PRIVATE_KEY not in serialized
+            assert _GSHEETS_CLIENT_EMAIL not in serialized
+            assert "private_key" not in serialized
+            assert "client_email" not in serialized
+            assert len(captured_metadata) == 1
+            assert captured_metadata[0][RAW_VALUE_METADATA_KEY]
+            assert _GSHEETS_PRIVATE_KEY in str(captured_metadata[0][RAW_VALUE_METADATA_KEY])
         finally:
             store.close()
 
@@ -286,6 +361,7 @@ class TestAuditLogging:
         store = _store_with_graph(tmp_path)
         try:
             _seed_catalog(store)
+            _enable_secret_admin(store)
             before = self._audit_count(store)
             list_secret_handles(store, {"agent_scope": "workspace_admin"})
             after = self._audit_count(store)
@@ -396,6 +472,7 @@ class TestManifestFailClosed:
                 json.dumps({"schema_version": "1.0", "entries": [{"handle": "broken"}]}),
                 encoding="utf-8",
             )
+            _enable_secret_admin(store)
 
             result = list_secret_handles(store, {"agent_scope": "workspace_admin"})
 

@@ -64,6 +64,7 @@ def test_tool_registry_handlers_return_structured_contracts_without_secret_leak(
 def test_secret_validation_not_found_does_not_echo_unregistered_handle(tmp_path: Path) -> None:
     store = _store(tmp_path)
     try:
+        store.secret_admin_enabled = True
         missing_handle = "aws-user-provided-unregistered-handle"
         result = validate_secret_handle(store, {"handle": missing_handle, "agent_scope": "workspace_admin", "probe": True})
         assert result == {"valid": False, "status": "not_found", "reason": "Secret handle is not registered in this workspace."}

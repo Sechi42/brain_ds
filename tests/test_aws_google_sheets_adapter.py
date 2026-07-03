@@ -423,6 +423,29 @@ class TestAwsGoogleSheetsAdapterProbe(unittest.TestCase):
 
         self.assertIn("invalid", str(ctx.exception).lower())
 
+    def test_probe_failure_does_not_echo_secret_bearing_gspread_exception(self):
+        """probe() maps arbitrary gspread failures to safe text without raw exception echo."""
+        adapter = self._get_adapter()
+        mock_boto3, _, fake_botocore_exc = _make_mock_boto_env()
+
+        fake_gspread = mock.MagicMock()
+        fake_gspread.service_account_from_dict.side_effect = Exception(
+            "invalid credentials -----BEGIN RSA PRIVATE KEY----- client_email"
+        )
+
+        with _patch_boto3_in_adapter(mock_boto3, fake_botocore_exc):
+            with mock.patch(
+                "brain_ds.connectors.secrets.providers.aws_google_sheets._lazy_gspread",
+                return_value=fake_gspread,
+            ):
+                with self.assertRaises(ValidationError) as ctx:
+                    adapter.probe("test-handle", _VALID_METADATA)
+
+        message = str(ctx.exception)
+        self.assertIn("Google Sheets service-account JSON is invalid", message)
+        self.assertNotIn("-----BEGIN RSA PRIVATE KEY-----", message)
+        self.assertNotIn("client_email", message)
+
 
 # ===========================================================================
 # PR3-T1d: kind attribute + registry registration

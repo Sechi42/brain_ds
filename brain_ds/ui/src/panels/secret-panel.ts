@@ -29,7 +29,10 @@ interface SecretHandle {
 interface SecretKindContract {
   required: string[];
   types: Record<string, string>;
+  ui_fields?: Record<string, string>;
   requires_raw_value?: boolean;
+  raw_value_label?: string;
+  raw_value_placeholder?: string;
   descriptions?: Record<string, string>;
   placeholders?: Record<string, string>;
   enums?: Record<string, string[]>;
@@ -53,6 +56,11 @@ interface SecretValidationStatus {
   status: 'ok' | 'error';
   connection: 'probed' | 'not_probed' | 'probe_failed';
   message: string;
+}
+
+interface SecretErrorResponse {
+  detail?: string | { message?: string; reason?: string };
+  message?: string;
 }
 
 // ── Module state ───────────────────────────────────────────────────────────
@@ -101,12 +109,25 @@ function _escapeHtml(value: unknown): string {
     .replace(/"/g, '&quot;');
 }
 
+function _safeDomIdToken(value: unknown): string {
+  return String(value ?? '').replace(/[^A-Za-z0-9_-]/g, '-');
+}
+
+function _safeBackendMessage(data: SecretErrorResponse, fallback: string): string {
+  const candidate = typeof data.detail === 'object' ? data.detail.message : data.detail ?? data.message;
+  if (typeof candidate !== 'string') return fallback;
+  const trimmed = candidate.trim();
+  return trimmed.length ? trimmed : fallback;
+}
+
 function _renderMeta(metadata: Record<string, unknown>): string {
   const entries = Object.entries(metadata);
   if (!entries.length) return '<p class="secret-empty-meta">Sin metadatos</p>';
   const rows = entries
     .map(([key, value]) => {
-      const display = Array.isArray(value) ? value.join(', ') : _escapeHtml(value);
+      const display = Array.isArray(value)
+        ? value.map((item) => _escapeHtml(item)).join(', ')
+        : _escapeHtml(value);
       return `<dt>${_escapeHtml(key)}</dt><dd>${display}</dd>`;
     })
     .join('');
@@ -117,7 +138,7 @@ function _renderMeta(metadata: Record<string, unknown>): string {
 
 async function _loadSchema(): Promise<SecretSchema | null> {
   if (!_deps) return null;
-  const url = `${_apiUrl('/secrets/schema')}?graph_id=${encodeURIComponent(_deps.graphId)}&agent_scope=workspace_admin`;
+  const url = `${_apiUrl('/secrets/schema')}?graph_id=${encodeURIComponent(_deps.graphId)}`;
   try {
     const res = await fetch(url, { signal: _abort?.signal ?? null });
     if (!res.ok) return null;
@@ -129,7 +150,7 @@ async function _loadSchema(): Promise<SecretSchema | null> {
 
 async function _loadHandles(): Promise<void> {
   if (!_deps) return;
-  const url = `${_apiUrl('/secrets')}?graph_id=${encodeURIComponent(_deps.graphId)}&agent_scope=workspace_admin`;
+  const url = `${_apiUrl('/secrets')}?graph_id=${encodeURIComponent(_deps.graphId)}`;
   try {
     const res = await fetch(url, { signal: _abort?.signal ?? null });
     const data = (await res.json()) as SecretListResponse;
@@ -155,9 +176,9 @@ async function _loadHandles(): Promise<void> {
   }
 }
 
-async function _addSecret(payload: Record<string, unknown>): Promise<{ ok: boolean; validation?: SecretValidationStatus }> {
-  if (!_deps) return { ok: false };
-  const url = `${_apiUrl('/secrets')}?graph_id=${encodeURIComponent(_deps.graphId)}&agent_scope=workspace_admin&probe=true`;
+async function _addSecret(payload: Record<string, unknown>): Promise<{ ok: boolean; validation?: SecretValidationStatus; errorMessage?: string }> {
+  if (!_deps) return { ok: false, errorMessage: 'Panel no inicializado.' };
+  const url = `${_apiUrl('/secrets')}?graph_id=${encodeURIComponent(_deps.graphId)}&probe=true`;
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -165,20 +186,22 @@ async function _addSecret(payload: Record<string, unknown>): Promise<{ ok: boole
       body: JSON.stringify(payload),
       signal: _abort?.signal ?? null,
     });
-    const data = (await res.json().catch(() => ({}))) as { validation?: SecretValidationStatus };
+    const data = (await res.json().catch(() => ({}))) as { validation?: SecretValidationStatus } & SecretErrorResponse;
     const validation = data.validation;
     if (validation !== undefined) {
-      return { ok: res.ok, validation };
+      if (res.ok) return { ok: true, validation };
+      return { ok: false, validation, errorMessage: _safeBackendMessage(data, validation.message) };
     }
-    return { ok: res.ok };
+    if (res.ok) return { ok: true };
+    return { ok: false, errorMessage: _safeBackendMessage(data, 'No se pudo agregar el secreto') };
   } catch (_e) {
-    return { ok: false };
+    return { ok: false, errorMessage: 'No se pudo agregar el secreto: error de red.' };
   }
 }
 
 async function _removeSecret(handle: string): Promise<boolean> {
   if (!_deps) return false;
-  const url = `${_apiUrl('/secrets')}/${encodeURIComponent(handle)}?graph_id=${encodeURIComponent(_deps.graphId)}&agent_scope=workspace_admin`;
+  const url = `${_apiUrl('/secrets')}/${encodeURIComponent(handle)}?graph_id=${encodeURIComponent(_deps.graphId)}`;
   try {
     const res = await fetch(url, { method: 'DELETE', signal: _abort?.signal ?? null });
     return res.ok;
@@ -189,9 +212,9 @@ async function _removeSecret(handle: string): Promise<boolean> {
 
 // ── Probe connection ───────────────────────────────────────────────────────
 
-/** Returns true when the secret kind supports live probing (AWS-backed kinds). */
+/** Returns true when the secret kind supports live probing from the settings panel. */
 function _kindSupportsProbe(kind: string): boolean {
-  return kind.startsWith('aws-');
+  return kind === 'google-sheets-json' || kind.startsWith('aws-');
 }
 
 interface ProbeResult {
@@ -201,7 +224,7 @@ interface ProbeResult {
 
 async function _probeSecret(handle: string): Promise<ProbeResult> {
   if (!_deps) return { ok: false, message: 'Panel no inicializado.' };
-  const url = `${_apiUrl('/secrets/validate')}?graph_id=${encodeURIComponent(_deps.graphId)}&handle=${encodeURIComponent(handle)}&agent_scope=workspace_admin`;
+  const url = `${_apiUrl('/secrets/validate')}?graph_id=${encodeURIComponent(_deps.graphId)}&handle=${encodeURIComponent(handle)}`;
   try {
     const res = await fetch(url, { method: 'POST', signal: _abort?.signal ?? null });
     const data = (await res.json().catch(() => ({}))) as { status?: string; message?: string };
@@ -222,6 +245,10 @@ function _connectionDescriptorForSecret(handle: SecretHandle): Record<string, un
     descriptor.database = handle.metadata.database;
   }
   if (handle.kind === 'aws-google-sheets') {
+    descriptor.spreadsheet_id = handle.metadata.spreadsheet_id;
+    descriptor.sheet_range = handle.metadata.sheet_range;
+  }
+  if (handle.kind === 'google-sheets-json') {
     descriptor.spreadsheet_id = handle.metadata.spreadsheet_id;
     descriptor.sheet_range = handle.metadata.sheet_range;
   }
@@ -317,8 +344,8 @@ function _renderBindActions(handle: SecretHandle): string {
   const dataSources = _deps?.dataSources ?? [];
   if (!dataSources.length) return '';
 
-  const escapedHandle = _escapeHtml(handle.handle);
-  const selectId = `secret-bind-source-${escapedHandle}`;
+    const escapedHandle = _escapeHtml(handle.handle);
+    const selectId = `secret-bind-source-${_safeDomIdToken(handle.handle)}`;
   const status = _bindStatus?.handle === handle.handle ? _bindStatus : null;
   const options = dataSources
     .map((source) => `<option value="${_escapeHtml(source.id)}">${_escapeHtml(source.label || source.id)}</option>`)
@@ -353,27 +380,34 @@ function _renderList(): HTMLElement {
     li.setAttribute('role', 'option');
     li.setAttribute('aria-label', `${handle.handle}, ${handle.kind}`);
 
-    const summaryId = `secret-summary-${handle.handle}`;
+    const escapedHandle = _escapeHtml(handle.handle);
+    const summaryId = `secret-summary-${_safeDomIdToken(handle.handle)}`;
     li.innerHTML = `
       <div class="secret-row">
-        <span class="secret-handle">${_escapeHtml(handle.handle)}</span>
+        <span class="secret-handle">${escapedHandle}</span>
         <span class="secret-kind">${_escapeHtml(handle.kind)}</span>
       </div>
       <details class="secret-detail">
-        <summary class="secret-summary" aria-label="Mostrar detalles de ${handle.handle}">
+        <summary class="secret-summary">
           <span>Detalles</span>
           <span class="secret-chevron">${CHEVRON_RIGHT_ICON}</span>
         </summary>
-        <div class="secret-detail-body" id="${summaryId}">
+        <div class="secret-detail-body">
           ${_renderMeta(handle.metadata)}
         </div>
       </details>
       ${_renderProbeActions(handle)}
       ${_renderBindActions(handle)}
-      <button type="button" class="secret-remove-btn" data-secret-handle="${_escapeHtml(handle.handle)}" aria-label="Eliminar secreto ${_escapeHtml(handle.handle)}">
+      <button type="button" class="secret-remove-btn" data-secret-handle="${escapedHandle}">
         Eliminar
       </button>
     `;
+    const summary = li.querySelector('.secret-summary');
+    summary?.setAttribute('aria-label', `Mostrar detalles de ${handle.handle}`);
+    const detailBody = li.querySelector<HTMLElement>('.secret-detail-body');
+    if (detailBody) detailBody.id = summaryId;
+    const removeBtn = li.querySelector('.secret-remove-btn');
+    removeBtn?.setAttribute('aria-label', `Eliminar secreto ${handle.handle}`);
     list.appendChild(li);
   }
 
@@ -405,8 +439,8 @@ function _renderAddForm(): HTMLElement {
     </div>
     <div id="secret-kind-fields" class="secret-kind-fields"></div>
     <div id="secret-raw-value-row" class="secret-field-row">
-      <label for="secret-new-value">Valor de credencial</label>
-      <input id="secret-new-value" class="secret-input" type="password" autocomplete="off" placeholder="••••" required />
+      <label id="secret-new-value-label" for="secret-new-value">Credential value</label>
+      <textarea id="secret-new-value" class="secret-input" autocomplete="off" placeholder="••••" rows="7" spellcheck="false" required></textarea>
     </div>
     <button type="submit" class="pill-btn btn-outline secret-add-btn">
       Agregar secreto
@@ -417,12 +451,15 @@ function _renderAddForm(): HTMLElement {
 
 function _updateRawValueVisibility(form: HTMLElement, kind: string): void {
   const rawValueRow = form.querySelector('#secret-raw-value-row') as HTMLElement | null;
-  const rawValueInput = form.querySelector('#secret-new-value') as HTMLInputElement | null;
+  const rawValueInput = form.querySelector('#secret-new-value') as HTMLTextAreaElement | null;
+  const rawValueLabel = form.querySelector('#secret-new-value-label') as HTMLLabelElement | null;
   if (!rawValueRow || !rawValueInput) return;
 
   const contract = _schema?.provider_kinds[kind];
   // requires_raw_value defaults to true when absent
   const requiresRawValue = !contract || contract.requires_raw_value !== false;
+  rawValueInput.placeholder = contract?.raw_value_placeholder ?? '••••';
+  if (rawValueLabel) rawValueLabel.textContent = contract?.raw_value_label ?? 'Credential value';
 
   if (requiresRawValue) {
     rawValueRow.style.display = '';
@@ -449,7 +486,8 @@ function _updateKindFields(container: HTMLElement, kind: string): void {
   const placeholders = contract.placeholders ?? {};
   const enums = contract.enums ?? {};
 
-  const fields = Object.entries(contract.types)
+  const fieldTypes = contract.ui_fields ?? contract.types;
+  const fields = Object.entries(fieldTypes)
     .map(([name, type]) => {
       const isRequired = required.has(name);
       const description = descriptions[name];
@@ -540,7 +578,7 @@ function _renderPanel(): void {
     event.preventDefault();
     const handleInput = form.querySelector('#secret-new-handle') as HTMLInputElement | null;
     const kindInput = form.querySelector('#secret-new-kind') as HTMLSelectElement | null;
-    const valueInput = form.querySelector('#secret-new-value') as HTMLInputElement | null;
+    const valueInput = form.querySelector('#secret-new-value') as HTMLTextAreaElement | null;
     if (!handleInput || !kindInput) return;
 
     const contract = _schema?.provider_kinds[kindInput.value];
@@ -557,7 +595,7 @@ function _renderPanel(): void {
 
     const result = await _addSecret(payload);
     const validationMessage = result.validation?.message ?? 'Validación segura OK; contrato del proveedor verificado.';
-    const message = result.ok ? `Secreto agregado. ${validationMessage}` : 'No se pudo agregar el secreto';
+    const message = result.ok ? `Secreto agregado. ${validationMessage}` : result.errorMessage ?? 'No se pudo agregar el secreto';
     const status = _renderStatus(message, !result.ok || result.validation?.status === 'error');
     form.appendChild(status);
     if (result.ok) {

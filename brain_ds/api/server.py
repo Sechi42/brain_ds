@@ -36,5 +36,6 @@ def create_app(*, project_root: Path, store: GraphStore, event_bus: EventBus | N
     app.state.store = store
     app.state.event_bus = bus
     app.state.receipt_store = receipt_store
+    app.state.secret_admin_enabled = False
     app.include_router(create_router(store=store, event_bus=bus))
     return app
