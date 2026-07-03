@@ -218,6 +218,193 @@ class MCPToolsTests(unittest.TestCase):
         self.assertEqual(TOOL_REGISTRY["get_kpi_dossier"]["rw"], "read")
         self.assertEqual(TOOL_REGISTRY["get_business_dossier"]["rw"], "read")
 
+    def test_explore_source_google_sheets_table_exposes_rich_sheet_profile(self) -> None:
+        self.store.upsert_node(
+            self.graph_id,
+            {
+                "id": "DS-GSHEETS",
+                "label": "Finance Sheet",
+                "type": "Data Source",
+                "supertype": "data",
+                "details": {"connection": {"kind": "google-sheets-json", "secret_handle": "finance"}},
+            },
+        )
+        profile = {
+            "title": "Budget",
+            "gid": "101",
+            "headers": ["month", "amount"],
+            "samples": [{"month": "Jan", "amount": 100}],
+            "formulas": [{"cell": "B2", "formula": "=SUM(B3:B10)"}],
+            "charts": [{"chart_id": 7, "title": "Spend by Month"}],
+            "protected_ranges": [{"id": 55, "description": "Headers"}],
+            "filter_views": [{"id": 88, "title": "Active budget"}],
+            "limitations": ["Apps Script metadata is unavailable from the Sheets API profile"],
+            "provenance": {"source": "google-sheets-api"},
+        }
+
+        class FakeSheetsConnector:
+            def describe(self) -> dict[str, Any]:
+                return {"kind": "google-sheets", "profile": {"sheet_count": 1}}
+
+            def list_containers(self) -> list[str]:
+                return ["Finance Workbook"]
+
+            def list_tables(self, container: str) -> list[str]:
+                return ["Budget"]
+
+            def get_table_schema(self, container: str, table: str) -> dict[str, Any]:
+                return {"columns": [{"name": "month"}, {"name": "amount"}], "profile": profile}
+
+            def preview(self, container: str, table: str, limit: int = 5) -> dict[str, Any]:
+                return {"columns": ["month", "amount"], "rows": profile["samples"], "profile": profile}
+
+        with patch("brain_ds.mcp.tools._resolve_connector", return_value=FakeSheetsConnector()):
+            result = explore_source(
+                self.store,
+                {
+                    "graph_id": self.graph_id,
+                    "node_id": "DS-GSHEETS",
+                    "container": "Finance Workbook",
+                    "table": "Budget",
+                },
+            )
+
+        self.assertEqual(result["sheet_profile"]["formulas"][0]["formula"], "=SUM(B3:B10)")
+        self.assertEqual(result["sheet_profile"]["charts"][0]["title"], "Spend by Month")
+        self.assertEqual(result["sheet_profile"]["protected_ranges"][0]["description"], "Headers")
+        self.assertEqual(result["sheet_profile"]["filter_views"][0]["title"], "Active budget")
+        self.assertIn("Apps Script", result["sheet_profile"]["limitations"][0])
+        self.assertEqual(result["sheet_profile"]["provenance"]["source"], "google-sheets-api")
+
+    def test_google_sheets_documentation_bundle_tracks_sheet_coverage_once(self) -> None:
+        self.store.upsert_node(
+            self.graph_id,
+            {
+                "id": "DS-GSHEETS",
+                "label": "Finance Sheet",
+                "type": "Data Source",
+                "supertype": "data",
+                "details": {"connection": {"kind": "google-sheets-json", "secret_handle": "finance"}},
+            },
+        )
+        for node_id, label, status in [
+            ("sheet-budget", "Budget", "documented"),
+            ("sheet-apps-script", "Apps Script", "unsupported"),
+        ]:
+            self.store.upsert_node(
+                self.graph_id,
+                {
+                    "id": node_id,
+                    "label": label,
+                    "type": "Data Container",
+                    "supertype": "data-internal",
+                    "parent_id": "DS-GSHEETS",
+                    "details": {
+                        "coverage_status": status,
+                        "sheet_profile": {
+                            "title": label,
+                            "formulas": [{"cell": "B2", "formula": "=B3"}] if label == "Budget" else [],
+                            "charts": [{"title": "Spend"}] if label == "Budget" else [],
+                            "protected_ranges": [{"description": "Header"}] if label == "Budget" else [],
+                            "filter_views": [{"title": "Active"}] if label == "Budget" else [],
+                            "limitations": ["Apps Script metadata is unavailable from the Sheets API profile"],
+                            "provenance": {"source": "google-sheets-api"},
+                        },
+                    },
+                    "card_sections": [
+                        {"title": "Columns / Fields", "content": "| col | type |\n|---|---|\n| month | string |", "order": 1},
+                    ],
+                },
+            )
+
+        result = explore_source(self.store, {"graph_id": self.graph_id, "node_id": "DS-GSHEETS", "level": "documentation"})
+
+        coverage = {table["label"]: table["coverage_status"] for table in result["tables"]}
+        self.assertEqual(coverage, {"Apps Script": "unsupported", "Budget": "documented"})
+        budget = next(table for table in result["tables"] if table["label"] == "Budget")
+        self.assertEqual(budget["sheet_profile"]["formulas"][0]["formula"], "=B3")
+        self.assertEqual(budget["sheet_profile"]["charts"][0]["title"], "Spend")
+        self.assertEqual(budget["sheet_profile"]["protected_ranges"][0]["description"], "Header")
+        self.assertEqual(budget["sheet_profile"]["filter_views"][0]["title"], "Active")
+        self.assertIn("Apps Script", budget["limitations"][0])
+
+    def test_explore_source_google_sheets_container_exposes_per_sheet_profiles(self) -> None:
+        self.store.upsert_node(
+            self.graph_id,
+            {
+                "id": "DS-GSHEETS",
+                "label": "Finance Sheet",
+                "type": "Data Source",
+                "supertype": "data",
+                "details": {"connection": {"kind": "google-sheets-json", "secret_handle": "finance"}},
+            },
+        )
+        profiles = {
+            "Budget": {
+                "title": "Budget",
+                "formulas": [{"cell": "B2", "formula": "=SUM(B3:B10)"}],
+                "charts": [{"title": "Spend by Month"}],
+                "protected_ranges": [{"description": "Headers"}],
+                "filter_views": [{"title": "Active budget"}],
+                "limitations": ["Apps Script metadata is unavailable from the Sheets API profile"],
+                "provenance": {"source": "google-sheets-api"},
+            },
+            "Forecast": {
+                "title": "Forecast",
+                "formulas": [],
+                "charts": [],
+                "protected_ranges": [],
+                "filter_views": [],
+                "limitations": ["Apps Script metadata is unavailable from the Sheets API profile"],
+                "provenance": {"source": "google-sheets-api"},
+            },
+        }
+
+        class FakeSheetsConnector:
+            def describe(self) -> dict[str, Any]:
+                return {"kind": "google-sheets"}
+
+            def list_containers(self) -> list[str]:
+                return ["Finance Workbook"]
+
+            def list_tables(self, container: str) -> list[str]:
+                return ["Budget", "Forecast"]
+
+            def sheet_profile(self, table: str) -> dict[str, Any]:
+                return profiles[table]
+
+        with patch("brain_ds.mcp.tools._resolve_connector", return_value=FakeSheetsConnector()):
+            result = explore_source(
+                self.store,
+                {"graph_id": self.graph_id, "node_id": "DS-GSHEETS", "container": "Finance Workbook"},
+            )
+
+        self.assertEqual([profile["title"] for profile in result["sheet_profiles"]], ["Budget", "Forecast"])
+        self.assertEqual(result["sheet_profiles"][0]["formulas"][0]["formula"], "=SUM(B3:B10)")
+        self.assertEqual(result["sheet_profiles"][0]["charts"][0]["title"], "Spend by Month")
+        self.assertIn("Apps Script", result["sheet_profiles"][1]["limitations"][0])
+
+    def test_google_sheets_internal_template_names_rich_sheet_surfaces(self) -> None:
+        self.store.upsert_node(
+            self.graph_id,
+            {
+                "id": "DS-GSHEETS",
+                "label": "Finance Sheet",
+                "type": "Data Source",
+                "supertype": "data",
+                "details": {"source_kind": "google-sheets", "connection": {"kind": "google-sheets-json", "secret_handle": "finance"}},
+            },
+        )
+
+        result = explore_source(self.store, {"graph_id": self.graph_id, "node_id": "DS-GSHEETS", "level": "internal"})
+        serialized = json.dumps(result["template"], sort_keys=True)
+
+        self.assertIn("formula", serialized)
+        self.assertIn("chart", serialized)
+        self.assertIn("protected_range", serialized)
+        self.assertIn("filter_view", serialized)
+        self.assertIn("apps_script_limitation", serialized)
+
     def test_business_dossier_request_defaults_to_read_only_no_write_contract(self) -> None:
         from brain_ds.dossier.business_models import BusinessDossierRequest
 

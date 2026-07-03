@@ -2384,6 +2384,7 @@ def _build_doc_bundle(store: GraphStore, graph_id: str, node_id: str) -> dict[st
                 columns_markdown = content
 
         child_details = child.details or {}
+        sheet_profile = child_details.get("sheet_profile") if isinstance(child_details.get("sheet_profile"), dict) else None
         tables.append(
             {
                 "node_id": child.id,
@@ -2393,6 +2394,18 @@ def _build_doc_bundle(store: GraphStore, graph_id: str, node_id: str) -> dict[st
                 "purpose": child_details.get("what", ""),
                 "owner": child_details.get("where", ""),
                 "refresh": child_details.get("learned", ""),
+                "coverage_status": child_details.get("coverage_status", "documented"),
+                "sheet_profile": sheet_profile,
+                "limitations": (
+                    child_details.get("limitations")
+                    or ((sheet_profile or {}).get("limitations") if sheet_profile else [])
+                    or []
+                ),
+                "provenance": (
+                    child_details.get("provenance")
+                    or ((sheet_profile or {}).get("provenance") if sheet_profile else {})
+                    or {}
+                ),
                 "schema_baseline_status": (
                     "baseline-present"
                     if isinstance(child_details.get("schema_baseline"), dict)
@@ -2502,11 +2515,15 @@ def explore_source(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
             }
         elif table is None:
             # Level 1: list tables in container
+            tables = connector.list_tables(container)
             result = {
                 "level": "container",
                 "container": container,
-                "tables": connector.list_tables(container),
+                "tables": tables,
             }
+            profile_getter = getattr(connector, "sheet_profile", None)
+            if callable(profile_getter):
+                result["sheet_profiles"] = [profile_getter(sheet_name) for sheet_name in tables]
         else:
             # Level 2: schema + preview
             schema = connector.get_table_schema(container, table)
@@ -2518,6 +2535,13 @@ def explore_source(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
                 "schema": schema,
                 "preview": preview,
             }
+            sheet_profile = None
+            if isinstance(schema, dict) and isinstance(schema.get("profile"), dict):
+                sheet_profile = schema["profile"]
+            elif isinstance(preview, dict) and isinstance(preview.get("profile"), dict):
+                sheet_profile = preview["profile"]
+            if sheet_profile is not None:
+                result["sheet_profile"] = sheet_profile
             # E (change detection): emit ONLY at level==table. Read-only — the
             # baseline is persisted to the graph by the documenter via
             # update_node, never to the source here.

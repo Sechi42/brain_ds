@@ -339,6 +339,34 @@ class TestDocumentationDigestContract(unittest.TestCase):
         digest = ctx["detail_index"]["ds-only"]["documentation_digest"]
         self.assertEqual(digest["tables"], [])
 
+    def test_google_sheets_digest_preserves_limitations_and_provenance(self):
+        payload = _datasource_graph_payload()
+        payload["nodes"][0]["details"] = {"connection": {"kind": "google-sheets-json", "secret_handle": "finance"}}
+        payload["nodes"][1]["details"] = {
+            "coverage_status": "documented",
+            "sheet_profile": {
+                "title": "orders",
+                "formulas": [{"cell": "B2", "formula": "=B3"}],
+                "charts": [{"title": "Spend"}],
+                "protected_ranges": [{"description": "Header"}],
+                "filter_views": [{"title": "Active"}],
+                "limitations": ["Apps Script metadata is unavailable from the Sheets API profile"],
+                "provenance": {"source": "google-sheets-api"},
+            },
+        }
+
+        ctx = build_render_context(Graph.from_v1(payload))
+        digest = ctx["detail_index"]["ds-1"]["documentation_digest"]
+        orders = next(table for table in digest["tables"] if table["node_id"] == "tbl-orders")
+
+        self.assertEqual(orders["coverage_status"], "documented")
+        self.assertEqual(orders["sheet_profile"]["formulas"][0]["formula"], "=B3")
+        self.assertEqual(orders["sheet_profile"]["charts"][0]["title"], "Spend")
+        self.assertEqual(orders["sheet_profile"]["protected_ranges"][0]["description"], "Header")
+        self.assertEqual(orders["sheet_profile"]["filter_views"][0]["title"], "Active")
+        self.assertIn("Apps Script", orders["limitations"][0])
+        self.assertEqual(orders["provenance"]["source"], "google-sheets-api")
+
 
 class TestDataSourceInternalSubtreeContract(unittest.TestCase):
     def test_data_source_detail_exposes_existing_internal_subtree(self):

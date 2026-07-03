@@ -292,9 +292,25 @@ SOURCE_KIND_HIERARCHY_TEMPLATES: dict[str, list[dict[str, object]]] = {
     ],
     "google-sheets": [
         {"kind": "spreadsheet", "children": ["worksheet"]},
-        {"kind": "worksheet", "children": ["range", "table"]},
+        {
+            "kind": "worksheet",
+            "children": [
+                "range",
+                "table",
+                "formula",
+                "chart",
+                "protected_range",
+                "filter_view",
+                "apps_script_limitation",
+            ],
+        },
         {"kind": "range", "children": [{"kind": "column", "children": ["column"]}]},
         {"kind": "table", "children": [{"kind": "column", "children": ["column"]}]},
+        {"kind": "formula", "children": []},
+        {"kind": "chart", "children": []},
+        {"kind": "protected_range", "children": []},
+        {"kind": "filter_view", "children": []},
+        {"kind": "apps_script_limitation", "children": []},
     ],
     "csv": [
         {"kind": "file", "children": ["column"]},

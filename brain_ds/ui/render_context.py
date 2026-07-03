@@ -579,6 +579,7 @@ def _build_documentation_digest(
                 columns_markdown = section.content or ""
 
         child_details = child.details or {}
+        sheet_profile = child_details.get("sheet_profile") if isinstance(child_details.get("sheet_profile"), dict) else None
         tables.append(
             {
                 "node_id": child.id,
@@ -588,6 +589,18 @@ def _build_documentation_digest(
                 "purpose": child_details.get("what", ""),
                 "owner": child_details.get("where", ""),
                 "refresh": child_details.get("learned", ""),
+                "coverage_status": child_details.get("coverage_status", "documented"),
+                "sheet_profile": sheet_profile,
+                "limitations": (
+                    child_details.get("limitations")
+                    or ((sheet_profile or {}).get("limitations") if sheet_profile else [])
+                    or []
+                ),
+                "provenance": (
+                    child_details.get("provenance")
+                    or ((sheet_profile or {}).get("provenance") if sheet_profile else {})
+                    or {}
+                ),
                 "schema_baseline_status": (
                     "baseline-present"
                     if isinstance(child_details.get("schema_baseline"), dict)
