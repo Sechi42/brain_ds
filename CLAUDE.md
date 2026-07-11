@@ -27,7 +27,7 @@
 | `insert_pending_question` | data | Persist a deferred currency-elicitation question without resetting currency evidence |
 | `get_weak_edges` | data | List edges with confidence below a cutoff (default 0.4) for audit |
 | `snapshot_edges` | data | Read a bounded, retrieval-shaped edge snapshot for semantic verification |
-| `list_source_connections` | connector | List Data Source nodes with explorable connection descriptors |
+| `list_source_connections` | connector | List source/secret binding candidates and redacted source connection status. Secret-backed docs use only action calls: `list_source_connections(action="candidate_secrets")`, `list_source_connections(action="candidate_sources")`, `list_source_connections(action="bind")`, `list_source_connections(action="validate")`, `list_source_connections(action="status")`, `list_source_connections(action="unbind")` with graph-scoped `secret_ref`. |
 | `explore_source` | connector | Read-only exploration of a connected data source (describe/containers/tables/schema+preview) |
 | `query_source` | connector | Execute a SELECT-only SQL query against an SQLite data source (capped at 200 rows) |
 | `list_secret_handles` | secret | List workspace secret handles and redacted metadata (admin only) |

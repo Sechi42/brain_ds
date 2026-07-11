@@ -27,11 +27,14 @@ from brain_ds.mcp.tools import (
     list_workspaces,
     map_connections,
     manage_clusters,
+    query_source,
     run_elicit,
     search_graph,
     snapshot_edges,
     update_node,
 )
+from brain_ds.connectors.secrets.binding_store import SecretBindingRecord, SecretBindingStore
+from brain_ds.connectors.secrets.catalog import SecretCatalog, SecretEntry
 from brain_ds.store.graph_store import GraphStore
 from brain_ds.store.models import NearestHit
 
@@ -128,6 +131,54 @@ class MCPToolsTests(unittest.TestCase):
         self.assertIsInstance(result, dict)
         return cast(dict[str, Any], result)
 
+    def _seed_google_sheets_secret(self, handle: str = "topete_final") -> str:
+        catalog = SecretCatalog(self.temp_dir.name)
+        catalog.add(
+            SecretEntry(
+                handle=handle,
+                kind="google-sheets-json",
+                metadata={
+                    "spreadsheet_id": "catalog-spreadsheet-should-not-leak",
+                    "sheet_range": "A1:Z",
+                    "credential_type": "service_account",
+                    "project_id": "safe-project",
+                },
+            ),
+            raw_value="raw-service-account-should-not-leak",
+        )
+        return f"sec_test_ref_{handle}"
+
+    def _upsert_google_sheets_source(self, node_id: str, details: dict[str, Any]) -> None:
+        self.store.upsert_node(
+            self.graph_id,
+            {
+                "id": node_id,
+                "label": "ERP Sheet",
+                "type": "Data Source",
+                "supertype": "data",
+                "details": {"source_kind": "google-sheets", **details},
+            },
+        )
+
+    def _upsert_valid_google_sheets_binding(self, node_id: str, handle: str = "finance") -> None:
+        secret_ref = self._seed_google_sheets_secret(handle)
+        self._upsert_google_sheets_source(
+            node_id,
+            {"secret_binding": {"secret_ref": secret_ref, "provider_kind": "google-sheets-json", "validation_status": "valid"}},
+        )
+        SecretBindingStore(self.temp_dir.name).upsert(
+            SecretBindingRecord(
+                graph_id=self.graph_id,
+                source_node_id=node_id,
+                secret_ref_alias=secret_ref,
+                internal_secret_id=handle,
+                provider_kind="google-sheets-json",
+                provider_inputs={"spreadsheet_ref": "erp-2025"},
+                provider_mapping={"spreadsheet_id": "private-spreadsheet-id", "sheet_range": "A1:C10"},
+                validation_status="valid",
+            )
+        )
+
     # B-1: bystander-preservation regression — update_node on N-1 must not mutate N-2 or the N-2→N-3 edge
     def test_update_node_preserves_unrelated_node_and_edge(self) -> None:
         update_node(
@@ -219,16 +270,7 @@ class MCPToolsTests(unittest.TestCase):
         self.assertEqual(TOOL_REGISTRY["get_business_dossier"]["rw"], "read")
 
     def test_explore_source_google_sheets_table_exposes_rich_sheet_profile(self) -> None:
-        self.store.upsert_node(
-            self.graph_id,
-            {
-                "id": "DS-GSHEETS",
-                "label": "Finance Sheet",
-                "type": "Data Source",
-                "supertype": "data",
-                "details": {"connection": {"kind": "google-sheets-json", "secret_handle": "finance"}},
-            },
-        )
+        self._upsert_valid_google_sheets_binding("DS-GSHEETS")
         profile = {
             "title": "Budget",
             "gid": "101",
@@ -276,17 +318,204 @@ class MCPToolsTests(unittest.TestCase):
         self.assertIn("Apps Script", result["sheet_profile"]["limitations"][0])
         self.assertEqual(result["sheet_profile"]["provenance"]["source"], "google-sheets-api")
 
-    def test_google_sheets_documentation_bundle_tracks_sheet_coverage_once(self) -> None:
-        self.store.upsert_node(
-            self.graph_id,
+    def test_provider_backed_explore_and_documentation_refuse_untrusted_binding_states(self) -> None:
+        secret_ref = self._seed_google_sheets_secret()
+        blocked_cases = [
+            (
+                "DS-LEGACY",
+                {
+                    "connection": {
+                        "kind": "google-sheets-json",
+                        "secret_handle": "topete_final",
+                        "spreadsheet_id": "legacy-spreadsheet-should-not-leak",
+                    }
+                },
+                None,
+            ),
+            (
+                "DS-SPOOFED",
+                {
+                    "secret_binding": {
+                        "secret_ref": secret_ref,
+                        "provider_kind": "google-sheets-json",
+                        "validation_status": "valid",
+                        "provider_inputs": {"spreadsheet_ref": "graph-spreadsheet-should-not-leak"},
+                    },
+                    "connection": {
+                        "kind": "google-sheets-json",
+                        "secret_handle": "spoofed-topete-final",
+                        "spreadsheet_id": "spoofed-spreadsheet-should-not-leak",
+                    },
+                },
+                None,
+            ),
+            (
+                "DS-UNVALIDATED",
+                {"secret_binding": {"secret_ref": secret_ref, "provider_kind": "google-sheets-json", "validation_status": "unvalidated"}},
+                SecretBindingRecord(
+                    graph_id=self.graph_id,
+                    source_node_id="DS-UNVALIDATED",
+                    secret_ref_alias=secret_ref,
+                    internal_secret_id="topete_final",
+                    provider_kind="google-sheets-json",
+                    provider_inputs={"spreadsheet_ref": "unvalidated-ref-should-not-leak"},
+                    validation_status="unvalidated",
+                ),
+            ),
+            (
+                "DS-INVALID",
+                {"secret_binding": {"secret_ref": secret_ref, "provider_kind": "google-sheets-json", "validation_status": "invalid"}},
+                SecretBindingRecord(
+                    graph_id=self.graph_id,
+                    source_node_id="DS-INVALID",
+                    secret_ref_alias=secret_ref,
+                    internal_secret_id="topete_final",
+                    provider_kind="google-sheets-json",
+                    provider_inputs={"spreadsheet_ref": "invalid-ref-should-not-leak"},
+                    validation_status="invalid",
+                ),
+            ),
+            (
+                "DS-MISSING-MAPPING",
+                {"secret_binding": {"secret_ref": secret_ref, "provider_kind": "google-sheets-json", "validation_status": "valid"}},
+                SecretBindingRecord(
+                    graph_id=self.graph_id,
+                    source_node_id="DS-MISSING-MAPPING",
+                    secret_ref_alias=secret_ref,
+                    internal_secret_id="topete_final",
+                    provider_kind="google-sheets-json",
+                    provider_inputs={"spreadsheet_ref": "missing-mapping-ref-should-not-leak"},
+                    validation_status="valid",
+                ),
+            ),
+        ]
+        binding_store = SecretBindingStore(self.temp_dir.name)
+        for node_id, details, record in blocked_cases:
+            self._upsert_google_sheets_source(node_id, details)
+            if record is not None:
+                binding_store.upsert(record)
+
+        for node_id, _details, _record in blocked_cases:
+            for params in (
+                {"graph_id": self.graph_id, "node_id": node_id},
+                {"graph_id": self.graph_id, "node_id": node_id, "level": "documentation"},
+            ):
+                with self.subTest(node_id=node_id, params=params):
+                    result = explore_source(self.store, params)
+                    serialized = json.dumps(result, default=str)
+                    self.assertEqual(result["code"], -32000)
+                    self.assertIn("validated server-side binding", result["message"])
+                    self.assertNotIn("raw-service-account-should-not-leak", serialized)
+                    self.assertNotIn("topete_final", serialized)
+                    self.assertNotIn("spoofed-topete-final", serialized)
+                    self.assertNotIn("spreadsheet-should-not-leak", serialized)
+
+    def test_valid_private_binding_rebuilds_google_sheets_descriptor_for_explore_source(self) -> None:
+        secret_ref = self._seed_google_sheets_secret()
+        self._upsert_google_sheets_source(
+            "DS-VALID",
+            {"secret_binding": {"secret_ref": secret_ref, "provider_kind": "google-sheets-json", "validation_status": "valid"}},
+        )
+        SecretBindingStore(self.temp_dir.name).upsert(
+            SecretBindingRecord(
+                graph_id=self.graph_id,
+                source_node_id="DS-VALID",
+                secret_ref_alias=secret_ref,
+                internal_secret_id="topete_final",
+                provider_kind="google-sheets-json",
+                provider_inputs={"spreadsheet_ref": "erp-2025"},
+                provider_mapping={"spreadsheet_id": "private-spreadsheet-id", "sheet_range": "A1:C10"},
+                validation_status="valid",
+            )
+        )
+
+        class FakeSheetsConnector:
+            def describe(self) -> dict[str, Any]:
+                return {"kind": "google-sheets", "title": "ERP"}
+
+            def list_containers(self) -> list[str]:
+                return ["ERP Workbook"]
+
+        captured_connection: dict[str, Any] = {}
+
+        def fake_resolve(connection: dict[str, Any], _project_root: Path) -> FakeSheetsConnector:
+            captured_connection.update(connection)
+            return FakeSheetsConnector()
+
+        with patch("brain_ds.mcp.tools._resolve_connector", side_effect=fake_resolve):
+            result = explore_source(self.store, {"graph_id": self.graph_id, "node_id": "DS-VALID"})
+
+        self.assertEqual(result["containers"], ["ERP Workbook"])
+        self.assertEqual(captured_connection["kind"], "google-sheets-json")
+        self.assertEqual(captured_connection["secret_handle"], "topete_final")
+        self.assertEqual(captured_connection["spreadsheet_id"], "private-spreadsheet-id")
+        self.assertEqual(captured_connection["sheet_range"], "A1:C10")
+
+    def test_validate_action_persists_private_mapping_used_by_explore_source(self) -> None:
+        self._seed_google_sheets_secret("finance")
+        self._upsert_google_sheets_source("DS-VALIDATED", {})
+        self.store.secret_admin_enabled = True
+        candidates = list_source_connections(
+            self.store,
+            {"graph_id": self.graph_id, "action": "candidate_secrets", "source_node_id": "DS-VALIDATED"},
+        )
+        secret_ref = candidates["secrets"][0]["secret_ref"]
+        list_source_connections(
+            self.store,
             {
-                "id": "DS-GSHEETS",
-                "label": "Finance Sheet",
-                "type": "Data Source",
-                "supertype": "data",
-                "details": {"connection": {"kind": "google-sheets-json", "secret_handle": "finance"}},
+                "graph_id": self.graph_id,
+                "action": "bind",
+                "source_node_id": "DS-VALIDATED",
+                "secret_ref": secret_ref,
+                "provider_inputs": {"spreadsheet_ref": "erp-2025"},
             },
         )
+
+        with patch(
+            "brain_ds.connectors.secrets.providers.google_sheets.GoogleSheetsJsonAdapter.probe",
+            return_value={"spreadsheet_id": "validated-spreadsheet-id", "title": "ERP 2025"},
+        ):
+            validation = list_source_connections(
+                self.store,
+                {"graph_id": self.graph_id, "action": "validate", "source_node_id": "DS-VALIDATED"},
+            )
+        self.assertEqual(validation["binding"]["validation_status"], "valid")
+
+        captured_connection: dict[str, Any] = {}
+
+        class FakeSheetsConnector:
+            def describe(self) -> dict[str, Any]:
+                return {"kind": "google-sheets"}
+
+            def list_containers(self) -> list[str]:
+                return ["ERP Workbook"]
+
+        def fake_resolve(connection: dict[str, Any], _project_root: Path) -> FakeSheetsConnector:
+            captured_connection.update(connection)
+            return FakeSheetsConnector()
+
+        with patch("brain_ds.mcp.tools._resolve_connector", side_effect=fake_resolve):
+            result = explore_source(self.store, {"graph_id": self.graph_id, "node_id": "DS-VALIDATED"})
+
+        self.assertEqual(result["containers"], ["ERP Workbook"])
+        self.assertEqual(captured_connection["spreadsheet_id"], "validated-spreadsheet-id")
+
+    def test_query_source_refuses_legacy_secret_backed_connection_without_valid_private_binding(self) -> None:
+        self._upsert_google_sheets_source(
+            "DS-QUERY-LEGACY",
+            {"connection": {"kind": "aws-postgres", "secret_handle": "topete_final", "database": "warehouse"}},
+        )
+
+        result = query_source(self.store, {"graph_id": self.graph_id, "node_id": "DS-QUERY-LEGACY", "sql": "select 1"})
+        serialized = json.dumps(result, default=str)
+
+        self.assertEqual(result["code"], -32000)
+        self.assertIn("validated server-side binding", result["message"])
+        self.assertNotIn("topete_final", serialized)
+        self.assertNotIn("warehouse", serialized)
+
+    def test_google_sheets_documentation_bundle_tracks_sheet_coverage_once(self) -> None:
+        self._upsert_valid_google_sheets_binding("DS-GSHEETS")
         for node_id, label, status in [
             ("sheet-budget", "Budget", "documented"),
             ("sheet-apps-script", "Apps Script", "unsupported"),
@@ -329,16 +558,7 @@ class MCPToolsTests(unittest.TestCase):
         self.assertIn("Apps Script", budget["limitations"][0])
 
     def test_explore_source_google_sheets_container_exposes_per_sheet_profiles(self) -> None:
-        self.store.upsert_node(
-            self.graph_id,
-            {
-                "id": "DS-GSHEETS",
-                "label": "Finance Sheet",
-                "type": "Data Source",
-                "supertype": "data",
-                "details": {"connection": {"kind": "google-sheets-json", "secret_handle": "finance"}},
-            },
-        )
+        self._upsert_valid_google_sheets_binding("DS-GSHEETS")
         profiles = {
             "Budget": {
                 "title": "Budget",
@@ -385,16 +605,7 @@ class MCPToolsTests(unittest.TestCase):
         self.assertIn("Apps Script", result["sheet_profiles"][1]["limitations"][0])
 
     def test_google_sheets_internal_template_names_rich_sheet_surfaces(self) -> None:
-        self.store.upsert_node(
-            self.graph_id,
-            {
-                "id": "DS-GSHEETS",
-                "label": "Finance Sheet",
-                "type": "Data Source",
-                "supertype": "data",
-                "details": {"source_kind": "google-sheets", "connection": {"kind": "google-sheets-json", "secret_handle": "finance"}},
-            },
-        )
+        self._upsert_valid_google_sheets_binding("DS-GSHEETS")
 
         result = explore_source(self.store, {"graph_id": self.graph_id, "node_id": "DS-GSHEETS", "level": "internal"})
         serialized = json.dumps(result["template"], sort_keys=True)
@@ -1043,6 +1254,71 @@ class MCPToolsTests(unittest.TestCase):
         typed = self._expect_rows(list_nodes(self.store, {"graph_id": self.graph_id, "type": "Data Source"}))
         self.assertEqual(result, typed)
 
+    def test_update_node_strips_secret_binding_spoof_fields(self) -> None:
+        result = update_node(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "node_id": "DS-SPOOF",
+                "label": "Spoofed Source",
+                "type": "Data Source",
+                "details": {
+                    "owner": "ops",
+                    "secret_binding": {
+                        "secret_ref": "sec_topete",
+                        "validation_status": "valid",
+                        "provider_inputs": {"spreadsheet_ref": "raw-input-ref"},
+                    },
+                    "connection": {
+                        "kind": "google_sheets",
+                        "secret_handle": "topete_final",
+                        "spreadsheet_id": "real-spreadsheet-id",
+                    },
+                    "validation_status": "valid",
+                    "secret_ref": "sec_topete",
+                    "exposure": {"allowed": True},
+                },
+            },
+        )
+
+        self.assertNotIn("code", result)
+        self.assertEqual(result["details"], {"owner": "ops"})
+
+    def test_secret_binding_store_projects_redacted_graph_state(self) -> None:
+        store = SecretBindingStore(Path(self.temp_dir.name))
+        record = SecretBindingRecord(
+            graph_id=self.graph_id,
+            source_node_id="DS-1",
+            secret_ref_alias="sec_topete",
+            internal_secret_id="aws:arn:raw-secret",
+            provider_kind="google_sheets",
+            provider_inputs={"spreadsheet_ref": "sheet-alias"},
+            provider_mapping={"spreadsheet_id": "real-spreadsheet-id"},
+            validation_status="valid",
+            documentation_status="pending",
+            writeback_status="idle",
+            validation={"validated_at": "2026-07-03T00:00:00Z"},
+        )
+
+        store.upsert(record)
+        loaded = store.get(self.graph_id, "DS-1")
+
+        self.assertIsNotNone(loaded)
+        self.assertEqual(loaded.provider_mapping, {"spreadsheet_id": "real-spreadsheet-id"})
+        self.assertEqual(
+            loaded.to_projection(),
+            {
+                "secret_ref": "sec_topete",
+                "provider_kind": "google_sheets",
+                "validation_status": "valid",
+                "documentation_status": "pending",
+                "writeback_status": "idle",
+                "provider_inputs": {"spreadsheet_ref": "sheet-alias"},
+                "exposure": {"graph_id": self.graph_id, "allowed": True},
+                "validation": {"validated_at": "2026-07-03T00:00:00Z"},
+            },
+        )
+
     def test_registry_has_thirty_three_tools_and_reads_do_not_audit(self) -> None:
         names = sorted(TOOL_REGISTRY.keys())
         self.assertEqual(len(names), 33)
@@ -1096,6 +1372,204 @@ class MCPToolsTests(unittest.TestCase):
         search_graph(self.store, {"graph_id": self.graph_id, "query": "alpha"})
         after = self._audit_count()
         self.assertEqual(before, after)
+
+    def _seed_google_sheets_secret(self, handle: str = "topete_final") -> None:
+        catalog = SecretCatalog(self.temp_dir.name)
+        catalog.add(
+            SecretEntry(
+                handle=handle,
+                kind="google-sheets-json",
+                metadata={
+                    "spreadsheet_id": "raw-spreadsheet-id",
+                    "sheet_range": "ERP!A1:Z",
+                    "credential_type": "service_account",
+                    "project_id": "topete-project",
+                    "email_fingerprint": "email-fp",
+                    "key_id_fingerprint": "key-fp",
+                    "universe_domain": "googleapis.com",
+                },
+            ),
+            raw_value='{"type":"service_account"}',
+        )
+
+    def test_source_first_connection_flow_lists_binds_validates_status_and_unbinds_without_leaks(self) -> None:
+        self._seed_google_sheets_secret()
+        self.store.secret_admin_enabled = True
+        self.store.upsert_node(
+            self.graph_id,
+            {
+                "id": "DS-ERP",
+                "label": "ERP 2025",
+                "type": "Data Source",
+                "details": {"source_kind": "google-sheets"},
+            },
+        )
+
+        candidates = list_source_connections(
+            self.store,
+            {"graph_id": self.graph_id, "action": "candidate_secrets", "source_node_id": "DS-ERP"},
+        )
+
+        self.assertEqual(candidates["status"], "ok")
+        self.assertEqual(candidates["source"]["node_id"], "DS-ERP")
+        self.assertEqual(len(candidates["secrets"]), 1)
+        secret_ref = candidates["secrets"][0]["secret_ref"]
+        serialized_candidates = json.dumps(candidates)
+        self.assertEqual(candidates["secrets"][0]["provider_kind"], "google-sheets-json")
+        self.assertEqual(candidates["secrets"][0]["validation_status"], "unbound")
+        self.assertNotIn("topete_final", serialized_candidates)
+        self.assertNotIn("raw-spreadsheet-id", serialized_candidates)
+
+        bound = list_source_connections(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "action": "bind",
+                "source_node_id": "DS-ERP",
+                "secret_ref": secret_ref,
+                "provider_inputs": {"spreadsheet_ref": "erp-2025"},
+            },
+        )
+        self.assertEqual(bound["binding"]["validation_status"], "unvalidated")
+        self.assertEqual(bound["binding"]["provider_inputs"], {"spreadsheet_ref": "erp-2025"})
+
+        with patch("brain_ds.connectors.secrets.providers.google_sheets.GoogleSheetsJsonAdapter.probe", return_value={"spreadsheet_id": "raw-spreadsheet-id"}):
+            validated = list_source_connections(
+                self.store,
+                {"graph_id": self.graph_id, "action": "validate", "source_node_id": "DS-ERP"},
+            )
+
+        self.assertEqual(validated["binding"]["validation_status"], "valid")
+        self.assertEqual(validated["binding"]["validation"]["error_code"], None)
+        status = list_source_connections(
+            self.store,
+            {"graph_id": self.graph_id, "action": "status", "source_node_id": "DS-ERP"},
+        )
+        self.assertEqual(status["binding"]["validation_status"], "valid")
+
+        unbound = list_source_connections(
+            self.store,
+            {"graph_id": self.graph_id, "action": "unbind", "source_node_id": "DS-ERP"},
+        )
+        self.assertEqual(unbound["binding"]["validation_status"], "unbound")
+        self.assertIsNone(SecretBindingStore(self.temp_dir.name).get(self.graph_id, "DS-ERP"))
+        serialized_flow = json.dumps([bound, validated, status, unbound], default=str)
+        self.assertNotIn("topete_final", serialized_flow)
+        self.assertNotIn("raw-spreadsheet-id", serialized_flow)
+
+    def test_secret_first_candidates_and_spoof_resistance_use_server_binding_only(self) -> None:
+        self._seed_google_sheets_secret()
+        self.store.secret_admin_enabled = True
+        self.store.upsert_node(
+            self.graph_id,
+            {
+                "id": "DS-ERP",
+                "label": "ERP 2025",
+                "type": "Data Source",
+                "details": {
+                    "source_kind": "google-sheets",
+                    "secret_binding": {"secret_ref": "spoofed", "validation_status": "valid"},
+                    "connection": {"kind": "google-sheets-json", "secret_handle": "topete_final", "spreadsheet_id": "raw-spreadsheet-id"},
+                },
+            },
+        )
+        secret_ref = list_source_connections(
+            self.store,
+            {"graph_id": self.graph_id, "action": "candidate_secrets", "source_node_id": "DS-ERP"},
+        )["secrets"][0]["secret_ref"]
+
+        sources = list_source_connections(
+            self.store,
+            {"graph_id": self.graph_id, "action": "candidate_sources", "secret_ref": secret_ref},
+        )
+
+        self.assertEqual(sources["status"], "ok")
+        self.assertEqual(sources["sources"], [{"graph_id": self.graph_id, "node_id": "DS-ERP", "label": "ERP 2025", "provider_kind": "google-sheets-json", "validation_status": "unbound"}])
+        status = list_source_connections(
+            self.store,
+            {"graph_id": self.graph_id, "action": "status", "source_node_id": "DS-ERP"},
+        )
+        self.assertEqual(
+            status["binding"],
+            {
+                "validation_status": "unbound",
+                "documentation_status": "not_started",
+                "writeback_status": "idle",
+                "requires_binding": True,
+            },
+        )
+        serialized = json.dumps([sources, status])
+        self.assertNotIn("spoofed", serialized)
+        self.assertNotIn("topete_final", serialized)
+        self.assertNotIn("raw-spreadsheet-id", serialized)
+
+    def test_source_connection_error_paths_are_redacted(self) -> None:
+        self._seed_google_sheets_secret()
+        self.store.secret_admin_enabled = True
+        self.store.upsert_node(
+            self.graph_id,
+            {
+                "id": "DS-ERP",
+                "label": "ERP 2025 raw-spreadsheet-id topete_final",
+                "type": "Data Source",
+                "details": {"source_kind": "google-sheets"},
+            },
+        )
+        secret_ref = list_source_connections(
+            self.store,
+            {"graph_id": self.graph_id, "action": "candidate_secrets", "source_node_id": "DS-ERP"},
+        )["secrets"][0]["secret_ref"]
+        self.store.upsert_node(
+            self.graph_id,
+            {
+                "id": "DS-CSV",
+                "label": "CSV export raw-spreadsheet-id topete_final",
+                "type": "Data Source",
+                "details": {"source_kind": "csv"},
+            },
+        )
+
+        not_allowlisted = list_source_connections(
+            self.store,
+            {
+                "graph_id": self.graph_id,
+                "action": "bind",
+                "source_node_id": "DS-CSV",
+                "secret_ref": secret_ref,
+                "provider_inputs": {"spreadsheet_ref": "erp-2025"},
+            },
+        )
+        self.assertEqual(not_allowlisted["error_code"], "not_allowlisted")
+        self.assertNotIn("raw-spreadsheet-id", json.dumps(not_allowlisted))
+        self.assertNotIn("topete_final", json.dumps(not_allowlisted))
+
+        missing_mapping = list_source_connections(
+            self.store,
+            {"graph_id": self.graph_id, "action": "validate", "source_node_id": "DS-ERP"},
+        )
+        self.assertEqual(missing_mapping["error_code"], "missing_private_mapping")
+        self.assertNotIn("raw-spreadsheet-id", json.dumps(missing_mapping))
+        self.assertNotIn("topete_final", json.dumps(missing_mapping))
+
+        SecretBindingStore(self.temp_dir.name).upsert(
+            SecretBindingRecord(
+                graph_id=self.graph_id,
+                source_node_id="DS-ERP",
+                secret_ref_alias="sec_orphaned_raw-spreadsheet-id_topete_final",
+                internal_secret_id="deleted_topete_final",
+                provider_kind="google-sheets-json",
+                provider_inputs={"spreadsheet_ref": "erp-2025"},
+            )
+        )
+        revalidation_required = list_source_connections(
+            self.store,
+            {"graph_id": self.graph_id, "action": "validate", "source_node_id": "DS-ERP"},
+        )
+        serialized = json.dumps(revalidation_required)
+        self.assertEqual(revalidation_required["error_code"], "revalidation_required")
+        self.assertNotIn("deleted_topete_final", serialized)
+        self.assertNotIn("raw-spreadsheet-id", serialized)
+        self.assertNotIn("topete_final", serialized)
 
     def test_manage_clusters_propose_marks_kpi_without_source_as_needs_source(self) -> None:
         self.store.upsert_node(
@@ -1262,11 +1736,10 @@ class PaginatedListToolTests(unittest.TestCase):
 
     def test_list_source_connections_returns_bounded_page_with_next_offset(self) -> None:
         for index in range(25):
-            update_node(
-                self.store,
+            self.store.upsert_node(
+                self.graph_id,
                 {
-                    "graph_id": self.graph_id,
-                    "node_id": f"DS-{index:02d}",
+                    "id": f"DS-{index:02d}",
                     "label": f"Source {index:02d}",
                     "type": "Data Source",
                     "details": {"connection": {"kind": "sqlite", "path": f"data/{index}.db"}},
@@ -1282,11 +1755,10 @@ class PaginatedListToolTests(unittest.TestCase):
         self.assertEqual(page["connections"][0]["node_id"], "DS-05")
 
     def test_list_source_connections_compact_mode_omits_connection_payload(self) -> None:
-        update_node(
-            self.store,
+        self.store.upsert_node(
+            self.graph_id,
             {
-                "graph_id": self.graph_id,
-                "node_id": "DS-1",
+                "id": "DS-1",
                 "label": "Source 1",
                 "type": "Data Source",
                 "details": {"connection": {"kind": "sqlite", "path": "data/source.db"}},

@@ -14,10 +14,13 @@ RED until:
 Strict TDD — these tests define the contract; the module must satisfy them.
 """
 
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
-UI_DIR = Path(__file__).resolve().parent.parent / "brain_ds" / "ui"
+ROOT = Path(__file__).resolve().parent.parent
+UI_DIR = ROOT / "brain_ds" / "ui"
 SRC_DIR = UI_DIR / "src"
 PANELS_DIR = SRC_DIR / "panels"
 TEMPLATE_PATH = (
@@ -193,6 +196,158 @@ class TestDetailPanelContentExtraction(unittest.TestCase):
             "role", "status",
         ):
             self.assertIn(token, self.text)
+
+
+class TestDetailPanelRuntimeLifecycleBadges(unittest.TestCase):
+    """Executed DOM proof for Data Source lifecycle badge rendering."""
+
+    def test_data_source_secret_binding_lifecycle_badges_render_in_dom(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            bundled = tmp / "detail-panel-runtime.mjs"
+            runner = tmp / "run-detail-panel.mjs"
+
+            subprocess.run(
+                [
+                    "pnpm",
+                    "--dir",
+                    str(UI_DIR),
+                    "exec",
+                    "esbuild",
+                    str(PANELS_DIR / "detail-panel.ts"),
+                    "--bundle",
+                    "--format=esm",
+                    "--platform=browser",
+                    f"--outfile={bundled}",
+                ],
+                check=True,
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+
+            runner.write_text(
+                r'''
+class FakeClassList {
+  constructor() { this.values = new Set(); }
+  add(name) { this.values.add(name); }
+  remove(name) { this.values.delete(name); }
+  contains(name) { return this.values.has(name); }
+  toggle(name, enabled) { enabled ? this.add(name) : this.remove(name); }
+}
+class FakeElement {
+  constructor(tag) {
+    this.tagName = tag.toUpperCase();
+    this.children = [];
+    this.attributes = new Map();
+    this.classList = new FakeClassList();
+    this._text = '';
+    this._className = '';
+    this.id = '';
+  }
+  set className(value) { this._className = value; value.split(/\s+/).filter(Boolean).forEach((name) => this.classList.add(name)); }
+  get className() { return this._className; }
+  appendChild(child) { this.children.push(child); child.parent = this; return child; }
+  prepend(child) { this.children.unshift(child); child.parent = this; return child; }
+  setAttribute(name, value) { this.attributes.set(name, String(value)); if (name === 'id') this.id = String(value); }
+  getAttribute(name) { return this.attributes.get(name) ?? null; }
+  addEventListener() {}
+  removeEventListener() {}
+  focus() {}
+  closest(selector) { return selector === 'body' ? this.ownerDocument?.body ?? null : null; }
+  querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
+  querySelectorAll(selector) {
+    const out = [];
+    const walk = (node) => {
+      for (const child of node.children) {
+        if (selector.startsWith('.') && child.classList.contains(selector.slice(1))) out.push(child);
+        if (selector.startsWith('#') && child.id === selector.slice(1)) out.push(child);
+        walk(child);
+      }
+    };
+    walk(this);
+    return out;
+  }
+  set textContent(value) { this._text = String(value); this.children = []; }
+  get textContent() { return this._text + this.children.map((child) => child.textContent).join(''); }
+  set innerHTML(value) { this._text = String(value); this.children = []; }
+  get innerHTML() { return this.textContent; }
+  get style() { return { setProperty() {} }; }
+}
+class FakeDocument {
+  constructor() { this.byId = new Map(); this.body = this.createElement('body'); }
+  createElement(tag) { const el = new FakeElement(tag); el.ownerDocument = this; return el; }
+  getElementById(id) { return this.byId.get(id) ?? null; }
+  register(el, id) { el.id = id; this.byId.set(id, el); this.body.appendChild(el); return el; }
+}
+import { pathToFileURL } from 'node:url';
+const document = new FakeDocument();
+globalThis.document = document;
+globalThis.window = { brainDsUI: { network: { focus() {} } } };
+const root = document.register(document.createElement('aside'), 'detail-panel');
+document.register(document.createElement('h2'), 'detail-title');
+document.register(document.createElement('p'), 'detail-meta');
+const body = document.register(document.createElement('div'), 'detail-body');
+document.register(document.createElement('button'), 'edit-toggle');
+document.register(document.createElement('button'), 'export-json');
+document.register(document.createElement('button'), 'detail-save');
+document.register(document.createElement('button'), 'detail-collapse');
+const detailPanel = await import(pathToFileURL(process.argv[2]).href);
+const node = {
+  id: 'source-1',
+  label: 'ERP 2025',
+  type: 'Data Source',
+  supertype: 'source',
+  details: {
+    secret_binding: {
+      validation_status: 'valid',
+      documentation_status: 'documented',
+      writeback_status: 'written'
+    }
+  }
+};
+const unboundNode = {
+  id: 'source-2',
+  label: 'CRM 2025',
+  type: 'Data Source',
+  supertype: 'source',
+  details: { secret_binding: { validation_status: 'unbound' } }
+};
+detailPanel.mount(root, {
+  editedDetailIndex: {
+    'source-1': { node, sections: [], evidence: [], relationships: {} },
+    'source-2': { node: unboundNode, sections: [], evidence: [], relationships: {} }
+  },
+  editedData: { nodes: [node, unboundNode] },
+  network: { on() {}, selectedNodeIds: new Set(), clearSelection() {} },
+  originalNodes: new Map(),
+  RENDER_CONTEXT: { nodes: [node], edges: [] },
+  adjacency: {},
+  motionEnabled: () => false
+});
+detailPanel.renderDetailPanel('source-1');
+const text = body.textContent;
+for (const token of ['Connection lifecycle', 'binding state: bound', 'validation status: valid', 'documentation status: documented', 'writeback status: written']) {
+  if (!text.includes(token)) throw new Error(`Missing lifecycle token: ${token}\n${text}`);
+}
+const card = body.querySelector('.source-lifecycle-card');
+if (!card || card.getAttribute('role') !== 'status') throw new Error('Missing lifecycle status card');
+detailPanel.renderDetailPanel('source-2');
+const unboundText = body.textContent;
+for (const token of ['Connection lifecycle', 'binding state: unbound', 'validation status: unbound', 'documentation status: not started', 'writeback status: idle']) {
+  if (!unboundText.includes(token)) throw new Error(`Missing unbound lifecycle token: ${token}\n${unboundText}`);
+}
+''',
+                encoding="utf-8",
+            )
+
+            subprocess.run(
+                ["node", str(runner), str(bundled)],
+                check=True,
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
 
 
 # ---------------------------------------------------------------------------

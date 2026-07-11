@@ -312,7 +312,7 @@ class TestUiPanelChromePolishSecretPanel(unittest.TestCase):
         self.assertIn("Sin metadatos", self.secret_panel_text)
         self.assertIn("Identificador", self.secret_panel_text)
         self.assertIn("Tipo", self.secret_panel_text)
-        self.assertIn("Valor de credencial", self.secret_panel_text)
+        self.assertIn("Credential value", self.secret_panel_text)
         self.assertIn("Seleccionar tipo", self.secret_panel_text)
         self.assertIn("Eliminar secreto", self.secret_panel_text)
 
@@ -323,7 +323,7 @@ class TestUiPanelChromePolishSecretPanel(unittest.TestCase):
         self.assertIn("Sin metadatos", self.viewer_bundle_text)
         self.assertIn("Identificador", self.viewer_bundle_text)
         self.assertIn("Tipo", self.viewer_bundle_text)
-        self.assertIn("Valor de credencial", self.viewer_bundle_text)
+        self.assertIn("Credential value", self.viewer_bundle_text)
         self.assertIn("Seleccionar tipo", self.viewer_bundle_text)
         self.assertIn("Eliminar secreto", self.viewer_bundle_text)
         self.assertNotIn("Secret settings", self.viewer_bundle_text)

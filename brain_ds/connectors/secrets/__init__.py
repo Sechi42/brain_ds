@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 from .base import SecretProviderAdapter
+from .binding_store import SecretBindingRecord, SecretBindingStore
 from .catalog import SecretCatalog, SecretEntry, SecretManifestError
 from .providers import get_provider_adapter
 from .redaction import redact_secrets
 
 __all__ = [
     "SecretProviderAdapter",
+    "SecretBindingRecord",
+    "SecretBindingStore",
     "SecretCatalog",
     "SecretEntry",
     "SecretManifestError",

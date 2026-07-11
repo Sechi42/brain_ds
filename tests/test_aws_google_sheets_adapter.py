@@ -15,7 +15,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-import types
 import unittest
 from unittest import mock
 
@@ -202,7 +201,7 @@ class TestAwsGoogleSheetsAdapterResolve(unittest.TestCase):
         self.assertEqual(result["sheet_range"], _VALID_METADATA["sheet_range"])
 
     def test_resolve_returns_exactly_three_keys(self):
-        """resolve() result has exactly: service_account_info, spreadsheet_id, sheet_range."""
+        """resolve() result has direct API params and no extra secrets."""
         adapter = self._get_adapter()
         mock_boto3, _, fake_botocore_exc = _make_mock_boto_env()
 
@@ -212,6 +211,17 @@ class TestAwsGoogleSheetsAdapterResolve(unittest.TestCase):
         self.assertIn("service_account_info", result)
         self.assertIn("spreadsheet_id", result)
         self.assertIn("sheet_range", result)
+        self.assertIn("use_direct_api", result)
+
+    def test_resolve_opts_into_metadata_first_direct_api_profile(self):
+        """aws-google-sheets should use the metadata-first API profile path."""
+        adapter = self._get_adapter()
+        mock_boto3, _, fake_botocore_exc = _make_mock_boto_env()
+
+        with _patch_boto3_in_adapter(mock_boto3, fake_botocore_exc):
+            result = adapter.resolve("test-handle", _VALID_METADATA)
+
+        self.assertTrue(result["use_direct_api"])
 
     def test_resolve_uses_region_from_metadata(self):
         """boto3.client is called with region from metadata."""

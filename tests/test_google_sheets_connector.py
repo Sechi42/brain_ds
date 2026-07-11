@@ -112,20 +112,20 @@ def _rich_api_fixture():
         ],
     }
     display_values = {
-        "Budget!A1:Z50": [
+        "Budget!A1:F51": [
             ["month", "amount", "variance"],
             ["Jan", "100", "10"],
             ["Feb", "125", "=B3-B2"],
         ],
-        "Empty!A1:Z50": [],
+        "Empty!A1:A1": [],
     }
     formula_values = {
-        "Budget!A1:Z50": [
+        "Budget!A1:F51": [
             ["month", "amount", "variance"],
             ["Jan", "100", "=B2-90"],
             ["Feb", "125", "=B3-B2"],
         ],
-        "Empty!A1:Z50": [],
+        "Empty!A1:A1": [],
     }
     return metadata, display_values, formula_values
 
@@ -167,8 +167,8 @@ def _special_titles_api_fixture():
         ],
     }
     display_values = {
-        "'Sales Q1'!A1:Z50": [["id", "amount"], ["1", "100"]],
-        "'Owner''s View'!A1:Z50": [["owner", "status"], ["Ada", "active"]],
+        "'Sales Q1'!A1:B2": [["id", "amount"], ["1", "100"]],
+        "'Owner''s View'!A1:B2": [["owner", "status"], ["Ada", "active"]],
     }
     return metadata, display_values, display_values
 
@@ -760,6 +760,61 @@ class TestResolveConnectorAwsGoogleSheetsDispatch(unittest.TestCase):
 
 
 class TestGoogleSheetsDirectApiProfile(unittest.TestCase):
+    def test_direct_api_fetches_metadata_without_grid_data_before_values(self):
+        connector, display_service, _formula_service = _make_direct_api_connector()
+
+        connector.sheet_profile("Budget")
+
+        metadata_call = display_service.spreadsheets_resource.get_calls[0]
+        self.assertFalse(metadata_call["includeGridData"])
+        self.assertNotIn("rowData", metadata_call["fields"])
+        self.assertEqual(display_service.spreadsheets_resource.values_resource.batch_get_calls[0]["ranges"], ["Budget!A1:F51", "Empty!A1:A1"])
+
+    def test_direct_api_enumerates_all_sheet_dimensions_and_safe_flags(self):
+        connector, _display_service, _formula_service = _make_direct_api_connector()
+
+        budget_profile = connector.sheet_profile("Budget")
+        empty_profile = connector.sheet_profile("Empty")
+
+        self.assertEqual(connector.list_tables("Finance Workbook"), ["Budget", "Empty"])
+        self.assertEqual(budget_profile["grid"]["column_count"], 6)
+        self.assertFalse(budget_profile["safety"]["hidden"])
+        self.assertEqual(budget_profile["safety"]["protected_range_count"], 1)
+        self.assertEqual(budget_profile["safety"]["filter_view_count"], 1)
+        self.assertTrue(empty_profile["safety"]["hidden"])
+
+    def test_direct_api_profiles_wide_multi_tab_workbook_with_bounded_targeted_ranges(self):
+        from brain_ds.connectors.google_sheets_connector import GoogleSheetsConnector
+
+        metadata = {
+            "spreadsheetId": "sheet-wide",
+            "properties": {"title": "Wide Workbook"},
+            "sheets": [
+                {"properties": {"sheetId": 1, "title": "Wide", "index": 0, "gridProperties": {"rowCount": 5000, "columnCount": 40}}},
+                {"properties": {"sheetId": 2, "title": "Small", "index": 1, "gridProperties": {"rowCount": 10, "columnCount": 3}}},
+            ],
+        }
+        display_values = {
+            "Wide!A1:T51": [[f"c{i}" for i in range(1, 21)]] + [[f"v{row}-{col}" for col in range(1, 21)] for row in range(1, 51)],
+            "Small!A1:C10": [["id", "name", "status"], ["1", "Ada", "active"]],
+        }
+        display_service = _FakeSheetsService(metadata, display_values)
+        params = dict(_VALID_PARAMS)
+        params.update({"spreadsheet_id": "sheet-wide", "api_builder": lambda _info: display_service, "use_direct_api": True})
+
+        connector = GoogleSheetsConnector(params)
+
+        wide_profile = connector.sheet_profile("Wide")
+        small_profile = connector.sheet_profile("Small")
+
+        ranges = display_service.spreadsheets_resource.values_resource.batch_get_calls[0]["ranges"]
+        self.assertEqual(ranges, ["Wide!A1:T51", "Small!A1:C10"])
+        self.assertEqual(len(wide_profile["headers"]), 20)
+        self.assertEqual(len(wide_profile["samples"]), 50)
+        self.assertIn("column_sample_truncated", wide_profile["escalation_flags"])
+        self.assertIn("row_sample_truncated", wide_profile["escalation_flags"])
+        self.assertEqual(small_profile["escalation_flags"], [])
+
     def test_parse_google_sheet_url_accepts_gid_from_fragment_and_query(self):
         from brain_ds.connectors.google_sheets_api import parse_google_sheet_url
 
@@ -812,7 +867,7 @@ class TestGoogleSheetsDirectApiProfile(unittest.TestCase):
         connector, _display_service, _formula_service = _make_direct_api_connector()
 
         profile = connector.sheet_profile("Empty")
-        self.assertIn("No values returned for range Empty!A1:Z50", profile["limitations"])
+        self.assertIn("No values returned for range Empty!A1:A1", profile["limitations"])
         self.assertIn("Apps Script metadata is unavailable from the Sheets API profile", profile["limitations"])
 
     def test_direct_api_preserves_readonly_methods_without_secret_leakage(self):
@@ -847,15 +902,15 @@ class TestGoogleSheetsDirectApiProfile(unittest.TestCase):
         self.assertEqual(connector.preview("Special Workbook", "Sales Q1", limit=1)["rows"], [{"id": "1", "amount": "100"}])
         self.assertEqual(connector.preview("Special Workbook", "Owner's View", limit=1)["rows"], [{"owner": "Ada", "status": "active"}])
         ranges = display_service.spreadsheets_resource.values_resource.batch_get_calls[0]["ranges"]
-        self.assertIn("'Sales Q1'!A1:Z50", ranges)
-        self.assertIn("'Owner''s View'!A1:Z50", ranges)
+        self.assertIn("'Sales Q1'!A1:B2", ranges)
+        self.assertIn("'Owner''s View'!A1:B2", ranges)
 
     def test_direct_api_default_profile_range_includes_header_plus_50_data_rows(self):
         from brain_ds.connectors.google_sheets_connector import GoogleSheetsConnector
 
         metadata, display_values, formula_values = _many_rows_api_fixture(
             row_count=60,
-            range_name="'Large Data'!A1:Z51",
+            range_name="'Large Data'!A1:B51",
             value_row_count=50,
         )
         display_service = _FakeSheetsService(metadata, display_values)
@@ -879,7 +934,7 @@ class TestGoogleSheetsDirectApiProfile(unittest.TestCase):
         self.assertEqual(preview["rows"][49], {"id": "50", "value": "v50"})
         self.assertTrue(preview["truncated"])
         ranges = display_service.spreadsheets_resource.values_resource.batch_get_calls[0]["ranges"]
-        self.assertEqual(ranges, ["'Large Data'!A1:Z51"])
+        self.assertEqual(ranges, ["'Large Data'!A1:B51"])
 
     def test_connector_accepts_legacy_service_account_json_params(self):
         from brain_ds.connectors.google_sheets_connector import GoogleSheetsConnector

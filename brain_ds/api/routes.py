@@ -10,8 +10,19 @@ from fastapi.responses import JSONResponse
 
 from brain_ds.api.events import EventBus
 from brain_ds.connectors.secrets import SecretCatalog, SecretEntry, SecretManifestError, get_provider_adapter
+from brain_ds.connectors.secrets.binding_store import sanitize_node_mutation
 from brain_ds.connectors.secrets.providers.google_sheets import RAW_VALUE_METADATA_KEY
 from brain_ds.connectors.secrets.redaction import redact_secrets
+from brain_ds.connectors.secrets.source_connections import (
+    SourceConnectionError,
+    bind_source_connection,
+    connection_error,
+    list_candidate_secrets,
+    list_candidate_sources,
+    source_connection_status,
+    unbind_source_connection,
+    validate_source_connection,
+)
 from brain_ds.mcp.security import ValidationError
 from brain_ds.mcp import tools as mcp_tools
 from brain_ds.store.errors import GraphNotFoundError
@@ -231,7 +242,7 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
     @router.patch("/nodes/{node_id}")
     async def patch_node(node_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         graph_id = str(payload["graph_id"])
-        changes = dict(payload.get("changes") or {})
+        changes = sanitize_node_mutation(dict(payload.get("changes") or {}))
         try:
             existing_nodes = store.query_nodes(graph_id)
         except GraphNotFoundError as exc:
@@ -567,6 +578,82 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
         catalog.remove(handle)
         _audit_secret_api(store, "api_delete_secret", graph_id, "ok", handle=handle, kind=entry.kind)
         return Response(status_code=204)
+
+    @router.get("/source-connections/candidates")
+    def source_connection_candidates(graph_id: str, source_node_id: str | None = None, secret_ref: str | None = None) -> Any:
+        try:
+            root = _workspace_root_for_graph(store, graph_id)
+            if source_node_id:
+                return list_candidate_secrets(store, graph_id, root, source_node_id)
+            if secret_ref:
+                return list_candidate_sources(store, graph_id, root, secret_ref)
+        except GraphNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except SourceConnectionError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.to_public()) from exc
+        raise HTTPException(status_code=422, detail=connection_error("invalid_provider_input", "source_node_id or secret_ref is required.", retryable=False))
+
+    @router.post("/source-connections/bind")
+    def source_connection_bind(request: Request, graph_id: str, payload: dict[str, Any]) -> Any:
+        denied = _require_workspace_admin(request)
+        if denied is not None:
+            return JSONResponse(status_code=403, content=connection_error("unauthorized", "Workspace admin permission is required.", retryable=False, status_code=403))
+        try:
+            return bind_source_connection(
+                store,
+                graph_id,
+                _workspace_root_for_graph(store, graph_id),
+                str(payload.get("source_node_id") or ""),
+                str(payload.get("secret_ref") or ""),
+                payload.get("provider_inputs") or {},
+            )
+        except GraphNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except SourceConnectionError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.to_public()) from exc
+
+    @router.post("/source-connections/validate")
+    def source_connection_validate(request: Request, graph_id: str, payload: dict[str, Any]) -> Any:
+        denied = _require_workspace_admin(request)
+        if denied is not None:
+            return JSONResponse(status_code=403, content=connection_error("unauthorized", "Workspace admin permission is required.", retryable=False, status_code=403))
+        try:
+            return validate_source_connection(
+                store,
+                graph_id,
+                _workspace_root_for_graph(store, graph_id),
+                str(payload.get("source_node_id") or ""),
+            )
+        except GraphNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except SourceConnectionError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.to_public()) from exc
+
+    @router.get("/source-connections/status")
+    def source_connection_status_route(graph_id: str, source_node_id: str) -> Any:
+        try:
+            return source_connection_status(store, graph_id, _workspace_root_for_graph(store, graph_id), source_node_id)
+        except GraphNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except SourceConnectionError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.to_public()) from exc
+
+    @router.post("/source-connections/unbind")
+    def source_connection_unbind(request: Request, graph_id: str, payload: dict[str, Any]) -> Any:
+        denied = _require_workspace_admin(request)
+        if denied is not None:
+            return JSONResponse(status_code=403, content=connection_error("unauthorized", "Workspace admin permission is required.", retryable=False, status_code=403))
+        try:
+            return unbind_source_connection(
+                store,
+                graph_id,
+                _workspace_root_for_graph(store, graph_id),
+                str(payload.get("source_node_id") or ""),
+            )
+        except GraphNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except SourceConnectionError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.to_public()) from exc
 
     # -------------------------------------------------------------------------
     # B4 — Read-only AI routes (thin adapters over existing MCP tool handlers)

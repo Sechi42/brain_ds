@@ -6,22 +6,20 @@ Grounding-first rule: call the `run_elicit` brain_ds MCP tool first and follow i
 
 ## NEVER call list_secret_handles
 
-`list_secret_handles` is admin-only and returns MCP error -32001 for non-admin agents. You do NOT need it. Use `list_source_connections` to discover which data sources have connection descriptors, then call `explore_source` directly — the server resolves the secret handle server-side.
+`list_secret_handles` is admin-only and returns MCP error -32001 for non-admin agents. You do NOT need it. Use `list_source_connections` to list source/secret candidates, bind a graph-scoped `secret_ref`, validate server-side, inspect status or unbind, then call `explore_source` only after validation is valid.
 
 ## Typed source connection flow (aws-postgres, aws-google-sheets, sqlite, csv)
 
-1. Call `list_source_connections(graph_id)` — returns all Data Source nodes with an explorable connection descriptor. Each result has `{node_id, connection}` where `connection` contains `{kind, secret_handle}` for typed sources. No admin permission required.
-2. Read `kind` and `secret_handle` from the descriptor:
-   - `sqlite` / `csv`: use `path` field; no secret needed.
-   - `aws-postgres`: `{kind: "aws-postgres", secret_handle: "<name>", database: "<db>"}`. Credentials fetched from AWS Secrets Manager server-side.
-   - `aws-google-sheets`: `{kind: "aws-google-sheets", secret_handle: "<name>", spreadsheet_id: "<id>", sheet_range: "<range>"}`. Service-account JSON fetched from AWS Secrets Manager server-side.
-3. Call `explore_source(graph_id, node_id)` — server resolves `secret_handle → adapter → connector`. No args: describe + containers. Add `container`: tables. Add `container` + `table`: schema + preview.
-4. For SQL queries on `aws-postgres`: `query_source(graph_id, node_id, query="SELECT ...")` — SELECT-only, max 200 rows.
-5. If `list_source_connections` returns a source with no connection descriptor, report it as "not explorable — no connection descriptor". Do NOT guess credentials.
+1. Call `list_source_connections(action="candidate_secrets", graph_id=<graph>, source_node_id=<id>)` for source-first candidates, or `list_source_connections(action="candidate_sources", graph_id=<graph>, secret_ref=<opaque-ref>)` for secret-first candidates. No admin permission required.
+2. Ask the user to choose if there are multiple candidates. Use only the returned graph-scoped `secret_ref`; it is an opaque alias, not a credential and not globally reusable.
+3. Bind with `graph_id`, `source_node_id`, `secret_ref`, and redacted `provider_inputs` such as `spreadsheet_ref` or `database_ref` aliases.
+4. Validate before documentation. The server owns validation state and returns valid status or redacted errors; do not start source-docs while unvalidated or invalid.
+5. Use status to show lifecycle state, or unbind when the association is wrong.
+6. After validation is valid, call `explore_source(graph_id, node_id)`. No args: describe + containers. Add `container`: tables. Add `container` + `table`: schema + preview. For SQL queries on `aws-postgres`: `query_source(graph_id, node_id, query="SELECT ...")` — SELECT-only, max 200 rows.
 
-Example — aws-postgres: `list_source_connections` → `[{node_id: "gt-ds-sit-aurora", connection: {kind: "aws-postgres", secret_handle: "grupo-topete/sit-aurora", database: "sit_prod"}}]` → `explore_source(graph_id="grupo-topete", node_id="gt-ds-sit-aurora")`.
+Example — source-first: `list_source_connections(action="candidate_secrets", graph_id="<graph>", source_node_id="<data-source-node>")` → `{secrets: [{secret_ref: "sec_...", provider_kind: "aws-postgres", validation_status: "unbound"}]}` → `list_source_connections(action="bind", graph_id="<graph>", source_node_id="<data-source-node>", secret_ref="sec_...", provider_inputs={"database_ref": "<db-alias>"})` → `list_source_connections(action="validate", graph_id="<graph>", source_node_id="<data-source-node>")` → `list_source_connections(action="status", graph_id="<graph>", source_node_id="<data-source-node>")` → `list_source_connections(action="unbind", graph_id="<graph>", source_node_id="<data-source-node>")` if the association is wrong → `explore_source(graph_id="<graph>", node_id="<data-source-node>")`.
 
-Example — aws-google-sheets: `list_source_connections` → `[{node_id: "gt-ds-erp-dvc", connection: {kind: "aws-google-sheets", secret_handle: "grupo-topete/erp-dvc", spreadsheet_id: "1AbC...", sheet_range: "Hoja1!A1:Z"}}]` → `explore_source(graph_id="grupo-topete", node_id="gt-ds-erp-dvc")`.
+Example — secret-first sheets: `list_source_connections(action="candidate_sources", graph_id="<graph>", secret_ref="sec_...")` → `{sources: [{node_id: "<data-source-node>", provider_kind: "aws-google-sheets", validation_status: "unbound"}]}` → `list_source_connections(action="bind", graph_id="<graph>", source_node_id="<data-source-node>", secret_ref="sec_...", provider_inputs={"spreadsheet_ref": "<sheet-alias>"})` → `list_source_connections(action="validate", graph_id="<graph>", source_node_id="<data-source-node>")` → `explore_source(graph_id="<graph>", node_id="<data-source-node>")`.
 
 ## Documentation Bundle — One-Call Column Discoverability
 
@@ -36,7 +34,7 @@ explore_source({ "graph_id": "<graph-id>", "node_id": "<datasource-node-id>", "l
 
 ## Google Sheets / Drive files (fallback when no connection descriptor)
 
-Use Drive MCP tools (`get_file_metadata`, `read_file_content`, `download_file_content`) only when a Google Sheets source has no `aws-google-sheets` connection descriptor. Prefer the typed connector path above when available.
+Use Drive MCP tools (`get_file_metadata`, `read_file_content`, `download_file_content`) only when a Google Sheets source has no validated server-owned source connection. Prefer the typed connector path above when available.
 
 ## Source-doc pipeline artifacts
 

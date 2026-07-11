@@ -162,10 +162,7 @@ class GoogleSheetsConnector(ReadOnlyConnector):
                     "sheet_count": len(workbook.get("sheets", [])),
                     "provenance": "google-sheets-api",
                 },
-                "description": (
-                    f"Google Sheets spreadsheet '{title}' "
-                    f"(id: {self._spreadsheet_id})"
-                ),
+                "description": f"Google Sheets spreadsheet '{title}'",
             }
         ss = self._open_spreadsheet()
         return {
@@ -174,10 +171,7 @@ class GoogleSheetsConnector(ReadOnlyConnector):
             "title": ss.title,
             "url": ss.url,
             "sheet_range": self._sheet_range,
-            "description": (
-                f"Google Sheets spreadsheet '{ss.title}' "
-                f"(id: {self._spreadsheet_id})"
-            ),
+            "description": f"Google Sheets spreadsheet '{ss.title}'",
             # INV-1: service_account_info is deliberately absent
         }
 

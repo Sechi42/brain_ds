@@ -185,6 +185,30 @@ class TestServerRuntime(unittest.TestCase):
                     renamed.unlink()
                 self.assertFalse(sidecar.exists(), f"Expected {sidecar.name} to be absent after shutdown")
 
+    def test_scan_project_root_ignores_config_json_and_imports_graph_json(self):
+        from brain_ds.ui import server
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".brain_ds").mkdir(parents=True)
+            (root / ".mcp.json").write_text(json.dumps({"mcpServers": {"brain_ds": {}}}), encoding="utf-8")
+            (root / ".brain_ds" / "setup.json").write_text(json.dumps({"store_path": "store.db"}), encoding="utf-8")
+            (root / "notes.json").write_text(json.dumps({"title": "not a graph"}), encoding="utf-8")
+            graph_path = root / "graph.json"
+            graph_path.write_text(json.dumps(_sample_graph_payload("Imported Org")), encoding="utf-8")
+
+            imported = server.scan_project_root(project_root=root)
+
+            self.assertEqual(len(imported), 1)
+            store = GraphStore(str(root / ".brain_ds" / "store.db"))
+            try:
+                graphs = store.list_graphs()
+                self.assertEqual(len(graphs), 1)
+                self.assertEqual(graphs[0].org, "Imported Org")
+                self.assertEqual(Path(graphs[0].imported_from), graph_path.resolve())
+            finally:
+                store.close()
+
 
 # ---------------------------------------------------------------------------
 # T2.1 / T2.2 — POST /api/graphs  (R4, R5, R14)
@@ -561,7 +585,6 @@ class TestDeleteApiGraphs(unittest.TestCase):
 
     def _make_app_real_store(self, tmp: str):
         from brain_ds.ui import server
-        from brain_ds.ontology import Graph
 
         root = Path(tmp)
         store_path = root / ".brain_ds" / "store.db"

@@ -1878,8 +1878,8 @@
       }
       .secret-probe-btn {
         font-size: 0.78rem;
-        min-height: 32px;
-        padding: 0.25rem 0.6rem;
+        min-height: 44px;
+        padding: 0.5rem 0.75rem;
       }
       .secret-probe-btn[disabled] { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
       .secret-probe-badge {
@@ -1903,7 +1903,7 @@
       }
       .secret-bind-label { font-size: 0.78rem; color: var(--text-muted); }
       .secret-bind-select { min-height: 36px; }
-      .secret-bind-btn { justify-self: start; min-height: 36px; font-size: 0.78rem; }
+      .secret-bind-btn { justify-self: start; min-height: 44px; padding: 0.5rem 0.75rem; font-size: 0.78rem; }
       .secret-bind-badge {
         justify-self: start;
         font-size: 0.78rem;
@@ -1917,6 +1917,48 @@
       .secret-bind-badge--error {
         color: var(--status-danger, var(--danger));
         background: color-mix(in srgb, var(--status-danger, var(--danger)) 12%, transparent);
+      }
+      .source-lifecycle-card {
+        margin: 0.75rem 1rem;
+        padding: 0.75rem;
+        display: grid;
+        gap: 0.55rem;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-card);
+        background: var(--bg-panel-raised, var(--bg-panel));
+      }
+      .source-lifecycle-card h4 {
+        margin: 0;
+        color: var(--text-bright);
+        font-size: 0.82rem;
+        font-weight: 650;
+      }
+      .source-lifecycle-row {
+        display: grid;
+        gap: 0.45rem;
+        padding-top: 0.45rem;
+        border-top: 1px solid var(--border-subtle);
+      }
+      .source-lifecycle-heading {
+        color: var(--text-normal);
+        font-size: 0.82rem;
+        font-weight: 600;
+      }
+      .source-lifecycle-statuses,
+      .source-lifecycle-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+      }
+      .source-lifecycle-badge {
+        padding: 0.1rem 0.5rem;
+        border-radius: var(--radius-full, 9999px);
+        background: var(--bg-panel-hover);
+        color: var(--text-muted);
+        font-size: 0.74rem;
+      }
+      .source-lifecycle-actions .pill-btn {
+        min-height: 44px;
       }
       .secret-form {
         flex: 0 0 auto;

@@ -71,3 +71,22 @@ def test_secret_validation_not_found_does_not_echo_unregistered_handle(tmp_path:
         assert missing_handle not in json.dumps(result)
     finally:
         store.close()
+
+
+def test_source_connection_tool_description_uses_binding_candidate_contract() -> None:
+    description = TOOL_REGISTRY["list_source_connections"]["description"]
+
+    assert "binding candidates" in description
+    assert "redacted source connection status" in description
+    assert "connection descriptors" not in description
+
+
+def test_source_connection_action_contract_has_no_helper_tools() -> None:
+    action_schema = TOOL_REGISTRY["list_source_connections"]["schema"]["properties"]["action"]
+
+    assert action_schema == {"type": "string"}
+    assert "list_source_connections" in TOOL_REGISTRY
+    assert "bind_source_connection" not in TOOL_REGISTRY
+    assert "validate_source_connection" not in TOOL_REGISTRY
+    assert "status_source_connection" not in TOOL_REGISTRY
+    assert "unbind_source_connection" not in TOOL_REGISTRY

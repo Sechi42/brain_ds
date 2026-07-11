@@ -87,30 +87,38 @@ Mark vague columns with `[needs clarification]` in the Notes cell — never omit
 
 ## Connecting to Typed Data Sources (aws-postgres, aws-google-sheets)
 
-Data Source nodes with typed secret connections (kind `aws-postgres` or `aws-google-sheets`)
-are explored via `explore_source` / `query_source` — the server resolves the bound secret handle
-server-side. The agent never needs to handle credentials.
+Data Source nodes with typed secret connections are explored only after the server-owned
+source connection flow validates a graph-scoped `secret_ref`. The agent never handles
+credentials, raw handles, provider ids, sheet ids, or derived connector descriptors.
 
-### Discovery flow (non-admin, always use this)
+### Safe source connection flow (non-admin, always use this)
 
-1. Call `list_source_connections(graph_id)` — returns nodes whose `details.connection` has
-   `{kind, secret_handle}`. No admin permission required.
-2. Read `kind` and `secret_handle` from the descriptor. Do NOT call `list_secret_handles`
-   (admin-only, returns MCP error -32001 for non-admin agents — you do NOT need it).
-3. Call `explore_source(graph_id, node_id)` — the server resolves `secret_handle → adapter →
-   connector` internally. Use `container` and `table` args to drill down.
-4. For SQL queries on `aws-postgres`: use `query_source(graph_id, node_id, query="SELECT ...")`.
-   SELECT-only, max 200 rows.
+1. Call `list_source_connections(action="candidate_secrets", graph_id=<graph>, source_node_id=<id>)`
+   for source-first candidates, or `list_source_connections(action="candidate_sources", graph_id=<graph>, secret_ref=<opaque-ref>)`
+   for secret-first candidates. Responses contain safe labels, provider kind, validation status, and required provider inputs.
+2. Ask the user to choose when multiple candidates are available. Use only the returned
+   graph-scoped `secret_ref`; it is an opaque alias, not a credential and not globally reusable.
+3. Bind through the source connection API with `graph_id`, `source_node_id`, `secret_ref`, and
+   redacted `provider_inputs` such as `spreadsheet_ref` or `database_ref` aliases.
+4. Validate before documentation. The server resolves private mappings, stores server-owned
+   validation state, and returns either valid status or redacted errors.
+5. Use status to show lifecycle state, or unbind if the association is wrong. Never start
+   source-docs while the binding is unvalidated or invalid.
+6. After validation is valid, call `explore_source(graph_id, node_id)`; use `container` and
+   `table` args to drill down. For SQL queries on `aws-postgres`, use `query_source` with
+   SELECT-only queries, max 200 rows.
 
-### Connection descriptor shapes
+### Safe payload examples
 
-```jsonc
-// aws-postgres (Aurora/RDS)
-{"kind": "aws-postgres", "secret_handle": "grupo-topete/sit-aurora", "database": "sit_prod"}
+```
+// Source-first candidate listing
+list_source_connections(action="candidate_secrets", graph_id="<graph>", source_node_id="<data-source-node>")
 
-// aws-google-sheets (service account via AWS Secrets Manager)
-{"kind": "aws-google-sheets", "secret_handle": "grupo-topete/erp-dvc",
- "spreadsheet_id": "1AbC...", "sheet_range": "Hoja1!A1:Z"}
+// Bind, validate, inspect status, or unbind through the same registered MCP tool
+list_source_connections(action="bind", graph_id="<graph>", source_node_id="<data-source-node>", secret_ref="sec_...", provider_inputs={"spreadsheet_ref": "<sheet-alias>"})
+list_source_connections(action="validate", graph_id="<graph>", source_node_id="<data-source-node>")
+list_source_connections(action="status", graph_id="<graph>", source_node_id="<data-source-node>")
+list_source_connections(action="unbind", graph_id="<graph>", source_node_id="<data-source-node>")
 
 // sqlite / csv (existing, file-path model)
 {"kind": "sqlite", "path": "data/store.db"}
@@ -120,8 +128,7 @@ server-side. The agent never needs to handle credentials.
 ### Rule: NEVER call list_secret_handles
 
 `list_secret_handles` is admin-only. Non-admin documenter and explorer agents MUST NOT call it.
-Use `list_source_connections` instead — it already exposes the bound `secret_handle` (a name,
-not a credential) in redacted form so `explore_source` can resolve the connection.
+Use candidate listing, bind, validate, status, unbind, and then `explore_source` instead.
 
 ## Change Detection (re-documentation decision)
 

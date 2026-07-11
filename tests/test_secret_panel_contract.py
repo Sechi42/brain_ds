@@ -51,17 +51,24 @@ def test_secret_panel_surfaces_safe_backend_error_detail_without_html_injection(
     assert "innerHTML = message" not in source
 
 
-def test_secret_panel_bind_action_patches_data_source_connection_descriptor() -> None:
+def test_secret_panel_bind_action_uses_source_connection_lifecycle_api() -> None:
     source = _source()
     for token in (
         "dataSources?: SecretBindableDataSource[]",
         "_bindSecretToDataSource",
-        "_apiUrl('/nodes/')",
-        "method: 'PATCH'",
-        "details: { connection: descriptor }",
-        "secret_handle",
+        "_apiUrl('/source-connections/bind')",
+        "_apiUrl('/source-connections/validate')",
+        "_apiUrl('/source-connections/status')",
+        "_apiUrl('/source-connections/unbind')",
+        "provider_inputs",
+        "secret_ref",
     ):
         assert token in source
+    bind_section = source.split("async function _bindSecretToDataSource", maxsplit=1)[1].split("// ── Rendering", maxsplit=1)[0]
+    assert "_apiUrl('/nodes/')" not in bind_section
+    assert "details: { connection: descriptor }" not in bind_section
+    assert "secret_handle" not in bind_section
+    assert "spreadsheet_id" not in bind_section
 
 
 def test_secret_panel_bind_ui_exposes_explicit_now_explorable_transition() -> None:
@@ -69,7 +76,7 @@ def test_secret_panel_bind_ui_exposes_explicit_now_explorable_transition() -> No
     for token in (
         "data-bind-secret-handle",
         "data-bind-source-id",
-        "now explorable",
+        "Binding created. Validate before documentation.",
         "aria-live=\"polite\"",
     ):
         assert token in source
@@ -83,6 +90,40 @@ def test_graph_viewer_passes_data_sources_to_secret_panel_mount() -> None:
         "dataSources: secretDataSources",
     ):
         assert token in source
+
+
+def test_secret_panel_renders_binding_validation_documentation_and_writeback_statuses() -> None:
+    source = _source()
+    for token in (
+        "source-lifecycle-card",
+        "binding state",
+        "validation status",
+        "documentation status",
+        "writeback status",
+        "requires_binding",
+        "not_started",
+        "idle",
+        "validated",
+        "documented",
+        "written",
+    ):
+        assert token in source
+
+
+def test_secret_panel_lifecycle_actions_have_accessible_labels_and_no_raw_identifiers() -> None:
+    source = _source()
+    lifecycle_section = source.split("function _renderLifecycle", maxsplit=1)[1].split("function _renderList", maxsplit=1)[0]
+    for token in (
+        "Validate binding",
+        "Unbind source",
+        "aria-label",
+        "role=\"status\"",
+        "aria-live=\"polite\"",
+    ):
+        assert token in lifecycle_section
+    assert "secret_handle" not in lifecycle_section
+    assert "spreadsheet_id" not in lifecycle_section
+    assert "provider_secret_id" not in lifecycle_section
 
 
 def test_google_sheets_schema_asks_for_upload_friendly_sheet_url_not_aws_fields() -> None:

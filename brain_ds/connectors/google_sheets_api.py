@@ -9,11 +9,12 @@ from urllib.parse import parse_qs, urlparse
 PROFILE_FIELDS = (
     "spreadsheetId,properties.title,"
     "sheets.properties,sheets.charts,sheets.protectedRanges,"
-    "sheets.filterViews,sheets.developerMetadata,sheets.data.rowData.values"
+    "sheets.filterViews,sheets.developerMetadata"
 )
 
-DEFAULT_PROFILE_RANGE = "A1:Z51"
+DEFAULT_PROFILE_RANGE = "A1:T51"
 PROFILE_SAMPLE_ROW_LIMIT = 50
+PROFILE_SAMPLE_COLUMN_LIMIT = 20
 
 
 def _validation_error(message: str):
@@ -48,6 +49,8 @@ class SheetProfile:
     filter_views: list[dict[str, Any]] = field(default_factory=list)
     pivots: list[dict[str, Any]] = field(default_factory=list)
     developer_metadata: list[dict[str, Any]] = field(default_factory=list)
+    safety: dict[str, Any] = field(default_factory=dict)
+    escalation_flags: list[str] = field(default_factory=list)
     limitations: list[str] = field(default_factory=list)
     provenance: dict[str, Any] = field(default_factory=dict)
 
@@ -108,7 +111,7 @@ class GoogleSheetsApiClient:
     def metadata(self, spreadsheet_id: str) -> dict[str, Any]:
         return (
             self._service.spreadsheets()
-            .get(spreadsheetId=spreadsheet_id, includeGridData=True, fields=PROFILE_FIELDS)
+            .get(spreadsheetId=spreadsheet_id, includeGridData=False, fields=PROFILE_FIELDS)
             .execute()
         )
 
@@ -132,7 +135,7 @@ def profile_workbook(
 ) -> dict[str, Any]:
     metadata = api_client.metadata(spreadsheet_id)
     sheets = metadata.get("sheets", [])
-    ranges = [_range_for_sheet(str((sheet.get("properties") or {}).get("title") or ""), default_range) for sheet in sheets]
+    ranges = [_range_for_sheet_metadata(sheet, default_range) for sheet in sheets]
     display_values = api_client.values(spreadsheet_id, ranges)
     formula_values = api_client.values(spreadsheet_id, ranges, formula=True)
     profiles = [
@@ -156,7 +159,8 @@ def map_sheet_profile(
 ) -> SheetProfile:
     props = sheet.get("properties") or {}
     title = str(props.get("title") or "")
-    range_name = _range_for_sheet(title, default_range)
+    grid = _map_grid(props)
+    range_name = _range_for_sheet_metadata(sheet, default_range)
     rows = display_values_by_range.get(range_name, [])
     formula_rows = formula_values_by_range.get(range_name, [])
     headers = [str(value) for value in (rows[0] if rows else [])]
@@ -164,14 +168,27 @@ def map_sheet_profile(
     limitations = ["Apps Script metadata is unavailable from the Sheets API profile"]
     if not rows:
         limitations.append(f"No values returned for range {range_name}")
+    escalation_flags = _escalation_flags(grid)
+    if "row_sample_truncated" in escalation_flags:
+        limitations.append("Row sample truncated; request explicit escalation for deeper reads")
+    if "column_sample_truncated" in escalation_flags:
+        limitations.append("Column sample truncated; request explicit escalation for wider reads")
     return SheetProfile(
         spreadsheet_id=str(workbook.get("spreadsheetId") or ""),
         gid=str(props.get("sheetId") or ""),
         title=title,
         index=int(props.get("index") or 0),
-        grid=asdict(_map_grid(props)),
+        grid=asdict(grid),
         headers=headers,
-        detected_ranges=[{"range": range_name, "row_count": len(rows), "column_count": len(headers)}],
+        detected_ranges=[
+            {
+                "range": range_name,
+                "row_count": len(rows),
+                "column_count": len(headers),
+                "sampled_row_cap": _sample_row_count(grid),
+                "sampled_column_cap": _sample_column_count(grid),
+            }
+        ],
         samples=_sample_rows(headers, data_rows),
         formulas=_formula_cells(headers, formula_rows),
         charts=_charts(sheet.get("charts", [])),
@@ -179,6 +196,8 @@ def map_sheet_profile(
         filter_views=_filter_views(sheet.get("filterViews", [])),
         pivots=[],
         developer_metadata=_developer_metadata(sheet.get("developerMetadata", [])),
+        safety=_safety_flags(props, sheet),
+        escalation_flags=escalation_flags,
         limitations=limitations,
         provenance={
             "source": "google-sheets-api",
@@ -190,6 +209,38 @@ def map_sheet_profile(
 
 def _range_for_sheet(title: str, default_range: str) -> str:
     return f"{_quote_sheet_title(title)}!{default_range}" if "!" not in default_range else default_range
+
+
+def _range_for_sheet_metadata(sheet: dict[str, Any], default_range: str) -> str:
+    props = sheet.get("properties") or {}
+    title = str(props.get("title") or "")
+    if not title:
+        return default_range
+    grid = _map_grid(props)
+    end_column = _column_label(_sample_column_count(grid))
+    end_row = _sample_row_count(grid)
+    return f"{_quote_sheet_title(title)}!A1:{end_column}{end_row}"
+
+
+def _sample_row_count(grid: SheetGrid) -> int:
+    if grid.row_count <= 0:
+        return 1
+    return min(grid.row_count, PROFILE_SAMPLE_ROW_LIMIT + 1)
+
+
+def _sample_column_count(grid: SheetGrid) -> int:
+    if grid.column_count <= 0:
+        return 1
+    return min(grid.column_count, PROFILE_SAMPLE_COLUMN_LIMIT)
+
+
+def _column_label(index: int) -> str:
+    label = ""
+    current = max(1, index)
+    while current:
+        current, remainder = divmod(current - 1, 26)
+        label = chr(ord("A") + remainder) + label
+    return label
 
 
 def _quote_sheet_title(title: str) -> str:
@@ -209,6 +260,24 @@ def _map_grid(props: dict[str, Any]) -> SheetGrid:
         frozen_column_count=int(grid.get("frozenColumnCount") or 0),
         hide_gridlines=bool(grid.get("hideGridlines", False)),
     )
+
+
+def _safety_flags(props: dict[str, Any], sheet: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "hidden": bool(props.get("hidden", False)),
+        "protected_range_count": len(sheet.get("protectedRanges", []) or []),
+        "filter_view_count": len(sheet.get("filterViews", []) or []),
+        "has_developer_metadata": bool(sheet.get("developerMetadata", [])),
+    }
+
+
+def _escalation_flags(grid: SheetGrid) -> list[str]:
+    flags: list[str] = []
+    if grid.row_count > PROFILE_SAMPLE_ROW_LIMIT + 1:
+        flags.append("row_sample_truncated")
+    if grid.column_count > PROFILE_SAMPLE_COLUMN_LIMIT:
+        flags.append("column_sample_truncated")
+    return flags
 
 
 def _sample_rows(headers: list[str], rows: list[list[Any]], limit: int = PROFILE_SAMPLE_ROW_LIMIT) -> list[dict[str, Any]]:

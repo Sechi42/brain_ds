@@ -32,6 +32,32 @@ from brain_ds.store.models import NodeRow
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
+SOURCE_CONNECTION_PROSE_PATHS: tuple[Path, ...] = (
+    REPO_ROOT / "brain_ds" / "mcp" / "grounding.py",
+    REPO_ROOT / "skills" / "brainds-docs" / "SKILL.md",
+    REPO_ROOT / ".opencode" / "skills" / "brainds-docs" / "SKILL.md",
+    REPO_ROOT / ".claude" / "agents" / "brainds-source-explorer.md",
+    REPO_ROOT / "prompts" / "brainds-source-explorer.md",
+    REPO_ROOT / ".atl" / "skill-registry.md",
+    REPO_ROOT / "CLAUDE.md",
+    REPO_ROOT / "AGENTS.md",
+)
+
+NONEXISTENT_SOURCE_CONNECTION_TOOL_NAMES: tuple[str, ...] = (
+    "bind_source_connection",
+    "validate_source_connection",
+    "status_source_connection",
+    "unbind_source_connection",
+)
+
+REQUIRED_SOURCE_CONNECTION_ACTION_EXAMPLES: tuple[str, ...] = (
+    'list_source_connections(action="candidate_secrets"',
+    'list_source_connections(action="bind"',
+    'list_source_connections(action="validate"',
+    'list_source_connections(action="status"',
+    'list_source_connections(action="unbind"',
+)
+
 # EntityTypes that intentionally have NO elicitation question bank entry.
 # Adding a new EntityType that should be elicited means adding it to
 # QUESTION_BANK; adding one that should not means listing it here. Either way
@@ -311,6 +337,73 @@ class GroundingDataSourceCompletenessTests(unittest.TestCase):
         for field in required_fields:
             with self.subTest(field=field):
                 self.assertIn(field, learned)
+
+    def test_secret_connection_rules_document_safe_bind_validate_flow(self) -> None:
+        rules = grounding.SECRET_CONNECTION_RULES
+
+        required_terms = [
+            "list_source_connections",
+            "candidates",
+            "bind",
+            "validate",
+            "status",
+            "unbind",
+            "secret_ref",
+            "server-owned validation",
+            "redacted errors",
+            "explore_source",
+        ]
+        for term in required_terms:
+            with self.subTest(term=term):
+                self.assertIn(term, rules)
+
+        forbidden_terms = [
+            "connection.secret_handle",
+            "details.connection.secret_handle",
+            "secret_handle → adapter",
+            "spreadsheet_id",
+            "provider_secret_id",
+        ]
+        for term in forbidden_terms:
+            with self.subTest(term=term):
+                self.assertNotIn(term, rules)
+
+    def test_source_documentation_prose_uses_secret_ref_flow_not_legacy_handles(self) -> None:
+        required_terms = ("secret_ref", "bind", "validate", "status", "unbind")
+        forbidden_terms = ("connection.secret_handle", "details.connection.secret_handle", "secret_handle → adapter", "spreadsheet_id", "provider_secret_id")
+
+        for path in SOURCE_CONNECTION_PROSE_PATHS:
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(path=str(path), check="required"):
+                for term in required_terms:
+                    self.assertIn(term, text)
+            with self.subTest(path=str(path), check="forbidden"):
+                for term in forbidden_terms:
+                    self.assertNotIn(term, text)
+
+    def test_source_connection_prose_uses_only_registered_action_tool_examples(self) -> None:
+        from brain_ds.mcp.tools import TOOL_REGISTRY
+
+        registered_tools = set(TOOL_REGISTRY)
+
+        for path in SOURCE_CONNECTION_PROSE_PATHS:
+            text = path.read_text(encoding="utf-8")
+            documented_helper_calls = set(re.findall(r"\b\w+_source_connection(?=\()", text))
+            unregistered_helper_calls = documented_helper_calls - registered_tools
+            with self.subTest(path=str(path), check="no-unregistered-helper-calls"):
+                self.assertEqual(unregistered_helper_calls, set())
+            with self.subTest(path=str(path), check="no-nonexistent-helper-names"):
+                for helper_name in NONEXISTENT_SOURCE_CONNECTION_TOOL_NAMES:
+                    self.assertNotIn(helper_name, text)
+
+        self.assertIn("list_source_connections", registered_tools)
+
+    def test_source_connection_prose_requires_action_based_examples(self) -> None:
+        for path in SOURCE_CONNECTION_PROSE_PATHS:
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(path=str(path)):
+                for example in REQUIRED_SOURCE_CONNECTION_ACTION_EXAMPLES:
+                    self.assertIn(example, text)
 
 
 class GroundingCategory2SweepTests(unittest.TestCase):

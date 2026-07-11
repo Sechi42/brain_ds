@@ -300,6 +300,14 @@ def _resolve_store_path(project_root: Path) -> Path:
     return store_dir / "store.db"
 
 
+def _is_graph_json_payload(payload: Any) -> bool:
+    return (
+        isinstance(payload, dict)
+        and isinstance(payload.get("nodes"), list)
+        and isinstance(payload.get("edges"), list)
+    )
+
+
 def _scan_project_root(project_root: Path, store: GraphStore) -> list[str]:
     root = project_root.resolve()
     imported = []
@@ -321,6 +329,8 @@ def _scan_project_root(project_root: Path, store: GraphStore) -> list[str]:
 
         try:
             payload = json.loads(candidate.read_text(encoding="utf-8"))
+            if not _is_graph_json_payload(payload):
+                continue
             if isinstance(payload, dict) and "imported_from" not in payload:
                 payload["imported_from"] = source_path
             graph_id = store.import_json(payload, workspace_root=str(root))

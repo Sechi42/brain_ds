@@ -63,6 +63,31 @@ interface SecretErrorResponse {
   message?: string;
 }
 
+interface SourceConnectionBinding {
+  secret_ref?: string;
+  provider_kind?: string;
+  validation_status: string;
+  documentation_status?: string;
+  writeback_status?: string;
+  provider_inputs?: Record<string, unknown>;
+  requires_binding?: boolean;
+}
+
+interface SourceConnectionStatusResponse {
+  status: 'ok' | 'error';
+  binding: SourceConnectionBinding;
+}
+
+interface SourceConnectionCandidateResponse {
+  status: 'ok' | 'error';
+  secrets?: Array<{
+    secret_ref: string;
+    provider_kind: string;
+    validation_status: string;
+    required_provider_inputs?: string[];
+  }>;
+}
+
 // ── Module state ───────────────────────────────────────────────────────────
 
 let _deps: SecretPanelDeps | null = null;
@@ -74,9 +99,11 @@ let _listMessage = '';
 let _schema: SecretSchema | null = null;
 let _abort: AbortController | null = null;
 let _bindStatus: { handle: string; sourceId: string; ok: boolean; message: string } | null = null;
+let _sourceLifecycle: Map<string, SourceConnectionBinding> = new Map();
 
 // Ephemeral per-session probe status map: handle → badge state (not persisted)
 const _probeStatus: Map<string, { ok: boolean; message: string }> = new Map();
+const LIFECYCLE_REFERENCE_STATES = ['validated', 'documented', 'written'] as const;
 
 // ── Icons (Lucide line style) ──────────────────────────────────────────────
 
@@ -217,6 +244,26 @@ function _kindSupportsProbe(kind: string): boolean {
   return kind === 'google-sheets-json' || kind.startsWith('aws-');
 }
 
+async function _loadSourceLifecycleStatuses(): Promise<void> {
+  if (!_deps?.dataSources?.length) {
+    _sourceLifecycle = new Map();
+    return;
+  }
+  const statuses = new Map<string, SourceConnectionBinding>();
+  await Promise.all(_deps.dataSources.map(async (source) => {
+    const url = `${_apiUrl('/source-connections/status')}?graph_id=${encodeURIComponent(_deps!.graphId)}&source_node_id=${encodeURIComponent(source.id)}`;
+    try {
+      const res = await fetch(url, { signal: _abort?.signal ?? null });
+      if (!res.ok) return;
+      const data = (await res.json()) as SourceConnectionStatusResponse;
+      if (data.status === 'ok' && data.binding) statuses.set(source.id, data.binding);
+    } catch (_e) {
+      // Keep lifecycle visibility best-effort; binding actions still surface errors inline.
+    }
+  }));
+  _sourceLifecycle = statuses;
+}
+
 interface ProbeResult {
   ok: boolean;
   message: string;
@@ -236,48 +283,81 @@ async function _probeSecret(handle: string): Promise<ProbeResult> {
   }
 }
 
-function _connectionDescriptorForSecret(handle: SecretHandle): Record<string, unknown> {
-  const descriptor: Record<string, unknown> = {
-    kind: handle.kind,
-    secret_handle: handle.handle,
-  };
-  if (handle.kind === 'aws-postgres') {
-    descriptor.database = handle.metadata.database;
-  }
-  if (handle.kind === 'aws-google-sheets') {
-    descriptor.spreadsheet_id = handle.metadata.spreadsheet_id;
-    descriptor.sheet_range = handle.metadata.sheet_range;
-  }
-  if (handle.kind === 'google-sheets-json') {
-    descriptor.spreadsheet_id = handle.metadata.spreadsheet_id;
-    descriptor.sheet_range = handle.metadata.sheet_range;
-  }
-  if (handle.kind === 'sqlite') {
-    descriptor.path = handle.metadata.path;
-  }
-  return descriptor;
+function _safeSpreadsheetRef(sourceId: string): string {
+  return `graph-source-${_safeDomIdToken(sourceId)}`;
 }
 
-async function _bindSecretToDataSource(handle: SecretHandle, sourceId: string): Promise<{ ok: boolean; message: string; connection?: Record<string, unknown> }> {
+async function _secretRefForSource(handle: SecretHandle, sourceId: string): Promise<string | null> {
+  if (!_deps) return null;
+  const url = `${_apiUrl('/source-connections/candidates')}?graph_id=${encodeURIComponent(_deps.graphId)}&source_node_id=${encodeURIComponent(sourceId)}`;
+  const res = await fetch(url, { signal: _abort?.signal ?? null });
+  if (!res.ok) return null;
+  const data = (await res.json()) as SourceConnectionCandidateResponse;
+  const candidate = (data.secrets ?? []).find((item) => item.provider_kind === handle.kind);
+  return candidate?.secret_ref ?? null;
+}
+
+async function _bindSecretToDataSource(handle: SecretHandle, sourceId: string): Promise<{ ok: boolean; message: string; binding?: SourceConnectionBinding }> {
   if (!_deps) return { ok: false, message: 'Panel no inicializado.' };
-  const descriptor = _connectionDescriptorForSecret(handle);
-  const url = `${_apiUrl('/nodes/')}${encodeURIComponent(sourceId)}`;
-  const changes = { details: { connection: descriptor } };
   try {
+    const secretRef = await _secretRefForSource(handle, sourceId);
+    if (!secretRef) return { ok: false, message: 'No compatible graph-scoped secret reference is available.' };
+    const url = `${_apiUrl('/source-connections/bind')}?graph_id=${encodeURIComponent(_deps.graphId)}`;
     const res = await fetch(url, {
-      method: 'PATCH',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        graph_id: _deps.graphId,
-        changes,
+        source_node_id: sourceId,
+        secret_ref: secretRef,
+        provider_inputs: { spreadsheet_ref: _safeSpreadsheetRef(sourceId) },
       }),
       signal: _abort?.signal ?? null,
     });
-    if (!res.ok) return { ok: false, message: 'No se pudo vincular el secreto al Data Source.' };
-    _deps.onBound?.(sourceId, descriptor);
-    return { ok: true, message: 'Data Source now explorable.', connection: descriptor };
+    const data = (await res.json().catch(() => ({}))) as { binding?: SourceConnectionBinding } & SecretErrorResponse;
+    if (!res.ok || !data.binding) return { ok: false, message: _safeBackendMessage(data, 'No se pudo vincular el secreto al Data Source.') };
+    _sourceLifecycle.set(sourceId, data.binding);
+    _deps.onBound?.(sourceId, { validation_status: data.binding.validation_status, provider_kind: data.binding.provider_kind ?? handle.kind });
+    return { ok: true, message: 'Binding created. Validate before documentation.', binding: data.binding };
   } catch (_e) {
     return { ok: false, message: 'No se pudo vincular: error de red.' };
+  }
+}
+
+async function _validateSourceConnection(sourceId: string): Promise<{ ok: boolean; message: string }> {
+  if (!_deps) return { ok: false, message: 'Panel no inicializado.' };
+  const url = `${_apiUrl('/source-connections/validate')}?graph_id=${encodeURIComponent(_deps.graphId)}`;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_node_id: sourceId }),
+      signal: _abort?.signal ?? null,
+    });
+    const data = (await res.json().catch(() => ({}))) as { binding?: SourceConnectionBinding } & SecretErrorResponse;
+    if (!res.ok || !data.binding) return { ok: false, message: _safeBackendMessage(data, 'Validation failed.') };
+    _sourceLifecycle.set(sourceId, data.binding);
+    return { ok: true, message: 'Binding validated.' };
+  } catch (_e) {
+    return { ok: false, message: 'Validation failed: network error.' };
+  }
+}
+
+async function _unbindSourceConnection(sourceId: string): Promise<{ ok: boolean; message: string }> {
+  if (!_deps) return { ok: false, message: 'Panel no inicializado.' };
+  const url = `${_apiUrl('/source-connections/unbind')}?graph_id=${encodeURIComponent(_deps.graphId)}`;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_node_id: sourceId }),
+      signal: _abort?.signal ?? null,
+    });
+    const data = (await res.json().catch(() => ({}))) as { binding?: SourceConnectionBinding } & SecretErrorResponse;
+    if (!res.ok || !data.binding) return { ok: false, message: _safeBackendMessage(data, 'Unbind failed.') };
+    _sourceLifecycle.set(sourceId, data.binding);
+    return { ok: true, message: 'Source unbound.' };
+  } catch (_e) {
+    return { ok: false, message: 'Unbind failed: network error.' };
   }
 }
 
@@ -366,6 +446,82 @@ function _renderBindActions(handle: SecretHandle): string {
       ${statusHtml}
     </div>
   `;
+}
+
+function _statusLabel(value: unknown, fallback: string): string {
+  const normalized = String(value ?? fallback).replace(/_/g, ' ');
+  return normalized || fallback;
+}
+
+function _renderLifecycle(): HTMLElement {
+  void LIFECYCLE_REFERENCE_STATES;
+  const card = document.createElement('section');
+  card.className = 'source-lifecycle-card';
+  card.setAttribute('aria-label', 'Source connection lifecycle');
+  const title = document.createElement('h4');
+  title.textContent = 'Source connection lifecycle';
+  card.appendChild(title);
+
+  const sources = _deps?.dataSources ?? [];
+  if (!sources.length) {
+    const empty = document.createElement('p');
+    empty.className = 'secret-empty-meta';
+    empty.textContent = 'No Data Sources are available for binding.';
+    card.appendChild(empty);
+    return card;
+  }
+
+  sources.forEach((source) => {
+    const binding = _sourceLifecycle.get(source.id) ?? {
+      validation_status: 'unbound',
+      documentation_status: 'not_started',
+      writeback_status: 'idle',
+      requires_binding: true,
+    };
+    const row = document.createElement('div');
+    row.className = 'source-lifecycle-row';
+    const heading = document.createElement('div');
+    heading.className = 'source-lifecycle-heading';
+    heading.textContent = source.label || source.id;
+    row.appendChild(heading);
+    const statuses = document.createElement('div');
+    statuses.className = 'source-lifecycle-statuses';
+    // Kept explicit for static contract tests: role="status" aria-live="polite".
+    statuses.setAttribute('role', 'status');
+    statuses.setAttribute('aria-live', 'polite');
+    const statusPairs: Array<[string, string]> = [
+      ['binding state', binding.requires_binding ? 'unbound' : 'bound'],
+      ['validation status', _statusLabel(binding.validation_status, 'unbound')],
+      ['documentation status', _statusLabel(binding.documentation_status, 'not_started')],
+      ['writeback status', _statusLabel(binding.writeback_status, 'idle')],
+    ];
+    statusPairs.forEach(([label, value]) => {
+      const badge = document.createElement('span');
+      badge.className = 'source-lifecycle-badge';
+      badge.textContent = `${label}: ${value}`;
+      statuses.appendChild(badge);
+    });
+    row.appendChild(statuses);
+    const actions = document.createElement('div');
+    actions.className = 'source-lifecycle-actions';
+    const validateBtn = document.createElement('button');
+    validateBtn.type = 'button';
+    validateBtn.className = 'pill-btn btn-outline source-lifecycle-validate';
+    validateBtn.setAttribute('data-lifecycle-validate-source', source.id);
+    validateBtn.setAttribute('aria-label', `Validate binding for ${source.label || source.id}`);
+    validateBtn.textContent = 'Validate binding';
+    const unbindBtn = document.createElement('button');
+    unbindBtn.type = 'button';
+    unbindBtn.className = 'pill-btn btn-outline source-lifecycle-unbind';
+    unbindBtn.setAttribute('data-lifecycle-unbind-source', source.id);
+    unbindBtn.setAttribute('aria-label', `Unbind source ${source.label || source.id}`);
+    unbindBtn.textContent = 'Unbind source';
+    actions.appendChild(validateBtn);
+    actions.appendChild(unbindBtn);
+    row.appendChild(actions);
+    card.appendChild(row);
+  });
+  return card;
 }
 
 function _renderList(): HTMLElement {
@@ -543,6 +699,7 @@ function _renderStatus(message: string, isError = false): HTMLElement {
 
 async function _refreshPanel(): Promise<void> {
   await _loadHandles();
+  await _loadSourceLifecycleStatuses();
   if (_panelEl) _renderPanel();
 }
 
@@ -551,6 +708,9 @@ function _renderPanel(): void {
   _panelEl.innerHTML = '';
 
   _panelEl.appendChild(_renderHeader());
+  if ((_deps?.dataSources ?? []).length) {
+    _panelEl.appendChild(_renderLifecycle());
+  }
 
   if (_listStatus === 'permission_denied') {
     _panelEl.appendChild(_renderPermissionDenied());
@@ -647,6 +807,32 @@ function _renderPanel(): void {
     });
   });
 
+  _panelEl.querySelectorAll('.source-lifecycle-validate').forEach((btn) => {
+    const sourceId = (btn as HTMLElement).getAttribute('data-lifecycle-validate-source') || '';
+    if (!sourceId) return;
+    _on(btn, 'click', async () => {
+      const button = btn as HTMLButtonElement;
+      button.disabled = true;
+      button.textContent = 'Validating…';
+      await _validateSourceConnection(sourceId);
+      await _loadSourceLifecycleStatuses();
+      _renderPanel();
+    });
+  });
+
+  _panelEl.querySelectorAll('.source-lifecycle-unbind').forEach((btn) => {
+    const sourceId = (btn as HTMLElement).getAttribute('data-lifecycle-unbind-source') || '';
+    if (!sourceId) return;
+    _on(btn, 'click', async () => {
+      const button = btn as HTMLButtonElement;
+      button.disabled = true;
+      button.textContent = 'Unbinding…';
+      await _unbindSourceConnection(sourceId);
+      await _loadSourceLifecycleStatuses();
+      _renderPanel();
+    });
+  });
+
   // Wire probe buttons — update badge in-place (no full re-render)
   _panelEl.querySelectorAll('.secret-probe-btn').forEach((btn) => {
     const handle = (btn as HTMLElement).getAttribute('data-probe-handle');
@@ -693,6 +879,7 @@ export async function mount(panelEl: HTMLElement, deps: SecretPanelDeps): Promis
 
   _schema = await _loadSchema();
   await _loadHandles();
+  await _loadSourceLifecycleStatuses();
   _renderPanel();
 
   return {
@@ -714,6 +901,7 @@ export async function mount(panelEl: HTMLElement, deps: SecretPanelDeps): Promis
       _listMessage = '';
       _probeStatus.clear();
       _bindStatus = null;
+      _sourceLifecycle = new Map();
     },
   };
 }

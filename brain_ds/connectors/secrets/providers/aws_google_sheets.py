@@ -156,6 +156,7 @@ class AwsGoogleSheetsAdapter(SecretProviderAdapter):
             "service_account_info": sa,           # full SA dict, ephemeral only
             "spreadsheet_id": spreadsheet_id,     # INV-2: always from metadata
             "sheet_range": sheet_range,           # INV-2: always from metadata
+            "use_direct_api": True,               # metadata-first Sheets profiling path
         }
 
     def probe(self, handle: str, metadata: dict[str, Any]) -> None:

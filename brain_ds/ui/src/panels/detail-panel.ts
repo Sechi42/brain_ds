@@ -234,6 +234,34 @@ function appendExplorableBadge(container: Element, node: NodeItem): void {
   container.appendChild(badge);
 }
 
+function appendSourceLifecycleBadges(container: Element, node: NodeItem): void {
+  if (node.type !== "Data Source") return;
+  const details = (node as unknown as { details?: Record<string, unknown> }).details ?? {};
+  const binding = details.secret_binding as Record<string, unknown> | undefined;
+  if (!binding) return;
+  const root = document.createElement("section");
+  root.className = "source-lifecycle-card";
+  root.setAttribute("aria-label", "Source connection lifecycle");
+  root.setAttribute("role", "status");
+  root.setAttribute("aria-live", "polite");
+  const heading = document.createElement("h4");
+  heading.textContent = "Connection lifecycle";
+  root.appendChild(heading);
+  const statuses: Array<[string, string]> = [
+    ["binding state", binding.validation_status === "unbound" ? "unbound" : "bound"],
+    ["validation status", String(binding.validation_status ?? "unbound").replace(/_/g, " ")],
+    ["documentation status", String(binding.documentation_status ?? "not_started").replace(/_/g, " ")],
+    ["writeback status", String(binding.writeback_status ?? "idle").replace(/_/g, " ")],
+  ];
+  statuses.forEach(([label, value]) => {
+    const badge = document.createElement("span");
+    badge.className = "source-lifecycle-badge";
+    badge.textContent = `${label}: ${value}`;
+    root.appendChild(badge);
+  });
+  container.appendChild(root);
+}
+
 function wrapInAccordion(title: string, content: Element, open = false): HTMLDetailsElement {
   const details = document.createElement("details");
   details.className = "inspector-accordion";
@@ -406,6 +434,7 @@ export function renderDetailPanel(nodeId: string | null): void {
   _detailBody.innerHTML = "";
   appendScoreChip(_detailBody, detail.node);
   appendExplorableBadge(_detailBody, detail.node);
+  appendSourceLifecycleBadges(_detailBody, detail.node);
 
   const sections = detail.sections ?? [];
   let rendered = false;
@@ -478,6 +507,7 @@ export function renderDetailPanelEditable(nodeId: string): void {
   _detailBody.innerHTML = "";
   appendScoreChip(_detailBody, detail.node);
   appendExplorableBadge(_detailBody, detail.node);
+  appendSourceLifecycleBadges(_detailBody, detail.node);
 
   const titleWrap = document.createElement("div");
   titleWrap.className = "detail-card";

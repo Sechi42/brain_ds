@@ -12,8 +12,9 @@ from fastapi.testclient import TestClient
 
 from brain_ds.api.events import EventBus
 from brain_ds.api.server import create_app
+from brain_ds.connectors.secrets import SecretCatalog, SecretEntry
+from brain_ds.connectors.secrets.binding_store import SecretBindingRecord, SecretBindingStore
 from brain_ds.connectors.secrets.providers import AwsSecretsAdapter
-from brain_ds.connectors.secrets.providers.google_sheets import GoogleSheetsJsonAdapter
 from brain_ds.store.graph_store import GraphStore
 
 
@@ -81,6 +82,26 @@ _SS_META = {
 _GSHEETS_URL = "https://docs.google.com/spreadsheets/d/1oVc-jvWV1s-0dW8YNK3nlK-vn3pLF5kInnHWqRWt5Ig/edit?gid=242408990#gid=242408990"
 _GSHEETS_PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----\nAPI_SENTINEL_PRIVATE_KEY\n-----END PRIVATE KEY-----\n"
 _GSHEETS_CLIENT_EMAIL = "api-sentinel@example.iam.gserviceaccount.com"
+
+
+def _seed_google_sheets_secret(tmp_path: Path, handle: str = "topete_final") -> None:
+    catalog = SecretCatalog(tmp_path)
+    catalog.add(
+        SecretEntry(
+            handle=handle,
+            kind="google-sheets-json",
+            metadata={
+                "spreadsheet_id": "raw-spreadsheet-id",
+                "sheet_range": "ERP!A1:Z",
+                "credential_type": "service_account",
+                "project_id": "topete-project",
+                "email_fingerprint": "email-fp",
+                "key_id_fingerprint": "key-fp",
+                "universe_domain": "googleapis.com",
+            },
+        ),
+        raw_value=_service_account_json(),
+    )
 
 
 def _service_account_json() -> str:
@@ -232,6 +253,295 @@ class TestAwsSecretsRoundTrip:
             assert _AWS_META["secret_id"] not in response_text
             # raw_value must NOT appear in the response body as a field
             assert "raw_value" not in response_text
+        finally:
+            store.close()
+
+
+class TestNodePatchSecretMutationGuard:
+    def test_patch_node_strips_secret_binding_and_connector_spoof_fields(self, tmp_path: Path) -> None:
+        store = _store_with_graph(tmp_path)
+        try:
+            store.upsert_node(
+                "g1",
+                {
+                    "id": "DS-1",
+                    "label": "ERP Source",
+                    "type": "Data Source",
+                    "details": {"owner": "ops"},
+                },
+            )
+            client = _api_client(store, tmp_path)
+
+            resp = client.patch(
+                "/api/nodes/DS-1",
+                json={
+                    "graph_id": "g1",
+                    "changes": {
+                        "details": {
+                            "description": "safe edit",
+                            "secret_binding": {
+                                "secret_ref": "sec_topete",
+                                "validation_status": "valid",
+                            },
+                            "connection": {
+                                "kind": "google_sheets",
+                                "secret_handle": "topete_final",
+                                "spreadsheet_id": "real-spreadsheet-id",
+                            },
+                            "provider_inputs": {"spreadsheet_ref": "sheet-alias"},
+                            "validation": {"validated_at": "spoofed"},
+                            "validation_status": "valid",
+                            "secret_ref": "sec_topete",
+                            "notes": {
+                                "summary": "allowed nested note",
+                                "spreadsheet_id": "nested-real-spreadsheet-id",
+                            },
+                        },
+                        "validation_status": "valid",
+                        "secret_ref": "sec_topete",
+                    },
+                },
+            )
+
+            assert resp.status_code == 200, resp.text
+            details = resp.json()["node"]["details"]
+            assert details == {
+                "owner": "ops",
+                "description": "safe edit",
+                "notes": {"summary": "allowed nested note"},
+            }
+            assert "validation_status" not in resp.text
+            assert "real-spreadsheet-id" not in resp.text
+            assert "nested-real-spreadsheet-id" not in resp.text
+            assert "topete_final" not in resp.text
+        finally:
+            store.close()
+
+
+class TestSourceConnectionApiFlow:
+    def test_api_source_connection_status_exposes_lifecycle_without_raw_identifiers(self, tmp_path: Path) -> None:
+        store = _store_with_graph(tmp_path)
+        try:
+            _seed_google_sheets_secret(tmp_path)
+            store.upsert_node(
+                "g1",
+                {
+                    "id": "DS-ERP",
+                    "label": "ERP 2025",
+                    "type": "Data Source",
+                    "details": {"source_kind": "google-sheets"},
+                },
+            )
+            client = _api_client(store, tmp_path)
+
+            unbound = client.get("/api/source-connections/status?graph_id=g1&source_node_id=DS-ERP")
+            assert unbound.status_code == 200
+            assert unbound.json()["binding"] == {
+                "validation_status": "unbound",
+                "documentation_status": "not_started",
+                "writeback_status": "idle",
+                "requires_binding": True,
+            }
+
+            secret_ref = client.get("/api/source-connections/candidates?graph_id=g1&source_node_id=DS-ERP").json()["secrets"][0]["secret_ref"]
+            SecretBindingStore(tmp_path).upsert(
+                SecretBindingRecord(
+                    graph_id="g1",
+                    source_node_id="DS-ERP",
+                    secret_ref_alias=secret_ref,
+                    internal_secret_id="topete_final",
+                    provider_kind="google-sheets-json",
+                    provider_inputs={"spreadsheet_ref": "erp-2025"},
+                    provider_mapping={"spreadsheet_id": "raw-spreadsheet-id"},
+                    validation_status="valid",
+                    documentation_status="documented",
+                    writeback_status="written",
+                    validation={"validated_at": "2026-07-03T00:00:00Z", "error_code": None},
+                )
+            )
+
+            bound = client.get("/api/source-connections/status?graph_id=g1&source_node_id=DS-ERP")
+            assert bound.status_code == 200
+            payload = bound.json()["binding"]
+            assert payload["validation_status"] == "valid"
+            assert payload["documentation_status"] == "documented"
+            assert payload["writeback_status"] == "written"
+            assert payload["provider_inputs"] == {"spreadsheet_ref": "erp-2025"}
+            assert "raw-spreadsheet-id" not in bound.text
+            assert "topete_final" not in bound.text
+            assert "secret_handle" not in bound.text
+            assert "provider_secret_id" not in bound.text
+        finally:
+            store.close()
+
+    def test_api_source_first_bind_validate_status_unbind_returns_redacted_errors(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        store = _store_with_graph(tmp_path)
+        try:
+            _seed_google_sheets_secret(tmp_path)
+            store.upsert_node(
+                "g1",
+                {
+                    "id": "DS-ERP",
+                    "label": "ERP 2025",
+                    "type": "Data Source",
+                    "details": {"source_kind": "google-sheets"},
+                },
+            )
+            client = _api_client(store, tmp_path)
+
+            candidate_resp = client.get("/api/source-connections/candidates?graph_id=g1&source_node_id=DS-ERP")
+            assert candidate_resp.status_code == 200, candidate_resp.text
+            secret_ref = candidate_resp.json()["secrets"][0]["secret_ref"]
+            assert "topete_final" not in candidate_resp.text
+            assert "raw-spreadsheet-id" not in candidate_resp.text
+
+            bind_resp = client.post(
+                "/api/source-connections/bind?graph_id=g1",
+                json={"source_node_id": "DS-ERP", "secret_ref": secret_ref, "provider_inputs": {"spreadsheet_ref": "erp-2025"}},
+            )
+            assert bind_resp.status_code == 200, bind_resp.text
+            assert bind_resp.json()["binding"]["validation_status"] == "unvalidated"
+
+            from brain_ds.connectors.secrets.providers import google_sheets as google_sheets_provider
+
+            def _fail_probe(_self, _handle, _metadata):
+                raise RuntimeError("permission denied raw-spreadsheet-id topete_final private_key")
+
+            monkeypatch.setattr(google_sheets_provider.GoogleSheetsJsonAdapter, "probe", _fail_probe)
+            failed_validate = client.post("/api/source-connections/validate?graph_id=g1", json={"source_node_id": "DS-ERP"})
+            assert failed_validate.status_code == 422
+            failed_body = failed_validate.json()["detail"]
+            assert failed_body["error_code"] == "validation_failed"
+            assert failed_body["retryable"] is True
+            assert "raw-spreadsheet-id" not in failed_validate.text
+            assert "topete_final" not in failed_validate.text
+            assert "private_key" not in failed_validate.text
+
+            monkeypatch.setattr(
+                google_sheets_provider.GoogleSheetsJsonAdapter,
+                "probe",
+                lambda _self, _handle, _metadata: {"spreadsheet_id": "raw-spreadsheet-id"},
+            )
+            validate_resp = client.post("/api/source-connections/validate?graph_id=g1", json={"source_node_id": "DS-ERP"})
+            assert validate_resp.status_code == 200, validate_resp.text
+            assert validate_resp.json()["binding"]["validation_status"] == "valid"
+
+            status_resp = client.get("/api/source-connections/status?graph_id=g1&source_node_id=DS-ERP")
+            assert status_resp.status_code == 200
+            assert status_resp.json()["binding"]["validation_status"] == "valid"
+
+            unbind_resp = client.post("/api/source-connections/unbind?graph_id=g1", json={"source_node_id": "DS-ERP"})
+            assert unbind_resp.status_code == 200
+            assert unbind_resp.json()["binding"] == {
+                "validation_status": "unbound",
+                "documentation_status": "not_started",
+                "writeback_status": "idle",
+                "requires_binding": True,
+            }
+            assert SecretBindingStore(tmp_path).get("g1", "DS-ERP") is None
+        finally:
+            store.close()
+
+    def test_api_secret_first_candidates_authorization_and_invalid_provider_input(self, tmp_path: Path) -> None:
+        store = _store_with_graph(tmp_path)
+        try:
+            _seed_google_sheets_secret(tmp_path)
+            store.upsert_node(
+                "g1",
+                {"id": "DS-ERP", "label": "ERP 2025", "type": "Data Source", "details": {"source_kind": "google-sheets"}},
+            )
+            admin = _api_client(store, tmp_path)
+            secret_ref = admin.get("/api/source-connections/candidates?graph_id=g1&source_node_id=DS-ERP").json()["secrets"][0]["secret_ref"]
+
+            denied = _non_admin_api_client(store, tmp_path).post(
+                "/api/source-connections/bind?graph_id=g1",
+                json={"source_node_id": "DS-ERP", "secret_ref": secret_ref, "provider_inputs": {"spreadsheet_ref": "erp-2025"}},
+            )
+            assert denied.status_code == 403
+            assert denied.json()["error_code"] == "unauthorized"
+            assert "topete_final" not in denied.text
+
+            invalid = admin.post(
+                "/api/source-connections/bind?graph_id=g1",
+                json={"source_node_id": "DS-ERP", "secret_ref": secret_ref, "provider_inputs": {"spreadsheet_ref": ""}},
+            )
+            assert invalid.status_code == 422
+            assert invalid.json()["detail"]["error_code"] == "invalid_provider_input"
+            assert "raw-spreadsheet-id" not in invalid.text
+
+            sources = admin.get(f"/api/source-connections/candidates?graph_id=g1&secret_ref={secret_ref}")
+            assert sources.status_code == 200
+            assert sources.json()["sources"] == [
+                {"graph_id": "g1", "node_id": "DS-ERP", "label": "ERP 2025", "provider_kind": "google-sheets-json", "validation_status": "unbound"}
+            ]
+            assert "topete_final" not in sources.text
+        finally:
+            store.close()
+
+    def test_api_redacts_not_allowlisted_missing_mapping_and_revalidation_required(self, tmp_path: Path) -> None:
+        store = _store_with_graph(tmp_path)
+        try:
+            _seed_google_sheets_secret(tmp_path)
+            admin = _api_client(store, tmp_path)
+            store.upsert_node(
+                "g1",
+                {
+                    "id": "DS-ERP",
+                    "label": "ERP 2025 raw-spreadsheet-id topete_final",
+                    "type": "Data Source",
+                    "details": {"source_kind": "google-sheets"},
+                },
+            )
+            allowed_secret_ref = admin.get("/api/source-connections/candidates?graph_id=g1&source_node_id=DS-ERP").json()["secrets"][0]["secret_ref"]
+            store.upsert_node(
+                "g1",
+                {
+                    "id": "DS-CSV",
+                    "label": "CSV export raw-spreadsheet-id topete_final",
+                    "type": "Data Source",
+                    "details": {"source_kind": "csv"},
+                },
+            )
+            secret_ref = admin.get("/api/source-connections/candidates?graph_id=g1&source_node_id=DS-CSV").json()["secrets"]
+            assert secret_ref == []
+
+            not_allowlisted = admin.post(
+                "/api/source-connections/bind?graph_id=g1",
+                json={
+                    "source_node_id": "DS-CSV",
+                    "secret_ref": allowed_secret_ref,
+                    "provider_inputs": {"spreadsheet_ref": "erp-2025"},
+                },
+            )
+            assert not_allowlisted.status_code == 404
+            assert not_allowlisted.json()["detail"]["error_code"] == "not_allowlisted"
+            assert "raw-spreadsheet-id" not in not_allowlisted.text
+            assert "topete_final" not in not_allowlisted.text
+
+            missing_mapping = admin.post("/api/source-connections/validate?graph_id=g1", json={"source_node_id": "DS-ERP"})
+            assert missing_mapping.status_code == 409
+            assert missing_mapping.json()["detail"]["error_code"] == "missing_private_mapping"
+            assert "raw-spreadsheet-id" not in missing_mapping.text
+            assert "topete_final" not in missing_mapping.text
+
+            SecretBindingStore(tmp_path).upsert(
+                SecretBindingRecord(
+                    graph_id="g1",
+                    source_node_id="DS-ERP",
+                    secret_ref_alias="sec_orphaned_raw-spreadsheet-id_topete_final",
+                    internal_secret_id="deleted_topete_final",
+                    provider_kind="google-sheets-json",
+                    provider_inputs={"spreadsheet_ref": "erp-2025"},
+                )
+            )
+            revalidation_required = admin.post("/api/source-connections/validate?graph_id=g1", json={"source_node_id": "DS-ERP"})
+            assert revalidation_required.status_code == 409
+            assert revalidation_required.json()["detail"]["error_code"] == "revalidation_required"
+            assert "deleted_topete_final" not in revalidation_required.text
+            assert "raw-spreadsheet-id" not in revalidation_required.text
+            assert "topete_final" not in revalidation_required.text
         finally:
             store.close()
 

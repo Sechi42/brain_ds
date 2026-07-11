@@ -14,6 +14,10 @@ REDACTION_TOKENS: list[str] = [
     "private_key",
     "client_secret",
     "service_account.private_key",
+    "spreadsheet_id",
+    "provider_id",
+    "provider_mapping",
+    "url",
 ]
 
 # Keys that match a redaction token by substring but are NOT secret values —

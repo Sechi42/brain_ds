@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from brain_ds.connectors.secrets import SecretCatalog, SecretEntry
+from brain_ds.connectors.secrets.redaction import redact_secrets
 from brain_ds.connectors.secrets.providers import GoogleSheetsJsonAdapter, PostgresAdapter
 from brain_ds.connectors.secrets.providers.google_sheets import RAW_VALUE_METADATA_KEY
 from brain_ds.mcp.tools import (
@@ -428,8 +429,129 @@ class TestSourceConnectionRedaction:
             store.close()
 
 
+class TestSourceConnectionActionAcceptance:
+    """PR7 acceptance harness for the action-based source connection flow."""
+
+    def test_action_contract_binds_validates_statuses_without_leaking_provider_identifiers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        store = _store_with_graph(tmp_path)
+        try:
+            _seed_catalog(store)
+            _enable_secret_admin(store)
+            store.upsert_node(
+                "graph-secrets",
+                {
+                    "id": "DS-GSHEETS",
+                    "label": "Sales Sheet",
+                    "type": "Data Source",
+                    "supertype": "data",
+                    "details": {"connection": {"kind": "google-sheets-json"}},
+                },
+            )
+            monkeypatch.setattr(
+                GoogleSheetsJsonAdapter,
+                "probe",
+                lambda _self, _handle, metadata: {
+                    "spreadsheet_id": metadata["spreadsheet_id"],
+                    "title": "Budget",
+                },
+            )
+
+            candidate_secrets = list_source_connections(
+                store,
+                {
+                    "action": "candidate_secrets",
+                    "graph_id": "graph-secrets",
+                    "source_node_id": "DS-GSHEETS",
+                },
+            )
+            assert candidate_secrets["status"] == "ok"
+            assert len(candidate_secrets["secrets"]) == 1
+            secret_ref = candidate_secrets["secrets"][0]["secret_ref"]
+            assert candidate_secrets["secrets"][0]["validation_status"] == "unbound"
+
+            candidate_sources = list_source_connections(
+                store,
+                {"action": "candidate_sources", "graph_id": "graph-secrets", "secret_ref": secret_ref},
+            )
+            assert candidate_sources["status"] == "ok"
+            assert [source["node_id"] for source in candidate_sources["sources"]] == ["DS-GSHEETS"]
+
+            bound = list_source_connections(
+                store,
+                {
+                    "action": "bind",
+                    "graph_id": "graph-secrets",
+                    "source_node_id": "DS-GSHEETS",
+                    "secret_ref": secret_ref,
+                    "provider_inputs": {"spreadsheet_ref": "safe-workbook-ref"},
+                },
+            )
+            assert bound["binding"]["validation_status"] == "unvalidated"
+
+            validated = list_source_connections(
+                store,
+                {"action": "validate", "graph_id": "graph-secrets", "source_node_id": "DS-GSHEETS"},
+            )
+            assert validated["binding"]["validation_status"] == "valid"
+
+            status = list_source_connections(
+                store,
+                {"action": "status", "graph_id": "graph-secrets", "source_node_id": "DS-GSHEETS"},
+            )
+            assert status["binding"]["validation_status"] == "valid"
+            assert status["binding"]["documentation_status"] == "not_started"
+            assert status["binding"]["writeback_status"] == "idle"
+
+            candidate_after_validation = list_source_connections(
+                store,
+                {
+                    "action": "candidate_secrets",
+                    "graph_id": "graph-secrets",
+                    "source_node_id": "DS-GSHEETS",
+                },
+            )
+            assert [item["secret_ref"] for item in candidate_after_validation["secrets"]] == [
+                secret_ref
+            ]
+            assert candidate_after_validation["secrets"][0]["validation_status"] == "valid"
+
+            serialized = json.dumps(
+                [
+                    candidate_secrets,
+                    candidate_sources,
+                    bound,
+                    validated,
+                    status,
+                    candidate_after_validation,
+                ],
+                default=str,
+            )
+            assert "sales_q3" not in serialized
+            assert "abc123" not in serialized
+            assert _GSHEETS_PRIVATE_KEY not in serialized
+            assert _GSHEETS_CLIENT_EMAIL not in serialized
+            assert "service_account" not in serialized
+        finally:
+            store.close()
+
+
 class TestExploreSourceRedaction:
     """MCP-SEC-04: explore_source redacts secret material from payloads."""
+
+    def test_redacts_provider_identifiers_from_nested_payloads(self) -> None:
+        payload = {
+            "describe": {"spreadsheet_id": "abc123", "url": "https://example.test/abc123"},
+            "sheet_profile": {"provider_mapping": {"spreadsheet_id": "abc123"}},
+        }
+
+        redacted = redact_secrets(payload)
+        serialized = json.dumps(redacted, default=str)
+
+        assert "abc123" not in serialized
+        assert redacted["describe"]["spreadsheet_id"] == "***"
+        assert redacted["describe"]["url"] == "***"
 
     def test_redacts_connection_descriptor_in_error(self, tmp_path: Path) -> None:
         store = _store_with_graph(tmp_path)

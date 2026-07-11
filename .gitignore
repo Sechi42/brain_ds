@@ -19,7 +19,7 @@ src-tauri/target/
 .claude/agents/*
 !.claude/agents/brainds-connection-mapper.md
 !.claude/agents/brainds-currency-elicitor.md
-
+.env
 *.stackdump
 .brain_ds/
 .vscode/

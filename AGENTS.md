@@ -37,7 +37,7 @@ See `skills/SHARED_CONTEXT.md` for one-paragraph summaries of every skill.
 | Agent | Model | Purpose | Path |
 |---|---|---|---|
 | `brainds-query-consultant` | sonnet | Read-only graph Q&A — answers questions about nodes, data sources, owners | [.claude/agents/brainds-query-consultant.md](.claude/agents/brainds-query-consultant.md) |
-| `brainds-source-explorer` | sonnet | Read-only source recon and sectioned documentation; emits the scoped 5-section pipeline artifact contract | [.claude/agents/brainds-source-explorer.md](.claude/agents/brainds-source-explorer.md) |
+| `brainds-source-explorer` | sonnet | Read-only source recon and sectioned documentation; uses only `list_source_connections(action="candidate_secrets")` / `list_source_connections(action="candidate_sources")` candidates → `list_source_connections(action="bind")` with secret_ref → `list_source_connections(action="validate")` → `list_source_connections(action="status")` / `list_source_connections(action="unbind")` before secret-backed exploration | [.claude/agents/brainds-source-explorer.md](.claude/agents/brainds-source-explorer.md) |
 | `brainds-graph-mapper` | sonnet | Consolidates pipeline artifacts and pushes the documented source into the graph | [.claude/agents/brainds-graph-mapper.md](.claude/agents/brainds-graph-mapper.md) |
 | `brainds-connection-mapper` | sonnet | Runs the connection-mapping pass with completeness gating and deferred weak links | [.claude/agents/brainds-connection-mapper.md](.claude/agents/brainds-connection-mapper.md) |
 | `brainds-brd-writer` | sonnet | Builds the deterministic BRD and persists it to the graph and Engram | [.claude/agents/brainds-brd-writer.md](.claude/agents/brainds-brd-writer.md) |

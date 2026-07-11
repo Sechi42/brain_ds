@@ -21,7 +21,17 @@ from brain_ds.connectors.change_detection import (
     should_emit_change_detection,
 )
 from brain_ds.connectors.secrets import SecretCatalog, SecretManifestError
+from brain_ds.connectors.secrets.binding_store import SecretBindingRecord, SecretBindingStore, sanitize_node_mutation
 from brain_ds.connectors.secrets.redaction import redact_secrets
+from brain_ds.connectors.secrets.source_connections import (
+    SourceConnectionError,
+    bind_source_connection,
+    list_candidate_secrets,
+    list_candidate_sources,
+    source_connection_status,
+    unbind_source_connection,
+    validate_source_connection,
+)
 from brain_ds.dossier.assembler import assemble_kpi_dossier
 from brain_ds.dossier.business_models import BusinessDossierRequest
 from brain_ds.dossier.business_read_path import build_business_dossier_payload
@@ -67,6 +77,9 @@ from brain_ds.scoring.retrieval import SignalScores
 
 
 logger = logging.getLogger(__name__)
+
+_SECRET_BACKED_CONNECTION_KINDS = {"aws-postgres", "aws-google-sheets", "google-sheets-json"}
+_SECRET_BACKED_SOURCE_KINDS = {"google-sheets", "google_sheets", "sheets"}
 
 _KPI_DOSSIER_NODE_BUDGET = 1_000
 _KPI_DOSSIER_EDGE_BUDGET = 3_000
@@ -578,6 +591,7 @@ def update_node(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
             else:
                 raise
 
+        validated = sanitize_node_mutation(validated)
         payload = {"id": node_id}
         for field in ("label", "type", "details", "card_sections", "supertype", "parent_id", "depth"):
             if field in validated:
@@ -2071,6 +2085,89 @@ def _get_node_connection(store: GraphStore, graph_id: str, node_id: str) -> dict
     return connection
 
 
+def _get_data_source_node(store: GraphStore, graph_id: str, node_id: str) -> dict[str, Any]:
+    try:
+        node = get_node.__wrapped__(store, {"graph_id": graph_id, "node_id": node_id})
+    except ValidationError as exc:
+        raise exc
+    if node.get("type") != EntityType.DATA_SOURCE.value:
+        raise ValidationError(code=-32000, message=f"Node '{node_id}' is not a Data Source")
+    return node
+
+
+def _provider_kind_from_details(details: dict[str, Any]) -> str | None:
+    connection = details.get("connection") if isinstance(details.get("connection"), dict) else None
+    if connection:
+        kind = str(connection.get("kind") or "").lower()
+        if kind in _SECRET_BACKED_CONNECTION_KINDS:
+            return kind
+    binding = details.get("secret_binding") if isinstance(details.get("secret_binding"), dict) else None
+    if binding:
+        provider_kind = str(binding.get("provider_kind") or "").lower()
+        if provider_kind in _SECRET_BACKED_CONNECTION_KINDS:
+            return provider_kind
+    source_kind = str(details.get("source_kind") or details.get("kind") or "").lower()
+    if source_kind in _SECRET_BACKED_SOURCE_KINDS:
+        return "google-sheets-json"
+    return None
+
+
+def _validated_secret_binding_record(
+    store: GraphStore,
+    graph_id: str,
+    node_id: str,
+    project_root: Path,
+    provider_kind: str,
+) -> SecretBindingRecord:
+    record = SecretBindingStore(project_root).get(graph_id, node_id)
+    if record is None or record.provider_kind != provider_kind or record.validation_status != "valid":
+        raise ValidationError(
+            code=-32000,
+            message="Provider-backed Data Source requires a validated server-side binding before source access.",
+        )
+    if provider_kind in {"aws-google-sheets", "google-sheets-json"} and not record.provider_mapping.get("spreadsheet_id"):
+        raise ValidationError(
+            code=-32000,
+            message="Provider-backed Data Source requires a validated server-side binding before source access.",
+        )
+    return record
+
+
+def _private_connection_from_binding(record: SecretBindingRecord) -> dict[str, Any]:
+    connection: dict[str, Any] = {
+        "kind": record.provider_kind,
+        "secret_handle": record.internal_secret_id,
+    }
+    if record.provider_kind in {"aws-google-sheets", "google-sheets-json"}:
+        connection["spreadsheet_id"] = record.provider_mapping["spreadsheet_id"]
+        connection["sheet_range"] = record.provider_mapping.get("sheet_range") or record.provider_inputs.get("sheet_range") or "A1:Z"
+    elif record.provider_kind == "aws-postgres":
+        for key in ("database", "host", "port", "sslmode"):
+            value = record.provider_mapping.get(key) or record.provider_inputs.get(key)
+            if value is not None:
+                connection[key] = value
+    return connection
+
+
+def _validated_connection_for_source(store: GraphStore, graph_id: str, node_id: str, project_root: Path) -> dict[str, Any]:
+    node = _get_data_source_node(store, graph_id, node_id)
+    details = node.get("details") or {}
+    provider_kind = _provider_kind_from_details(details)
+    if provider_kind is None:
+        return _get_node_connection(store, graph_id, node_id)
+    record = _validated_secret_binding_record(store, graph_id, node_id, project_root, provider_kind)
+    return _private_connection_from_binding(record)
+
+
+def _enforce_validated_source_access(store: GraphStore, graph_id: str, node_id: str, project_root: Path) -> None:
+    node = _get_data_source_node(store, graph_id, node_id)
+    details = node.get("details") or {}
+    provider_kind = _provider_kind_from_details(details)
+    if provider_kind is None:
+        return
+    _validated_secret_binding_record(store, graph_id, node_id, project_root, provider_kind)
+
+
 def _get_node_change_detection_state(
     store: GraphStore, graph_id: str, node_id: str
 ) -> tuple[dict[str, Any] | None, bool]:
@@ -2196,7 +2293,11 @@ def _resolve_connector(connection: dict[str, Any], project_root: Path):
 
         adapter = AwsGoogleSheetsAdapter()
         try:
-            params = adapter.resolve(secret_handle, entry.metadata)
+            metadata = dict(entry.metadata)
+            for key in ("spreadsheet_id", "sheet_range"):
+                if connection.get(key):
+                    metadata[key] = connection[key]
+            params = adapter.resolve(secret_handle, metadata)
         except ValidationError:
             raise
         except Exception as exc:
@@ -2248,6 +2349,9 @@ def _resolve_connector(connection: dict[str, Any], project_root: Path):
         adapter = GoogleSheetsJsonAdapter()
         try:
             metadata = dict(entry.metadata)
+            for key in ("spreadsheet_id", "sheet_range"):
+                if connection.get(key):
+                    metadata[key] = connection[key]
             raw_value = catalog.get_raw(entry.handle)
             if raw_value:
                 metadata[RAW_VALUE_METADATA_KEY] = raw_value
@@ -2303,6 +2407,37 @@ def _resolve_connector(connection: dict[str, Any], project_root: Path):
 def list_source_connections(store: GraphStore, params: dict[str, Any]) -> list[dict[str, Any]] | dict[str, Any]:
     """List Data Source nodes that have explorable connection descriptors."""
     validated = validate_tool_input("list_source_connections", params, TOOL_SCHEMAS["list_source_connections"])
+    action = validated.get("action") or "list"
+    if action != "list":
+        graph_id = validated.get("graph_id")
+        if not graph_id:
+            raise ValidationError(code=-32602, message="graph_id is required for source connection actions")
+        workspace_root = _project_root_from_store_path(store.path)
+        try:
+            if action == "candidate_secrets":
+                return list_candidate_secrets(store, graph_id, workspace_root, str(validated.get("source_node_id") or ""))
+            if action == "candidate_sources":
+                return list_candidate_sources(store, graph_id, workspace_root, str(validated.get("secret_ref") or ""))
+            if action in {"bind", "validate", "unbind"}:
+                _require_mcp_secret_admin(store)
+            if action == "bind":
+                return bind_source_connection(
+                    store,
+                    graph_id,
+                    workspace_root,
+                    str(validated.get("source_node_id") or ""),
+                    str(validated.get("secret_ref") or ""),
+                    validated.get("provider_inputs") or {},
+                )
+            if action == "validate":
+                return validate_source_connection(store, graph_id, workspace_root, str(validated.get("source_node_id") or ""))
+            if action == "status":
+                return source_connection_status(store, graph_id, workspace_root, str(validated.get("source_node_id") or ""))
+            if action == "unbind":
+                return unbind_source_connection(store, graph_id, workspace_root, str(validated.get("source_node_id") or ""))
+        except SourceConnectionError as exc:
+            return exc.to_public()
+        raise ValidationError(code=-32602, message=f"Unknown source connection action: {action}")
 
     try:
         all_graphs = [g.id for g in store.list_graphs()]
@@ -2490,19 +2625,21 @@ def explore_source(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     container = validated.get("container")
     table = validated.get("table")
     level = validated.get("level")
+    project_root = _project_root_from_store_path(store.path)
 
     # DDS-4: documentation level is handled before connector resolution —
     # it reads child nodes from the graph store (no raw FS, no connector).
     if level == "documentation":
+        _enforce_validated_source_access(store, graph_id, node_id, project_root)
         return _build_doc_bundle(store, graph_id, node_id)
     if level == "internal":
+        _enforce_validated_source_access(store, graph_id, node_id, project_root)
         return _build_internal_bundle(store, graph_id, node_id)
 
     # Get the raw (unredacted) connection descriptor — _resolve_connector needs
     # the real secret_handle value for aws-postgres dispatch. The connector
     # itself enforces that credentials never appear in any response (INV-1).
-    raw_connection = _get_node_connection(store, graph_id, node_id)
-    project_root = _project_root_from_store_path(store.path)
+    raw_connection = _validated_connection_for_source(store, graph_id, node_id, project_root)
     connector = _resolve_connector(raw_connection, project_root)
 
     try:
@@ -2580,7 +2717,8 @@ def query_source(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
     sql = validated["sql"]
     limit = int(validated.get("limit") or 200)
 
-    connection = _get_node_connection(store, graph_id, node_id)
+    project_root = _project_root_from_store_path(store.path)
+    connection = _validated_connection_for_source(store, graph_id, node_id, project_root)
     kind = connection.get("kind", "").lower()
 
     if kind not in ("sqlite", "aws-postgres"):
@@ -2592,7 +2730,6 @@ def query_source(store: GraphStore, params: dict[str, Any]) -> dict[str, Any]:
             ),
         )
 
-    project_root = _project_root_from_store_path(store.path)
     connector = _resolve_connector(connection, project_root)
 
     try:
@@ -2790,7 +2927,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "list_source_connections": {
         "handler": list_source_connections,
         "schema": TOOL_SCHEMAS["list_source_connections"],
-        "description": "List Data Source nodes that have explorable connection descriptors",
+        "description": "List source/secret binding candidates and redacted source connection status",
         "rw": "read",
         "requires_ai_agent": False,
     },

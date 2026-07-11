@@ -413,19 +413,16 @@ NODE_WRITE_TEMPLATES: dict[str, object] = {
         ),
         "hierarchy_template": build_source_kind_hierarchy_prose(),
         "connection_descriptor_note": (
-            "To enable read-only exploration via explore_source / query_source, add a "
-            "'connection' key to this node's details. Supported kinds:\n"
+            "File-path sources may use a server-readable connection key for read-only "
+            "exploration via explore_source / query_source. Supported file-path kinds:\n"
             "  sqlite/csv (file-path): "
             "{\"kind\": \"sqlite\"|\"csv\", \"path\": \"<project-relative path>\"}. "
             "The path must be within the project root (same sandbox as import_graph).\n"
-            "  aws-postgres (Aurora/RDS via AWS Secrets Manager): "
-            "{\"kind\": \"aws-postgres\", \"secret_handle\": \"<handle-name>\", \"database\": \"<db-name>\"}. "
-            "secret_handle references a registered aws-postgres secret; database is handle metadata "
-            "(not fetched from AWS). The server resolves credentials at connect time.\n"
-            "  aws-google-sheets (Google Sheets via AWS Secrets Manager service account): "
-            "{\"kind\": \"aws-google-sheets\", \"secret_handle\": \"<handle-name>\", "
-            "\"spreadsheet_id\": \"<spreadsheet-id>\", \"sheet_range\": \"<range>\"}. "
-            "secret_handle carries a service-account JSON secret; the server resolves it at connect time."
+            "Secret-backed sources must NOT be documented by writing secret handle fields, "
+            "raw provider ids, or connector descriptors into graph details. Use the authorized "
+            "source connection flow instead: list candidates, bind the chosen graph-scoped "
+            "secret_ref with redacted provider inputs, validate server-side, check status or "
+            "unbind as needed, then run explore_source / query_source only after validation."
         ),
     },
     "KPI": {
@@ -584,83 +581,107 @@ CONNECTION_RULES: dict[str, object] = {
     },
 }
 
-# Secret connection rules — flat 6-step recipe for non-admin agents to connect to
-# typed data sources (aws-postgres, aws-google-sheets) using only non-admin tools.
-# Design: concrete + example-driven so the simplest model (DeepSeek Flash) follows
-# correctly without clarification. Must NOT require list_secret_handles (admin-only).
+# Secret connection rules — flat recipe for non-admin agents to connect typed data
+# sources through graph-scoped binding, without admin-only discovery or raw ids.
+# Design: concrete + example-driven so the simplest model follows correctly
+# without clarification. Must NOT require list_secret_handles (admin-only).
 # Mirrors brainds-source-explorer agent docs and skills/brainds-docs/SKILL.md prose.
 SECRET_CONNECTION_RULES: str = """\
 How to connect to a data source that uses a secret (aws-postgres, aws-google-sheets)
 — grounding-first: Call a grounding context tool first, follow this recipe exactly,
-and do NOT deviate or call admin-only tools.
+and do NOT deviate, write graph connection descriptors, or call admin-only tools.
 
-1. Call list_source_connections(graph_id) to discover which Data Source nodes
-   have explorable connection descriptors. Each result includes a "connection"
-   dict with at minimum {"kind": "<kind>", "secret_handle": "<handle-name>"}.
-   This call requires NO admin permission.
+1. Call list_source_connections(action="candidate_secrets", graph_id=<graph>,
+   source_node_id=<id>) to list redacted candidates for the active Data Source,
+   or call list_source_connections(action="candidate_sources", graph_id=<graph>,
+   secret_ref=<opaque graph-scoped alias>) to list candidate Data Source nodes
+   for a chosen secret. These candidate calls require NO admin permission and
+   return safe labels, provider kind, validation status, and required provider
+   input names.
 
-2. Read the "kind" and "secret_handle" fields from the descriptor.
-   - kind tells you which connector to use (e.g. "aws-postgres").
-   - secret_handle is a name (not a credential) that references a registered
-     secret in the workspace vault.
-   You do NOT need the raw secret value. The server resolves it for you.
+2. Ask the user to choose one candidate if the association is ambiguous. Use only
+   the returned secret_ref opaque alias. secret_ref is graph-scoped, not global,
+   not a bearer token, and not a raw vault handle.
 
-3. Call explore_source(graph_id=<graph_id>, node_id=<node_id>) to inspect the
-   source. The server internally resolves secret_handle → adapter → connector.
-   You never see or need the ARN or password.
-   - No additional args → describe + containers.
-   - Add container=<name> → tables in that schema.
-   - Add container=<name>, table=<table> → schema + preview.
+3. Bind through the authorized source connection surface with graph_id,
+   source_node_id, secret_ref, and redacted provider_inputs (for sheets, a
+   spreadsheet_ref alias supplied by the user or catalog). The server records an
+   unvalidated binding projection and keeps private provider mapping server-side.
 
-4. For SQL queries on aws-postgres sources, call query_source(graph_id, node_id,
-   query="SELECT ...") — SELECT only, max 200 rows. Never write.
+4. Validate before documentation. The server resolves the private secret and
+   provider mapping, probes access, stores server-owned validation state, and
+   returns either valid status or redacted errors such as not_allowlisted,
+   invalid_provider_input, validation_failed, missing_private_mapping, or
+   revalidation_required. Do not start source-docs on invalid or unvalidated
+   bindings.
 
-5. NEVER call list_secret_handles. That tool requires workspace_admin and will
-   return MCP error -32001 for non-admin agents. You do NOT need it: the bound
-   secret_handle in the connection descriptor is sufficient for explore_source
-   and query_source to connect.
+5. Use status to show the redacted lifecycle state to the user. Use unbind to
+   remove the server-owned binding when the association is wrong. Status and
+   errors must never print raw secret values, raw handles, provider ids, sheet
+   ids, or derived connector descriptors.
 
-6. If list_source_connections returns a source with no connection descriptor (or
-   an empty/null "connection"), the source is not yet bound to a secret. Report
-   it as "not explorable — no connection descriptor" and do NOT guess credentials.
+6. Only after validation_status is valid, call explore_source to inspect the
+   source and then run the source-docs workflow. For SQL queries on aws-postgres,
+   call query_source(graph_id, node_id, query="SELECT ...") — SELECT only, max
+   200 rows. Never write to the source.
+
+7. NEVER call list_secret_handles. That tool requires workspace_admin and returns
+   MCP error -32001 for non-admin agents. You do NOT need it: candidate listing,
+   bind, validate, status, unbind, and explore_source are the safe path.
+
+8. If there are no candidates or validation fails, report the redacted status and
+   ask for the missing association/provider input. Do NOT guess credentials,
+   source kind, raw handles, provider ids, sheet ids, or descriptors.
 
 --- Worked example: aws-postgres (Aurora PostgreSQL via AWS Secrets Manager) ---
 
-  # Step 1 — discover
-  list_source_connections(graph_id="grupo-topete")
-  # → [{node_id: "gt-ds-sit-aurora", connection: {kind: "aws-postgres",
-  #      secret_handle: "grupo-topete/sit-aurora", database: "sit_prod"}}]
+   # Step 1 — list source-first candidates
+   list_source_connections(action="candidate_secrets", graph_id="<graph>",
+                           source_node_id="<data-source-node>")
+  # → {secrets: [{secret_ref: "sec_...", provider_kind: "aws-postgres",
+  #      label: "redacted catalog label", validation_status: "unbound"}]}
 
-  # Step 3 — explore (server resolves the secret)
-  explore_source(graph_id="grupo-topete", node_id="gt-ds-sit-aurora")
+  # Step 3 — bind, Step 4 — validate, then Step 5 — status
+  list_source_connections(action="bind", graph_id="<graph>", source_node_id="<data-source-node>",
+                          secret_ref="sec_...", provider_inputs={"database_ref": "<db-alias>"})
+  list_source_connections(action="validate", graph_id="<graph>", source_node_id="<data-source-node>")
+  list_source_connections(action="status", graph_id="<graph>", source_node_id="<data-source-node>")
+  list_source_connections(action="unbind", graph_id="<graph>", source_node_id="<data-source-node>")
+
+  # Step 6 — explore after valid server-owned validation
+  explore_source(graph_id="<graph>", node_id="<data-source-node>")
   # → {describe: {...}, containers: ["public", "reporting"]}
 
-  explore_source(graph_id="grupo-topete", node_id="gt-ds-sit-aurora",
+  explore_source(graph_id="<graph>", node_id="<data-source-node>",
                  container="public")
   # → {tables: ["orders", "customers", "deliveries"]}
 
-  explore_source(graph_id="grupo-topete", node_id="gt-ds-sit-aurora",
+  explore_source(graph_id="<graph>", node_id="<data-source-node>",
                  container="public", table="orders")
   # → {schema: [{name: "order_id", type: "integer"}, ...], preview: [...]}
 
 --- Worked example: aws-google-sheets (via AWS Secrets Manager service account) ---
 
-  # Step 1 — discover
-  list_source_connections(graph_id="grupo-topete")
-  # → [{node_id: "gt-ds-erp-dvc", connection: {kind: "aws-google-sheets",
-  #      secret_handle: "grupo-topete/erp-dvc",
-  #      spreadsheet_id: "1AbC...", sheet_range: "Hoja1!A1:Z"}}]
+  # Step 1 — list secret-first candidates
+  list_source_connections(action="candidate_sources", graph_id="<graph>", secret_ref="sec_...")
+  # → {sources: [{node_id: "<data-source-node>", provider_kind: "aws-google-sheets",
+  #      label: "redacted source label", validation_status: "unbound"}]}
 
-  # Step 3 — explore (server resolves the service-account JSON from AWS)
-  explore_source(graph_id="grupo-topete", node_id="gt-ds-erp-dvc")
-  # → {describe: {title: "ERP DVC", url: "..."}, containers: ["ERP DVC"]}
+  # Step 3 — bind with redacted provider inputs, then validate
+  list_source_connections(action="bind", graph_id="<graph>", source_node_id="<data-source-node>",
+                          secret_ref="sec_...", provider_inputs={"spreadsheet_ref": "<sheet-alias>"})
+  list_source_connections(action="validate", graph_id="<graph>", source_node_id="<data-source-node>")
 
-  explore_source(graph_id="grupo-topete", node_id="gt-ds-erp-dvc",
-                 container="ERP DVC")
+  # Step 6 — explore after valid server-owned validation
+  explore_source(graph_id="<graph>", node_id="<data-source-node>")
+  # → {describe: {title: "ERP workbook", url: "redacted"}, containers: ["ERP"]}
+
+  explore_source(graph_id="<graph>", node_id="<data-source-node>",
+                 container="ERP")
   # → {tables: ["Hoja1", "Hoja2", "Resumen"]}
 
-  explore_source(graph_id="grupo-topete", node_id="gt-ds-erp-dvc",
-                 container="ERP DVC", table="Hoja1")
+  explore_source(graph_id="<graph>", node_id="<data-source-node>",
+                 container="ERP", table="Hoja1")
   # → {schema: [{name: "Fecha", type: "string"}, ...], preview: [...]}
 """
 
@@ -897,7 +918,7 @@ SOURCE_EXPLORATION_CONTRACT: dict[str, object] = {
         "graph write only — never a write to the source. See change_detection_contract."
     ),
     "tool_reference": {
-        "list_source_connections": "List which Data Source nodes have explorable connection descriptors",
+        "list_source_connections": "List source/secret binding candidates and redacted source connection status",
         "explore_source": (
             "Dispatch to connector: no args→describe+containers; container→tables; "
             "container+table→schema+preview, plus a change_detection verdict block at table level"
@@ -910,13 +931,13 @@ SOURCE_EXPLORATION_CONTRACT: dict[str, object] = {
         ),
     },
     "connection_setup": (
-        "A Data Source node becomes explorable when its details dict contains a 'connection' key: "
-        "{kind: 'sqlite'|'csv', path: '<project-relative path>', secret_ref?: '<ENV_VAR_NAME>'}. "
-        "If secret_ref is present, the connector resolves it from os.environ only at open time; "
-        "store the reference name, never the credential value. The resolved secret is never stored "
-        "in graph nodes, card_sections, or .elicit artifacts. Missing secret_ref values fail closed "
-        "with a clear error naming the missing environment variable. "
-        "Google Sheets: delegate to MCP Google Drive read tools or export to CSV first."
+        "A file-path Data Source can be explorable when its details dict contains a connection key: "
+        "{kind: 'sqlite'|'csv', path: '<project-relative path>'}. Secret-backed Data Source nodes "
+        "must use the authorized source connection flow instead: list candidates, bind a graph-scoped "
+        "secret_ref with redacted provider inputs, validate server-side, inspect status or unbind, "
+        "then run explore_source / source-docs only after valid server-owned validation. Never store "
+        "raw secret values, raw handles, provider ids, sheet ids, or derived connector descriptors in "
+        "graph nodes, card_sections, or .elicit artifacts."
     ),
 }
 

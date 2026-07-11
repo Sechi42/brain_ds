@@ -267,6 +267,10 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "required": [],
         "properties": {
             "graph_id": {"type": "string"},
+            "action": {"type": "string"},
+            "source_node_id": {"type": "string"},
+            "secret_ref": {"type": "string"},
+            "provider_inputs": {"type": "object"},
             "limit": {"type": "integer"},
             "offset": {"type": "integer"},
             "compact": {"type": "boolean"},
