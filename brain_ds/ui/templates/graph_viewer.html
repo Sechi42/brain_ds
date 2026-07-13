@@ -44,10 +44,11 @@
       /* === Workspace shell (PR1 scaffold + center chrome) === */
       .workspace-shell {
         display: grid;
-        /* Side panels are user-resizable via drag handles and collapsible to a 48px
-           peek. Widths live in --rail-w / --inspector-w (default 288 / 352, within the
-           220-320 / 280-384 reference bands). The grid-template-columns transition gives
-           the collapse/expand its smooth track-shrink effect. */
+        /* Side panels are user-resizable via drag handles and collapse to ZERO
+           width (rails carry the reopen affordance). Widths live in --rail-w /
+           --inspector-w (default 288 / 352, within the 220-320 / 280-384 reference
+           bands). The grid-template-columns transition gives the collapse/expand
+           its smooth track-shrink effect. */
         --rail-w: 288px;
         --inspector-w: 352px;
         grid-template-columns: 48px var(--rail-w) minmax(0,1fr) var(--inspector-w) 48px;
@@ -72,6 +73,9 @@
         border-inline-end: none;
         overflow: hidden;
         position: relative;
+        /* min-width 0 lets the grid track drive the width all the way to zero
+           when collapsed (no leftover strip). */
+        min-width: 0;
         transition: width var(--duration-normal) var(--ease-standard), min-width var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard);
         will-change: width, min-width;
       }
@@ -1658,32 +1662,30 @@
       /* === States / Motion === */
       .is-collapsed { transform: translateX(101%); opacity: 0; pointer-events: none; }
       .detail-panel.is-collapsed { transform: translateX(101%); opacity: 0; pointer-events: none; }
-      /* Workspace panels collapse to their 44px header strip so the collapse/expand
-         toggle stays visible and clickable (the global .is-collapsed above slides the
-         whole shell off-screen with pointer-events:none, making it unrecoverable). */
-      .left-panel-shell > *:not(.panel-header),
-      .right-panel-shell > *:not(.panel-header) {
+      /* Workspace panels collapse to ZERO width (Obsidian pattern): the grid track
+         animates to 0px and the rails carry the reopen affordance (each rail icon
+         proxies to its collapse button), so no residual header strip floats between
+         the rail and the framed center card. Children freeze at the pre-collapse
+         width (--panel-frozen-w, set by the collapse handlers) so text does not
+         rewrap while the track animates; visibility flips after the fade so the
+         hidden controls leave the tab order and the accessibility tree. */
+      .left-panel-shell > *:not(.panel-resize-handle),
+      .right-panel-shell > *:not(.panel-resize-handle) {
         opacity: 1;
-        transform: scaleX(1);
-        transform-origin: left center;
-        transition: opacity var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard);
+        visibility: visible;
+        transition: opacity var(--duration-normal) var(--ease-standard), visibility 0s;
       }
-      .left-panel-shell.collapsed > *:not(.panel-header),
-      .right-panel-shell.collapsed > *:not(.panel-header) {
+      .left-panel-shell.collapsed > *:not(.panel-resize-handle),
+      .right-panel-shell.collapsed > *:not(.panel-resize-handle) {
         opacity: 0;
-        transform: scaleX(0.98);
+        visibility: hidden;
         pointer-events: none;
+        transition: opacity var(--duration-normal) var(--ease-standard), visibility 0s var(--duration-normal);
       }
+      .left-panel-shell.collapsed > *:not(.panel-resize-handle) { width: var(--panel-frozen-w, 288px); }
+      .right-panel-shell.collapsed > *:not(.panel-resize-handle) { width: var(--panel-frozen-w, 352px); }
       .left-panel-shell.collapsed,
-      .right-panel-shell.collapsed { min-width: 44px; }
-      /* Collapsed peek: the grid track shrinks to ~48px, so the header must show
-         ONLY the collapse chevron (centered) and rotate it to read as "expand". */
-      .left-panel-shell.collapsed .panel-header-title,
-      .right-panel-shell.collapsed .panel-header-title { display: none; }
-      .left-panel-shell.collapsed .panel-header,
-      .right-panel-shell.collapsed .panel-header { justify-content: center; padding-inline: 0; }
-      .left-panel-shell.collapsed .panel-collapse svg,
-      .right-panel-shell.collapsed .panel-collapse-right svg { transform: rotate(180deg); transition: transform var(--duration-normal) var(--ease-standard); }
+      .right-panel-shell.collapsed { min-width: 0; }
       .detail-panel.is-empty .detail-body { color: var(--text-muted); }
       .is-visible { display: flex !important; }
       .is-dismissing { opacity: 0; }
@@ -2043,6 +2045,7 @@
         .viewer-loading__spinner, .detail-skeleton__line { animation: none; }
         .detail-skeleton__line { background: var(--bg-active); }
         .workspace-shell, .panel-resize-handle::after { transition: none; }
+        .left-panel-shell > *, .right-panel-shell > * { transition: none; }
       }
       @media (max-width: 1100px) {
         .workspace-shell { grid-template-columns: 48px minmax(0,1fr) 48px; }
@@ -3049,7 +3052,7 @@
       </div>
       <div class="meta" id="org-ts"></div>
     </header>
-    <main class="workspace-shell layout" style="--inspector-w: 48px" data-rail-w="288px" data-inspector-w="352px">
+    <main class="workspace-shell layout" style="--inspector-w: 0px" data-rail-w="288px" data-inspector-w="352px">
       <!-- Left rail — section-1-left-shell.html pattern (PR2) -->
       <!-- Rail-icon click behavior and panel routing are wired via workspaceChrome runtime modules -->
       <nav class="rail" role="tablist" aria-orientation="vertical" aria-label="Left workspace rail" data-rail-side="left">
@@ -3331,9 +3334,9 @@
       </div>
       </div>
       </section>
-      <!-- Inspector starts COLLAPSED (48px peek; applied at runtime right after
-           the collapse handler is wired): the right rail or the chevron expands
-           it on demand so the canvas gets the space by default. -->
+      <!-- Inspector starts COLLAPSED to zero width (applied at runtime right after
+           the collapse handler is wired): the right rail expands it on demand so
+           the canvas gets the space by default. -->
       <aside class="right-panel-shell" aria-label="Right panel shell">
         <div class="panel-resize-handle" data-resize="right" role="separator" aria-orientation="vertical" aria-label="Resize right panel" tabindex="0"></div>
         <header class="panel-header" data-panel-side="right" role="region" aria-label="Inspector panel">
@@ -3429,7 +3432,7 @@
       </aside>
       <!-- Right rail — functional panel routing: each icon expands the inspector
            shell (collapsed by default) and reveals its section; re-clicking the
-           active icon collapses the shell back to the 48px peek. -->
+           active icon collapses the shell back to zero width. -->
       <nav class="rail" role="tablist" aria-orientation="vertical" aria-label="Right workspace rail" data-rail-side="right">
         <div class="right-rail-icons">
           <button class="rail-icon" role="tab" aria-selected="false" aria-label="Abrir inspector de nodo" title="Inspector" data-rail-icon="inspector" tabindex="0">
@@ -5737,12 +5740,6 @@
       if (railRoot && panelRoot) {
         const selected = railRoot.querySelector('[data-rail-icon][aria-selected="true"]');
         applyLeftRailSectionVisibility(selected ? selected.getAttribute('data-rail-icon') : 'file-tree');
-        railRoot.addEventListener('click', (event) => {
-          const btn = event.target && event.target.closest ? event.target.closest('[data-rail-icon]') : null;
-          if (!btn) return;
-          const name = btn.getAttribute('data-rail-icon') || 'file-tree';
-          window.setTimeout(() => applyLeftRailSectionVisibility(name), 0);
-        });
       }
 
       // Left panel-collapse inline handler (Slice 1 / P0).
@@ -5756,10 +5753,64 @@
           leftCollapseBtn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
           leftCollapseBtn.setAttribute('aria-label', expanded ? 'Expand left panel' : 'Collapse left panel');
           leftShell.classList.toggle('collapsed', expanded);
-          // Shrink/restore the grid track itself so the canvas reclaims the space
-          // (the transition on grid-template-columns animates the collapse).
+          // Shrink the grid track to ZERO (no residual strip) / restore it.
+          // Children freeze at the last expanded width (--panel-frozen-w) so
+          // text does not rewrap while the track animates.
           if (workspaceShellEl) {
-            workspaceShellEl.style.setProperty('--rail-w', expanded ? '48px' : (workspaceShellEl.dataset.railW || '288px'));
+            const restoreW = workspaceShellEl.dataset.railW || '288px';
+            if (expanded) leftShell.style.setProperty('--panel-frozen-w', restoreW);
+            workspaceShellEl.style.setProperty('--rail-w', expanded ? '0px' : restoreW);
+          }
+        });
+      }
+
+      // Left rail routing: icons toggle the panel like the right rail does —
+      // clicking an icon expands the zero-width panel to that section, and
+      // re-clicking the ACTIVE icon collapses it back to zero. The rail is the
+      // reopen affordance now that the collapsed peek strip is gone.
+      if (railRoot && panelRoot && leftCollapseBtn && leftShell) {
+        const initiallySelected = railRoot.querySelector('[data-rail-icon][aria-selected="true"]');
+        let leftActiveIcon = initiallySelected ? (initiallySelected.getAttribute('data-rail-icon') || 'file-tree') : 'file-tree';
+        const isLeftCollapsed = () => leftShell.classList.contains('collapsed');
+        // Selection painter: overrides the bundle's always-select behavior so a
+        // hidden panel shows NO lit icon (the last active one stays tab-reachable).
+        const paintLeftRailSelection = (name) => {
+          railRoot.querySelectorAll('[data-rail-icon]').forEach((icon) => {
+            const iconName = icon.getAttribute('data-rail-icon');
+            const active = Boolean(name) && iconName === name;
+            icon.setAttribute('aria-selected', String(active));
+            icon.setAttribute('tabindex', active || (!name && iconName === leftActiveIcon) ? '0' : '-1');
+          });
+        };
+        railRoot.addEventListener('click', (event) => {
+          const btn = event.target && event.target.closest ? event.target.closest('[data-rail-icon]') : null;
+          if (!btn) return;
+          const name = btn.getAttribute('data-rail-icon') || 'file-tree';
+          const reClickedActive = !isLeftCollapsed() && name === leftActiveIcon;
+          leftActiveIcon = name;
+          if (reClickedActive) {
+            leftCollapseBtn.click();
+            return;
+          }
+          if (isLeftCollapsed()) leftCollapseBtn.click();
+          // Deferred: the workspaceChrome bundle handler paints selection first.
+          window.setTimeout(() => {
+            paintLeftRailSelection(name);
+            applyLeftRailSectionVisibility(name);
+          }, 0);
+        });
+        // Chevron collapse/expand keeps the rail selection in sync (this listener
+        // registers AFTER the state-flipping handler above, so aria-expanded is
+        // already the NEW state when it runs).
+        leftCollapseBtn.addEventListener('click', () => {
+          const expandedNow = leftCollapseBtn.getAttribute('aria-expanded') === 'true';
+          if (!expandedNow) {
+            window.setTimeout(() => paintLeftRailSelection(null), 0);
+          } else {
+            window.setTimeout(() => {
+              paintLeftRailSelection(leftActiveIcon);
+              applyLeftRailSectionVisibility(leftActiveIcon);
+            }, 0);
           }
         });
       }
@@ -5795,7 +5846,9 @@
           rightCollapseBtn.setAttribute('aria-label', expanded ? 'Expand right panel' : 'Collapse right panel');
           rightShell.classList.toggle('collapsed', expanded);
           if (workspaceShellEl) {
-            workspaceShellEl.style.setProperty('--inspector-w', expanded ? '48px' : (workspaceShellEl.dataset.inspectorW || '352px'));
+            const restoreW = workspaceShellEl.dataset.inspectorW || '352px';
+            if (expanded) rightShell.style.setProperty('--panel-frozen-w', restoreW);
+            workspaceShellEl.style.setProperty('--inspector-w', expanded ? '0px' : restoreW);
           }
         });
         // Inspector starts collapsed: the canvas gets the space until the user
@@ -5806,7 +5859,7 @@
 
       // Right rail routing: each icon expands the collapsed inspector shell and
       // reveals its section; re-clicking the active icon collapses the shell back
-      // to the 48px peek. The reader icon routes to the center markdown reader.
+      // to zero width. The reader icon routes to the center markdown reader.
       // The brd icon mounts the BRD panel on first activation.
       (function setupRightRail() {
         const railRight = document.querySelector(".rail[data-rail-side='right']");

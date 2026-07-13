@@ -1447,9 +1447,11 @@ class TestWorkspaceShellPr1Template(unittest.TestCase):
 class TestViewerChromeOverhaulPr1Regressions(unittest.TestCase):
     """PR1 regression contracts for the viewer-chrome-overhaul change.
 
-    REQ-1.2: collapsed workspace panels MUST keep their collapse/expand toggle
-             reachable (the global .is-collapsed rule slides the whole shell off
-             with pointer-events:none, making it unrecoverable).
+    REQ-1.2 (amended, zero-width collapse): collapsed workspace panels MUST keep a
+             reachable expand affordance. The affordance lives on the RAILS (both
+             rail click handlers proxy to the collapse buttons), so the panel track
+             itself collapses to ZERO width — no residual header strip between the
+             rail and the framed center card.
     REQ-1.3: the markdown split-reader MUST stack above the D4 canvas overlay
              (#d4-nodes is z-index 3) so 'Ver Más' content is visible.
     """
@@ -1463,8 +1465,8 @@ class TestViewerChromeOverhaulPr1Regressions(unittest.TestCase):
         cls.template_text = template_path.read_text(encoding="utf-8")
 
     def test_collapsed_workspace_shells_keep_toggle_reachable(self):
-        # Dedicated collapsed-state CSS for the workspace shells must exist so the
-        # 44px header strip (with the collapse/expand button) stays visible.
+        # Dedicated collapsed-state CSS for the workspace shells must exist (the
+        # rails carry the reopen affordance; the shell itself reaches zero width).
         self.assertRegex(
             self.template_text,
             r"\.left-panel-shell\.collapsed\b",
@@ -1474,6 +1476,44 @@ class TestViewerChromeOverhaulPr1Regressions(unittest.TestCase):
             self.template_text,
             r"\.right-panel-shell\.collapsed\b",
             "Expected a scoped '.right-panel-shell.collapsed' CSS rule (REQ-1.2)",
+        )
+
+    def test_collapsed_workspace_shells_reach_zero_width(self):
+        # Zero-width collapse: the grid track goes to 0px — the legacy 48px
+        # collapsed peek strip (floating chevron rectangle) must NOT come back.
+        self.assertRegex(
+            self.template_text,
+            r"--rail-w',\s*expanded \? '0px'",
+            "Left collapse handler must shrink the track to 0px (REQ-1.2 amended)",
+        )
+        self.assertRegex(
+            self.template_text,
+            r"--inspector-w',\s*expanded \? '0px'",
+            "Right collapse handler must shrink the track to 0px (REQ-1.2 amended)",
+        )
+        self.assertNotRegex(
+            self.template_text,
+            r"expanded \? '48px'",
+            "Collapsed panels must NOT keep a 48px peek track (REQ-1.2 amended)",
+        )
+        # Children freeze at the pre-collapse width so text does not rewrap
+        # while the track animates to zero.
+        self.assertIn("--panel-frozen-w", self.template_text)
+
+    def test_left_rail_click_proxies_panel_expand_collapse(self):
+        # With the peek strip gone, the LEFT rail must proxy expand/collapse to
+        # the header collapse button (the right rail already does this).
+        left_rail_block = self.template_text[
+            self.template_text.find("Left rail routing"):
+        ]
+        self.assertGreater(
+            self.template_text.find("Left rail routing"), -1,
+            "Expected the left rail routing block (REQ-1.2 amended)",
+        )
+        self.assertIn(
+            "leftCollapseBtn.click()",
+            left_rail_block[:3000],
+            "Left rail icons must expand/collapse the panel via leftCollapseBtn (REQ-1.2 amended)",
         )
 
     def test_workspace_collapse_handlers_do_not_apply_global_is_collapsed(self):
