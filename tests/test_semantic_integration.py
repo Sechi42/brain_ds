@@ -21,16 +21,15 @@ Threshold note (from PR-2 design risk):
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 
 import pytest
 
 fastembed = pytest.importorskip("fastembed", reason="fastembed not installed — T10 skipped", exc_type=ImportError)
 
-from brain_ds.mcp.tools import create_graph, search_graph, suggest_connections, update_node
-from brain_ds.scoring.embedder import get_default_model
-from brain_ds.store.graph_store import GraphStore
+from brain_ds.mcp.tools import create_graph, search_graph, suggest_connections, update_node  # noqa: E402
+from brain_ds.scoring.embedder import get_default_model  # noqa: E402
+from brain_ds.store.graph_store import GraphStore  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

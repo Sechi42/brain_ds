@@ -11,7 +11,8 @@ from __future__ import annotations
 import hashlib
 import shutil
 import sqlite3
-import tempfile
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -155,9 +156,6 @@ try:
     _XDIST_AVAILABLE = True
 except ImportError:
     _XDIST_AVAILABLE = False
-
-import subprocess
-import sys
 
 
 @pytest.mark.integration

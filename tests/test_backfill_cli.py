@@ -18,7 +18,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from brain_ds.store.graph_store import GraphStore
 from brain_ds.ui import cli

@@ -12,14 +12,11 @@ PR-2 deferred items are noted with # PR-2 comments.
 
 from __future__ import annotations
 
-import tempfile
 import unittest
-from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 from brain_ds.scoring.embedder import (
-    EmbeddingModel,
     get_default_model,
     embed_graph_nodes,
     node_text,

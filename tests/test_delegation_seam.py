@@ -15,8 +15,7 @@ Scenarios covered (Spec C3, S3.1–S3.7):
 
 from __future__ import annotations
 
-import pytest
-from tests.fixtures.delegation import DelegationCall, FakeDelegator
+from tests.fixtures.delegation import FakeDelegator
 
 
 # ---------------------------------------------------------------------------

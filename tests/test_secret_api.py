@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 from brain_ds.api.events import EventBus

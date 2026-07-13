@@ -13,7 +13,6 @@ GREEN after each paired IMPL task.
 import json
 import re
 import subprocess
-import time
 import unittest
 from pathlib import Path
 
@@ -136,7 +135,8 @@ def _strip_ts(src: str) -> str:
 
 
 def _run_node(code: str, timeout: int = 10) -> dict:
-    import tempfile, os
+    import tempfile
+    import os
     full = _NODE_PRELUDE + "\n" + _STRIP_TS_FN + "\n" + code
     # Windows has a 32767-char command-line limit; always use a temp file.
     with tempfile.NamedTemporaryFile(

@@ -186,7 +186,7 @@ def _run_profile(name: str, skip_report: list[str] | None = None) -> int:
 
 def main() -> None:
     if len(sys.argv) < 2 or sys.argv[1] not in _ALL_PROFILES:
-        print(f"Usage: uv run python scripts/test_profiles.py <profile>")
+        print("Usage: uv run python scripts/test_profiles.py <profile>")
         print(f"Available profiles: {', '.join(_ALL_PROFILES)}")
         sys.exit(1)
 

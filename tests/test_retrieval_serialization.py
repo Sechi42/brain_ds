@@ -12,7 +12,6 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
 
 from brain_ds.store.models import EdgeRow
 from brain_ds.retrieval.neighborhood import AnnotatedEdge, sort_edges_by_reliability

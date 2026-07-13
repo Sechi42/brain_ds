@@ -554,17 +554,26 @@ class TestVerifyPackageExports(unittest.TestCase):
     def test_verify_package_exports(self) -> None:
         from brain_ds.verify import (
             build_semantic_report,
-            SemanticReport,
-            SemanticFinding,
-            FaithfulnessResult,
             CoherenceResult,
+            FaithfulnessResult,
             ReferenceFinding,
-            score_graph_faithfulness,
             score_brd_coherence,
+            score_graph_faithfulness,
+            SemanticFinding,
+            SemanticReport,
         )
-        # All imports succeeded — package exports are correct
-        self.assertIsNotNone(build_semantic_report)
-        self.assertIsNotNone(SemanticReport)
+        # All imports succeeded; package exports are correct
+        exports = (
+            build_semantic_report,
+            CoherenceResult,
+            FaithfulnessResult,
+            ReferenceFinding,
+            score_brd_coherence,
+            score_graph_faithfulness,
+            SemanticFinding,
+            SemanticReport,
+        )
+        self.assertTrue(all(export is not None for export in exports))
 
 
 if __name__ == "__main__":

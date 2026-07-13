@@ -15,7 +15,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from brain_ds.mcp.tools import suggest_connections, update_node
 from brain_ds.scoring import similarity

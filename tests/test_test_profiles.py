@@ -8,7 +8,6 @@ After GREEN (1.2 + 1.3), all tests here must pass.
 """
 from __future__ import annotations
 
-import configparser
 import importlib.util
 import subprocess
 import sys

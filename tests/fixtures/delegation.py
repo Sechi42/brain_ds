@@ -19,7 +19,7 @@ backward-compat with ``test_sub_agent_writes_only_to_elicit``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Protocol, Sequence, runtime_checkable
 
 

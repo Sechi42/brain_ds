@@ -3,7 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from pathlib import Path
 
 import pytest

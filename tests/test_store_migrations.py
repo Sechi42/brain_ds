@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from brain_ds.store.graph_store import GraphStore
-from brain_ds.store.migrations import MIGRATIONS, apply_pending, v2_tools_audit
+from brain_ds.store.migrations import apply_pending, v2_tools_audit
 
 
 class StoreMigrationAuditTests(unittest.TestCase):

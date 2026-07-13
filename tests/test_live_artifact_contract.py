@@ -58,8 +58,6 @@ def test_golden_fixtures_exist_for_all_phase_prefixes() -> None:
         f"Golden fixture directory missing: {FIXTURES_DIR}\n"
         "Run sdd-apply Slice 2 to create it."
     )
-    prefixes = {"source-docs", "map", "brd", "verify"}
-    present = {p.name.split("-")[0] for p in FIXTURES_DIR.glob("*.md")}
     # source-docs has a hyphen — detect by startswith
     prefix_found = {
         "source-docs": any(p.name.startswith("source-docs-") for p in FIXTURES_DIR.glob("*.md")),

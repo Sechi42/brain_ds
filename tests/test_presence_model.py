@@ -421,12 +421,6 @@ class TestPresencePanelHtml(unittest.TestCase):
     def test_agent_presence_css_uses_custom_properties(self):
         """Agent presence CSS must use var(--...) custom properties for colors."""
         self._require_file()
-        # Find the agent-presence block and verify it uses CSS custom props
-        match = re.search(
-            r"#agent-presence-panel[^{]*\{[^}]*\}",
-            self.html,
-            re.DOTALL,
-        )
         # The panel must exist in CSS
         self.assertRegex(
             self.html,

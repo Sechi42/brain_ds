@@ -12,11 +12,9 @@ PR2b-T2: _resolve_connector dispatches aws-postgres kind to PostgresConnector
 from __future__ import annotations
 
 import os
-import sys
 import types
 import unittest
-from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -511,8 +509,6 @@ class TestPostgresConnectorGetTableSchema(unittest.TestCase):
             ("created_at", "timestamp"),
         ]
         sample_row = {"id": 1, "name": "Alice", "created_at": "2024-01-01"}
-
-        call_count = [0]
 
         class MultiCursor:
             def __init__(self):
