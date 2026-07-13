@@ -1498,26 +1498,56 @@
       #detail-panel.is-empty #detail-title,
       #detail-panel.is-empty #detail-meta { display: none; }
       .detail-header { display: grid; gap: 0.25rem; }
-      /* Framed action group — light morado border ties it to the filter chips. */
+      /* Inspector action toolbar — ONE row of 44px square icon buttons matching
+         the rail/toolbar chrome language (quiet until interaction). Text labels
+         stay in the DOM for screen readers (.detail-action-label is visually
+         hidden); title tooltips carry the text for sighted users. */
       .detail-actions {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 0.5rem;
-        padding: 0.6rem;
-        border: 1px solid color-mix(in srgb, var(--accent-mora) 22%, transparent);
-        border-radius: var(--radius-md);
-        background: color-mix(in srgb, var(--accent-mora) 6%, transparent);
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 0 6px;
+        border-bottom: 1px solid var(--border-subtle);
       }
-      /* Cerrar (danger) spans the full width as the final row. */
-      .detail-actions .btn-danger-outline { grid-column: 1 / -1; }
-      /* Equal target size and alignment for inspector action rows. */
       .detail-actions .pill-btn,
       .detail-actions .btn-outline,
-      .detail-actions .btn-danger-outline { width: 100%; min-width: 0; min-height: 44px; white-space: nowrap; justify-content: flex-start; overflow: hidden; }
+      .detail-actions .btn-danger-outline {
+        flex: 0 0 auto;
+        width: 44px;
+        min-width: 44px;
+        min-height: 44px;
+        padding: 0;
+        justify-content: center;
+        background: transparent;
+        border: none;
+        border-radius: var(--radius-ui);
+        color: var(--text-muted);
+        overflow: visible;
+      }
+      .detail-actions .card-icon { width: 16px; height: 16px; }
+      .detail-actions .detail-action-label {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
+        border: 0;
+      }
+      .detail-actions .pill-btn:hover:not([disabled]),
+      .detail-actions .btn-outline:hover:not([disabled]) { background: var(--bg-panel-hover); color: var(--text-normal); }
+      /* Edit-mode ON reads as a pressed accent state (aria-pressed by detail-panel.ts). */
+      .detail-actions .pill-btn[aria-pressed="true"] { background: var(--accent-mora-muted); color: var(--accent-mora); }
+      /* Cerrar sits apart on the right edge and turns danger on hover. */
+      .detail-actions .btn-danger-outline { margin-left: auto; }
+      .detail-actions .btn-danger-outline:hover:not([disabled]) { background: var(--danger-soft); color: var(--danger); }
       /* Disabled state (skill state model) — applied via [disabled] by detail-panel.ts. */
       .detail-actions .pill-btn[disabled],
       .detail-actions .pill-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-      .detail-actions .pill-btn[disabled]:hover { background: var(--bg-active); color: var(--text-muted); }
+      .detail-actions .pill-btn[disabled]:hover { background: transparent; color: var(--text-muted); }
       #detail-title { margin: 0; font-size: 1.05rem; font-weight: 600; line-height: 1.25; color: var(--text-bright); overflow-wrap: anywhere; }
       #detail-meta { color: var(--text-muted); font-size: 0.875rem; }
       /* min-width: 0 throughout — grid/flex children default to min-width:auto,
@@ -1596,8 +1626,11 @@
       .btn-danger-outline { color: var(--text-muted); border: 1px solid var(--border-subtle); background: transparent; }
       .btn-danger-outline:hover { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
       .btn-danger-outline:focus-visible { outline: 2px solid var(--accent-mora); outline-offset: 2px; }
-      #edit-toggle, #export-json { background: transparent; border: 1px solid var(--border-subtle); color: var(--text-muted); }
-      #detail-collapse, #detail-close { background: transparent; border: 1px solid var(--border-subtle); color: var(--text-muted); }
+      /* Inspector action buttons are borderless icon chrome now — the id-level
+         rules only pin the quiet base color (borders would beat the scoped
+         .detail-actions overrides on specificity). */
+      #edit-toggle, #export-json { background: transparent; border: none; color: var(--text-muted); }
+      #detail-collapse, #detail-close { background: transparent; border: none; color: var(--text-muted); }
       #detail-panel-backdrop { display: none; }
       .detail-skeleton { display: grid; gap: 0.5rem; }
       .detail-skeleton__line { height: 12px; border-radius: 3px; background: linear-gradient(90deg, var(--bg-panel) 0%, var(--bg-active) 50%, var(--bg-panel) 100%); background-size: 200% 100%; animation: detail-skeleton-shimmer 1.2s ease infinite; }
@@ -3356,11 +3389,11 @@
                  reads as dead space. Edit/Export/Save start disabled (no selection);
                  detail-panel.ts toggles .disabled (not .hidden) as state changes. -->
             <div class="detail-actions" role="group" aria-label="Acciones del nodo">
-              <button type="button" id="edit-toggle" class="pill-btn btn-outline" aria-pressed="false" disabled><svg class="card-icon" aria-hidden="true"><use href="#icon-edit"/></svg> Editar</button>
-              <button type="button" id="export-json" class="pill-btn btn-outline" disabled><svg class="card-icon" aria-hidden="true"><use href="#icon-share-2"/></svg> Exportar JSON</button>
-              <button type="button" id="detail-save" class="pill-btn btn-outline" disabled><svg class="card-icon" aria-hidden="true"><use href="#icon-save"/></svg> Guardar</button>
-              <button type="button" id="detail-collapse" class="pill-btn btn-outline" aria-controls="detail-panel" aria-expanded="true" aria-label="Collapse detail panel"><svg class="card-icon" aria-hidden="true"><use href="#icon-minimize-2"/></svg> <span id="detail-collapse-label">Colapsar</span></button>
-              <button type="button" id="detail-close" class="pill-btn btn-danger-outline" aria-label="Clear selected node"><svg class="card-icon" aria-hidden="true"><use href="#icon-x"/></svg> Cerrar</button>
+              <button type="button" id="edit-toggle" class="pill-btn btn-outline" aria-pressed="false" title="Editar nodo" disabled><svg class="card-icon" aria-hidden="true"><use href="#icon-edit"/></svg><span class="detail-action-label">Editar</span></button>
+              <button type="button" id="export-json" class="pill-btn btn-outline" title="Exportar JSON" disabled><svg class="card-icon" aria-hidden="true"><use href="#icon-share-2"/></svg><span class="detail-action-label">Exportar JSON</span></button>
+              <button type="button" id="detail-save" class="pill-btn btn-outline" title="Guardar cambios" disabled><svg class="card-icon" aria-hidden="true"><use href="#icon-save"/></svg><span class="detail-action-label">Guardar</span></button>
+              <button type="button" id="detail-collapse" class="pill-btn btn-outline" aria-controls="detail-panel" aria-expanded="true" aria-label="Collapse detail panel" title="Colapsar detalles"><svg class="card-icon" aria-hidden="true"><use href="#icon-minimize-2"/></svg><span id="detail-collapse-label" class="detail-action-label">Colapsar</span></button>
+              <button type="button" id="detail-close" class="pill-btn btn-danger-outline" aria-label="Clear selected node" title="Cerrar selección"><svg class="card-icon" aria-hidden="true"><use href="#icon-x"/></svg><span class="detail-action-label">Cerrar</span></button>
             </div>
           </div>
           <!-- PR3 inspector empty-state: SIBLING of #detail-body (the bundle owns

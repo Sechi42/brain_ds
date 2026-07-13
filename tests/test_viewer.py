@@ -3132,10 +3132,24 @@ class TestPrBViewerPolishContracts(unittest.TestCase):
         base = Path(__file__).resolve().parent.parent / "brain_ds" / "ui"
         cls.template_text = (base / "templates" / "graph_viewer.html").read_text(encoding="utf-8")
 
-    def test_detail_actions_use_equal_grid_sizing(self):
+    def test_detail_actions_use_icon_toolbar_row(self):
+        # Icon toolbar contract (chrome language parity with rails/toolbar):
+        # one flex row of 44px square icon buttons; text labels stay in the DOM
+        # for screen readers but are visually hidden (.detail-action-label).
         self.assertRegex(
             self.template_text,
-            r"\.detail-actions\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)",
+            r"\.detail-actions\s*\{[^}]*display:\s*flex",
+        )
+        self.assertRegex(
+            self.template_text,
+            r"\.detail-actions\s+\.pill-btn[^\{]*\{[^}]*width:\s*44px",
+        )
+        self.assertIn('class="detail-action-label"', self.template_text)
+        # detail-panel.ts writes the Colapsar/Expandir label into this span —
+        # it must keep the id AND the visually-hidden class.
+        self.assertRegex(
+            self.template_text,
+            r'id="detail-collapse-label"[^>]*class="detail-action-label"|class="detail-action-label"[^>]*id="detail-collapse-label"',
         )
 
     def test_detail_action_buttons_enforce_44px_min_height(self):
