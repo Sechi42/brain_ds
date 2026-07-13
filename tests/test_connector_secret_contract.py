@@ -108,3 +108,7 @@ class TestConnectorSecretContract(unittest.TestCase):
         serialized = json.dumps(SOURCE_EXPLORATION_CONTRACT)
         self.assertIn("secret_ref", serialized)
         self.assertRegex(serialized, r"(never stored|not persisted)")
+
+    def test_source_exploration_contract_describes_secret_ref_as_opaque_alias(self) -> None:
+        serialized = json.dumps(SOURCE_EXPLORATION_CONTRACT)
+        self.assertIn("opaque graph-scoped alias", serialized)

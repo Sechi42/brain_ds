@@ -34,8 +34,8 @@ function renderStaticTemplate(): string {
     .replace(/<script>[\s\S]*?<\/script>/g, "");
 }
 
-// ── B1: binding a secret PATCHes the Data Source connection descriptor ────────
-test("bind action PATCHes Data Source connection and confirms now explorable", async ({ page }) => {
+// ── B1: binding a candidate secret creates an unvalidated lifecycle binding ──
+test("bind action creates a lifecycle binding and confirms validation is required", async ({ page }) => {
   await page.setContent('<section id="secret-panel"></section>', { waitUntil: "domcontentloaded" });
   await page.addScriptTag({ path: BUNDLE_JS_PATH });
 
@@ -65,8 +65,32 @@ test("bind action PATCHes Data Source connection and confirms now explorable", a
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (url.includes("/api/nodes/") && method === "PATCH") {
-        return new Response(JSON.stringify({ ok: true }), {
+      if (url.includes("/api/source-connections/candidates")) {
+        return new Response(JSON.stringify({
+          status: "ok",
+          secrets: [{
+            secret_ref: "sec_opaque_orders_candidate",
+            provider_kind: "aws-postgres",
+            validation_status: "unbound",
+            required_provider_inputs: ["spreadsheet_ref"],
+          }],
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.includes("/api/source-connections/bind") && method === "POST") {
+        return new Response(JSON.stringify({
+          status: "ok",
+          binding: {
+            secret_ref: "sec_opaque_orders_candidate",
+            provider_kind: "aws-postgres",
+            validation_status: "unvalidated",
+            documentation_status: "not_started",
+            writeback_status: "idle",
+            provider_inputs: { spreadsheet_ref: "graph-source-ds-orders" },
+          },
+        }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
@@ -93,26 +117,27 @@ test("bind action PATCHes Data Source connection and confirms now explorable", a
   await select.selectOption("ds-orders");
   await bindBtn.click();
 
-  // Success badge appears with the "now explorable" confirmation copy.
+  // Success badge confirms the lifecycle requires validation before documentation.
   const badge = page.locator(".secret-bind-badge--ok").first();
   await expect(badge).toBeVisible();
-  await expect(badge).toContainText(/now explorable/i);
+  await expect(badge).toHaveText("Binding created. Validate before documentation.");
 
-  // A real PATCH carried the structured connection descriptor (kind + secret_handle).
+  // A compatible opaque candidate reference is resolved before the bind request.
   const calls = await page.evaluate(
     () =>
       (window as typeof window & {
-        __secretApiCalls?: Array<{ url: string; method?: string; body?: { changes?: { details?: { connection?: Record<string, unknown> } } } }>;
+        __secretApiCalls?: Array<{ url: string; method?: string; body?: Record<string, unknown> }>;
       }).__secretApiCalls || [],
   );
-  const patch = calls.find((c) => c.method === "PATCH" && c.url.includes("/api/nodes/"));
-  expect(patch).toBeTruthy();
-  const connection = patch?.body?.changes?.details?.connection;
-  expect(connection?.kind).toBe("aws-postgres");
-  expect(connection?.secret_handle).toBe("warehouse/prod");
-  expect(connection?.database).toBe("orders");
+  const candidates = calls.find((c) => c.method === "GET" && c.url.includes("/api/source-connections/candidates"));
+  expect(candidates).toBeTruthy();
+  const bind = calls.find((c) => c.method === "POST" && c.url.includes("/api/source-connections/bind"));
+  expect(bind).toBeTruthy();
+  expect(bind?.body?.source_node_id).toBe("ds-orders");
+  expect(bind?.body?.secret_ref).toBe("sec_opaque_orders_candidate");
+  expect(bind?.body?.provider_inputs).toEqual({ spreadsheet_ref: "graph-source-ds-orders" });
 
-  // onBound fired so the Data Source can re-render its explorable state.
+  // onBound receives only the current lifecycle projection, never a secret handle.
   const bound = await page.evaluate(
     () =>
       (window as typeof window & {
@@ -121,11 +146,11 @@ test("bind action PATCHes Data Source connection and confirms now explorable", a
   );
   expect(bound.length).toBe(1);
   expect(bound[0]?.sourceId).toBe("ds-orders");
-  expect(bound[0]?.descriptor?.secret_handle).toBe("warehouse/prod");
+  expect(bound[0]?.descriptor).toEqual({ validation_status: "unvalidated", provider_kind: "aws-postgres" });
 });
 
-// ── B3: a bound Data Source detail node shows the "now explorable" badge ───────
-test("detail panel renders now-explorable badge for a bound Data Source", async ({ page }) => {
+// ── B3: an unvalidated lifecycle binding is not yet explorable ─────────────────
+test("detail panel keeps an unvalidated Data Source out of the explorable state", async ({ page }) => {
   await page.setContent(renderStaticTemplate(), { waitUntil: "domcontentloaded" });
   await page.addScriptTag({ path: BUNDLE_JS_PATH });
 
@@ -134,7 +159,14 @@ test("detail panel renders now-explorable badge for a bound Data Source", async 
       id: "ds-orders",
       label: "Orders warehouse",
       type: "Data Source",
-      connection: { kind: "aws-postgres", secret_handle: "warehouse/prod", database: "orders" },
+      details: {
+        secret_binding: {
+          provider_kind: "aws-postgres",
+          validation_status: "unvalidated",
+          documentation_status: "not_started",
+          writeback_status: "idle",
+        },
+      },
     };
     const detailEntry = {
       node,
@@ -159,8 +191,8 @@ test("detail panel renders now-explorable badge for a bound Data Source", async 
   });
 
   const badge = page.locator(".detail-explorable-badge");
-  await expect(badge).toBeVisible();
-  await expect(badge).toHaveText(/now explorable/i);
-  await expect(badge).toHaveAttribute("role", "status");
-  await expect(badge).toHaveAttribute("aria-live", "polite");
+  await expect(badge).toHaveCount(0);
+  const lifecycle = page.locator(".source-lifecycle-card");
+  await expect(lifecycle).toContainText("binding state: bound");
+  await expect(lifecycle).toContainText("validation status: unvalidated");
 });

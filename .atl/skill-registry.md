@@ -54,6 +54,16 @@ Last updated: 2026-07-02
 | `ui-design` | UI design best practices for building accessible, performant, and user-friendly interfaces with modern web standards | project | `C:\Users\sergi\Documents\brain_ds\.claude\skills\ui-design\SKILL.md` |
 | `work-unit-commits` | Structure commits as deliverable work units instead of file-type batches, with tests and docs kept beside the code they verify. Trigger: when implementing a change, preparing commits, splitting PRs, or planning chained or stacked PRs. | user | `C:\Users\sergi\.agents\skills\work-unit-commits\SKILL.md` |
 
+## Agents
+
+| Agent | Purpose | Path |
+| --- | --- | --- |
+| `brainds-source-explorer` | Performs read-only source reconnaissance and source documentation. | `.claude/agents/brainds-source-explorer.md` |
+| `brainds-connection-mapper` | Maps cross-entity relationships with completeness gating. | `.claude/agents/brainds-connection-mapper.md` |
+| `brainds-currency-elicitor` | Elicits temporal currency evidence and defers unanswered stakeholder questions. | `.claude/agents/brainds-currency-elicitor.md` |
+| `brainds-kpi-composer` | Composes KPI dossiers and proposes governed lineage candidates. | `.claude/agents/brainds-kpi-composer.md` |
+| `blind-agentic-path-evaluator` | Evaluates one agentic path with deterministic evidence and behavioral analysis. | `.claude/agents/blind-agentic-path-evaluator.md` |
+
 ## Loading protocol
 
 1. Match task context and target files against the `Trigger / description` column.

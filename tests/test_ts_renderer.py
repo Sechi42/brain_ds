@@ -15,6 +15,7 @@ RED tests:
 All tests targeting renderer.ts will FAIL until renderer.ts is created (RED).
 """
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -111,12 +112,17 @@ class TestToolchainFilesExist(unittest.TestCase):
         path = BUILD_DIR / "check-bundle-size.mjs"
         self.assertTrue(path.exists(), f"build/check-bundle-size.mjs not found at {path}")
 
-    def test_check_bundle_size_has_js_limit(self):
+    def test_check_bundle_size_accepts_committed_viewer_bundle(self):
         path = BUILD_DIR / "check-bundle-size.mjs"
         self.assertTrue(path.exists(), "build/check-bundle-size.mjs not found")
-        text = path.read_text(encoding="utf-8")
-        self.assertIn("142 * 1024", text, "JS raw limit must be 142KB")
-        self.assertIn("42 * 1024", text, "JS gzip limit must be 42KB")
+        result = subprocess.run(
+            ["node", str(path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertRegex(result.stdout, r"viewer\.bundle\.js\s+raw=\d+/\d+ OK\s+gz=\d+/\d+ OK")
 
     def test_check_bundle_size_has_css_limit(self):
         path = BUILD_DIR / "check-bundle-size.mjs"

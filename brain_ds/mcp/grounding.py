@@ -418,11 +418,14 @@ NODE_WRITE_TEMPLATES: dict[str, object] = {
             "  sqlite/csv (file-path): "
             "{\"kind\": \"sqlite\"|\"csv\", \"path\": \"<project-relative path>\"}. "
             "The path must be within the project root (same sandbox as import_graph).\n"
-            "Secret-backed sources must NOT be documented by writing secret handle fields, "
-            "raw provider ids, or connector descriptors into graph details. Use the authorized "
-            "source connection flow instead: list candidates, bind the chosen graph-scoped "
-            "secret_ref with redacted provider inputs, validate server-side, check status or "
-            "unbind as needed, then run explore_source / query_source only after validation."
+            "Secret-backed google-sheets-json sources must NOT be documented "
+            "by writing secret handle fields, raw provider ids, or connector descriptors into "
+            "graph details. With explicit user approval, use the authorized source connection "
+            "flow instead: list candidates, bind the chosen graph-scoped secret_ref with redacted "
+            "provider inputs, validate server-side, check status or unbind as approved, then run "
+            "explore_source only after validation. Other secret-backed provider kinds, including "
+            "aws-postgres and aws-google-sheets, require an existing server-managed connection; "
+            "this lifecycle does not configure them."
         ),
     },
     "KPI": {
@@ -932,12 +935,15 @@ SOURCE_EXPLORATION_CONTRACT: dict[str, object] = {
     },
     "connection_setup": (
         "A file-path Data Source can be explorable when its details dict contains a connection key: "
-        "{kind: 'sqlite'|'csv', path: '<project-relative path>'}. Secret-backed Data Source nodes "
-        "must use the authorized source connection flow instead: list candidates, bind a graph-scoped "
-        "secret_ref with redacted provider inputs, validate server-side, inspect status or unbind, "
-        "then run explore_source / source-docs only after valid server-owned validation. Never store "
-        "raw secret values, raw handles, provider ids, sheet ids, or derived connector descriptors in "
-        "graph nodes, card_sections, or .elicit artifacts."
+        "{kind: 'sqlite'|'csv', path: '<project-relative path>'}. Secret-backed google-sheets-json "
+        "nodes may use the authorized source connection flow with explicit user approval: list "
+        "candidates, bind a graph-scoped secret_ref with redacted provider inputs, validate "
+        "server-side, inspect status or unbind as approved, then run explore_source / source-docs "
+        "only after valid server-owned validation. Other provider kinds require an existing "
+        "server-managed connection. The "
+        "secret_ref is an opaque graph-scoped alias and is never stored as a secret value. Never "
+        "store raw secret values, raw handles, provider ids, sheet ids, or derived connector "
+        "descriptors in graph nodes, card_sections, or .elicit artifacts."
     ),
 }
 

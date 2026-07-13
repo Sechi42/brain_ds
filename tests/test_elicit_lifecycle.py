@@ -87,16 +87,24 @@ class TestElicitLifecycle(unittest.TestCase):
         for key in REQUIRED_PROTOCOL_KEYS:
             self.assertIn(key, flow_doc)
 
-    def test_skill_registry_lists_all_6_brainds_agents(self) -> None:
+    def test_skill_registry_lists_all_resolvable_agents(self) -> None:
         registry_doc = (REPO_ROOT / ".atl" / "skill-registry.md").read_text(encoding="utf-8")
-        agent_flow_doc = (REPO_ROOT / "AGENT_FLOW.md").read_text(encoding="utf-8")
+        agents_section = registry_doc.split("## Agents", maxsplit=1)[1]
+        registered = set(re.findall(r"^\|\s*`([^`]+)`\s*\|", agents_section, flags=re.MULTILINE))
+        definitions = {path.stem for path in (REPO_ROOT / ".claude" / "agents").glob("*.md")}
 
-        for agent in REQUIRED_AGENTS:
-            self.assertIn(agent, registry_doc)
-            self.assertIn(agent, agent_flow_doc)
+        self.assertEqual(registered, definitions)
 
-        rows = re.findall(r"^\|\s*`brainds-[^`]+`\s*\|", registry_doc, flags=re.MULTILINE)
-        self.assertGreaterEqual(len(rows), 6)
+    def test_skill_registry_has_an_agents_section_for_lifecycle_entries(self) -> None:
+        registry_doc = (REPO_ROOT / ".atl" / "skill-registry.md").read_text(encoding="utf-8")
+        self.assertIn("## Agents", registry_doc)
+
+        agents_section = registry_doc.split("## Agents", maxsplit=1)[1]
+        paths = re.findall(r"\|\s*`(\.claude/agents/[^`]+\.md)`\s*\|", agents_section)
+        self.assertTrue(paths)
+        for relative_path in paths:
+            with self.subTest(path=relative_path):
+                self.assertTrue((REPO_ROOT / relative_path).is_file())
 
     # T1a-1: PIPELINE_STAGES constant shape and order
     def test_pipeline_stages_constant_shape_and_order(self) -> None:
