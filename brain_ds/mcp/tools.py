@@ -2421,20 +2421,29 @@ def list_source_connections(store: GraphStore, params: dict[str, Any]) -> list[d
             if action in {"bind", "validate", "unbind"}:
                 _require_mcp_secret_admin(store)
             if action == "bind":
-                return bind_source_connection(
+                source_node_id = str(validated.get("source_node_id") or "")
+                result = bind_source_connection(
                     store,
                     graph_id,
                     workspace_root,
-                    str(validated.get("source_node_id") or ""),
+                    source_node_id,
                     str(validated.get("secret_ref") or ""),
                     validated.get("provider_inputs") or {},
                 )
+                store.upsert_node(graph_id, {"id": source_node_id, "details": {"connection": None}})
+                return result
             if action == "validate":
                 return validate_source_connection(store, graph_id, workspace_root, str(validated.get("source_node_id") or ""))
             if action == "status":
                 return source_connection_status(store, graph_id, workspace_root, str(validated.get("source_node_id") or ""))
             if action == "unbind":
-                return unbind_source_connection(store, graph_id, workspace_root, str(validated.get("source_node_id") or ""))
+                source_node_id = str(validated.get("source_node_id") or "")
+                result = unbind_source_connection(store, graph_id, workspace_root, source_node_id)
+                store.upsert_node(
+                    graph_id,
+                    {"id": source_node_id, "details": {"connection": None, "secret_binding": None}},
+                )
+                return result
         except SourceConnectionError as exc:
             return exc.to_public()
         raise ValidationError(code=-32602, message=f"Unknown source connection action: {action}")

@@ -213,6 +213,33 @@ class MCPToolsTests(unittest.TestCase):
         refreshed = get_node(self.store, {"graph_id": self.graph_id, "node_id": "N-1"})
         self.assertEqual(refreshed["label"], "Alpha-v2")
 
+    def test_update_node_deep_merges_nested_details_and_replaces_non_objects(self) -> None:
+        self.store.upsert_node(
+            self.graph_id,
+            {
+                "id": "N-1",
+                "details": {"metadata": {"owner": "Data", "retention_days": 30}},
+            },
+        )
+
+        merged = update_node(
+            self.store,
+            {"graph_id": self.graph_id, "node_id": "N-1", "details": {"metadata": {"owner": "Platform"}}},
+        )
+        self.assertEqual(merged["details"]["metadata"], {"owner": "Platform", "retention_days": 30})
+
+        nulled = update_node(
+            self.store,
+            {"graph_id": self.graph_id, "node_id": "N-1", "details": {"metadata": None}},
+        )
+        self.assertIsNone(nulled["details"]["metadata"])
+
+        scalar = update_node(
+            self.store,
+            {"graph_id": self.graph_id, "node_id": "N-1", "details": {"metadata": "retired"}},
+        )
+        self.assertEqual(scalar["details"]["metadata"], "retired")
+
     def test_list_nodes_filters_and_missing_graph_error(self) -> None:
         result = self._expect_rows(list_nodes(self.store, {"graph_id": self.graph_id, "type": "Task"}))
         self.assertEqual(len(result), 1)
@@ -1401,7 +1428,10 @@ class MCPToolsTests(unittest.TestCase):
                 "id": "DS-ERP",
                 "label": "ERP 2025",
                 "type": "Data Source",
-                "details": {"source_kind": "google-sheets"},
+                "details": {
+                    "source_kind": "google-sheets",
+                    "connection": {"kind": "google-sheets-json", "secret_handle": "topete_final"},
+                },
             },
         )
 
@@ -1432,6 +1462,8 @@ class MCPToolsTests(unittest.TestCase):
         )
         self.assertEqual(bound["binding"]["validation_status"], "unvalidated")
         self.assertEqual(bound["binding"]["provider_inputs"], {"spreadsheet_ref": "erp-2025"})
+        bound_node = get_node(self.store, {"graph_id": self.graph_id, "node_id": "DS-ERP"})
+        self.assertIsNone(bound_node["details"].get("connection"))
 
         with patch("brain_ds.connectors.secrets.providers.google_sheets.GoogleSheetsJsonAdapter.probe", return_value={"spreadsheet_id": "raw-spreadsheet-id"}):
             validated = list_source_connections(
@@ -1453,6 +1485,8 @@ class MCPToolsTests(unittest.TestCase):
         )
         self.assertEqual(unbound["binding"]["validation_status"], "unbound")
         self.assertIsNone(SecretBindingStore(self.temp_dir.name).get(self.graph_id, "DS-ERP"))
+        unbound_node = get_node(self.store, {"graph_id": self.graph_id, "node_id": "DS-ERP"})
+        self.assertIsNone(unbound_node["details"].get("secret_binding"))
         serialized_flow = json.dumps([bound, validated, status, unbound], default=str)
         self.assertNotIn("topete_final", serialized_flow)
         self.assertNotIn("raw-spreadsheet-id", serialized_flow)

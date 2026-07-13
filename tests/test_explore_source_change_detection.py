@@ -95,7 +95,7 @@ class ExploreSourceChangeDetectionTests(unittest.TestCase):
         node = get_node(self.store, {"graph_id": self.graph_id, "node_id": "DS-1"})
         details = dict(node.get("details") or {})
         details["schema_baseline"] = baseline
-        update_node(self.store, {"graph_id": self.graph_id, "node_id": "DS-1", "details": details})
+        self.store.upsert_node(self.graph_id, {"id": "DS-1", "details": details})
 
     def test_no_emit_at_source_and_container_levels(self) -> None:
         source_level = explore_source(self.store, {"graph_id": self.graph_id, "node_id": "DS-1"})
@@ -109,18 +109,24 @@ class ExploreSourceChangeDetectionTests(unittest.TestCase):
         self.assertNotIn("change_detection", container_level)
 
     def test_first_explore_is_new(self) -> None:
+        before = get_node(self.store, {"graph_id": self.graph_id, "node_id": "DS-1"})
         result = self._explore_table()
+        repeated = self._explore_table()
         self.assertEqual(result["level"], "table")
         self.assertIn("change_detection", result)
         self.assertEqual(result["change_detection"]["verdict"], "new")
-        self.assertIsNone(result["change_detection"]["delta"])
+        self.assertNotIn("delta", result["change_detection"])
+        self.assertEqual(result["change_detection"], repeated["change_detection"])
+        self.assertNotIn("schema_baseline", result)
+        node = get_node(self.store, {"graph_id": self.graph_id, "node_id": "DS-1"})
+        self.assertEqual(node["details"], before["details"])
 
     def test_identical_reexplore_after_baseline_is_unchanged(self) -> None:
         first = self._explore_table()
         self._write_baseline(first)
         second = self._explore_table()
         self.assertEqual(second["change_detection"]["verdict"], "unchanged")
-        self.assertIsNone(second["change_detection"]["delta"])
+        self.assertNotIn("delta", second["change_detection"])
 
     def test_mutated_schema_after_baseline_is_changed_with_delta(self) -> None:
         first = self._explore_table()
@@ -175,10 +181,7 @@ class ExploreSourceChangeDetectionTests(unittest.TestCase):
             live_schema = {"tables": {table: {"columns": res["schema"].get("columns", [])}}}
             per_table[table] = build_baseline(live_schema, last_documented_at="2026-06-16T00:00:00Z")
         details["schema_baseline"] = per_table
-        update_node(
-            self.store,
-            {"graph_id": self.graph_id, "node_id": "DS-1", "details": details},
-        )
+        self.store.upsert_node(self.graph_id, {"id": "DS-1", "details": details})
 
     def test_multitable_per_table_baseline_is_unchanged(self) -> None:
         self._build_multitable_source()
@@ -218,7 +221,7 @@ class ExploreSourceChangeDetectionTests(unittest.TestCase):
         )
         result = self._explore_table()
         self.assertEqual(result["change_detection"]["verdict"], "unknown-baseline")
-        self.assertIsNone(result["change_detection"]["delta"])
+        self.assertNotIn("delta", result["change_detection"])
 
 
 if __name__ == "__main__":

@@ -171,7 +171,7 @@ class TestApiLive(unittest.TestCase):
             finally:
                 store.close()
 
-    def test_patch_node_sets_data_source_connection_without_dropping_existing_details(self) -> None:
+    def test_patch_node_merges_allowed_details_without_dropping_existing_details(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             store = GraphStore(str(root / "store.db"), allow_cross_thread=True)
@@ -195,11 +195,7 @@ class TestApiLive(unittest.TestCase):
                             "graph_id": "g-bind",
                             "changes": {
                                 "details": {
-                                    "connection": {
-                                        "kind": "aws-postgres",
-                                        "secret_handle": "warehouse/prod",
-                                        "database": "orders",
-                                    }
+                                    "description": "Production warehouse"
                                 }
                             },
                         },
@@ -208,8 +204,60 @@ class TestApiLive(unittest.TestCase):
                     self.assertEqual(response.status_code, 200)
                     details = response.json()["node"]["details"]
                     self.assertEqual(details["what"], "orders warehouse")
-                    self.assertEqual(details["connection"]["secret_handle"], "warehouse/prod")
-                    self.assertEqual(details["connection"]["database"], "orders")
+                    self.assertEqual(details["description"], "Production warehouse")
+            finally:
+                store.close()
+
+    def test_patch_node_deep_merges_nested_details_and_replaces_non_objects(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = GraphStore(str(root / "store.db"), allow_cross_thread=True)
+            try:
+                _seed_graph(store, graph_id="g-deep-merge")
+                store.upsert_node(
+                    "g-deep-merge",
+                    {
+                        "id": "n-merge",
+                        "label": "Merge Node",
+                        "type": "Concept",
+                        "details": {"metadata": {"owner": "Data", "retention_days": 30}},
+                    },
+                )
+                app = create_app(project_root=root, store=store)
+
+                with TestClient(app) as client:
+                    merged = client.patch(
+                        "/api/nodes/n-merge",
+                        json={
+                            "graph_id": "g-deep-merge",
+                            "changes": {"details": {"metadata": {"owner": "Platform"}}},
+                        },
+                    )
+                    self.assertEqual(merged.status_code, 200)
+                    self.assertEqual(
+                        merged.json()["node"]["details"]["metadata"],
+                        {"owner": "Platform", "retention_days": 30},
+                    )
+
+                    nulled = client.patch(
+                        "/api/nodes/n-merge",
+                        json={
+                            "graph_id": "g-deep-merge",
+                            "changes": {"details": {"metadata": None}},
+                        },
+                    )
+                    self.assertEqual(nulled.status_code, 200)
+                    self.assertIsNone(nulled.json()["node"]["details"]["metadata"])
+
+                    scalar = client.patch(
+                        "/api/nodes/n-merge",
+                        json={
+                            "graph_id": "g-deep-merge",
+                            "changes": {"details": {"metadata": "retired"}},
+                        },
+                    )
+                    self.assertEqual(scalar.status_code, 200)
+                    self.assertEqual(scalar.json()["node"]["details"]["metadata"], "retired")
             finally:
                 store.close()
 

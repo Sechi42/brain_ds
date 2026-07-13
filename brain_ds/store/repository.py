@@ -101,6 +101,19 @@ def _chunks(values: list[str], size: int) -> list[list[str]]:
     return [values[start : start + size] for start in range(0, len(values), size)]
 
 
+def _merge_json(existing: object, patch: object) -> object:
+    """Recursively merge JSON objects; every other patch value replaces."""
+    if not isinstance(existing, dict) or not isinstance(patch, dict):
+        return patch
+    return {
+        **existing,
+        **{
+            key: _merge_json(existing[key], value) if key in existing else value
+            for key, value in patch.items()
+        },
+    }
+
+
 class GraphMetaRepository:
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
@@ -324,7 +337,11 @@ class NodeRepository:
             "details": (
                 encode_json(node_input.get("details", {}))
                 if existing_row is None
-                else encode_json(node_input["details"]) if "details" in node_input else existing_row[3]
+                else (
+                    encode_json(_merge_json(decode_json(existing_row[3]) or {}, node_input["details"]))
+                    if "details" in node_input
+                    else existing_row[3]
+                )
             ),
             "card_sections": (
                 encode_json(node_input.get("card_sections")) if node_input.get("card_sections") is not None else None

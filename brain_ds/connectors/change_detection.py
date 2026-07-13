@@ -301,18 +301,17 @@ def build_change_detection(
 
     last_documented_at = (baseline or {}).get("last_documented_at") if isinstance(baseline, dict) else None
 
-    delta: dict[str, list[Any]] | None = None
-    if verdict == "changed":
-        snapshot = (baseline or {}).get("documented_schema_snapshot")
-        base_canonical = _align_baseline_snapshot(snapshot, live_canonical)
-        delta = compute_schema_delta(base_canonical, live_canonical)
-
-    return {
+    result = {
         "verdict": verdict,
         "schema_hash": live_hash,
         "last_documented_at": last_documented_at,
-        "delta": delta,
     }
+    if verdict == "changed":
+        snapshot = (baseline or {}).get("documented_schema_snapshot")
+        base_canonical = _align_baseline_snapshot(snapshot, live_canonical)
+        result["delta"] = compute_schema_delta(base_canonical, live_canonical)
+
+    return result
 
 
 def build_baseline(live_schema: dict[str, Any], *, last_documented_at: str) -> dict[str, Any]:

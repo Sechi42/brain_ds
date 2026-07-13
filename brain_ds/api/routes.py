@@ -250,13 +250,6 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
         existing = next((item for item in existing_nodes if item.id == node_id), None)
         if existing is None:
             raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found in graph '{graph_id}'")
-        # If caller sends changes.details as a dict, merge it into the existing
-        # details rather than replacing the whole blob.  This lets the UI save a
-        # single field (e.g. details.notes) without touching other details fields.
-        if "details" in changes and isinstance(changes["details"], dict):
-            existing_details = dict(existing.details or {})
-            existing_details.update(changes["details"])
-            changes = {**changes, "details": existing_details}
         node_payload = {"id": node_id, **changes}
         try:
             store.upsert_node(graph_id, node_payload)
@@ -599,14 +592,17 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
         if denied is not None:
             return JSONResponse(status_code=403, content=connection_error("unauthorized", "Workspace admin permission is required.", retryable=False, status_code=403))
         try:
-            return bind_source_connection(
+            source_node_id = str(payload.get("source_node_id") or "")
+            result = bind_source_connection(
                 store,
                 graph_id,
                 _workspace_root_for_graph(store, graph_id),
-                str(payload.get("source_node_id") or ""),
+                source_node_id,
                 str(payload.get("secret_ref") or ""),
                 payload.get("provider_inputs") or {},
             )
+            store.upsert_node(graph_id, {"id": source_node_id, "details": {"connection": None}})
+            return result
         except GraphNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except SourceConnectionError as exc:
@@ -644,12 +640,18 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
         if denied is not None:
             return JSONResponse(status_code=403, content=connection_error("unauthorized", "Workspace admin permission is required.", retryable=False, status_code=403))
         try:
-            return unbind_source_connection(
+            source_node_id = str(payload.get("source_node_id") or "")
+            result = unbind_source_connection(
                 store,
                 graph_id,
                 _workspace_root_for_graph(store, graph_id),
-                str(payload.get("source_node_id") or ""),
+                source_node_id,
             )
+            store.upsert_node(
+                graph_id,
+                {"id": source_node_id, "details": {"connection": None, "secret_binding": None}},
+            )
+            return result
         except GraphNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except SourceConnectionError as exc:

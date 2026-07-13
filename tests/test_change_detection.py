@@ -207,7 +207,7 @@ class SchemaDeltaTests(unittest.TestCase):
         self.assertIsNotNone(block["delta"])
         self.assertEqual([(c["table"], c["name"]) for c in block["delta"]["added_columns"]], [("T", "c")])
 
-    def test_delta_is_null_when_unchanged(self) -> None:
+    def test_delta_is_omitted_when_unchanged(self) -> None:
         live = _schema({"T": [{"name": "A", "type": "int"}]})
         snap = canonicalize_schema(live)
         baseline = {
@@ -217,13 +217,13 @@ class SchemaDeltaTests(unittest.TestCase):
         }
         block = build_change_detection(live_schema=live, baseline=baseline, has_prior_doc=True)
         self.assertEqual(block["verdict"], "unchanged")
-        self.assertIsNone(block["delta"])
+        self.assertNotIn("delta", block)
 
-    def test_delta_is_null_when_new(self) -> None:
+    def test_delta_is_omitted_when_new(self) -> None:
         live = _schema({"T": [{"name": "A", "type": "int"}]})
         block = build_change_detection(live_schema=live, baseline=None, has_prior_doc=False)
         self.assertEqual(block["verdict"], "new")
-        self.assertIsNone(block["delta"])
+        self.assertNotIn("delta", block)
 
 
 # ---------------------------------------------------------------------------
