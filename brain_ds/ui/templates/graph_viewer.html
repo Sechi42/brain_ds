@@ -53,20 +53,23 @@
         grid-template-columns: 48px var(--rail-w) minmax(0,1fr) var(--inspector-w) 48px;
         grid-template-rows: 1fr;
         height: 100vh;
+        background: var(--bg-main);
         transition: grid-template-columns var(--duration-normal) var(--ease-standard);
       }
       .workspace-shell.is-resizing { transition: none; }
       .meta { font-size: 0.92rem; color: var(--text-muted); }
       .compat-topbar { display: none; }
+      /* Rails and side panels sit FLAT on --bg-main (Obsidian sidebar pattern):
+         the framed center card provides all the separation, so no hard borders. */
       .rail {
-        border-inline: 1px solid var(--border-subtle);
-        background: var(--bg-panel);
+        border-inline: none;
+        background: var(--bg-main);
         min-width: 48px;
       }
       .left-panel-shell,
       .right-panel-shell {
-        background: var(--bg-panel);
-        border-inline-end: 1px solid var(--border-subtle);
+        background: var(--bg-main);
+        border-inline-end: none;
         overflow: hidden;
         position: relative;
         transition: width var(--duration-normal) var(--ease-standard), min-width var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard);
@@ -106,14 +109,23 @@
       .left-panel-shell.collapsed .panel-resize-handle,
       .right-panel-shell.collapsed .panel-resize-handle { display: none; }
       .right-panel-shell {
-        border-inline-start: 1px solid var(--border-subtle);
+        border-inline-start: none;
         border-inline-end: none;
       }
+      /* Obsidian-style frame: the center column floats as a rounded card over
+         the flat --bg-main shell. Floating menus (overflow, tab picker) mount
+         on document.body, so overflow:hidden only clips the card's own chrome. */
       .center-column {
         display: flex;
         flex-direction: column;
         min-height: 0;
-        background: var(--bg-main);
+        min-width: 0;
+        margin: var(--workspace-gap);
+        background: var(--bg-panel);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-workspace);
+        box-shadow: var(--shadow-xs);
+        overflow: hidden;
       }
       /* ── Tab Strip — 36px (ADR-009 project contract; reference .tabs-bar is 48px
          but production runs the 5-column grid, so the project height wins per
@@ -380,7 +392,6 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        border-right: 1px solid var(--border-subtle);
         background: var(--bg-main);
         padding: 16px 0;
         border-inline: none;
@@ -438,7 +449,6 @@
         background: var(--bg-main);
         padding: 16px 0;
         border-inline: none;
-        border-left: 1px solid var(--border-subtle);
         z-index: 20;
       }
       .right-rail-icons {
@@ -477,24 +487,9 @@
         border-radius: 2px;
         background: var(--accent-mora);
       }
-      .rail[data-rail-side='right'] .rail-icon[data-rail-icon='inspector'][aria-selected="true"] {
-        color: var(--accent-mora);
-        background-color: color-mix(in srgb, var(--accent-mora) 14%, var(--bg-panel-hover));
-        box-shadow: inset 3px 0 0 var(--accent-mora), 0 0 0 1px color-mix(in srgb, var(--accent-mora) 34%, transparent);
-      }
-      .rail[data-rail-side='right'] .rail-icon[data-rail-icon='inspector'][aria-selected="true"]::before {
-        background: var(--accent-mora);
-      }
-      .rail[data-rail-side='right'] .rail-icon[data-rail-icon='ai-actions'][aria-selected="true"] {
-        color: var(--status-active);
-        background-color: color-mix(in srgb, var(--status-active) 14%, var(--bg-panel-hover));
-        box-shadow: inset 3px 0 0 var(--status-active), 0 0 0 1px color-mix(in srgb, var(--status-active) 34%, transparent);
-      }
-      .rail[data-rail-side='right'] .rail-icon[data-rail-icon='ai-actions'][aria-selected="true"]::before {
-        background: var(--status-active);
-      }
-      .rail[data-rail-side='right'] .rail-icon[data-rail-icon='inspector'] svg { color: var(--accent-mora); }
-      .rail[data-rail-side='right'] .rail-icon[data-rail-icon='ai-actions'] svg { color: var(--status-active); }
+      /* Right rail icons follow the SAME selected pattern as the left rail
+         (mora tint + edge indicator bar) — per-icon colored variants removed
+         for a consistent, minimal activity-bar chrome. */
       .rail[data-rail-side='right'] .rail-icon:focus-visible {
         outline: 2px solid var(--accent-mora);
         outline-offset: -2px;
@@ -505,17 +500,20 @@
         flex-direction: column;
         min-height: 0;
       }
+      /* Shared 44px panel header — SAME rule for both sides (left panel and
+         inspector) so the chrome reads as one system. */
       .panel-header {
         flex: 0 0 44px;
+        min-height: 44px;
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0 20px;
+        padding: 0 8px 0 16px;
         border-bottom: 1px solid var(--border-subtle);
         color: var(--text-normal);
-        font-size: 14px;
-        font-weight: 500;
-        letter-spacing: 0.005em;
+        font-size: 13px;
+        font-weight: var(--fw-semibold);
+        letter-spacing: 0.01em;
       }
       .panel-collapse {
         width: 44px;
@@ -552,19 +550,8 @@
         padding-top: 4px;
         gap: 2px;
       }
-      /* R-panel header — 44px strip above #detail-panel */
-      .panel-header[data-panel-side="right"] {
-        min-height: 44px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0 0.7rem;
-        border-bottom: 1px solid var(--border-subtle);
-        color: var(--text-bright);
-        font-size: 0.85rem;
-        font-weight: 650;
-        flex: 0 0 44px;
-      }
+      /* R-panel header inherits the shared .panel-header rule; only the
+         side-specific collapse button below diverges. */
       .panel-header[data-panel-side="right"] .panel-collapse-right {
         width: 44px;
         height: 44px;
@@ -632,7 +619,7 @@
       }
 
       /* === Left sidebar === */
-      .controls { display: flex; flex-direction: column; gap: 16px; align-content: start; overflow: auto; padding: 12px 16px; background: var(--bg-panel); }
+      .controls { display: flex; flex-direction: column; gap: 16px; align-content: start; overflow: auto; padding: 12px 16px; background: transparent; }
       .controls h2, .controls h3, #tree-panel h2, #tree-panel h3 { margin: 0 0 0.25rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; }
       .control-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
       .button, button { min-height: 44px; padding: 0.45rem 0.75rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-ui); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.85rem; }
@@ -976,7 +963,8 @@
         gap: 0.35rem;
       }
       .panel-header-title svg {
-        color: var(--accent-mora-muted);
+        color: var(--accent-mora);
+        opacity: 0.85;
         flex-shrink: 0;
       }
       #score-badge {
@@ -989,7 +977,9 @@
       .off-side-label { color: var(--text-muted); }
       /* Reference: section blocks are airy (no card border), with uppercase muted titles
          that lead with a small lucide icon (12px). */
-      .panel-card { border: 0; background: transparent; padding: 0; display: grid; gap: 0.6rem; }
+      /* minmax(0,1fr): cap the single column at the card width so wide rows
+         (project groups, segmented controls) shrink instead of overflowing. */
+      .panel-card { border: 0; background: transparent; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.6rem; }
       /* Rail routing fix: the [hidden] attribute set by applyLeftRailSectionVisibility
          was defeated by the display:grid above (UA [hidden]{display:none} loses on
          specificity). Scope it to .panel-card so each rail icon swaps exactly one
@@ -1010,8 +1000,10 @@
       }
       .panel-card-title svg { width: 12px; height: 12px; flex-shrink: 0; opacity: 0.85; }
       /* === Segmented control — reference parity === */
-      .segmented-control { display: flex; gap: 0; background: var(--bg-active); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 4px; }
-      .segment-btn { flex: 1; background: transparent; border: none; color: var(--text-muted); font-weight: 500; border-radius: 4px; padding: 6px 0; min-height: 32px; cursor: pointer; font-size: 13px; transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
+      .segmented-control { display: flex; gap: 0; min-width: 0; background: var(--bg-active); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 4px; }
+      /* min-width:0 + ellipsis: long segment labels (e.g. "Data Source") shrink
+         gracefully inside narrow panels instead of overflowing the card edge. */
+      .segment-btn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: transparent; border: none; color: var(--text-muted); font-weight: 500; border-radius: 4px; padding: 6px 4px; min-height: 32px; cursor: pointer; font-size: 13px; transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
       .segment-btn:hover { background: var(--bg-panel-hover); color: var(--text-normal); }
       .segment-btn[aria-checked='true'] { background: var(--bg-active); color: var(--text-normal); box-shadow: inset 0 0 0 1px var(--border-strong); }
       .segment-btn:focus-visible { outline: 2px solid var(--accent-mora); outline-offset: 2px; }
@@ -1494,8 +1486,7 @@
       .empty-state__text { margin: 0; font-size: 0.85rem; color: var(--text-muted); }
 
       /* === Right detail panel === */
-      .detail-panel { display: grid; gap: 24px; align-content: start; height: 100%; overflow: auto; padding: 24px; background: var(--bg-panel); transition: transform 200ms ease, opacity 200ms ease; animation: detail-panel-enter 200ms ease; }
-      .right-panel-shell { box-shadow: -10px 0 20px rgba(0,0,0,0.3); }
+      .detail-panel { display: grid; gap: 16px; align-content: start; height: 100%; overflow: auto; padding: 16px; background: transparent; transition: transform 200ms ease, opacity 200ms ease; animation: detail-panel-enter 200ms ease; }
       /* User override of finding 1218: the inspector action toolbar now stays visible even
          when empty so the right panel hosts the Editar/Exportar/Guardar/Colapsar/Cerrar
          controls the user asked for. Only the (redundant) title + meta hide when empty;

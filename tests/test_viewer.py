@@ -210,21 +210,25 @@ class TestUiPanelChromePolishSidebar(unittest.TestCase):
         self.assertIsNotNone(workspace, "Missing .workspace-shell CSS rule")
         self.assertIn("--inspector-w: 352px", workspace.group(1))
 
-    def test_right_rail_selected_states_are_icon_specific(self):
-        inspector = re.search(
-            r"\.rail\[data-rail-side='right'\] \.rail-icon\[data-rail-icon='inspector'\]\[aria-selected=\"true\"\]\s*\{([^}]*)\}",
+    def test_right_rail_selected_state_matches_left_rail_pattern(self):
+        """Obsidian-frame pass: both rails share ONE selected pattern (mora tint
+        + edge indicator bar); per-icon colored variants were removed."""
+        selected = re.search(
+            r"\.rail\[data-rail-side='right'\] \.rail-icon\[aria-selected=\"true\"\]\s*\{([^}]*)\}",
             self.template_text,
         )
-        ai_actions = re.search(
-            r"\.rail\[data-rail-side='right'\] \.rail-icon\[data-rail-icon='ai-actions'\]\[aria-selected=\"true\"\]\s*\{([^}]*)\}",
+        self.assertIsNotNone(selected, "Missing right rail selected-state rule")
+        self.assertIn("var(--accent-mora)", selected.group(1))
+        self.assertNotIn(
+            "data-rail-icon='inspector'][aria-selected",
             self.template_text,
+            "Per-icon selected-state variants must stay removed (unified rail pattern)",
         )
-
-        self.assertIsNotNone(inspector, "Missing inspector selected-state rule")
-        self.assertIsNotNone(ai_actions, "Missing AI actions selected-state rule")
-        self.assertIn("var(--accent-mora)", inspector.group(1))
-        self.assertIn("var(--status-active)", ai_actions.group(1))
-        self.assertNotEqual(inspector.group(1), ai_actions.group(1))
+        self.assertNotIn(
+            "data-rail-icon='ai-actions'][aria-selected",
+            self.template_text,
+            "Per-icon selected-state variants must stay removed (unified rail pattern)",
+        )
 
 
 class TestUiPanelChromePolishBrdPanel(unittest.TestCase):

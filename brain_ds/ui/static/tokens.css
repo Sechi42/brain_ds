@@ -99,7 +99,11 @@
   --radius-lg: 12px;
   --radius-full: 9999px;
   --radius-ui: var(--radius-md);
-  --radius-workspace: 0px;
+  /* Obsidian-style workspace frame: the center canvas column floats as a
+     rounded card over --bg-main while rails/panels stay flat. 0px disables
+     the frame; the graph_viewer chrome reads this for the center card. */
+  --radius-workspace: 12px;
+  --workspace-gap: 8px;
 
   /* === Motion (migrated from theme_tokens_css()) === */
   --duration-fast: 120ms;
