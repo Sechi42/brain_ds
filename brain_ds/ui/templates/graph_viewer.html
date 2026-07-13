@@ -1626,11 +1626,10 @@
       .btn-danger-outline { color: var(--text-muted); border: 1px solid var(--border-subtle); background: transparent; }
       .btn-danger-outline:hover { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
       .btn-danger-outline:focus-visible { outline: 2px solid var(--accent-mora); outline-offset: 2px; }
-      /* Inspector action buttons are borderless icon chrome now — the id-level
-         rules only pin the quiet base color (borders would beat the scoped
-         .detail-actions overrides on specificity). */
-      #edit-toggle, #export-json { background: transparent; border: none; color: var(--text-muted); }
-      #detail-collapse, #detail-close { background: transparent; border: none; color: var(--text-muted); }
+      /* Inspector action buttons: NO id-level color rules here — id specificity
+         (1,0,0) silently beats every scoped hover/pressed state, which kept the
+         danger hover and the edit pressed accent from ever painting. The quiet
+         base lives in the .detail-actions class rules above. */
       #detail-panel-backdrop { display: none; }
       .detail-skeleton { display: grid; gap: 0.5rem; }
       .detail-skeleton__line { height: 12px; border-radius: 3px; background: linear-gradient(90deg, var(--bg-panel) 0%, var(--bg-active) 50%, var(--bg-panel) 100%); background-size: 200% 100%; animation: detail-skeleton-shimmer 1.2s ease infinite; }
@@ -3378,7 +3377,7 @@
             Inspector
           </strong>
           <button type="button" class="panel-collapse-right" aria-label="Collapse right panel" aria-expanded="true">
-            <svg aria-hidden="true" width="18" height="18"><use href="#icon-chevron-right"/></svg>
+            <svg aria-hidden="true" width="16" height="16"><use href="#icon-chevron-right"/></svg>
           </button>
         </header>
         <aside id="detail-panel" class="panel detail-panel is-empty" aria-label="Node details" aria-live="polite" aria-labelledby="detail-title" role="dialog" aria-modal="true">
