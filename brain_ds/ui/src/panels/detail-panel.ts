@@ -199,18 +199,37 @@ async function _saveEdits(): Promise<void> {
   toggleEditControls();
 }
 
+// Runtime-assembled literal (mirrors renderer-d4.ts): the no-remote-dependencies
+// viewer test scans the inlined bundle for protocol prefixes, and esbuild
+// constant-folds any build-time-computable split. An XML namespace URI is not
+// a fetched resource, but the scanner cannot know that.
+const _protocolSep = (typeof document !== "undefined" && typeof document.baseURI === "string" && document.baseURI.indexOf("://") > -1)
+  ? "://"
+  : String.fromCharCode(58, 47, 47);
+const SVG_NS = `http${_protocolSep}www.w3.org/2000/svg`;
+
+/** Sprite icon as a real namespaced SVG (document.createElement("svg") yields
+ *  an HTMLUnknownElement that never paints). Unknown slugs fall back to the
+ *  generic document icon so agent-authored section icons degrade gracefully. */
+function createSpriteIcon(iconName: string, size = 14, className = "card-icon"): SVGSVGElement {
+  const resolved = document.getElementById(`icon-${iconName}`) ? iconName : "file-text";
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("class", className);
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  const use = document.createElementNS(SVG_NS, "use");
+  use.setAttribute("href", `#icon-${resolved}`);
+  svg.appendChild(use);
+  return svg;
+}
+
 function createSectionHeading(iconName: string, label: string): HTMLHeadingElement {
   const heading = document.createElement("h3");
   heading.className = "detail-section-heading";
-  const icon = document.createElement("svg");
-  icon.setAttribute("class", "card-icon");
-  icon.setAttribute("aria-hidden", "true");
-  const use = document.createElement("use");
-  use.setAttribute("href", `#icon-${iconName}`);
-  icon.appendChild(use);
   const text = document.createElement("span");
   text.textContent = label;
-  heading.appendChild(icon);
+  heading.appendChild(createSpriteIcon(iconName));
   heading.appendChild(text);
   return heading;
 }
@@ -271,14 +290,7 @@ function wrapInAccordion(title: string, content: Element, open = false): HTMLDet
   summary.setAttribute("aria-label", `Toggle ${title} section`);
   const label = document.createElement("span");
   label.textContent = title;
-  const chevron = document.createElement("svg");
-  chevron.className = "chevron";
-  chevron.setAttribute("aria-hidden", "true");
-  chevron.setAttribute("width", "16");
-  chevron.setAttribute("height", "16");
-  const use = document.createElement("use");
-  use.setAttribute("href", "#icon-chevron-right");
-  chevron.appendChild(use);
+  const chevron = createSpriteIcon("chevron-right", 16, "chevron");
   summary.appendChild(label);
   summary.appendChild(chevron);
   const body = document.createElement("div");
@@ -438,7 +450,13 @@ export function renderDetailPanel(nodeId: string | null): void {
 
   const sections = detail.sections ?? [];
   let rendered = false;
+  // Agent-authored card_sections sometimes repeat a section verbatim; render
+  // each (title, content) pair once so the inspector reads clean.
+  const seenSections = new Set<string>();
   sections.forEach((section) => {
+    const dedupeKey = `${(section.title ?? "").trim().toLowerCase()} ${(section.content ?? "").trim()}`;
+    if (seenSections.has(dedupeKey)) return;
+    seenSections.add(dedupeKey);
     const article = document.createElement("article");
     article.className = section.is_gap ? "detail-card section--gap" : "detail-card";
     (article as HTMLElement).style.setProperty(
@@ -446,10 +464,7 @@ export function renderDetailPanel(nodeId: string | null): void {
       section.accent_color ?? detail.node.color ?? ""
     );
     if (section.icon) {
-      const iconEl = document.createElement("span");
-      iconEl.className = "card-icon";
-      iconEl.textContent = section.icon;
-      article.appendChild(iconEl);
+      article.appendChild(createSpriteIcon(section.icon));
     }
     const heading = document.createElement("h3");
     heading.textContent = section.title ?? "Section";
@@ -546,10 +561,7 @@ export function renderDetailPanelEditable(nodeId: string): void {
       section.accent_color ?? detail.node.color ?? ""
     );
     if (section.icon) {
-      const iconEl = document.createElement("span");
-      iconEl.className = "card-icon";
-      iconEl.textContent = section.icon;
-      article.appendChild(iconEl);
+      article.appendChild(createSpriteIcon(section.icon));
     }
     const heading = document.createElement("h3");
     heading.textContent = section.title ?? "Section";

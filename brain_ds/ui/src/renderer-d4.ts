@@ -195,17 +195,32 @@ export function mount(args: D4MountArgs) {
     sets.forEach((set) => set.forEach((id) => out.add(id)));
     return out;
   };
+  const d4ActiveTheme = (): 'dark' | 'light' => (
+    document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'
+  );
+
+  // Color precedence: ontology type color (theme-aware, shipped per node by the
+  // server) → WCC component palette → default. Type identity must survive the
+  // rest state, so this order is load-bearing for the whole visual language.
   const d4ColorVars = (node: D4Node) => {
-    let hex: string = D4_DEFAULT_COLOR;
-    const cid = node && node.component_id;
-    if (cid !== null && cid !== undefined && cid !== '') {
-      const idx = Math.abs(Number(cid)) % palette.length;
-      if (!Number.isNaN(idx)) hex = palette[idx] || D4_DEFAULT_COLOR;
+    let hex: string | null = null;
+    if (node && node.color) {
+      if (typeof node.color === 'string') {
+        hex = node.color;
+      } else {
+        const theme = d4ActiveTheme();
+        hex = (theme === 'light' ? node.color.light : node.color.dark)
+          || node.color.background || node.color.dark || node.color.light || null;
+      }
     }
-    if (!hex && node && node.color) {
-      if (typeof node.color === 'string') hex = node.color;
-      else hex = node.color.dark || node.color.background || node.color.light || D4_DEFAULT_COLOR;
+    if (!hex) {
+      const cid = node && node.component_id;
+      if (cid !== null && cid !== undefined && cid !== '') {
+        const idx = Math.abs(Number(cid)) % palette.length;
+        if (!Number.isNaN(idx)) hex = palette[idx] || null;
+      }
     }
+    if (!hex) hex = D4_DEFAULT_COLOR;
     const rgb = d4HexToRgb(hex);
     return { color: hex, muted: `rgba(${rgb},0.25)` };
   };

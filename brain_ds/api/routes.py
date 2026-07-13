@@ -25,8 +25,25 @@ from brain_ds.connectors.secrets.source_connections import (
 )
 from brain_ds.mcp.security import ValidationError
 from brain_ds.mcp import tools as mcp_tools
+from brain_ds.ontology import EntityType
 from brain_ds.store.errors import GraphNotFoundError
 from brain_ds.store.graph_store import GraphStore
+from brain_ds.ui.theme import color_for_type
+
+
+def _node_color_payload(node_type: str | None) -> dict[str, str]:
+    """Theme-aware ontology color for a node type.
+
+    Mirrors the shape shipped by ``build_render_context`` so live-sync's
+    wholesale ``/api/nodes`` refresh does not strip type identity from the
+    D4 overlay (the DataSet is cleared and re-added from this payload).
+    """
+    normalized = EntityType.from_string(node_type).value
+    return {
+        "background": color_for_type(normalized, "dark"),
+        "dark": color_for_type(normalized, "dark"),
+        "light": color_for_type(normalized, "light"),
+    }
 
 
 def _algorithmic_search_score(query: str, row: dict[str, Any], rank: int) -> float:
@@ -214,6 +231,7 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
                     "label": item.label,
                     "type": item.type,
                     "supertype": item.supertype,
+                    "color": _node_color_payload(item.type),
                     "details": item.details,
                     "card_sections": item.card_sections,
                     "editable_fields": item.editable_fields,
@@ -236,6 +254,7 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
             store.upsert_node(graph_id, node)
         except GraphNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        node.setdefault("color", _node_color_payload(node.get("type")))
         await event_bus.publish("node.created", graph_id, node)
         return {"graph_id": graph_id, "node": node, "timestamp": _utc_timestamp()}
 
@@ -258,6 +277,7 @@ def create_router(*, store: GraphStore, event_bus: EventBus) -> APIRouter:
         refreshed = next((asdict(item) for item in store.query_nodes(graph_id) if item.id == node_id), None)
         if refreshed is None:
             raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found in graph '{graph_id}'")
+        refreshed.setdefault("color", _node_color_payload(refreshed.get("type")))
         await event_bus.publish("node.updated", graph_id, refreshed)
         return {"graph_id": graph_id, "node": refreshed, "timestamp": _utc_timestamp()}
 

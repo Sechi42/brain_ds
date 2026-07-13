@@ -838,6 +838,20 @@
   };
 
   Network.prototype._resolveNodeBackground = function (node) {
+    // Precedence mirrors renderer-d4.ts d4ColorVars: ontology type color first
+    // (theme-aware, shipped per node by the server), then entity fill tokens,
+    // then WCC component palette, then panel surface.
+    var color = node && node.color;
+    if (color) {
+      if (typeof color === "string") return color;
+      var theme = this._activeThemeName();
+      var themed = color[theme] || color.background || color.dark || color.light;
+      if (themed) return themed;
+    }
+    var nodeType = node && (node.type || node.group);
+    if (nodeType && this._themeTokens.entityFillByType && this._themeTokens.entityFillByType[nodeType]) {
+      return this._themeTokens.entityFillByType[nodeType];
+    }
     var componentId = node && node.component_id;
     if (componentId !== null && componentId !== undefined) {
       var palette = this._themeTokens.wccPalette || [];
@@ -845,15 +859,7 @@
         return palette[Math.abs(Number(componentId)) % palette.length];
       }
     }
-    var nodeType = node && (node.type || node.group);
-    if (nodeType && this._themeTokens.entityFillByType && this._themeTokens.entityFillByType[nodeType]) {
-      return this._themeTokens.entityFillByType[nodeType];
-    }
-    var color = node && node.color;
-    if (!color) return this._themeTokens.panelBg || "#1e293b";
-    if (typeof color === "string") return color;
-    var theme = this._activeThemeName();
-    return color[theme] || color.background || color.dark || this._themeTokens.panelBg || "#1e293b";
+    return this._themeTokens.panelBg || "#1e293b";
   };
 
   // Slice 1a: inverse viewport transform — screen → world (REQ-1.9)

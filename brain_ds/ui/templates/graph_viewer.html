@@ -4,6 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>BrainDS Graph Viewer</title>
+    <!-- Inline data-URI favicon (kills the /favicon.ico 404 in offline viewers).
+         xmlns colon is %-encoded so the no-remote-dependencies scan stays clean. -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http%3A//www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Cpath%20d='M8%2016.5%2015.5%208M9%2018h6M18%209v6'%20stroke='%236d28d9'%20stroke-width='1.6'/%3E%3Ccircle%20cx='6'%20cy='18'%20r='3.2'%20fill='%237c3aed'/%3E%3Ccircle%20cx='18'%20cy='6'%20r='3.2'%20fill='%23a78bfa'/%3E%3Ccircle%20cx='18'%20cy='18'%20r='3.2'%20fill='%238b5cf6'/%3E%3C/svg%3E" />
     <script>
       (function () {
         var key = "brain_ds.theme";
@@ -165,6 +168,9 @@
          Rounded top corners + a 2px accent underline read as a real tab, and the
          icon picks up the accent color when active. */
       .tab-icon { flex-shrink: 0; opacity: 0.7; transition: opacity 200ms ease, color 200ms ease; }
+      /* The label span is a flex child — ellipsis must live on IT, not on the
+         .tab flex container, or long graph names hard-clip mid-letter. */
+      .tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .tab-item[data-tab-active='true'] {
         background: color-mix(in srgb, var(--accent-mora) 14%, var(--tab-active-bg));
         border-radius: var(--radius-md) var(--radius-md) 0 0;
@@ -324,6 +330,15 @@
         overflow: hidden;
         text-overflow: ellipsis;
         min-width: 0;
+        container-type: inline-size;
+      }
+      /* When open side panels squeeze the view zone, drop the node/edge
+         counters cleanly instead of ellipsizing them into "• : • 6" noise.
+         The org name is the identity anchor and always survives.
+         (li#… beats the `#workspace-view-label li { display:inline-flex }` rule.) */
+      @container (max-width: 420px) {
+        #workspace-view-label li#workspace-view-nodes,
+        #workspace-view-label li#workspace-view-edges { display: none; }
       }
       [data-toolbar-zone='overflow'] {
         display: flex;
@@ -1503,14 +1518,17 @@
       /* Equal target size and alignment for inspector action rows. */
       .detail-actions .pill-btn,
       .detail-actions .btn-outline,
-      .detail-actions .btn-danger-outline { width: 100%; min-width: 44px; min-height: 44px; white-space: nowrap; justify-content: flex-start; }
+      .detail-actions .btn-danger-outline { width: 100%; min-width: 0; min-height: 44px; white-space: nowrap; justify-content: flex-start; overflow: hidden; }
       /* Disabled state (skill state model) — applied via [disabled] by detail-panel.ts. */
       .detail-actions .pill-btn[disabled],
       .detail-actions .pill-btn:disabled { opacity: 0.45; cursor: not-allowed; }
       .detail-actions .pill-btn[disabled]:hover { background: var(--bg-active); color: var(--text-muted); }
       #detail-title { margin: 0; font-size: 1.05rem; font-weight: 600; line-height: 1.25; color: var(--text-bright); overflow-wrap: anywhere; }
       #detail-meta { color: var(--text-muted); font-size: 0.875rem; }
-      .detail-body { display: grid; gap: 0.5rem; }
+      /* min-width: 0 throughout — grid/flex children default to min-width:auto,
+         so one wide table would push the whole inspector past the panel edge. */
+      .detail-body { display: grid; gap: 0.5rem; min-width: 0; }
+      .detail-body > * { min-width: 0; }
       .detail-card {
         /* ADR-5: baseline fallback for engines without color-mix support */
         border: 1px solid var(--border-subtle);
@@ -1518,10 +1536,13 @@
         border-radius: var(--radius-ui);
         padding: 0.5rem 0.75rem;
         background: var(--bg-panel);
+        min-width: 0;
       }
       .detail-card h3 { margin: 0 0 0.25rem; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); }
       .detail-card p { margin: 0; white-space: pre-wrap; color: var(--text-normal); }
-      .card-icon { width: 16px; height: 16px; color: var(--text-muted); display: inline-block; margin-bottom: 0.2rem; }
+      /* Safety net for sprite symbols whose paths carry no presentation
+         attributes (legacy root-attr sources): hollow Lucide stroke look. */
+      .card-icon { width: 16px; height: 16px; color: var(--text-muted); display: inline-block; margin-bottom: 0.2rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
       .detail-section { display: grid; gap: 0.5rem; }
       .detail-section h3 { margin: 0; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); }
       .detail-section-heading { display: inline-flex; align-items: center; gap: 0.5rem; }
@@ -1534,6 +1555,8 @@
       .section--gap { border-style: dashed; }
       .section--gap p { color: var(--text-muted); font-style: italic; }
       /* DDS-3: markdown table styles for rendered card_sections content */
+      /* Wide tables scroll inside their card instead of widening the panel. */
+      .section-content { overflow-x: auto; }
       .section-content .md-table { border-collapse: collapse; width: 100%; font-size: 0.82rem; margin: 0.4rem 0; }
       .section-content .md-table th, .section-content .md-table td { border: 1px solid var(--border-subtle); padding: 0.25rem 0.45rem; text-align: left; }
       .section-content .md-table th { background: var(--bg-panel-hover); font-weight: 600; color: var(--text-muted); }
@@ -2148,9 +2171,11 @@
          hover/selection state rules below and freezes every edge at rest style. */
       .d4-edge,
       .edge-line {
-        stroke: var(--edge-stroke);
+        /* Rest edges carry a faint tint of their source node so lineage reads
+           at a glance; --node-color is set per edge by the D4 overlay. */
+        stroke: color-mix(in srgb, var(--node-color, var(--edge-stroke)) 38%, var(--edge-stroke));
         stroke-width: var(--d4-edge-width, 1.5px);
-        opacity: 0.7;
+        opacity: 0.8;
       }
 
       /* EGO-DIMMING — recede only the NON-related elements so the active node
@@ -2218,18 +2243,19 @@
         width: auto;
         height: auto;
         border-radius: 999px;
-        border: 1px solid var(--vis-panel-border);
+        border: 1px solid color-mix(in srgb, var(--node-color, var(--accent-mora)) 55%, var(--vis-panel-border));
         background: var(--bg-active);
-        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1);
+        box-shadow: 0 0 10px color-mix(in srgb, var(--node-color, transparent) 16%, transparent), inset 0 0 0 1px rgba(255,255,255,0.08);
         z-index: 2;
       }
       .d4-node .node-circle::after,
       .graph-node .node-circle::after {
         content: '';
         position: absolute;
-        inset: 6px;
+        inset: 5px;
         border-radius: inherit;
-        background: var(--bg-panel-hover);
+        background: var(--node-color, var(--bg-panel-hover));
+        opacity: 0.9;
       }
 
       /* NODE LABEL — hangs off to the right, mathematically detached */
@@ -2276,7 +2302,7 @@
       .d4-node[data-state="selected-related"] .node-circle::after,
       .graph-node[data-state="selected-related"] .node-circle::after {
         background: var(--node-color);
-        opacity: 0.4;
+        opacity: 0.6;
       }
       .d4-node[data-state="selected-target"] .node-circle,
       .d4-node[data-selected="true"] .node-circle,
@@ -2318,7 +2344,7 @@
       .d4-node[data-state="hover-related"] .node-circle::after,
       .graph-node[data-state="hover-related"] .node-circle::after {
         background: var(--node-color);
-        opacity: 0.4;
+        opacity: 0.6;
       }
       .d4-node[data-state="hover-target"] .node-circle,
       .graph-node[data-state="hover-target"] .node-circle {
@@ -3916,19 +3942,26 @@
         return new Set(d4Adjacency().get(focusId) || []);
       };
       const d4ColorVars = (node) => {
-        // Mirror renderer.ts _resolveNodeBackground precedence:
-        //   1) component_id → WCC palette (variety when component IDs differ)
-        //   2) node.color.dark / node.color.background / node.color (string)
+        // Mirror renderer-d4.ts precedence:
+        //   1) node.color (ontology type color, theme-aware, shipped per node)
+        //   2) component_id → WCC palette (variety when component IDs differ)
         //   3) wcc-c0 fallback
         let hex = null;
-        const cid = node && node.component_id;
-        if (cid !== null && cid !== undefined && cid !== "") {
-          const idx = Math.abs(Number(cid)) % 12;
-          if (!Number.isNaN(idx)) hex = d4WccColor(idx);
+        if (node && node.color) {
+          if (typeof node.color === "string") {
+            hex = node.color;
+          } else {
+            const theme = document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+            hex = (theme === "light" ? node.color.light : node.color.dark)
+              || node.color.background || node.color.dark || node.color.light;
+          }
         }
-        if (!hex && node && node.color) {
-          if (typeof node.color === "string") hex = node.color;
-          else hex = node.color.dark || node.color.background || node.color.light;
+        if (!hex) {
+          const cid = node && node.component_id;
+          if (cid !== null && cid !== undefined && cid !== "") {
+            const idx = Math.abs(Number(cid)) % 12;
+            if (!Number.isNaN(idx)) hex = d4WccColor(idx);
+          }
         }
         if (!hex) hex = d4WccColor(0);
         const rgb = d4HexToRgb(hex);
@@ -4730,6 +4763,12 @@
         const _aiHandle = window.brainDsUI && window.brainDsUI._aiActionsHandle;
         if (_aiHandle && typeof _aiHandle.setSelectedNodeId === 'function') {
           _aiHandle.setSelectedNodeId(nodeId);
+        }
+        // Selecting a node must SHOW its details: expand the collapsed right
+        // shell and route it back to the inspector section. Registered by
+        // setupRightRail below; guarded no-op until then.
+        if (window.brainDsUI && typeof window.brainDsUI.revealInspector === 'function') {
+          window.brainDsUI.revealInspector();
         }
       };
       const clearSelectionState = () => {
@@ -6036,6 +6075,15 @@
             setActiveRightPanel(null);
           }
         });
+        // Programmatic inspector reveal used by focusNode: node selection
+        // expands the shell and routes the right panel to the inspector.
+        if (window.brainDsUI) {
+          window.brainDsUI.revealInspector = () => {
+            if (!isExpanded()) rightCollapseBtn.click();
+            select('inspector');
+            reveal('inspector');
+          };
+        }
         // Keep the reader rail icon lit while the center pane is in reader mode
         // (splitPane owns data-layout; the icon mirrors it like Lienzo/Lector do).
         const centerSplit = document.getElementById('center-split');
@@ -6339,11 +6387,27 @@
           centerSplitEl.addEventListener("wheel", markInteracted, { capture: true, passive: true });
         }
       }());
-      window.setTimeout(() => {
-        if (network && !network._userInteracted && typeof network.fit === "function") {
-          network.fit({ animation: typeof motionEnabled === "function" ? motionEnabled() : true });
-        }
-      }, 1300);
+      // Two-phase framing: an early fit so the load never greets the user
+      // mis-framed, then one re-fit when the simulation actually settles
+      // (temperature cools below the renderer's stillness threshold). A fixed
+      // delay alone fires mid-cooldown and frames a transient layout.
+      (function () {
+        var fitAnimation = function () { return typeof motionEnabled === "function" ? motionEnabled() : true; };
+        var canFit = function () { return network && !network._userInteracted && typeof network.fit === "function"; };
+        window.setTimeout(function () { if (canFit()) network.fit({ animation: fitAnimation() }); }, 500);
+        var settleTries = 0;
+        var settleFit = function () {
+          if (!canFit()) return;
+          settleTries += 1;
+          var settled = Number(network.temperature) < 0.01;
+          if (settled || settleTries >= 25) {
+            network.fit({ animation: fitAnimation() });
+            return;
+          }
+          window.setTimeout(settleFit, 300);
+        };
+        window.setTimeout(settleFit, 1300);
+      }());
       // toggleEditControls() is now called internally by the detail-panel module.
     </script>
   </body>

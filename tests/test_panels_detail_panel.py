@@ -19,6 +19,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
+from brain_ds.ui.theme import color_for_type
+from brain_ds.api.events import EventBus
+from brain_ds.api.routes import _node_color_payload
+from brain_ds.api.server import create_app
+from brain_ds.store.graph_store import GraphStore
+
 ROOT = Path(__file__).resolve().parent.parent
 UI_DIR = ROOT / "brain_ds" / "ui"
 SRC_DIR = UI_DIR / "src"
@@ -27,6 +35,62 @@ TEMPLATE_PATH = (
     Path(__file__).resolve().parent.parent
     / "brain_ds" / "ui" / "templates" / "graph_viewer.html"
 )
+
+
+class TestNodeColorPayloadWireContract(unittest.TestCase):
+    """REL-001: node API responses preserve theme-aware type color metadata."""
+
+    def test_data_source_color_payload_is_stable_across_node_responses(self) -> None:
+        expected_color = {
+            "background": color_for_type("Data Source", "dark"),
+            "dark": color_for_type("Data Source", "dark"),
+            "light": color_for_type("Data Source", "light"),
+        }
+        self.assertEqual(_node_color_payload("Data Source"), expected_color)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            store_dir = tmp_path / ".brain_ds"
+            store_dir.mkdir()
+            store = GraphStore(str(store_dir / "store.db"), allow_cross_thread=True)
+            try:
+                store.meta_repo.save_graph_meta(
+                    graph_id="g1",
+                    workspace_root=str(tmp_path),
+                    workspace_path=str(tmp_path),
+                    project="proj",
+                    org="org",
+                    schema_version="2.0.0",
+                    contract_version="1.0.0",
+                    node_count=0,
+                    edge_count=0,
+                    imported_from=None,
+                    generated_at="",
+                )
+                client = TestClient(create_app(project_root=tmp_path, store=store, event_bus=EventBus()))
+
+                created = client.post(
+                    "/api/nodes",
+                    json={
+                        "graph_id": "g1",
+                        "node": {"id": "source-1", "label": "ERP", "type": "Data Source"},
+                    },
+                )
+                self.assertEqual(created.status_code, 201, created.text)
+                self.assertEqual(created.json()["node"]["color"], expected_color)
+
+                listed = client.get("/api/nodes?graph_id=g1")
+                self.assertEqual(listed.status_code, 200, listed.text)
+                self.assertEqual(listed.json()["nodes"][0]["color"], expected_color)
+
+                patched = client.patch(
+                    "/api/nodes/source-1",
+                    json={"graph_id": "g1", "changes": {"label": "ERP production"}},
+                )
+                self.assertEqual(patched.status_code, 200, patched.text)
+                self.assertEqual(patched.json()["node"]["color"], expected_color)
+            finally:
+                store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +341,7 @@ class FakeElement {
 class FakeDocument {
   constructor() { this.byId = new Map(); this.body = this.createElement('body'); }
   createElement(tag) { const el = new FakeElement(tag); el.ownerDocument = this; return el; }
+  createElementNS(_ns, tag) { return this.createElement(tag); }
   getElementById(id) { return this.byId.get(id) ?? null; }
   register(el, id) { el.id = id; this.byId.set(id, el); this.body.appendChild(el); return el; }
 }
