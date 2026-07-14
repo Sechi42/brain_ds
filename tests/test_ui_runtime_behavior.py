@@ -26,6 +26,34 @@ def _run_node(code: str, *args: str) -> dict:
 
 
 class TestUiRuntimeBehavior(unittest.TestCase):
+    def test_hierarchy_branch_layout_isolated_and_cycle_safe(self):
+        """Hierarchy branches retain only the chosen node, ancestors, and descendants."""
+        code = r'''
+const fs = require("fs"), os = require("os"), path = require("path"), cp = require("child_process");
+const repo = process.cwd(), out = path.join(os.tmpdir(), "hierarchy-layout-test.cjs");
+cp.execFileSync("pnpm", ["--dir", "brain_ds/ui", "exec", "esbuild", "src/hierarchy-layout.ts", "--bundle", "--platform=node", "--format=cjs", "--outfile=" + out], { cwd: repo, stdio: "pipe" });
+const { buildForest, branchFor, layout } = require(out);
+const nodes = [
+  { id: "root", label: "Root" }, { id: "chosen", label: "Chosen", parent_id: "root" },
+  { id: "leaf", label: "Leaf", parent_id: "chosen" }, { id: "other", label: "Other" },
+];
+const branch = branchFor(buildForest(nodes, []), "chosen");
+const cycle = buildForest([{ id: "a", parent_id: "b" }, { id: "b", parent_id: "a" }], []);
+const positioned = layout(branch);
+const deep = Array.from({ length: 80 }, (_, index) => ({ id: "d" + index, parent_id: index ? "d" + (index - 1) : null }));
+const deepLayout = layout(branchFor(buildForest(deep, []), "d0"));
+const empty = branchFor(buildForest([], []), "missing");
+console.log(JSON.stringify({ ids: branch.nodes.map((node) => node.id), edges: branch.edges, cycleRoots: cycle.roots, width: positioned.width, positions: positioned.positions.length, deepWidth: deepLayout.width, empty: empty.nodes.length }));
+'''
+        out = _run_node(code)
+        self.assertEqual(out["ids"], ["root", "chosen", "leaf"])
+        self.assertEqual(out["edges"], [["root", "chosen"], ["chosen", "leaf"]])
+        self.assertEqual(len(out["cycleRoots"]), 1)
+        self.assertGreater(out["width"], 0)
+        self.assertEqual(out["positions"], 3)
+        self.assertGreater(out["deepWidth"], out["width"])
+        self.assertEqual(out["empty"], 0)
+
     def test_runtime_network_select_nodes_contract(self):
         """Renderer Network must expose vis-compatible selectNodes(ids)."""
         code = r'''
