@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { applyTypeColor } from "../type-color";
 /**
  * panels/filter-panel.ts
  *
@@ -78,14 +79,6 @@ function _addListener(el: EventTarget, type: string, fn: EventListener): void {
  * CSS resolves --type-color-dark / --type-color-light per [data-theme], so
  * theme switches recolor swatches without a re-render.
  */
-function _applyTypeColor(el: HTMLElement, color: TypeEntry["color"]): void {
-  if (!el || !el.style || typeof el.style.setProperty !== "function") return;
-  const dark = typeof color === "string" ? color : (color?.dark || color?.background || color?.light || "");
-  const light = typeof color === "string" ? color : (color?.light || color?.dark || color?.background || "");
-  if (dark) el.style.setProperty("--type-color-dark", dark);
-  if (light) el.style.setProperty("--type-color-light", light);
-}
-
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /**
@@ -130,7 +123,7 @@ export function mount(deps: FilterPanelDeps): void {
 
       const chip = document.createElement("span");
       chip.className = "chip";
-      _applyTypeColor(chip, t.color);
+      applyTypeColor(chip, t.color);
 
       label.appendChild(cb);
       label.appendChild(chip);
@@ -150,11 +143,11 @@ export function mount(deps: FilterPanelDeps): void {
       const legendBtn = document.createElement("button");
       legendBtn.type = "button";
       legendBtn.setAttribute("aria-pressed", "true");
-      legendBtn.title = `Mostrar u ocultar ${t.type}`;
+      legendBtn.title = `Toggle ${t.type} visibility`;
       const legendChip = document.createElement("span");
       legendChip.className = "chip";
       legendChip.setAttribute("aria-hidden", "true");
-      _applyTypeColor(legendChip, t.color);
+      applyTypeColor(legendChip, t.color);
       const legendLabel = document.createElement("span");
       legendLabel.className = "legend-label";
       legendLabel.textContent = t.type;
@@ -230,6 +223,14 @@ export function getTypeCheckboxes(): Map<string, HTMLInputElement> {
 export function setAllChecked(checked: boolean): void {
   _typeCheckboxes.forEach((cb) => { cb.checked = checked; });
   _legendButtons.forEach((btn) => { btn.setAttribute("aria-pressed", checked ? "true" : "false"); });
+}
+
+export function setTypeEnabled(typeName: string, enabled: boolean): void {
+  const checkbox = _typeCheckboxes.get(typeName);
+  if (checkbox) checkbox.checked = enabled;
+  const button = _legendButtons.get(typeName);
+  if (button) button.setAttribute("aria-pressed", enabled ? "true" : "false");
+  if (_deps) _deps.onToggle(typeName, enabled);
 }
 
 /**

@@ -322,6 +322,28 @@ class TestPrBFilterPolishContracts(unittest.TestCase):
         )
         self.assertNotIn("filter-toggle", filter_src)
 
+    def test_shared_type_color_resolver_is_the_only_chip_color_writer(self):
+        """Filter and tree chips must share the same theme-aware color seam."""
+        resolver = REPO / "brain_ds" / "ui" / "src" / "type-color.ts"
+        self.assertTrue(resolver.exists(), "Slice 2 must add the shared type-color resolver")
+        resolver_src = resolver.read_text(encoding="utf-8")
+        tree_src = TREE_MODULE.read_text(encoding="utf-8")
+        filter_src = FILTER_PANEL_MODULE.read_text(encoding="utf-8")
+        self.assertIn("applyTypeColor", resolver_src)
+        self.assertIn("type-color", tree_src)
+        self.assertIn("type-color", filter_src)
+        self.assertNotIn("function applyTypeColor", tree_src)
+        self.assertNotIn("function _applyTypeColor", filter_src)
+
+    def test_canvas_legend_uses_shared_color_contract_and_accessible_state(self):
+        """The always-available canvas legend needs the same colors and state as filters."""
+        template_src = TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("refreshCanvasLegend", template_src)
+        self.assertIn("aria-expanded", template_src)
+        self.assertIn("is-hidden-type", template_src)
+        self.assertIn("--type-color-dark", template_src)
+        self.assertIn("--type-color-light", template_src)
+
 
 class TestPR3BugGuardrailsContracts(unittest.TestCase):
     """Guardrails for user-reported interaction bugs before/within PR3."""

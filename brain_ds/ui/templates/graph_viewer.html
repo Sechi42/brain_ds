@@ -5096,21 +5096,7 @@
         const dot = document.createElement("span");
         dot.className = "color-dot";
         dot.setAttribute("aria-hidden", "true");
-        // Resolve the ontology color pair directly from the node payload so the
-        // dot always matches the node's canvas color and follows theme switches
-        // via CSS (same --type-color-* contract as the legend/filter chips).
-        const c = node.color;
-        if (dot.style && typeof dot.style.setProperty === "function") {
-          if (typeof c === "string") {
-            dot.style.setProperty("--type-color-dark", c);
-            dot.style.setProperty("--type-color-light", c);
-          } else if (c && typeof c === "object") {
-            const darkHex = c.dark || c.background || c.light;
-            const lightHex = c.light || c.dark || c.background;
-            if (darkHex) dot.style.setProperty("--type-color-dark", darkHex);
-            if (lightHex) dot.style.setProperty("--type-color-light", lightHex);
-          }
-        }
+        window.brainDsUI.typeColor.applyTypeColor(dot, node.color);
         detailTitle.prepend(dot);
       };
       // renderDetailPanel — thin delegation shim to the bundle (PR 3).
@@ -5573,27 +5559,20 @@
         const renderList = () => {
           listEl.textContent = "";
           flatTypes.forEach((t) => {
-            const item = document.createElement("div");
+            const item = document.createElement("button");
+            item.type = "button";
             item.className = "canvas-legend-item";
+            item.setAttribute("aria-pressed", String(!hiddenTypes.has(t.type)));
+            item.setAttribute("aria-label", `Toggle ${t.type} visibility`);
+            item.addEventListener("click", () => window.brainDsUI.filterPanel.setTypeEnabled(t.type, hiddenTypes.has(t.type)));
             if (hiddenTypes.has(t.type)) item.classList.add("is-hidden-type");
             item.innerHTML = '<span class="chip" aria-hidden="true"></span><span class="canvas-legend-label"></span><span class="canvas-legend-count"></span>';
             const labelEl = item.querySelector(".canvas-legend-label");
             if (labelEl) labelEl.textContent = String(t.type);
             const countEl = item.querySelector(".canvas-legend-count");
             if (countEl) countEl.textContent = String(t.count ?? "");
-            const c = t.color;
             const chipEl = item.querySelector(".chip");
-            if (chipEl && chipEl.style && typeof chipEl.style.setProperty === "function") {
-              if (typeof c === "string") {
-                chipEl.style.setProperty("--type-color-dark", c);
-                chipEl.style.setProperty("--type-color-light", c);
-              } else if (c && typeof c === "object") {
-                const darkHex = c.dark || c.background || c.light;
-                const lightHex = c.light || c.dark || c.background;
-                if (darkHex) chipEl.style.setProperty("--type-color-dark", darkHex);
-                if (lightHex) chipEl.style.setProperty("--type-color-light", lightHex);
-              }
-            }
+            window.brainDsUI.typeColor.applyTypeColor(chipEl, t.color);
             listEl.appendChild(item);
           });
         };
@@ -5606,8 +5585,8 @@
         toggleBtn.addEventListener("click", () => {
           setOpen(host.classList.contains("is-collapsed"));
         });
-        let initialOpen = true;
-        try { initialOpen = localStorage.getItem(STORAGE_KEY) !== "0"; } catch (e) {}
+        let initialOpen = false;
+        try { initialOpen = localStorage.getItem(STORAGE_KEY) === "1"; } catch (e) {}
         setOpen(initialOpen);
         renderList();
         refreshCanvasLegend = renderList;

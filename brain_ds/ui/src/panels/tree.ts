@@ -1,4 +1,4 @@
-type ThemeColor = string | { background?: string; dark?: string; light?: string };
+import { applyTypeColor, type TypeColor } from "../type-color";
 
 type TreeNode = {
   id: string;
@@ -7,12 +7,12 @@ type TreeNode = {
   supertype?: string;
   parent_id?: string | null;
   depth?: number;
-  color?: ThemeColor;
+  color?: TypeColor;
 };
 
 type MountDeps = {
   nodes: TreeNode[];
-  typeGroups?: Array<{ supertype: string; types: Array<{ type: string; count?: number; color?: ThemeColor }> }>;
+  typeGroups?: Array<{ supertype: string; types: Array<{ type: string; count?: number; color?: TypeColor }> }>;
   onFilter: (nodeId: string | null) => void;
   onActiveLabel?: (label: string) => void;
   onNodeFocus?: (nodeId: string) => void;
@@ -20,15 +20,7 @@ type MountDeps = {
 
 const CHEVRON_SVG = '<svg aria-hidden="true" width="14" height="14"><use href="#icon-chevron-right"/></svg>';
 
-function applyTypeColor(el: HTMLElement, color: ThemeColor | undefined): void {
-  if (!color || !el || !el.style || typeof el.style.setProperty !== "function") return;
-  const dark = typeof color === "string" ? color : (color.dark || color.background || color.light || "");
-  const light = typeof color === "string" ? color : (color.light || color.dark || color.background || "");
-  if (dark) el.style.setProperty("--type-color-dark", dark);
-  if (light) el.style.setProperty("--type-color-light", light);
-}
-
-function makeChip(color: ThemeColor | undefined): HTMLSpanElement {
+function makeChip(color: TypeColor): HTMLSpanElement {
   const chip = document.createElement("span");
   chip.className = "chip";
   chip.setAttribute("aria-hidden", "true");
