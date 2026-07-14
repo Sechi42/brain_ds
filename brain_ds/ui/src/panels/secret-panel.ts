@@ -317,7 +317,7 @@ async function _bindSecretToDataSource(handle: SecretHandle, sourceId: string): 
     if (!res.ok || !data.binding) return { ok: false, message: _safeBackendMessage(data, 'No se pudo vincular el secreto al Data Source.') };
     _sourceLifecycle.set(sourceId, data.binding);
     _deps.onBound?.(sourceId, { validation_status: data.binding.validation_status, provider_kind: data.binding.provider_kind ?? handle.kind });
-    return { ok: true, message: 'Binding created. Validate before documentation.', binding: data.binding };
+    return { ok: true, message: 'Vínculo creado. Valida antes de documentar.', binding: data.binding };
   } catch (_e) {
     return { ok: false, message: 'No se pudo vincular: error de red.' };
   }
@@ -440,8 +440,8 @@ function _renderBindActions(handle: SecretHandle): string {
       <select id="${selectId}" class="secret-input secret-bind-select" data-bind-secret-handle="${escapedHandle}" aria-label="Data Source para ${escapedHandle}">
         ${options}
       </select>
-      <button type="button" class="secret-bind-btn pill-btn btn-outline" data-bind-secret-handle="${escapedHandle}" data-bind-source-id="" aria-label="Bind ${escapedHandle} to selected Data Source">
-        Bind to Data Source
+      <button type="button" class="secret-bind-btn pill-btn btn-outline" data-bind-secret-handle="${escapedHandle}" data-bind-source-id="" aria-label="Vincular ${escapedHandle} al Data Source seleccionado">
+        Vincular a Data Source
       </button>
       ${statusHtml}
     </div>
@@ -457,16 +457,16 @@ function _renderLifecycle(): HTMLElement {
   void LIFECYCLE_REFERENCE_STATES;
   const card = document.createElement('section');
   card.className = 'source-lifecycle-card';
-  card.setAttribute('aria-label', 'Source connection lifecycle');
+  card.setAttribute('aria-label', 'Ciclo de vida de conexiones de fuente');
   const title = document.createElement('h4');
-  title.textContent = 'Source connection lifecycle';
+  title.textContent = 'Ciclo de vida de la conexión';
   card.appendChild(title);
 
   const sources = _deps?.dataSources ?? [];
   if (!sources.length) {
     const empty = document.createElement('p');
     empty.className = 'secret-empty-meta';
-    empty.textContent = 'No Data Sources are available for binding.';
+    empty.textContent = 'No hay Data Sources disponibles para vincular.';
     card.appendChild(empty);
     return card;
   }
@@ -508,14 +508,14 @@ function _renderLifecycle(): HTMLElement {
     validateBtn.type = 'button';
     validateBtn.className = 'pill-btn btn-outline source-lifecycle-validate';
     validateBtn.setAttribute('data-lifecycle-validate-source', source.id);
-    validateBtn.setAttribute('aria-label', `Validate binding for ${source.label || source.id}`);
-    validateBtn.textContent = 'Validate binding';
+    validateBtn.setAttribute('aria-label', `Validar vínculo de ${source.label || source.id}`);
+    validateBtn.textContent = 'Validar vínculo';
     const unbindBtn = document.createElement('button');
     unbindBtn.type = 'button';
     unbindBtn.className = 'pill-btn btn-outline source-lifecycle-unbind';
     unbindBtn.setAttribute('data-lifecycle-unbind-source', source.id);
-    unbindBtn.setAttribute('aria-label', `Unbind source ${source.label || source.id}`);
-    unbindBtn.textContent = 'Unbind source';
+    unbindBtn.setAttribute('aria-label', `Desvincular fuente ${source.label || source.id}`);
+    unbindBtn.textContent = 'Desvincular fuente';
     actions.appendChild(validateBtn);
     actions.appendChild(unbindBtn);
     row.appendChild(actions);
@@ -595,7 +595,7 @@ function _renderAddForm(): HTMLElement {
     </div>
     <div id="secret-kind-fields" class="secret-kind-fields"></div>
     <div id="secret-raw-value-row" class="secret-field-row">
-      <label id="secret-new-value-label" for="secret-new-value">Credential value</label>
+      <label id="secret-new-value-label" for="secret-new-value">Valor de la credencial</label>
       <textarea id="secret-new-value" class="secret-input" autocomplete="off" placeholder="••••" rows="7" spellcheck="false" required></textarea>
     </div>
     <button type="submit" class="pill-btn btn-outline secret-add-btn">
@@ -615,7 +615,7 @@ function _updateRawValueVisibility(form: HTMLElement, kind: string): void {
   // requires_raw_value defaults to true when absent
   const requiresRawValue = !contract || contract.requires_raw_value !== false;
   rawValueInput.placeholder = contract?.raw_value_placeholder ?? '••••';
-  if (rawValueLabel) rawValueLabel.textContent = contract?.raw_value_label ?? 'Credential value';
+  if (rawValueLabel) rawValueLabel.textContent = contract?.raw_value_label ?? 'Valor de la credencial';
 
   if (requiresRawValue) {
     rawValueRow.style.display = '';
@@ -803,7 +803,7 @@ function _renderPanel(): void {
         badge.textContent = result.message;
       }
       bindBtn.disabled = false;
-      bindBtn.textContent = 'Bind to Data Source';
+      bindBtn.textContent = 'Vincular a Data Source';
     });
   });
 

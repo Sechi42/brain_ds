@@ -173,7 +173,9 @@ class TestUiPanelChromePolishSidebar(unittest.TestCase):
     def test_left_rail_icons_duplicate_block_removed(self):
         self.assertEqual(self.template_text.count(".left-rail-icons {"), 1)
 
-    def test_secret_panel_has_roomier_inset_spacing(self):
+    def test_secret_panel_is_flat_full_width_section(self):
+        # Obsidian workspace frame: side panels carry NO floating cards — the
+        # secret panel fills the shell as a flat section (no border/shadow island).
         secret_panel = re.search(r"#secret-panel\s*\{([^}]*)\}", self.template_text)
         secret_list = re.search(r"\.secret-list\s*\{([^}]*)\}", self.template_text)
         secret_form = re.search(r"\.secret-form\s*\{([^}]*)\}", self.template_text)
@@ -182,7 +184,11 @@ class TestUiPanelChromePolishSidebar(unittest.TestCase):
         self.assertIsNotNone(secret_list, "Missing .secret-list CSS rule")
         self.assertIsNotNone(secret_form, "Missing .secret-form CSS rule")
 
-        self.assertIn("margin: 1rem", secret_panel.group(1))
+        block = secret_panel.group(1)
+        self.assertIn("width: 100%", block)
+        self.assertIn("border: none", block)
+        self.assertIn("box-shadow: none", block)
+        self.assertIn("background: transparent", block)
         self.assertIn("padding: 0.75rem 1rem", secret_list.group(1))
         self.assertIn("padding: 0.75rem 1rem 1rem", secret_form.group(1))
 
@@ -316,9 +322,11 @@ class TestUiPanelChromePolishSecretPanel(unittest.TestCase):
         self.assertIn("Sin metadatos", self.secret_panel_text)
         self.assertIn("Identificador", self.secret_panel_text)
         self.assertIn("Tipo", self.secret_panel_text)
-        self.assertIn("Credential value", self.secret_panel_text)
+        self.assertIn("Valor de la credencial", self.secret_panel_text)
         self.assertIn("Seleccionar tipo", self.secret_panel_text)
         self.assertIn("Eliminar secreto", self.secret_panel_text)
+        self.assertIn("Validar vínculo", self.secret_panel_text)
+        self.assertIn("Desvincular fuente", self.secret_panel_text)
 
     def test_secret_panel_bundle_stays_in_sync_with_spanish_source_strings(self):
         self.assertIn("Agregar secreto", self.viewer_bundle_text)
@@ -327,12 +335,14 @@ class TestUiPanelChromePolishSecretPanel(unittest.TestCase):
         self.assertIn("Sin metadatos", self.viewer_bundle_text)
         self.assertIn("Identificador", self.viewer_bundle_text)
         self.assertIn("Tipo", self.viewer_bundle_text)
-        self.assertIn("Credential value", self.viewer_bundle_text)
+        self.assertIn("Valor de la credencial", self.viewer_bundle_text)
         self.assertIn("Seleccionar tipo", self.viewer_bundle_text)
         self.assertIn("Eliminar secreto", self.viewer_bundle_text)
         self.assertNotIn("Secret settings", self.viewer_bundle_text)
         self.assertNotIn("Add secret", self.viewer_bundle_text)
         self.assertNotIn("Remove secret", self.viewer_bundle_text)
+        self.assertNotIn("Validate binding", self.viewer_bundle_text)
+        self.assertNotIn("Unbind source", self.viewer_bundle_text)
 
     def test_secret_panel_template_strings_are_localized_in_graph_viewer(self):
         self.assertIn('aria-label="Configuración de secretos"', self.template_text)
@@ -2435,13 +2445,15 @@ class TestWorkspaceShellRemediationOldUiRemoval(unittest.TestCase):
         self.assertRegex(self.template_text, r"\.search-input:focus-visible\s*\{[^}]*outline-offset:\s*2px")
 
     def test_d2_segment_active_state_uses_tokens(self):
-        """Phase 2: active segment style must avoid hardcoded colors and use tokens."""
+        """Active segment style must avoid hardcoded colors and speak the shared
+        mora selection language (same as rail icons / toolbar aria-pressed)."""
         match = re.search(r"\.segment-btn\[aria-checked='true'\]\s*\{([^}]*)\}", self.template_text)
         self.assertIsNotNone(match, "Expected .segment-btn[aria-checked='true'] CSS block")
         segment_active = match.group(1)
         self.assertNotRegex(segment_active, r"#(?:[0-9a-fA-F]{3,6})\b")
         self.assertNotRegex(segment_active, r"rgba?\(")
-        self.assertIn("background: var(--bg-active)", segment_active)
+        self.assertIn("background: var(--accent-mora-muted)", segment_active)
+        self.assertIn("color: var(--accent-mora)", segment_active)
 
     def test_right_rail_has_no_dead_icon_entries(self):
         self.assertNotIn('data-catalog-id="gear"', self.template_text)
@@ -2690,13 +2702,17 @@ class TestWorkspaceShellPr3InspectorParity(unittest.TestCase):
         )
 
     def test_color_dot_color_reuses_d4_resolution(self):
-        """The dot color MUST reuse the d4 overlay color precedence (single source of
-        truth for node color), set via the --node-color custom property."""
+        """The dot color MUST resolve from the node's ontology color payload —
+        the same source the d4 overlay prefers first — as the theme-aware
+        --type-color-dark / --type-color-light custom-property pair."""
         self.assertRegex(
             self.template_text,
-            r"decorateDetailTitleColorDot[\s\S]*?d4ColorVars[\s\S]*?setProperty\(\s*[\"']--node-color",
-            "color-dot MUST derive --node-color via d4ColorVars (renderer color precedence)",
+            r"decorateDetailTitleColorDot[\s\S]*?setProperty\(\s*[\"']--type-color-dark[\s\S]*?setProperty\(\s*[\"']--type-color-light",
+            "color-dot MUST set the theme-aware --type-color pair from node.color",
         )
+        color_dot = re.search(r"\.color-dot\s*\{([^}]*)\}", self.template_text)
+        self.assertIsNotNone(color_dot, "Expected .color-dot CSS block")
+        self.assertIn("var(--type-color-dark", color_dot.group(1))
 
     # ── 3.4 Inspector enter animation (inspectorEnter, translateX fade-in) ───
 
@@ -2724,15 +2740,17 @@ class TestWorkspaceShellPr3InspectorParity(unittest.TestCase):
         )
 
     def test_inspector_enter_respects_reduced_motion(self):
-        """The reduced-motion media block MUST disable inspectorEnter / detail-body animation."""
-        rm = re.search(r"@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\n      \}", self.template_text)
-        self.assertIsNotNone(rm, "Could not find prefers-reduced-motion media block")
-        block = rm.group(1)
-        self.assertRegex(
-            block,
+        """SOME reduced-motion media block MUST disable inspectorEnter / detail-body
+        animation (the template now carries several scoped reduce blocks)."""
+        blocks = re.findall(r"@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\n      \}", self.template_text)
+        self.assertTrue(blocks, "Could not find any prefers-reduced-motion media block")
+        pattern = re.compile(
             r"(#detail-body|\.detail-panel|\.inspector-empty-state)[^{}]*\{[^}]*animation:\s*none|"
-            r"#detail-body[^{}]*\{[^}]*animation:\s*none",
-            "reduced-motion block MUST disable the inspector enter animation",
+            r"#detail-body[^{}]*\{[^}]*animation:\s*none"
+        )
+        self.assertTrue(
+            any(pattern.search(block) for block in blocks),
+            "a reduced-motion block MUST disable the inspector enter animation",
         )
 
     # ── 3.5 Mount-contract preservation ──────────────────────────────────────
@@ -3056,6 +3074,15 @@ class TestWorkspaceControlsWiring(unittest.TestCase):
         self.assertIn("aria-expanded", m.group(0),
                       ".panel-collapse-right MUST have aria-expanded")
 
+    def test_right_panel_restore_skips_first_load_collapse(self):
+        """A restored inspector state must not be replaced by first-load initialization."""
+        self.assertIn("let workspaceStateRestored = false;", self.html)
+        self.assertIn("workspaceStateRestored = window.brainDsUI.workspaceState.restore(activeGraphId) === true;", self.html)
+        self.assertRegex(
+            self.html,
+            r"if \(workspaceStateRestored\) \{[\s\S]*?\} else if \(typeof rightCollapseBtn\.click === \"function\"\) rightCollapseBtn\.click\(\);",
+        )
+
     def test_overflow_trigger_has_aria_haspopup_menu(self):
         """Overflow trigger MUST carry aria-haspopup='menu' for a11y contract."""
         import re
@@ -3317,3 +3344,38 @@ class TestPR2LayoutContainment(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestChromeStatePersistenceContracts(unittest.TestCase):
+    """Slice 1: graph-keyed workspace state survives tab navigation."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.ui_root = Path(__file__).resolve().parent.parent / "brain_ds" / "ui"
+
+    def test_workspace_state_module_persists_graph_keyed_control_state(self):
+        """Each graph needs an isolated session-backed workspace state contract."""
+        state_source = self.ui_root / "src" / "workspace-state.ts"
+        self.assertTrue(state_source.exists(), "workspace-state.ts must provide graph-keyed persistence")
+        source = state_source.read_text(encoding="utf-8")
+        self.assertIn("sessionStorage", source)
+        self.assertIn("graphId", source)
+        self.assertIn("scrollTop", source)
+        self.assertIn("details", source)
+        self.assertIn("controls", source)
+
+    def test_tabs_capture_workspace_state_before_tab_navigation(self):
+        """Switching graphs cannot discard the outgoing tab's filters or panel state."""
+        tabs_source = (self.ui_root / "src" / "tabs.ts").read_text(encoding="utf-8")
+        capture_at = tabs_source.find("workspaceState.capture")
+        navigate_at = tabs_source.find("window.location.href")
+        self.assertGreaterEqual(capture_at, 0, "tabs must capture workspace state before navigation")
+        self.assertGreater(navigate_at, capture_at, "capture must occur before the next graph is loaded")
+
+    def test_toolbar_has_responsive_secondary_action_contract(self):
+        """Narrow widths retain nav/view/overflow while secondary actions move out safely."""
+        template = (self.ui_root / "templates" / "graph_viewer.html").read_text(encoding="utf-8")
+        chrome_source = (self.ui_root / "src" / "workspace-chrome.ts").read_text(encoding="utf-8")
+        self.assertIn("data-toolbar-secondary", template)
+        self.assertIn("ResizeObserver", chrome_source)
+        self.assertIn("data-toolbar-secondary", chrome_source)

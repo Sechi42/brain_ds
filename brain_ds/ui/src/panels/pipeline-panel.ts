@@ -25,10 +25,10 @@ let _panelEl: HTMLElement | null = null;
 let _listeners: Array<{ target: EventTarget; type: string; handler: EventListenerOrEventListenerObject }> = [];
 
 const STATUS_LABELS: Record<PipelineStageStatus, string> = {
-  pending: 'Pending',
-  running: 'Running',
-  done: 'Done',
-  blocked: 'Blocked',
+  pending: 'Pendiente',
+  running: 'En curso',
+  done: 'Completada',
+  blocked: 'Bloqueada',
   error: 'Error',
 };
 
@@ -49,7 +49,7 @@ function _renderChip(status: PipelineStageStatus): HTMLElement {
   const chip = document.createElement('span');
   chip.className = `pipeline-stage-chip pipeline-stage-chip--${status}`;
   chip.textContent = STATUS_LABELS[status];
-  chip.setAttribute('aria-label', `${STATUS_LABELS[status]} stage`);
+  chip.setAttribute('aria-label', `Etapa ${STATUS_LABELS[status].toLowerCase()}`);
   return chip;
 }
 
@@ -76,9 +76,9 @@ function _renderPanel(): void {
         <rect x="9" y="14" width="6" height="6" rx="1" />
         <path d="M9 7h6M12 10v4" />
       </svg>
-      Pipeline stages
+      Etapas del pipeline
     </h3>
-    <span class="pipeline-panel-badge">Read only</span>
+    <span class="pipeline-panel-badge">Solo lectura</span>
   `;
   panel.appendChild(header);
 

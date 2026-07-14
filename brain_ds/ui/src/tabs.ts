@@ -21,6 +21,8 @@ export interface TabsDeps {
   motionEnabled?: () => boolean;
 }
 
+import * as workspaceState from './workspace-state';
+
 // ── Session state ──────────────────────────────────────────────────────────────
 
 const SESSION_KEY = 'brain_ds.tabs';
@@ -225,6 +227,7 @@ async function openGraphPicker(): Promise<void> {
 
 function openGraphInNewTab(graphId: string, label: string): void {
   if (!_state) return;
+  workspaceState.capture(_state.activeId);
   // Add to open tabs if not already there
   if (!_state.tabs.some((t) => t.id === graphId)) {
     _state.tabs.push({ id: graphId, label });
@@ -239,6 +242,7 @@ function openGraphInNewTab(graphId: string, label: string): void {
 
 function activateTab(graphId: string): void {
   if (!_state || graphId === _state.activeId) return;
+  workspaceState.capture(_state.activeId);
   _state.activeId = graphId;
   saveState(_state);
   window.location.href = `/?graph_id=${encodeURIComponent(graphId)}`;
@@ -261,6 +265,7 @@ function closeTab(graphId: string): void {
     if (_state.activeId === graphId) {
       const neighbor = _state.tabs[Math.min(idx, _state.tabs.length - 1)];
       if (neighbor) {
+        workspaceState.capture(graphId);
         _state.activeId = neighbor.id;
         saveState(_state);
         window.location.href = `/?graph_id=${encodeURIComponent(neighbor.id)}`;

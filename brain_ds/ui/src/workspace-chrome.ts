@@ -31,6 +31,16 @@ let _listeners: Array<{
 }> = [];
 let _overflowMenuEl: HTMLElement | null = null;
 let _lastOverflowTrigger: HTMLElement | null = null;
+let _toolbarObserver: ResizeObserver | null = null;
+
+function _syncToolbarOverflow(toolbar: HTMLElement): void {
+  const secondary = Array.from(toolbar.querySelectorAll<HTMLElement>("[data-toolbar-secondary]"));
+  const compact = toolbar.clientWidth < 760;
+  secondary.forEach((element) => {
+    element.hidden = compact;
+    element.setAttribute("aria-hidden", compact ? "true" : "false");
+  });
+}
 
 function _setOverflowExpanded(expanded: boolean): void {
   const trigger = _deps?.overflowButton || null;
@@ -87,17 +97,22 @@ function _openOverflowMenu(trigger: HTMLElement): void {
   menu.style.left = `${clampedLeft}px`;
   menu.style.minWidth = `${minWidth}px`;
 
-  const actions: Array<{ label: string; onClick: () => void }> = [
-    { label: "Reset filters", onClick: () => _deps?.resetFilters?.() },
-    { label: "Export JSON", onClick: () => _deps?.exportJson?.() },
-    { label: "Toggle theme", onClick: () => _deps?.toggleTheme?.() },
+  const actions: Array<{ label: string; icon: string; onClick: () => void }> = [
+    { label: "Restablecer filtros", icon: "rotate-ccw", onClick: () => _deps?.resetFilters?.() },
+    { label: "Exportar JSON", icon: "download", onClick: () => _deps?.exportJson?.() },
+    { label: "Cambiar tema", icon: "sun", onClick: () => _deps?.toggleTheme?.() },
   ];
 
   for (const action of actions) {
     const item = document.createElement("button");
     item.type = "button";
     item.setAttribute("role", "menuitem");
-    item.textContent = action.label;
+    // innerHTML (not createElementNS) keeps the rendered page free of literal
+    // remote-looking URLs — the offline dependency scan rejects "http://".
+    item.innerHTML = `<svg aria-hidden="true" width="16" height="16"><use href="#icon-${action.icon}"/></svg>`;
+    const text = document.createElement("span");
+    text.textContent = action.label;
+    item.appendChild(text);
     item.addEventListener("click", () => {
       action.onClick();
       _closeOverflowMenu(true);
@@ -253,6 +268,12 @@ export function mount(deps: WorkspaceChromeDeps): void {
   _listeners.push({ target: _deps.railRoot, type: "keydown", handler: keydownHandler });
 
   const overflowTrigger = _deps.overflowButton || null;
+  const toolbar = typeof document !== "undefined" ? document.querySelector<HTMLElement>(".top-toolbar") : null;
+  if (toolbar && typeof ResizeObserver !== "undefined") {
+    _syncToolbarOverflow(toolbar);
+    _toolbarObserver = new ResizeObserver(() => _syncToolbarOverflow(toolbar));
+    _toolbarObserver.observe(toolbar);
+  }
   if (overflowTrigger) {
     (window as any).__brainDsOverflowManaged = true;
     const overflowClickHandler = (event: MouseEvent) => {
@@ -285,6 +306,8 @@ export function mount(deps: WorkspaceChromeDeps): void {
  */
 export function unmount(): void {
   _closeOverflowMenu(false);
+  _toolbarObserver?.disconnect();
+  _toolbarObserver = null;
   if (typeof window !== "undefined") {
     (window as any).__brainDsOverflowManaged = false;
   }

@@ -120,7 +120,7 @@ test("bind action creates a lifecycle binding and confirms validation is require
   // Success badge confirms the lifecycle requires validation before documentation.
   const badge = page.locator(".secret-bind-badge--ok").first();
   await expect(badge).toBeVisible();
-  await expect(badge).toHaveText("Binding created. Validate before documentation.");
+  await expect(badge).toHaveText("Vínculo creado. Valida antes de documentar.");
 
   // A compatible opaque candidate reference is resolved before the bind request.
   const calls = await page.evaluate(

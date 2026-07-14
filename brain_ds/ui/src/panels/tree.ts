@@ -1,3 +1,5 @@
+type ThemeColor = string | { background?: string; dark?: string; light?: string };
+
 type TreeNode = {
   id: string;
   label?: string;
@@ -5,15 +7,34 @@ type TreeNode = {
   supertype?: string;
   parent_id?: string | null;
   depth?: number;
+  color?: ThemeColor;
 };
 
 type MountDeps = {
   nodes: TreeNode[];
-  typeGroups?: Array<{ supertype: string; types: Array<{ type: string; count?: number }> }>;
+  typeGroups?: Array<{ supertype: string; types: Array<{ type: string; count?: number; color?: ThemeColor }> }>;
   onFilter: (nodeId: string | null) => void;
   onActiveLabel?: (label: string) => void;
   onNodeFocus?: (nodeId: string) => void;
 };
+
+const CHEVRON_SVG = '<svg aria-hidden="true" width="14" height="14"><use href="#icon-chevron-right"/></svg>';
+
+function applyTypeColor(el: HTMLElement, color: ThemeColor | undefined): void {
+  if (!color || !el || !el.style || typeof el.style.setProperty !== "function") return;
+  const dark = typeof color === "string" ? color : (color.dark || color.background || color.light || "");
+  const light = typeof color === "string" ? color : (color.light || color.dark || color.background || "");
+  if (dark) el.style.setProperty("--type-color-dark", dark);
+  if (light) el.style.setProperty("--type-color-light", light);
+}
+
+function makeChip(color: ThemeColor | undefined): HTMLSpanElement {
+  const chip = document.createElement("span");
+  chip.className = "chip";
+  chip.setAttribute("aria-hidden", "true");
+  applyTypeColor(chip, color);
+  return chip;
+}
 
 const listeners: Array<() => void> = [];
 const expandedGroups = new Set<string>();
@@ -68,9 +89,9 @@ export function mount(root: HTMLElement | null, deps: MountDeps): void {
         const toggle = document.createElement("button");
         toggle.type = "button";
         toggle.className = "tree-toggle";
-        toggle.textContent = isExpanded ? "▾" : "▸";
+        toggle.innerHTML = CHEVRON_SVG;
         toggle.setAttribute("aria-expanded", isExpanded ? "true" : "false");
-        toggle.setAttribute("aria-label", `${isExpanded ? "Collapse" : "Expand"} ${typeName}`);
+        toggle.setAttribute("aria-label", `${isExpanded ? "Contraer" : "Expandir"} ${typeName}`);
         const onToggle = () => {
           if (expandedGroups.has(typeKey)) expandedGroups.delete(typeKey);
           else expandedGroups.add(typeKey);
@@ -83,7 +104,11 @@ export function mount(root: HTMLElement | null, deps: MountDeps): void {
         const typeBtn = document.createElement("button");
         typeBtn.type = "button";
         typeBtn.className = "tree-node";
-        typeBtn.textContent = typeName;
+        typeBtn.appendChild(makeChip(typeEntry.color || (typeNodes[0] && typeNodes[0].color)));
+        const typeLabel = document.createElement("span");
+        typeLabel.className = "tree-node-label";
+        typeLabel.textContent = typeName;
+        typeBtn.appendChild(typeLabel);
         const countPill = document.createElement("span");
         countPill.className = "tree-node-count";
         countPill.textContent = String(typeNodes.length || Number(typeEntry.count || 0));
@@ -100,6 +125,7 @@ export function mount(root: HTMLElement | null, deps: MountDeps): void {
             nodeBtn.className = "tree-node";
             nodeBtn.style.marginLeft = "28px";
             nodeBtn.textContent = String(node.label || node.id);
+            nodeBtn.prepend(makeChip(node.color));
             const onClick = () => {
               if (typeof deps.onNodeFocus === "function") deps.onNodeFocus(String(node.id));
               if (deps.onActiveLabel) deps.onActiveLabel(String(node.label || node.id));
@@ -141,8 +167,9 @@ export function mount(root: HTMLElement | null, deps: MountDeps): void {
         const toggle = document.createElement("button");
         toggle.type = "button";
         toggle.className = "tree-toggle";
-        toggle.textContent = expanded.has(id) ? "▾" : "▸";
+        toggle.innerHTML = CHEVRON_SVG;
         toggle.setAttribute("aria-expanded", expanded.has(id) ? "true" : "false");
+        toggle.setAttribute("aria-label", `${expanded.has(id) ? "Contraer" : "Expandir"} ${String(node.label || node.id)}`);
         const onToggle = () => {
           if (expanded.has(id)) expanded.delete(id); else expanded.add(id);
           mount(root, deps);
@@ -156,6 +183,7 @@ export function mount(root: HTMLElement | null, deps: MountDeps): void {
       action.type = "button";
       action.className = "tree-node";
       action.textContent = String(node.label || node.id);
+      action.prepend(makeChip(node.color));
       const onClick = () => {
         deps.onFilter(node.parent_id == null ? null : id);
         if (deps.onActiveLabel) deps.onActiveLabel(String(node.label || node.id));

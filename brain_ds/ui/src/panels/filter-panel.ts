@@ -26,7 +26,8 @@
 
 export interface TypeEntry {
   type: string;
-  color: string;
+  /** Ontology color — legacy string or the theme-aware payload from render_context. */
+  color: string | { background?: string; dark?: string; light?: string };
   count: number;
 }
 
@@ -60,6 +61,7 @@ export interface FilterPanelDeps {
 
 let _deps: FilterPanelDeps | null = null;
 let _typeCheckboxes: Map<string, HTMLInputElement> = new Map();
+let _legendButtons: Map<string, HTMLButtonElement> = new Map();
 let _listeners: Array<{ el: EventTarget; type: string; fn: EventListener }> = [];
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -67,6 +69,21 @@ let _listeners: Array<{ el: EventTarget; type: string; fn: EventListener }> = []
 function _addListener(el: EventTarget, type: string, fn: EventListener): void {
   el.addEventListener(type, fn);
   _listeners.push({ el, type, fn });
+}
+
+/**
+ * Set the theme-aware type color pair as CSS custom properties.
+ * render_context ships color as {background, dark, light}; assigning that
+ * object to style.background silently failed and left swatches unpainted.
+ * CSS resolves --type-color-dark / --type-color-light per [data-theme], so
+ * theme switches recolor swatches without a re-render.
+ */
+function _applyTypeColor(el: HTMLElement, color: TypeEntry["color"]): void {
+  if (!el || !el.style || typeof el.style.setProperty !== "function") return;
+  const dark = typeof color === "string" ? color : (color?.dark || color?.background || color?.light || "");
+  const light = typeof color === "string" ? color : (color?.light || color?.dark || color?.background || "");
+  if (dark) el.style.setProperty("--type-color-dark", dark);
+  if (light) el.style.setProperty("--type-color-light", light);
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
@@ -81,9 +98,15 @@ function _addListener(el: EventTarget, type: string, fn: EventListener): void {
 export function mount(deps: FilterPanelDeps): void {
   _deps = deps;
   _typeCheckboxes = new Map();
+  _legendButtons = new Map();
   _listeners = [];
 
   const { typeGroups, filtersRoot, legendRoot, showAllBtn, hideAllBtn, onToggle, onShowAll, onHideAll } = deps;
+
+  const syncLegendPressed = (typeName: string, visible: boolean) => {
+    const btn = _legendButtons.get(typeName);
+    if (btn) btn.setAttribute("aria-pressed", visible ? "true" : "false");
+  };
 
   // ── Build type filter checkboxes + legend items ───────────────────────────
   typeGroups.forEach((group) => {
@@ -101,27 +124,47 @@ export function mount(deps: FilterPanelDeps): void {
       cb.checked = true;
       _addListener(cb, "change", () => {
         onToggle(t.type, cb.checked);
+        syncLegendPressed(t.type, cb.checked);
       });
       _typeCheckboxes.set(t.type, cb);
 
       const chip = document.createElement("span");
       chip.className = "chip";
-      chip.style.background = t.color;
+      _applyTypeColor(chip, t.color);
 
       label.appendChild(cb);
       label.appendChild(chip);
       const textWrap = document.createElement("span");
       textWrap.className = "filter-item-text";
-      textWrap.textContent = `${t.type} (${t.count})`;
+      textWrap.textContent = `${t.type} `;
+      const countWrap = document.createElement("span");
+      countWrap.className = "filter-item-count";
+      countWrap.textContent = `(${t.count})`;
+      textWrap.appendChild(countWrap);
       label.appendChild(textWrap);
       filtersRoot.appendChild(label);
 
-      // Legend item: button with chip + type name
+      // Legend item: [color dot] [type name] [count] — the color identifier row.
       const legendItem = document.createElement("div");
       legendItem.className = "legend-item";
       const legendBtn = document.createElement("button");
       legendBtn.type = "button";
-      legendBtn.innerHTML = `<span class='chip' style='background:${t.color}'></span> ${t.type}`;
+      legendBtn.setAttribute("aria-pressed", "true");
+      legendBtn.title = `Mostrar u ocultar ${t.type}`;
+      const legendChip = document.createElement("span");
+      legendChip.className = "chip";
+      legendChip.setAttribute("aria-hidden", "true");
+      _applyTypeColor(legendChip, t.color);
+      const legendLabel = document.createElement("span");
+      legendLabel.className = "legend-label";
+      legendLabel.textContent = t.type;
+      const legendCount = document.createElement("span");
+      legendCount.className = "legend-count";
+      legendCount.textContent = String(t.count);
+      legendBtn.appendChild(legendChip);
+      legendBtn.appendChild(legendLabel);
+      legendBtn.appendChild(legendCount);
+      _legendButtons.set(t.type, legendBtn);
       _addListener(legendBtn, "click", () => {
         // Toggle: if type is currently hidden, show it; if shown, hide it.
         // The onToggle callback handles the hiddenTypes Set.
@@ -129,6 +172,7 @@ export function mount(deps: FilterPanelDeps): void {
         const isCurrentlyHidden = currentCb ? !currentCb.checked : false;
         onToggle(t.type, isCurrentlyHidden);
         if (currentCb) currentCb.checked = isCurrentlyHidden;
+        syncLegendPressed(t.type, isCurrentlyHidden);
       });
       legendItem.appendChild(legendBtn);
       legendRoot.appendChild(legendItem);
@@ -151,7 +195,10 @@ export function mount(deps: FilterPanelDeps): void {
   // ── Show-all / Hide-all button wiring ─────────────────────────────────────
   if (showAllBtn) {
     _addListener(showAllBtn, "click", () => {
-      _typeCheckboxes.forEach((cb) => { cb.checked = true; });
+      _typeCheckboxes.forEach((cb, typeName) => {
+        cb.checked = true;
+        syncLegendPressed(typeName, true);
+      });
       if (typeof onShowAll === "function") onShowAll();
     });
   }
@@ -161,6 +208,7 @@ export function mount(deps: FilterPanelDeps): void {
       _typeCheckboxes.forEach((cb, typeName) => {
         cb.checked = false;
         onToggle(typeName, false);
+        syncLegendPressed(typeName, false);
       });
       if (typeof onHideAll === "function") onHideAll();
     });
@@ -181,6 +229,7 @@ export function getTypeCheckboxes(): Map<string, HTMLInputElement> {
  */
 export function setAllChecked(checked: boolean): void {
   _typeCheckboxes.forEach((cb) => { cb.checked = checked; });
+  _legendButtons.forEach((btn) => { btn.setAttribute("aria-pressed", checked ? "true" : "false"); });
 }
 
 /**
@@ -191,4 +240,5 @@ export function unmount(): void {
   _listeners = [];
   _deps = null;
   _typeCheckboxes = new Map();
+  _legendButtons = new Map();
 }

@@ -11,6 +11,7 @@ import * as popover from './interactions/popover';
 import * as liveSync from './live/live-sync';
 import { motionEnabled } from './motion/motion';
 import * as workspaceChrome from './workspace-chrome';
+import * as workspaceState from './workspace-state';
 import * as rendererD4 from './renderer-d4';
 import * as tabs from './tabs';
 import * as brdPanel from './panels/brd-panel';
@@ -39,6 +40,7 @@ declare global {
       liveSync: typeof liveSync;
       motion: { motionEnabled: typeof motionEnabled };
       workspaceChrome: typeof workspaceChrome;
+      workspaceState: typeof workspaceState;
       rendererD4: typeof rendererD4;
       tabs: typeof tabs;
       brdPanel: typeof brdPanel;
@@ -62,12 +64,13 @@ window.brainDsUI = {
   tree,
   splitPane,
   scoreFilter,
-  bundleRevision: "secrets-node-ux-pr3-ai-actions-20260619",
+  bundleRevision: "chrome-consistency-20260714",
   contextMenu,
   popover,
   liveSync,
   motion: { motionEnabled },
   workspaceChrome,
+  workspaceState,
   rendererD4,
   tabs,
   brdPanel,

@@ -76,7 +76,7 @@ def test_secret_panel_bind_ui_exposes_explicit_now_explorable_transition() -> No
     for token in (
         "data-bind-secret-handle",
         "data-bind-source-id",
-        "Binding created. Validate before documentation.",
+        "Vínculo creado. Valida antes de documentar.",
         "aria-live=\"polite\"",
     ):
         assert token in source
@@ -114,8 +114,8 @@ def test_secret_panel_lifecycle_actions_have_accessible_labels_and_no_raw_identi
     source = _source()
     lifecycle_section = source.split("function _renderLifecycle", maxsplit=1)[1].split("function _renderList", maxsplit=1)[0]
     for token in (
-        "Validate binding",
-        "Unbind source",
+        "Validar vínculo",
+        "Desvincular fuente",
         "aria-label",
         "role=\"status\"",
         "aria-live=\"polite\"",
