@@ -5569,7 +5569,7 @@
             item.type = "button";
             item.className = "canvas-legend-item";
             item.setAttribute("aria-pressed", String(!hiddenTypes.has(t.type)));
-            item.setAttribute("aria-label", `Toggle ${t.type} visibility`);
+            item.setAttribute("aria-label", `Alternar visibilidad de ${t.type}`);
             item.addEventListener("click", () => window.brainDsUI.filterPanel.setTypeEnabled(t.type, hiddenTypes.has(t.type)));
             if (hiddenTypes.has(t.type)) item.classList.add("is-hidden-type");
             item.innerHTML = '<span class="chip" aria-hidden="true"></span><span class="canvas-legend-label"></span><span class="canvas-legend-count"></span>';
@@ -5589,7 +5589,8 @@
           try { localStorage.setItem(STORAGE_KEY, open ? "1" : "0"); } catch (e) {}
         };
         toggleBtn.addEventListener("click", () => {
-          setOpen(host.classList.contains("is-collapsed"));
+          const willOpen = host.classList.contains("is-collapsed");
+          setOpen(willOpen);
         });
         let initialOpen = false;
         try { initialOpen = localStorage.getItem(STORAGE_KEY) === "1"; } catch (e) {}

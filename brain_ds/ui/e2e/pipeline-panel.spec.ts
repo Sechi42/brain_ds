@@ -61,10 +61,10 @@ test("pipeline panel renders six pending stages in the rail", async ({ page }) =
   const pipelineIcon = page.locator('[data-rail-icon="pipeline"]');
   const pipelinePanel = page.locator("#ai-actions-receipts");
 
-  await page.locator(".panel-collapse-right").click();
-  await expect(page.locator(".right-panel-shell")).not.toHaveClass(/collapsed/);
-
+  // A collapsed shell has no interactive header; its rail icon is the reopen
+  // affordance and must open the requested destination directly.
   await pipelineIcon.click();
+  await expect(page.locator(".right-panel-shell")).not.toHaveClass(/collapsed/);
   await expect(page.locator("#detail-panel")).toHaveAttribute("hidden", "");
   await expect(page.locator("#brd-panel")).toHaveAttribute("hidden", "");
   await expect(page.locator("#secret-panel")).toHaveAttribute("hidden", "");

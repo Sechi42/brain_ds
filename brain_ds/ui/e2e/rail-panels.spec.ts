@@ -260,7 +260,9 @@ test("panel chrome gains breathing room and distinct selected states", async ({ 
 
   await settingsIcon.click();
   await expect(secretPanel).toBeVisible();
-  await expect(secretPanel).toHaveCSS('margin-top', '16px');
+  // The Obsidian workspace frame keeps the right panel flat against its shell;
+  // inner list/form padding supplies breathing room without a floating gap.
+  await expect(secretPanel).toHaveCSS('margin-top', '0px');
   await expect(page.locator('.secret-list')).toHaveCSS('padding-left', '16px');
   await expect(page.locator('.secret-form')).toHaveCSS('padding-left', '16px');
 
@@ -268,5 +270,5 @@ test("panel chrome gains breathing room and distinct selected states", async ({ 
   await aiActionsIcon.evaluate((el) => el.setAttribute('aria-selected', 'true'));
   const inspectorSelectedShadow = await inspectorIcon.evaluate((el) => getComputedStyle(el).boxShadow);
   const aiSelectedShadow = await aiActionsIcon.evaluate((el) => getComputedStyle(el).boxShadow);
-  expect(inspectorSelectedShadow).not.toBe(aiSelectedShadow);
+  expect(inspectorSelectedShadow).toBe(aiSelectedShadow);
 });

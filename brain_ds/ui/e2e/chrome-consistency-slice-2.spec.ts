@@ -49,3 +49,17 @@ test("compact legend mirrors filter visibility and themed node colors", async ({
   await expect(legendItem.locator(".chip")).toHaveCSS("--type-color-light", "#1d4ed8");
   expect(consoleErrors.filter((message) => !message.includes("slice-two.test") && !message.includes("ERR_NAME_NOT_RESOLVED"))).toEqual([]);
 });
+
+test("legend controls use Spanish accessible copy and the detail fallback icon is bundled", async ({ page }) => {
+  await page.setContent(viewerHtml(), { waitUntil: "domcontentloaded" });
+
+  const toggle = page.locator("#canvas-legend-toggle");
+  await expect(toggle).toHaveAttribute("title", "Mostrar u ocultar leyenda de colores");
+  await expect(page.locator("#canvas-legend-list")).toHaveAttribute("aria-hidden", "true");
+  await expect(page.locator("#icon-file-text")).toHaveCount(1);
+
+  await toggle.press("Enter");
+  const legendItem = page.locator(".canvas-legend-item").first();
+  await expect(legendItem).toHaveAttribute("aria-label", "Alternar visibilidad de Department");
+  await expect(page.locator(".canvas-legend-item").nth(1)).toHaveAttribute("aria-label", "Alternar visibilidad de Unknown");
+});

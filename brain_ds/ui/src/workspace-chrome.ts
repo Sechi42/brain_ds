@@ -32,10 +32,13 @@ let _listeners: Array<{
 let _overflowMenuEl: HTMLElement | null = null;
 let _lastOverflowTrigger: HTMLElement | null = null;
 let _toolbarObserver: ResizeObserver | null = null;
+// This content-driven threshold hides secondary groups before they compete with
+// the CSS 1100px workspace layout breakpoint; primary toolbar zones stay visible.
+const TOOLBAR_COMPACT_WIDTH = 760;
 
 function _syncToolbarOverflow(toolbar: HTMLElement): void {
   const secondary = Array.from(toolbar.querySelectorAll<HTMLElement>("[data-toolbar-secondary]"));
-  const compact = toolbar.clientWidth < 760;
+  const compact = toolbar.clientWidth < TOOLBAR_COMPACT_WIDTH;
   secondary.forEach((element) => {
     element.hidden = compact;
     element.setAttribute("aria-hidden", compact ? "true" : "false");

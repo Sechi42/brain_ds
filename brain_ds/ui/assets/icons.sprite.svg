@@ -23,6 +23,8 @@
   <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/></symbol>
       <symbol id="icon-eye" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
   <circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="icon-file-text" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/>
+  <path d="M14 2v6h6M8 13h8M8 17h8M8 9h2"/></symbol>
       <symbol id="icon-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v6l-4 2v-8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
       <symbol id="icon-folder" viewBox="0 0 24 24"><path d="M3 7h5l2 2h11v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
   <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2"/></symbol>
